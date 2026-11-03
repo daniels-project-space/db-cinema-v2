@@ -72,9 +72,18 @@ export function AccountAdmin({
     authorized ? { token, search: email, filter, tier: tierFilter, verification: verificationFilter } : "skip",
     { initialNumItems: 100 },
   );
-  const searchPending = input !== email || authorized === undefined || status === "LoadingFirstPage";
+  const messageSearch = useQuery(api.accountAdmin.searchMessages,
+    authorized && email.trim().length >= 2
+      ? { token, search: email, filter, tier: tierFilter, verification: verificationFilter } : "skip");
+  const messageMatches = messageSearch?.items ?? [];
+  const messagesByAccount = new Map(messageMatches.map(account => [account.id, account.matchedMessage]));
+  const matchingAccounts = [
+    ...visible.map(account => ({ ...account, matchedMessage: messagesByAccount.get(account.id) })),
+    ...messageMatches.filter(account => !visible.some(row => row.id === account.id)),
+  ];
+  const searchPending = input !== email || authorized === undefined || status === "LoadingFirstPage" || !!authorized && email.trim().length >= 2 && messageSearch === undefined;
   const selected = !authorized || searchPending ? undefined :
-    visible.find((a) => a.id === selectedId) ?? visible[0];
+    matchingAccounts.find((a) => a.id === selectedId) ?? matchingAccounts[0];
   // Replaced during render so a result cannot reach a different profile,
   // including closing and reopening the same account or changing admin session.
   const scope = useRef<{ token: string; accountId: string | undefined; panelClosed: boolean }>({ token, accountId: selected?.id, panelClosed });
@@ -106,9 +115,9 @@ export function AccountAdmin({
     setNoteBusy(false);
   }, [currentScope]);
   useEffect(() => setPage(0), [email, filter, tierFilter, verificationFilter]);
-  const pages = Math.max(1, Math.ceil(visible.length / 10));
+  const pages = Math.max(1, Math.ceil(matchingAccounts.length / 10));
   const currentPage = page;
-  const displayRows = searchPending ? [] : visible.slice(page * 10, page * 10 + 10);
+  const displayRows = searchPending ? [] : matchingAccounts.slice(page * 10, page * 10 + 10);
   const metrics = useQuery(api.accountAdmin.directoryMetrics, authorized && !searchPending
     ? { token, accountIds: displayRows.map(a => a.id) } : "skip");
   const unreadMessagesFor = (accountId: string) => metrics?.find(metric => metric.id === accountId)?.unreadMessages ?? 0;
@@ -283,7 +292,7 @@ export function AccountAdmin({
   return (
     <section data-testid="admin-accounts" className={styles.root}>
       <div className={styles.pageTools}>
-        <label><span aria-hidden>⌕</span><span className={styles.srOnly}>Search all customers</span><input type="search" maxLength={254} placeholder="Search customers, name or email…" value={input} onChange={e => { setInput(e.target.value); setSelectedId(null); setPanelClosed(false); }} /></label>
+        <label><span aria-hidden>⌕</span><span className={styles.srOnly}>Search customers and chat messages</span><input type="search" maxLength={254} placeholder="Search customers or chats…" value={input} onChange={e => { setInput(e.target.value); setSelectedId(null); setPanelClosed(false); }} /></label>
         <button type="button" className={styles.filterButton} onClick={() => verificationRef.current?.focus()}>☷ <span>Filters</span></button>
         {authorized === true && <CustomerInvite />}
         {checked.length > 0 && <button type="button" className={styles.filterButton} onClick={() => {
@@ -307,13 +316,13 @@ export function AccountAdmin({
               onClick={() => { setFilter(key as typeof filter); setPage(0); setSelectedId(null); }}
               className={filter === key ? styles.active : ""}
             >
-              {name}{filter === key && !searchPending ? <span> ({visible.length}{exhausted ? "" : " loaded"})</span> : null}
+              {name}{filter === key && !searchPending ? <span> ({matchingAccounts.length}{exhausted ? "" : " loaded"})</span> : null}
             </button>
           ))}
         </nav>
         <div className={styles.filters}>
           <label>
-            <span className={styles.srOnly}>Search customers by name or email</span>
+            <span className={styles.srOnly}>Search customers by name, email or chat message</span>
             <input
               type="search"
               maxLength={254}
@@ -323,7 +332,7 @@ export function AccountAdmin({
                 setSelectedId(null);
                 setPanelClosed(false);
               }}
-              placeholder="Search name or email…"
+              placeholder="Search name, email or chat…"
               data-testid="account-email-search"
             />
           </label>
@@ -385,7 +394,7 @@ export function AccountAdmin({
                       type="button"
                       data-testid="admin-account-row"
                       onClick={() => selectAccount(account.id)}
-                      className={styles.customer}
+                      className={`${styles.customer} ${styles[account.visualTier]}`}
                     >
                       {account.avatarUrl ? (
                         <SmartImage
@@ -402,6 +411,7 @@ export function AccountAdmin({
                       )}
                       <span>
                         <strong>{account.name || "DB Cinema renter"}</strong>
+                        {account.matchedMessage && <small className={styles.messageMatch}>Chat: {account.matchedMessage}</small>}
                         {unreadMessagesFor(account.id) > 0 && <small className={styles.unreadBadge} aria-label={`${unreadMessagesFor(account.id) >= 100 ? "99 or more" : unreadMessagesFor(account.id)} unread messages`}>
                           {unreadMessagesFor(account.id) >= 100 ? "99+" : unreadMessagesFor(account.id)} unread
                         </small>}
@@ -466,10 +476,10 @@ export function AccountAdmin({
           <p>
             {email ? "Customer search" : "All accounts"} ·{" "}
             {displayRows.length
-              ? `${currentPage * 10 + 1}–${Math.min((currentPage + 1) * 10, visible.length)} of ${visible.length}${exhausted ? "" : " loaded"}`
+              ? `${currentPage * 10 + 1}–${Math.min((currentPage + 1) * 10, matchingAccounts.length)} of ${matchingAccounts.length}${exhausted ? "" : " loaded"}`
               : loading ? "Searching…" : "0 results"}
             <small>
-              {exhausted ? "All matching accounts loaded." : "Continue through the pages to search the rest of the directory."}
+              {messageSearch?.truncated ? "Chat matches are limited; use a more specific search." : exhausted ? "Matching accounts loaded. Chat search matches words, not partial substrings." : "Continue through the pages to search the rest of the directory."}
             </small>
           </p>
           <div>
