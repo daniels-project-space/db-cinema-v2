@@ -23,6 +23,7 @@ import { BadgeTruck, BadgeSquare, BadgeShield, BadgeClock } from "@/components/A
 import { HowItWorksSteps } from "@/components/HowItWorksSteps";
 import { CONTACT_EMAIL, SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib/site";
 import { unstable_cache } from "next/cache";
+import closingStyles from "./HomeClosing.module.css";
 
 const homeHyggloReviews = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.listVerifiedHyggloHighlights, { limit: 100 }), ["public-home-reviews-v4", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 300 });
 const homeBest = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.bestSellers, { limit: 8 }), ["public-home-best-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
@@ -258,29 +259,6 @@ export default async function Home() {
 
       <div className="film-strip" aria-hidden />
 
-      {/* ───────────────── CTA ───────────────── */}
-      <section className="section-window relative overflow-hidden px-6 py-28 text-center">
-        <div
-          className="pointer-events-none absolute left-1/2 top-1/2 h-[480px] w-[480px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent-500/[0.07] blur-[110px]"
-          aria-hidden
-        />
-        <div className="lens-flare left-1/4 top-[85%] w-1/2" aria-hidden />
-        <Reveal className="relative">
-          <p className="serif-accent text-3xl text-white/85 sm:text-5xl">
-            Your next shoot <span className="gradient-text">starts here.</span>
-          </p>
-          <p className="mx-auto mt-4 max-w-md text-white/45">
-            Pick your dates, build your kit, and get back to the work that matters.
-          </p>
-          <Magnetic className="mt-9">
-            <Link href="/gear" className="btn-primary px-9 py-3.5">
-              Start your booking
-              <IconArrowRight className="h-4 w-4" />
-            </Link>
-          </Magnetic>
-        </Reveal>
-      </section>
-
       <FilmFundInvite />
 
       <section aria-labelledby="hygglo-profile-title" className="section-window px-6 pb-20">
@@ -323,6 +301,16 @@ export default async function Home() {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className={`section-window relative overflow-hidden px-6 py-28 text-center ${closingStyles.section}`} aria-labelledby="home-closing-title">
+        <div className={closingStyles.lights} aria-hidden="true"><span/><span/><span/><span/><span/></div>
+        <Reveal className="relative">
+          <p className="hud-label !text-accent-300/80">Your story is waiting</p>
+          <h2 id="home-closing-title" className="serif-accent mt-4 text-3xl text-white/85 sm:text-5xl">Your next shot <span className="gradient-text">starts here.</span></h2>
+          <p className="mx-auto mt-4 max-w-md text-white/55">Pick your dates, build your kit, and get back to the work that matters.</p>
+          <Magnetic className="mt-9"><Link href="/gear" className="btn-primary px-9 py-3.5">Start your booking <IconArrowRight className="h-4 w-4" /></Link></Magnetic>
+        </Reveal>
       </section>
 
     </>
