@@ -3,16 +3,26 @@ import { membershipReadSettled } from "./membershipReadFence";
 import { encoreGate } from "./encoreEligibility";
 import { belongsToRentalAccount } from "./rentalAccount";
 
-const CLEAN_RENTAL_HISTORY_LIMIT = 100;
+const CLEAN_RENTAL_HISTORY_PAGE_SIZE = 100;
+
+async function historyHasCleanRental(query:any, matches:(booking:any)=>boolean){
+  let cursor:string|null=null;
+  while(true){
+    const result:any=await query.paginate({numItems:CLEAN_RENTAL_HISTORY_PAGE_SIZE,cursor});
+    if(result.page.some(matches))return true;
+    if(result.isDone)return false;
+    cursor=result.continueCursor;
+  }
+}
 
 async function hasCleanCompletedRental(ctx:any,account:any){
   const clean=(booking:any)=>belongsToRentalAccount(booking,account)&&encoreGate(booking)===null;
-  const owned=await ctx.db.query("bookings").withIndex("by_account",(query:any)=>query.eq("accountId",account._id)).order("desc").take(CLEAN_RENTAL_HISTORY_LIMIT);
-  if(owned.some(clean))return true;
+  const owned=ctx.db.query("bookings").withIndex("by_account",(query:any)=>query.eq("accountId",account._id)).order("desc");
+  if(await historyHasCleanRental(owned,clean))return true;
   const email=(account.email??"").trim().toLowerCase();
   if(!email)return false;
-  const legacy=await ctx.db.query("bookings").withIndex("by_guestEmail",(query:any)=>query.eq("guestEmail",email)).order("desc").take(CLEAN_RENTAL_HISTORY_LIMIT);
-  return legacy.some((booking:any)=>!booking.accountId&&clean(booking));
+  const legacy=ctx.db.query("bookings").withIndex("by_guestEmail",(query:any)=>query.eq("guestEmail",email)).order("desc");
+  return historyHasCleanRental(legacy,(booking:any)=>!booking.accountId&&clean(booking));
 }
 
 export async function strictDepositWaiver(ctx:any,account:any,valuePence:number,now=Date.now()){
