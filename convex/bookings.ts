@@ -345,7 +345,6 @@ export const createPending = internalMutation({
       if(!signedAccount || signedAccount._id!==customerAccount?._id)throw Error("Deposit exemption belongs to a different account.");
       if(a.securityWaiverReason==="active_membership")waiverValid=membershipActiveNow(signedAccount);
       else if(a.securityWaiverReason==="encore"){const progress=await loyaltyProgress(ctx,signedAccount);waiverValid=progress.completed>0&&progress.eligible&&progress.level>=3;}
-      else if(a.securityWaiverReason==="membership_checkout" && a.membershipCheckoutId){const selected=await ctx.db.get(a.membershipCheckoutId);waiverValid=!!selected && selected.accountId===signedAccount._id && selected.state==="creating";}
       if(!waiverValid)throw Error("Your deposit exemption changed; review checkout before paying.");
     }
     const requiredDeposit=assessmentPolicy?(waiverValid?0:assessmentDepositFor(equipmentValue)):refundablePolicy?refundableDepositFor(equipmentValue):0;

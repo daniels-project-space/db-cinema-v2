@@ -144,7 +144,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     }
   }
   let securityWaiverReason = !refundablePolicy && !selected && paidDepositExempt(acct) ? "paid_membership" : repeatSourceBookingId ? "safe_repeat_kit" : undefined;
-  if(assessmentPolicy)securityWaiverReason=membershipActiveNow(acct)?"active_membership":acct?.loyaltyEligible && acct.loyaltyCompleted>0 && acct.loyaltyLevel>=3 ? "encore": selected ? "membership_checkout" : undefined;
+  if(assessmentPolicy)securityWaiverReason=membershipActiveNow(acct)?"active_membership":acct?.loyaltyEligible && acct.loyaltyCompleted>0 && acct.loyaltyLevel>=3 ? "encore": undefined;
   let depositAmount = securityWaiverReason ? 0 : cashDeposit;
   const month = londonMonth();
   const freedCount = 0;

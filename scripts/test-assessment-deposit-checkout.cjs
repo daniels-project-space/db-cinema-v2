@@ -19,10 +19,43 @@ const args={items:[{listingId:listing._id,title:listing.title,start,end,qty:1,to
 const promo=h.load('convex/promo.ts');
 const accounts=h.load('convex/accounts.ts'),referrals=h.load('convex/referrals.ts'),policy=h.load('shared/rentalSecurity.ts'),legal=h.load('src/lib/legal.ts');
 Object.assign(process.env,{REFUNDABLE_DEPOSIT_POLICY_ENABLED:'true',ASSESSMENT_SECURITY_POLICY_ENABLED:'true'});
-StripeFixture.prototype.customers={create:async()=>({id:'cus_fixture'}),retrieve:async id=>({id,deleted:false})};
+StripeFixture.prototype.customers={create:async()=>({id:'cus_fixture'}),retrieve:async id=>({id,deleted:false}),update:async id=>({id})};
+StripeFixture.prototype.prices={list:async()=>({data:[{id:'price_fixture',unit_amount:1900,currency:'gbp',recurring:{interval:'month'}}]})};
 (async()=>{try{
  const owner=h.put('accounts',{email:'referrer@example.invalid',emailVerifiedAt:Date.now(),referralCode:'DBC-ABCDEFGHIJKLMN'});
  h.put('promo_codes',{code:'db10off',type:'percent',value:10,active:true,usedCount:0,firstOrderOnly:true});
+ for(const version of ['2026-10-v15','2026-10-v16']){
+  const text=h.load('shared/legalDocuments.ts').LEGAL_ARCHIVE[version]['deposit-agreement'].sections.map(section=>section.p).join(' ');
+  assert.match(text,/Eligible active members\/subscribers and verified Encore renters/);
+  assert.match(text,/accepted quotation records the exact amount and exemption/);
+  assert.doesNotMatch(text,/selecting a (new )?subscription (automatically )?waives/i);
+ }
+ for(const [value,deposit] of [[999,20],[1000,50],[4000,100]]){
+  listing.depositAmount=value;
+  const quote=await checkout.priceQuote.handler(ctx,{items:args.items,customerEmail:'guest-threshold@example.invalid',fulfilment:'pickup',selectedMembership:{tier:'plus',intro:'none'}});
+  assert.equal(quote.depositAmount,deposit,`Guest signup at £${value} equipment value`);
+ }
+ listing.depositAmount=160;
+ for(const [index,signedIn] of [false,true].entries()){
+  const email=(signedIn?'new-account':'guest')+'@example.invalid',token=signedIn?'new-account-token':undefined;
+  if(signedIn){const account=h.put('accounts',{email,emailVerifiedAt:Date.now(),stripeCustomerId:'cus_fixture'});h.put('sessions',{token,accountId:account._id,expiresAt:Date.now()+86400000});}
+  const selectedMembership={tier:'plus',intro:'none',termsVersion:h.load('shared/membership.ts').MEMBERSHIP_TERMS_VERSION,requestId:(signedIn?'s':'g').repeat(40)};
+  const signup=structuredClone(args);signup.token=token;signup.customer.email=email;signup.selectedMembership=selectedMembership;
+  signup.items[0].start+=(70+index*5)*86400000;signup.items[0].end+=(70+index*5)*86400000;
+  signup.agreement.documents=legal.agreementsForSecurityPolicy(policy.ASSESSMENT_SECURITY_POLICY_VERSION);signup.agreement.requestId='fixture-signup-no-waiver-'+index;
+  const quote=await checkout.priceQuote.handler(ctx,{items:signup.items,token,customerEmail:email,fulfilment:'pickup',selectedMembership:{tier:'plus',intro:'none'}});
+  assert.equal(quote.depositAmount,20);assert.equal(quote.securityWaiverReason,undefined);
+  signup.expectedTotalDue=quote.combinedTotalDue;signup.expectedSavedCardLimit=quote.savedCardLimit;
+  const stale={...signup,expectedTotalDue:signup.expectedTotalDue-20},bookingsBefore=(h.tables.get('bookings')??[]).length,accountsBefore=(h.tables.get('accounts')??[]).length,membershipsBefore=(h.tables.get('membership_checkouts')??[]).length,createsBefore=creates;
+  await assert.rejects(checkout.start.handler(ctx,stale),/rental total has changed/);
+  assert.equal((h.tables.get('bookings')??[]).length,bookingsBefore);assert.equal((h.tables.get('accounts')??[]).length,accountsBefore);assert.equal((h.tables.get('membership_checkouts')??[]).length,membershipsBefore);assert.equal(creates,createsBefore);
+  const normalMutation=ctx.runMutation;let guardTested=false;
+  ctx.runMutation=async(ref,input)=>{if(ref==='bookings.createPending'){guardTested=true;await assert.rejects(normalMutation(ref,{...input,securityWaiverReason:'membership_checkout'}),/deposit exemption changed/);}return normalMutation(ref,input)};
+  try{await checkout.start.handler(ctx,signup);}finally{ctx.runMutation=normalMutation;}
+  assert(guardTested);const params=captured.at(-1),booking=h.tables.get('bookings').at(-1);
+  assert.equal(booking.depositAmount,20);assert.equal(booking.securityWaiverReason,undefined);
+  assert.equal(params.line_items.find(item=>item.price_data?.product_data?.name?.startsWith('Refundable security deposit')).price_data.unit_amount,2000);
+ }
  for(const [index,kind] of ['plain','credit','member','referral','voucher','encore'].entries()){
   const account=h.put('accounts',{email:kind+'@example.invalid',emailVerifiedAt:Date.now(),stripeCustomerId:'cus_fixture',...(kind==='member'?{membershipActive:true,membershipTier:'pro',membershipStatus:'active',membershipPaidThrough:Date.now()+86400000}: {})});
   if(kind==='encore'){

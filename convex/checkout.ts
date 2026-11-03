@@ -312,6 +312,9 @@ export const start = action({
       acct: pricedAccount, month, freedCount, subtotal, protection, depositHoldAmount, depositAmount,
       appliedCode, totalReduction, reductionLabel, deliveryFee, totalBeforeCredit: total,
     } = price;
+    if (!Number.isSafeInteger(Math.round(a.expectedTotalDue * 100)) ||
+        Math.round(a.expectedTotalDue * 100) !== Math.round(price.combinedTotalDue * 100))
+      throw new Error("Your rental total has changed. Review the updated order summary before paying.");
     let acct = pricedAccount;
     let membershipCheckout: any = null;
     if (a.selectedMembership) {
@@ -326,10 +329,6 @@ export const start = action({
     }
     a.customer.email = price.customerEmail;
     const idVerifyStatus = "required";
-    if (!Number.isSafeInteger(Math.round(a.expectedTotalDue * 100)) ||
-        Math.round(a.expectedTotalDue * 100) !== Math.round(price.combinedTotalDue * 100))
-      throw new Error("Your rental total has changed. Review the updated order summary before paying.");
-
     const sb = stripe();
     const paymentConfigId = process.env.STRIPE_RENTAL_PAYMENT_METHOD_CONFIGURATION_ID;
     if (!paymentConfigId) throw new Error("Rental card payment setup is incomplete. Please contact us before paying.");
