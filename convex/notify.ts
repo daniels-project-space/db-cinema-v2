@@ -127,7 +127,7 @@ export const verificationReviewAlert = internalAction({
     const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
     if (!b) return;
     await sendMail({ to: OWNER_EMAIL(), subject: "Db Cinema verification needs human review",
-      html: `<p>Booking ${bookingId} for ${String(b.guestEmail ?? "unknown").replace(/[&<>]/g, "")} is awaiting a human identity and address review. Open the admin bookings panel to review it; do not hand over equipment until approved.</p>` });
+      html: `<p>Booking ${bookingId} for ${String(b.guestEmail ?? "unknown").replace(/[&<>]/g, "")} is awaiting a human verification review.</p><p>${emailEscape(b.verificationNote ?? "Didit referred this verification for review.")}</p><p>Open the admin bookings panel to review it; do not hand over equipment until approved.</p>` });
   },
 });
 

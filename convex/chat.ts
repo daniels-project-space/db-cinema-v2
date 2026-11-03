@@ -282,7 +282,8 @@ export const postBookingMessages = internalMutation({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
-    if (!b || !["confirmed", "active"].includes(b.status) || b.chatConfirmationMessageId) return;
+    if (!b || !["confirmed", "active"].includes(b.status) || b.chatConfirmationMessageId ||
+        b.idVerifyStatus !== "verified" || verificationExpired(b)) return;
     const account = await accountForRental(ctx,b);
     if (!account) return;
     const settings = await ctx.db.query("settings").first();
