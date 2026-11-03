@@ -1742,8 +1742,14 @@ export const setDiditResult = internalMutation({
     await verificationUpdateMessage(ctx, bookingId, previous, status);
     if (["confirmed", "active"].includes(b.status) && previous !== status && ["verified", "manual_review", "requires_input", "rejected"].includes(status))
       await queueRentalEmail(ctx,bookingId,"verification",{verificationStatus:status});
-    if (["confirmed", "active"].includes(b.status) && previous !== status && status === "manual_review")
+    if (["confirmed", "active"].includes(b.status) && status === "manual_review" &&
+        (previous !== status || (b.verificationNote ?? null) !== (note ?? null))) {
+      const account = await accountForRental(ctx, b);
+      await queueOwnerNotification(ctx, { eventKey: `didit-review:${bookingId}:${eventId}`, kind: "verification_failure",
+        ...(account ? { accountId: account._id } : {}), bookingId, title: "Verification needs review",
+        body: note ?? "Didit referred this verification for review. Open the rental for details." });
       await ctx.scheduler.runAfter(0, internal.notify.verificationReviewAlert, { bookingId });
+    }
     await queueRmv2Sync(ctx, bookingId);
     return true;
   },

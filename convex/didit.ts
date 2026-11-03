@@ -416,10 +416,13 @@ function mapDecision(rawStatus: unknown, decision: any): {
 } | null {
   let status: "processing" | "manual_review" | "verified" | "requires_input" | "rejected";
   let poaPostcodes: string[] = [];
+  const warnings = [decision, ...["id_verifications", "liveness_checks", "face_matches", "poa_verifications"]
+    .flatMap((field) => Array.isArray(decision?.[field]) ? decision[field] : [])]
+    .flatMap((item) => Array.isArray(item?.warnings) ? item.warnings : []);
   if (rawStatus === "Approved") {
     status = decision?.status === "Approved" && allApproved(decision.id_verifications) &&
       allApproved(decision.liveness_checks) && allApproved(decision.face_matches) &&
-      allApproved(decision.poa_verifications) ? "verified" : "manual_review";
+      allApproved(decision.poa_verifications) && warnings.length === 0 ? "verified" : "manual_review";
     if (status === "verified") poaPostcodes = decision.poa_verifications.map((poa: any) =>
       String(poa.poa_parsed_address?.postal_code ?? poa.poa_formatted_address ?? poa.poa_address ?? ""));
   } else if (rawStatus === "In Review") status = "manual_review";
@@ -428,7 +431,10 @@ function mapDecision(rawStatus: unknown, decision: any): {
   else if (rawStatus === "Not Started" || rawStatus === "In Progress") status = "processing";
   else return null;
   let note = status === "manual_review" && rawStatus === "Approved"
-    ? "A required identity, selfie or address check did not pass. We will review it."
+    ? warnings.some((warning: any) => warning?.risk === "FRAME_INJECTION_SUSPECTED")
+      ? "Didit flagged a possible camera capture integrity issue. The team will review the verification."
+      : warnings.length ? "Didit flagged a verification warning. The team will review the verification."
+      : "A required identity, selfie or address check did not pass. We will review it."
     : rawStatus === "Expired" ? "The verification link expired. Start a new check before handover."
     : rawStatus === "Abandoned" ? "The verification was not completed. Start a new check before handover."
     : status === "requires_input" ? "Please complete the requested document step." : undefined;
