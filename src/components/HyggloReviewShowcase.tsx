@@ -33,7 +33,7 @@ function Reviewer({ review }: { review: VerifiedHyggloHighlight }) {
       />
       <div className="min-w-0">
         <div className="truncate text-sm font-medium text-white/85">{review.author}</div>
-        <div className="truncate text-xs text-white/45">Hygglo renter{review.product ? ` · ${review.product}` : ""}</div>
+        <div className="truncate text-xs text-white/45">Renter{review.product ? ` · ${review.product}` : ""}</div>
       </div>
     </div>
   );
@@ -60,7 +60,7 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
     >
       <div aria-live="off">
         <span className="inline-flex rounded-full border border-white/20 bg-black/35 px-3 py-1 font-mono text-[9px] uppercase tracking-[0.17em] text-white/75">
-          Hygglo · verified review
+          Verified renter review
         </span>
         {reviews.length > 1 ? <button
           type="button"

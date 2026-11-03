@@ -23,7 +23,7 @@ import { BadgeTruck, BadgeBrowse, BadgeCalendar, BadgeLock, BadgeSquare, BadgeSh
 import { CONTACT_EMAIL, SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib/site";
 import { unstable_cache } from "next/cache";
 
-const homeReviews = unstable_cache(async () => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.stats, {}), ["public-home-reviews-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 3600 });
+const homeReviews = unstable_cache(async () => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.stats, {}), ["public-home-reviews-v2", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 300 });
 const homeHyggloReviews = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.listVerifiedHyggloHighlights, { limit: 50 }), ["public-home-hygglo-reviews-v3", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 300 });
 const homeBest = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.bestSellers, { limit: 8 }), ["public-home-best-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
 const homeCategories = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.categories, {}), ["public-home-categories-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });

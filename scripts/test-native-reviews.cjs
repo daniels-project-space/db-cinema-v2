@@ -53,6 +53,7 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  put('reviews',{source:'native',published:false,author:'Unpublished',rating:5,text:'This review must not appear.',date:Date.now()+999999});
  const mixed=await reviews.listPublished.handler(ctx,{limit:18});assert.equal(mixed.length,18);assert.equal(mixed[0].source,'native');assert.equal(mixed[1].source,'hygglo');assert.equal(mixed[2].source,'hygglo');assert.equal(mixed[3].source,'native');assert.equal(mixed[3].rating,2,'critical website feedback uses the same selection');assert.equal(mixed[3].authorImage,'https://profiles.test/second.jpg');assert(!mixed.some(r=>r.author==='Unpublished'));assert(!('authorAccountId' in mixed[0])&&!('verifiedBookingId' in mixed[0]),'public cards contain no private identifiers');
  const highlights=await reviews.listVerifiedHyggloHighlights.handler(ctx,{limit:36});assert.equal(highlights.length,36);assert(highlights.every(r=>r.rating===5&&r.authorImage.startsWith('https://hygglo.imgix.net/')&&r.text.length>8));assert(!highlights.some(r=>r.author==='Unverified imported review'));
+ const aggregate=await reviews.stats.handler(ctx,{});assert.equal(aggregate.count,38,'the aggregate includes every published verified import and native review');assert.equal(aggregate.average,4.92,'the score averages all published verified imports and native reviews');
  await db.patch(account._id,{avatarStorageId:'updated-avatar'});assert.equal((await reviews.listPublished.handler(ctx,{limit:1}))[0].authorImage,'https://storage.test/updated-avatar','profile changes flow into live cards');
  const importItem={hyggloReviewId:123,author:'Film Crew',authorImage:sourceReview.author.profileImage.fullSizeUrl,rating:5,sourceRating:5,sourcePhotoVerified:true,text:'Accurate source review.',product:'Cinema Camera',listingSlug:'camera-kit',date:Date.parse(sourceReview.createdAt)};
  assert.equal((await reviews.insertChunk.handler(ctx,{token:'review-admin-test',items:[importItem]})).upserted,1);
@@ -61,12 +62,17 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  assert.equal((await reviews.insertChunk.handler(ctx,{token:'review-admin-test',items:[{...importItem,text:'Updated authorized source review.'}]})).upserted,1);
  stored=tables.get('reviews').filter(r=>r.source==='hygglo'&&r.hyggloReviewId===123);
  assert.equal(stored.length,1,'repeat import updates the existing source review');assert.equal(stored[0].text,'Updated authorized source review.');
+ assert.equal((await reviews.stats.handler(ctx,{})).count,39,'new verified imported reviews flow into the total');
  for(const invalid of [{...importItem,rating:4,sourceRating:4},{...importItem,sourceRating:4},{...importItem,text:'short'},{...importItem,sourcePhotoVerified:false},{...importItem,hyggloReviewId:0}])await assert.rejects(reviews.insertChunk.handler(ctx,{token:'review-admin-test',items:[invalid]}));
  await assert.rejects(reviews.insertChunk.handler(ctx,{token:'invalid',items:[]}));
  assert.equal(reviews.clearHygglo,undefined,'destructive clear-and-reinsert mutation is retired');
- const home=fs.readFileSync('src/app/page.tsx','utf8'),header=fs.readFileSync('src/components/SiteHeader.tsx','utf8'),showcase=fs.readFileSync('src/components/HyggloReviewShowcase.tsx','utf8'),styles=fs.readFileSync('src/app/globals.css','utf8');
+ const home=fs.readFileSync('src/app/page.tsx','utf8'),header=fs.readFileSync('src/components/SiteHeader.tsx','utf8'),showcase=fs.readFileSync('src/components/HyggloReviewShowcase.tsx','utf8'),styles=fs.readFileSync('src/app/globals.css','utf8'),hero=fs.readFileSync('src/components/HeroCinematic.tsx','utf8'),homeStats=fs.readFileSync('src/components/HomeStats.tsx','utf8');
  assert(home.indexOf('id="reviews"')<home.indexOf('aria-label="Find and book rental gear"'),'Put the review showcase before gear browsing so renters encounter it sooner');
  assert(header.includes('{ href: "/#reviews", label: "Reviews" }'),'Give visitors a direct navigation link to the reviews');
+ assert.match(hero,/rating\.reviewCount\} reviews/,'Show the exact all-review count in the hero');
+ assert.match(hero,/Rated \$\{rating\.ratingValue\.toFixed\(2\)\} out of 5 from \$\{rating\.reviewCount\} reviews/,'Expose the accurate aggregate score and total in the hero label');
+ assert(homeStats.includes('{stats.count} reviews'),'Show the total count in the review section without implying a restricted subset');
+ assert(!showcase.includes('Hygglo renter')&&!showcase.includes('Hygglo · verified review'),'Do not expose the review source brand on public cards');
  assert(showcase.includes('aria-roledescription="review carousel"'),'Expose the review rows as carousels');
  assert.match(styles,/@media \(max-width: 640px\), \(prefers-reduced-motion: reduce\)/,'Keep mobile and reduced-motion reviews stationary');
  assert.match(styles,/\.hygglo-review-marquee\s*\{[^}]*overflow-x: auto/s,'Allow touch scrolling through full-width reviews');
