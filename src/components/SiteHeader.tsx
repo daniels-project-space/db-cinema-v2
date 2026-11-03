@@ -211,8 +211,8 @@ export function SiteHeader() {
             {/* sits hard against the account slot rather than drifting toward
                 the middle of the bar */}
             <div
-              className={`mr-1 hidden items-center gap-4 transition-opacity duration-300 md:flex lg:gap-5 ${hover || intro ? "pointer-events-none opacity-0" : "opacity-100"}`}
-              inert={Boolean(hover || intro)}
+              className={`mr-1 hidden items-center gap-4 transition-opacity duration-300 md:flex lg:gap-5 ${hover ? "pointer-events-none opacity-0" : "opacity-100"}`}
+              inert={Boolean(hover)}
             >
               {DESKTOP_NAV.map((n) => {
                 const active = pathname === n.href || pathname.startsWith(n.href + "/");
