@@ -33,8 +33,9 @@ export const recordEligibility = internalMutation({
       const reviewed = await ctx.db.query("reviews").withIndex("by_booking", q => q.eq("verifiedBookingId", bookingId)).first();
       const account = await accountForRental(ctx,b);
       if (account && !reviewed) {
+        const reviewUrl = `https://dbcinemarentals.com/account?rental=${encodeURIComponent(bookingId)}&review=1#rental-review-${bookingId}`;
         const messageId = await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system",
-          text: !encoreGate(b)?"Your clean return and security settlement are complete. Leave an honest review to earn your next Encore rental saving. Every star rating counts equally.":"Your rental is returned and its refundable security has been settled. How was your rental? You can leave a rating and review here.",
+          text: `${!encoreGate(b)?"Your clean return and security settlement are complete. Leave an honest review to earn your next Encore rental saving. Every star rating counts equally.":"Your rental is returned and its refundable security has been settled. How was your rental? You can leave a rating and review here."} [Leave your rental review](${reviewUrl})`,
           meta: { kind: "review_invitation" } });
         await ctx.db.patch(bookingId, { reviewInvitationMessageId: messageId });
       }

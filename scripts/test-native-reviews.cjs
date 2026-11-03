@@ -35,6 +35,7 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  refunded=1999;assert.equal((await actions.checkEligibility.handler(ctx,args)).eligible,false);assert.equal((tables.get('messages')??[]).length,0);
  refunded=2000;holdStatus='requires_capture';assert.equal((await actions.checkEligibility.handler(ctx,args)).eligible,false);
  holdStatus='canceled';assert.equal((await actions.checkEligibility.handler(ctx,args)).eligible,true);assert.equal(tables.get('messages').length,1);
+ assert(tables.get('messages')[0].text.includes(`[Leave your rental review](https://dbcinemarentals.com/account?rental=${booking._id}&review=1#rental-review-${booking._id})`),'Chat invitation contains a directly clickable review-form link');
  await actions.checkEligibility.handler(ctx,args);assert.equal(tables.get('messages').length,1,'one invitation on retries');
  await assert.rejects(reviews.submitNative.handler(ctx,{...args,rating:4.5}),/1-5/);
  await assert.rejects(reviews.submitNative.handler(ctx,{...args,text:'Short'}),/10/);

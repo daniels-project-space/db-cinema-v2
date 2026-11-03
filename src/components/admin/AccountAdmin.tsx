@@ -17,9 +17,18 @@ const LEVELS = [
   ["pro", "Pro"],
   ["studio", "Studio"],
 ] as const;
+const ENCORE_LEVELS = [
+  ["automatic", "Automatic · earned progress"],
+  ["1", "Encore I · 2% rental saving"],
+  ["2", "Encore II · 4% rental saving"],
+  ["3", "Encore III · 10% rental saving"],
+] as const;
 const label = (value: string) =>
   LEVELS.find(([key]) => key === value)?.[1] ?? value;
+const encoreLabel = (value: string) =>
+  ENCORE_LEVELS.find(([key]) => key === value)?.[1] ?? value;
 type Level = (typeof LEVELS)[number][0];
+type EncoreLevel = (typeof ENCORE_LEVELS)[number][0];
 
 export function AccountAdmin({
   token,
@@ -38,6 +47,7 @@ export function AccountAdmin({
     [email, setEmail] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [level, setLevel] = useState<Level>("automatic"),
+    [encoreLevel, setEncoreLevel] = useState<EncoreLevel>("automatic"),
     [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false),
     [confirmBlock, setConfirmBlock] = useState(false);
@@ -80,12 +90,14 @@ export function AccountAdmin({
     selected ? { token, accountId: selected.id } : "skip",
   );
   const setAccountLevel = useMutation(api.accountAdmin.setLevel);
+  const setAccountEncoreLevel = useMutation(api.accountAdmin.setEncoreLevel);
   const setBlocked = useMutation(api.accountAdmin.setBlocked);
   useEffect(() => {
     setLevel((selected?.override ?? "automatic") as Level);
+    setEncoreLevel((selected?.encoreOverride ?? "automatic") as EncoreLevel);
     setReason("");
     setConfirmBlock(false);
-  }, [selected?.id, selected?.override, selected?.blocked, token, panelClosed]);
+  }, [selected?.id, selected?.override, selected?.encoreOverride, selected?.blocked, token, panelClosed]);
   useEffect(() => {
     setMessage("");
     setSection("overview");
@@ -148,7 +160,7 @@ export function AccountAdmin({
       if (scope.current === origin) setNoteBusy(false);
     }
   }
-  async function apply(kind: "level" | "block") {
+  async function apply(kind: "level" | "encore" | "block") {
     if (!selected || panelClosed || busy || searchPending) return;
     const origin = scope.current;
     setBusy(true);
@@ -156,6 +168,13 @@ export function AccountAdmin({
     try {
       if (kind === "level")
         await setAccountLevel({ token, accountId: selected.id, level, reason });
+      else if (kind === "encore")
+        await setAccountEncoreLevel({
+          token,
+          accountId: selected.id,
+          level: encoreLevel === "automatic" ? "automatic" : Number(encoreLevel) as 1 | 2 | 3,
+          reason,
+        });
       else
         await setBlocked({
           token,
@@ -167,7 +186,9 @@ export function AccountAdmin({
       setMessage(
         kind === "level"
           ? "Account level updated."
-          : selected.blocked
+          : kind === "encore"
+            ? "Encore level updated."
+            : selected.blocked
             ? "Account unblocked. They can sign in again."
             : "Account blocked. Sessions and sign-in links revoked.",
       );
@@ -774,6 +795,26 @@ export function AccountAdmin({
                       access; Automatic restores the subscription or existing
                       grant.
                     </p>
+                    <label className="mt-5 block text-xs text-white/65">
+                      Encore rental-saving level
+                      <select
+                        value={encoreLevel}
+                        disabled={busy}
+                        onChange={(e) => {
+                          setEncoreLevel(e.target.value as EncoreLevel);
+                          setMessage("");
+                        }}
+                        data-testid="admin-account-encore-level"
+                        className="input mt-2 w-full"
+                      >
+                        {ENCORE_LEVELS.map(([key, name]) => (
+                          <option key={key} value={key}>{name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <p className="mt-2 text-[11px] leading-5 text-white/45">
+                      Assign Encore I, II or III, or restore Automatic earned progress. These levels apply the existing rental savings; an Encore override alone never waives security on a first rental.
+                    </p>
                     {selected.hasSubscription && (
                       <p className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/[.04] p-3 text-xs leading-5 text-amber-100/80">
                         This account has a{" "}
@@ -808,6 +849,20 @@ export function AccountAdmin({
                         className="btn-primary px-5 py-2 text-xs disabled:opacity-40"
                       >
                         {busy ? "Saving…" : "Apply level"}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="admin-account-save-encore-level"
+                        disabled={
+                          busy ||
+                          searchPending ||
+                          !reason.trim() ||
+                          encoreLevel === selected.encoreOverride
+                        }
+                        onClick={() => apply("encore")}
+                        className="rounded-full border border-accent-300/30 bg-accent-300/10 px-5 py-2 text-xs text-accent-100 disabled:opacity-40"
+                      >
+                        {busy ? "Saving…" : "Apply Encore level"}
                       </button>
                       <button
                         type="button"
@@ -866,7 +921,9 @@ export function AccountAdmin({
                               className="text-[11px] leading-5 text-white/45"
                             >
                               <span className="text-white/70">
-                                {change.kind === "level"
+                                {change.kind === "encore_level"
+                                  ? `${encoreLabel(change.before)} → ${encoreLabel(change.after)}`
+                                  : change.kind === "level"
                                   ? `${label(change.before)} → ${label(change.after)}`
                                   : change.after === "blocked"
                                     ? "Account blocked"

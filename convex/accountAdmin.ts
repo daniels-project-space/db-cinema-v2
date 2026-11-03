@@ -40,7 +40,7 @@ export const directory = query({
     return { ...result, page: await Promise.all(matches.map(async ({account,verified}) => ({
       id: account._id, email: account.email, name: account.name ?? "", createdAt: account.createdAt,
       tier: membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard",
-      override: account.adminMembershipTier ?? "automatic", blocked: account.blockedAt != null,
+      override: account.adminMembershipTier ?? "automatic", encoreOverride: account.adminEncoreLevel == null ? "automatic" : String(account.adminEncoreLevel), blocked: account.blockedAt != null,
       blockedReason: account.blockedReason ?? "", hasSubscription: !!account.stripeSubscriptionId,
       subscriptionTier: account.membershipTier ?? null,
       verified,
@@ -108,6 +108,7 @@ export const search = query({
             ? (membershipTierFor(a) ?? "standard")
             : "standard",
           override: a.adminMembershipTier ?? "automatic",
+          encoreOverride: a.adminEncoreLevel == null ? "automatic" : String(a.adminEncoreLevel),
           blocked: a.blockedAt != null,
           blockedReason: a.blockedReason ?? "",
           hasSubscription: !!a.stripeSubscriptionId,
@@ -149,6 +150,38 @@ export const setLevel = mutation({
       kind: "level",
       before: account.adminMembershipTier ?? "automatic",
       after: a.level,
+      reason,
+    });
+  },
+});
+export const setEncoreLevel = mutation({
+  args: {
+    token: v.string(),
+    accountId: v.id("accounts"),
+    level: v.union(v.literal("automatic"), v.literal(1), v.literal(2), v.literal(3)),
+    reason: v.string(),
+  },
+  handler: async (ctx, a) => {
+    await assertAdmin(ctx, a.token, "accountAdmin.setEncoreLevel");
+    const account = await ctx.db.get(a.accountId);
+    if (!account) throw Error("Account no longer exists.");
+    const reason = a.reason.trim();
+    if (!reason || reason.length > 500)
+      throw Error("Add a reason of up to 500 characters.");
+    if (
+      account.adminEncoreLevel === a.level ||
+      (account.adminEncoreLevel == null && a.level === "automatic")
+    )
+      return;
+    await ctx.db.patch(account._id, {
+      adminEncoreLevel: a.level === "automatic" ? undefined : a.level,
+    });
+    await ctx.db.insert("account_admin_changes", {
+      accountId: account._id,
+      at: Date.now(),
+      kind: "encore_level",
+      before: account.adminEncoreLevel == null ? "automatic" : String(account.adminEncoreLevel),
+      after: a.level === "automatic" ? "automatic" : String(a.level),
       reason,
     });
   },

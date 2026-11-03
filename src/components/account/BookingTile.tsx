@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { RentalKit } from "@/components/rentals/RentalKit";
@@ -29,8 +30,10 @@ export function BookingTile({
   onOpenChat?: (bookingId?: string) => void;
   featured?: boolean;
 }) {
+  const searchParams = useSearchParams();
   const now = Date.now();
   const group = groupOf(booking);
+  const reviewRequested = searchParams.get("rental") === booking._id && searchParams.get("review") === "1" && group === "past" && booking.status === "returned";
   const first = booking.lineItems[0];
   const isHistory = group === "past";
   const start = booking.start ?? first?.start ?? null;
@@ -43,6 +46,14 @@ export function BookingTile({
   const del = useAction(api.checkout.cancelUnpaidByCustomer);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!reviewRequested) return;
+    const frame = window.requestAnimationFrame(() =>
+      document.getElementById(`rental-review-${booking._id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }),
+    );
+    return () => window.cancelAnimationFrame(frame);
+  }, [booking._id, reviewRequested]);
 
   function chat() {
     if (onOpenChat) onOpenChat(booking._id);
@@ -111,7 +122,7 @@ export function BookingTile({
         {isHistory && <Link href={`/plan?booking=${booking._id}`} className="rounded-full bg-white/[0.06] px-4 py-2 text-xs text-white/75 hover:bg-white/10">Rent this kit again ↗</Link>}
         {isPending && <button onClick={abort} disabled={busy} className="text-xs text-white/40 hover:text-rose-300 disabled:opacity-30">{busy ? "Removing…" : "Remove draft"}</button>}
       </div>
-      <details className="mt-4 border-t border-white/[0.06] pt-3">
+      <details open={reviewRequested} className="mt-4 border-t border-white/[0.06] pt-3">
         <summary className="cursor-pointer text-xs font-medium text-white/55 hover:text-white">Rental details &amp; actions</summary>
         {!featured && <div className="mt-4"><BookingProgress booking={booking}/></div>}
       {/* price breakdown */}
@@ -177,7 +188,9 @@ export function BookingTile({
           </a>
         )}
         {group === "past" && booking.status === "returned" && (
-          <BookingReview bookingId={booking._id} reviewed={booking.reviewed} token={token} />
+          <div id={`rental-review-${booking._id}`} className="scroll-mt-24">
+            <BookingReview bookingId={booking._id} reviewed={booking.reviewed} token={token} inline={reviewRequested} />
+          </div>
         )}
       </div>
       </details>

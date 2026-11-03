@@ -24,6 +24,7 @@ export function BookingReview({ bookingId, reviewed = false, token, inline = fal
       checked.current = bookingId; void verify();
     }
   }, [eligibility?.canCheck, eligibility?.eligible, bookingId]);
+  useEffect(() => { if (inline) setOpen(true); }, [inline]);
   if (reviewed || done || eligibility?.reviewed) return <p className="text-xs text-emerald-300">Reviewed — thank you!</p>;
   if (!eligibility?.eligible) return err && eligibility?.canCheck ? <div className="text-xs text-white/50"><p>{err}</p><button type="button" disabled={busy} onClick={verify} className="mt-2 text-accent-300">{busy ? "Checking…" : "Check again"}</button></div> : null;
   if (!open) return <button type="button" onClick={() => setOpen(true)} className="text-xs font-medium text-accent-400">Leave a review</button>;

@@ -6,10 +6,13 @@ import { internal } from "./_generated/api";
 import { v,ConvexError } from "convex/values";
 import { sendMail } from "./lib/mailer";
 const hash=(secret:string)=>createHash("sha256").update(secret).digest("hex");
-export const sendForSignup=internalAction({args:{email:v.string(),credentialHash:v.string(),next:v.optional(v.literal("chat"))},handler:async(ctx,a):Promise<void>=>{
+const accessQuery=(next?:"chat"|"review",bookingId?:string)=>{
+ const query=new URLSearchParams();if(next==="chat")query.set("next","chat");if(next==="review"&&bookingId){query.set("next","review");query.set("rental",bookingId);}const value=query.toString();return value?`?${value}`:"";
+};
+export const sendForSignup=internalAction({args:{email:v.string(),credentialHash:v.string(),next:v.optional(v.union(v.literal("chat"),v.literal("review"))),bookingId:v.optional(v.id("bookings"))},handler:async(ctx,a):Promise<void>=>{
  const secret=randomBytes(32).toString("base64url"),claim:any=await ctx.runMutation(internal.accountClaims.prepareSignup,{email:a.email,credentialHash:a.credentialHash,secretHash:hash(secret)});if(!claim)return;
  const app=new URL(process.env.APP_URL??"https://dbcinemarentals.com").origin;
- if(!await sendMail({to:claim.email,subject:"Confirm your DB Cinema Rentals account",html:`<h2>Confirm your account</h2><p>You requested a new DB Cinema Rentals account. Confirm your email to activate the password you chose and open your rental workspace.</p><p><a href="${app}/account/access${a.next === "chat" ? "?next=chat" : ""}#${secret}">Confirm account creation</a></p><p>This link expires in one hour and works once. If you didn’t create this account, don’t click this link. You can ignore this email.</p>`}))throw Error("Signup confirmation email could not be delivered. Request a sign-in link to recover access.");
+ if(!await sendMail({to:claim.email,subject:"Confirm your DB Cinema Rentals account",html:`<h2>Confirm your account</h2><p>You requested a new DB Cinema Rentals account. Confirm your email to activate the password you chose and open your rental workspace.</p><p><a href="${app}/account/access${accessQuery(a.next,a.bookingId)}#${secret}">Confirm account creation</a></p><p>This link expires in one hour and works once. If you didn’t create this account, don’t click this link. You can ignore this email.</p>`}))throw Error("Signup confirmation email could not be delivered. Request a sign-in link to recover access.");
 }});
 export const sendForRental=internalAction({args:{bookingId:v.id("bookings")},handler:async(ctx,a):Promise<void>=>{
  const secret=randomBytes(32).toString("base64url"),claim:any=await ctx.runMutation(internal.accountClaims.prepare,{...a,secretHash:hash(secret)});if(!claim)return;
@@ -22,14 +25,14 @@ export const retryRentalAccess=internalAction({args:{},handler:async(ctx):Promis
  const due=await ctx.runQuery(internal.accountClaims.dueRentalAccess,{});
  for(const bookingId of due)await ctx.scheduler.runAfter(0,internal.accountAccess.sendForRental,{bookingId});
 }});
-export const requestSignIn=action({args:{email:v.string()},handler:async(ctx,{email}):Promise<{ok:true}>=>{
+export const requestSignIn=action({args:{email:v.string(),next:v.optional(v.union(v.literal("chat"),v.literal("review"))),bookingId:v.optional(v.id("bookings"))},handler:async(ctx,{email,next,bookingId}):Promise<{ok:true}>=>{
  const secret=randomBytes(32).toString("base64url"),claim:any=await ctx.runMutation(internal.accountClaims.prepareSignIn,{email,secretHash:hash(secret)});
- if(claim)await ctx.scheduler.runAfter(0,internal.accountAccess.sendSignIn,{email:claim.email,secret});
+ if(claim)await ctx.scheduler.runAfter(0,internal.accountAccess.sendSignIn,{email:claim.email,secret,next,bookingId});
  return {ok:true};
 }});
-export const sendSignIn=internalAction({args:{email:v.string(),secret:v.string(),attempt:v.optional(v.number())},handler:async(ctx,a):Promise<void>=>{
+export const sendSignIn=internalAction({args:{email:v.string(),secret:v.string(),next:v.optional(v.union(v.literal("chat"),v.literal("review"))),bookingId:v.optional(v.id("bookings")),attempt:v.optional(v.number())},handler:async(ctx,a):Promise<void>=>{
  const app=new URL(process.env.APP_URL??"https://dbcinemarentals.com").origin;
- const ok=await sendMail({to:a.email,subject:"Sign in to DB Cinema Rentals",html:`<h2>Your rental workspace</h2><p><a href="${app}/account/access#${encodeURIComponent(a.secret)}">Sign in securely</a></p><p>This private link works once and expires in 15 minutes. Don’t forward it. If you didn’t request this email, ignore it.</p>`});
+ const ok=await sendMail({to:a.email,subject:"Sign in to DB Cinema Rentals",html:`<h2>Your rental workspace</h2><p><a href="${app}/account/access${accessQuery(a.next,a.bookingId)}#${encodeURIComponent(a.secret)}">Sign in securely</a></p><p>This private link works once and expires in 15 minutes. Don’t forward it. If you didn’t request this email, ignore it.</p>`});
  if(!ok){
   const attempt=a.attempt??0;
   if(attempt<2){await ctx.scheduler.runAfter((attempt+1)*60000,internal.accountAccess.sendSignIn,{...a,attempt:attempt+1});return;}

@@ -86,6 +86,15 @@ const claims=load('convex/accountClaims.ts');
   const realSession=await db.query('sessions').withIndex('by_token',q=>q.eq('token',receipt.token)).unique();assert.equal(realSession.accountId,actualAccount._id);
   await assert.rejects(access.exchange.handler(actionCtx,{secret}),/already been used/);
   const sends=outbox.length;await access.sendForRental.handler(actionCtx,{bookingId:paidCaller._id});assert.equal(outbox.length,sends,'Successful rental email cannot be resent by a duplicate paid callback');
+  const {accountAccessDestination}=load('shared/accountAccess.ts');assert.equal(accountAccessDestination(paidCaller._id,'review'),`/account?rental=${paidCaller._id}&review=1#rental-review-${paidCaller._id}`);
+  await access.requestSignIn.handler(actionCtx,{email:actualAccount.email,next:'review',bookingId:paidCaller._id});
+  const signinJob=scheduledMail.at(-1);assert.equal(signinJob.args.next,'review');assert.equal(signinJob.args.bookingId,paidCaller._id);
+  await access.sendSignIn.handler(actionCtx,signinJob.args);const signinLink=new URL(outbox.at(-1).html.match(/href="([^"]*account\/access[^\"]*)"/)[1].replace(/&amp;/g,'&'));
+  assert.equal(signinLink.searchParams.get('next'),'review');assert.equal(signinLink.searchParams.get('rental'),paidCaller._id,'Passwordless sign-in keeps the review target');
+  const reviewSignup=put('accounts',{email:'review-signup@example.invalid',hash:'review-password-hash',salt:'review-salt',emailVerificationRequired:true});
+  await access.sendForSignup.handler(actionCtx,{email:reviewSignup.email,credentialHash:reviewSignup.hash,next:'review',bookingId:paidCaller._id});
+  const signupLink=new URL(outbox.at(-1).html.match(/href="([^"]*account\/access[^\"]*)"/)[1].replace(/&amp;/g,'&'));
+  assert.equal(signupLink.searchParams.get('next'),'review');assert.equal(signupLink.searchParams.get('rental'),paidCaller._id,'New-account confirmation keeps the review target');
  }finally{Date.now=realNow;}
  console.log('Account email access: paid account/basket ownership, private correspondence, secure exact-rental link, expiry/replay and durable email retry passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
