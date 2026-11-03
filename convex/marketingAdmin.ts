@@ -8,6 +8,11 @@ import { bumpCatalogRevision } from "./lib/catalogRevision";
 
 const changeValidator = v.object({ listingId: v.id("listings"), marketingOnly: v.union(v.boolean(), v.null()), expectedUpdatedAt: v.optional(v.number()) });
 const managerResultValidator = v.object({ productId: v.number(), marketingOnly: v.boolean(), mode: v.union(v.literal("automatic"), v.literal("manual")), updatedAt: v.number() });
+const MANAGER_MARKETING_BATCH_SIZE = 50;
+
+function managerChunkRequestId(requestId: string, chunkIndex: number) {
+  return `${requestId.slice(0, 24)}${chunkIndex.toString(16).padStart(12, "0")}`;
+}
 
 export const list = query({
   args: { token: v.string() },
@@ -145,11 +150,16 @@ export const saveThroughManager = action({
       let base: URL;
       try { base = new URL(configured); } catch { throw Error("The manager connection is invalid."); }
       if (base.protocol !== "https:" || !/^[a-z0-9-]+\.convex\.site$/.test(base.hostname) || base.username || base.password || base.port || base.search || base.hash || base.pathname !== "/dbcinema/booking-sync") throw Error("The manager connection is invalid.");
-      const response = await fetch(new URL("/dbcinema/storefront-marketing-write", base), { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { "content-type": "application/json", "x-dbcinema-sync-token": secret }, body: JSON.stringify({ protocolVersion: 1, requestId, changes: managerChanges }) });
-      if (!response.ok) throw Error("Rental Manager did not confirm the save. Your choices are preserved; retry or review conflicts.");
-      const receipt = await response.json();
-      if (receipt?.protocolVersion !== 1 || receipt.status !== "success" || receipt.requestId !== requestId || !Array.isArray(receipt.results) || receipt.results.length !== managerChanges.length) throw Error("Rental Manager returned an incomplete receipt. Your choices are preserved.");
-      results = receipt.results;
+      for (let offset = 0; offset < managerChanges.length; offset += MANAGER_MARKETING_BATCH_SIZE) {
+        const chunkIndex = offset / MANAGER_MARKETING_BATCH_SIZE;
+        const changes = managerChanges.slice(offset, offset + MANAGER_MARKETING_BATCH_SIZE);
+        const chunkRequestId = managerChunkRequestId(requestId, chunkIndex);
+        const response = await fetch(new URL("/dbcinema/storefront-marketing-write", base), { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { "content-type": "application/json", "x-dbcinema-sync-token": secret }, body: JSON.stringify({ protocolVersion: 1, requestId: chunkRequestId, changes }) });
+        if (!response.ok) throw Error("Rental Manager did not confirm the save. Your choices are preserved; retry or review conflicts.");
+        const receipt = await response.json();
+        if (receipt?.protocolVersion !== 1 || receipt.status !== "success" || receipt.requestId !== chunkRequestId || !Array.isArray(receipt.results) || receipt.results.length !== changes.length) throw Error("Rental Manager returned an incomplete receipt. Your choices are preserved.");
+        results.push(...receipt.results);
+      }
     }
     return await ctx.runMutation(internal.marketingAdmin.finishSave, { requestId, results });
   },
