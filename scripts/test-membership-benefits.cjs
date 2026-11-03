@@ -7,6 +7,9 @@ const ctx = { db };
 const version = shared.MEMBERSHIP_TERMS_VERSION;
 (async () => {
   assert.deepEqual(shared.TIERS.map(t => [t.name,t.monthlyGbp,t.monthlyCredit]), [['Starter',19,20.9],['Pro',49,58.8],['Studio',99,128.7]]);
+  assert(shared.TIERS.every(t => t.perks.some(perk => perk.includes('Refundable deposit waived on qualifying rentals'))));
+  assert(shared.BENEFITS.some(benefit => benefit.label === 'Refundable deposit waived on qualifying rentals'));
+  assert(!require('node:fs').readFileSync('src/components/MembershipHero.tsx','utf8').includes('A separate card hold still protects the gear.'));
   assert.equal(shared.monthlyCreditPence(1900),2470);
   assert.equal(shared.weekendDays(Date.UTC(2026,9,2),Date.UTC(2026,9,4)),3);
   assert.equal(shared.weekendDays(Date.UTC(2026,9,3),Date.UTC(2026,9,4)),2);
