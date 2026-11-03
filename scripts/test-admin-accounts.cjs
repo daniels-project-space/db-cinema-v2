@@ -5,6 +5,7 @@ const admin = load('convex/accountAdmin.ts'), accounts = load('convex/accounts.t
 const google = load('convex/googleAuth.ts'), claims = load('convex/accountClaims.ts');
 const {membershipActiveNow, membershipTierFor, paidDepositExempt} = load('shared/membership.ts');
 const {calculateRentalPrice} = load('convex/lib/rentalPrice.ts');
+const {loyaltyProgress} = load('convex/lib/loyalty.ts');
 const {fundEntryPence} = load('shared/filmFund.ts');
 const bookings = load('convex/bookings.ts'), catalog = load('convex/catalog.ts');
 const ctx = {db, scheduler:{runAfter:async()=>{}}, runQuery:async(ref,args)=>{
@@ -18,10 +19,24 @@ const account = put('accounts',{email:'person@example.invalid',name:'QA Renter',
 const session = put('sessions',{accountId:account._id,token:'person-session',expiresAt:Date.now()+3600000});
 const emailLink = put('account_access_links',{accountId:account._id,secretHash:'private-link',createdAt:1,expiresAt:Date.now()+3600000});
 const change = (level,token='fixture-admin')=>admin.setLevel.handler(ctx,{token,accountId:account._id,level,reason:'QA access change'});
+const encore = (level,token='fixture-admin',reason='QA Encore promotion')=>admin.setEncoreLevel.handler(ctx,{token,accountId:account._id,level,reason});
 const block = blocked=>admin.setBlocked.handler(ctx,{token:'fixture-admin',accountId:account._id,blocked,reason:'QA access change'});
 (async()=>{
   assert.deepEqual((await admin.search.handler(ctx,{token:'wrong',email:''})).items,[]);
   await assert.rejects(change('studio','wrong'),/unauthorized/);
+  await assert.rejects(encore(3,'wrong'),/unauthorized/);
+  await assert.rejects(encore(2,'fixture-admin',' '),/reason/);
+  for(const [level,percent] of [[1,2],[2,4],[3,10]]) {
+    await encore(level);
+    assert.equal(account.adminEncoreLevel,level);
+    const progress=await loyaltyProgress(ctx,account);
+    assert.equal(progress.completed,0,'A promotion never invents completed clean rentals');
+    assert.equal(progress.level,level);
+    assert.equal(progress.percent,percent);
+    assert.equal(progress.eligible,true);
+  }
+  await encore('automatic');assert.equal(account.adminEncoreLevel,undefined);
+  assert.equal((await loyaltyProgress(ctx,account)).eligible,false,'Automatic restores earned progress');
   assert.equal(account.adminMembershipTier,undefined);
   const found = await admin.search.handler(ctx,{token:'fixture-admin',email:' PERSON@'});
   assert.equal(found.items.length,1);
@@ -72,5 +87,6 @@ const block = blocked=>admin.setBlocked.handler(ctx,{token:'fixture-admin',accou
   for(let i=0;i<60;i++)put('accounts',{email:`other${i}@example.invalid`,createdAt:1});
   const bounded=await admin.search.handler(ctx,{token:'fixture-admin',email:'other'});assert.equal(bounded.items.length,50);assert.equal(bounded.more,true);
   assert((await admin.history.handler(ctx,{token:'fixture-admin',accountId:account._id})).length>0,'Changes retain an account audit history');
+  assert((tables.get('account_admin_changes')??[]).some(row=>row.accountId===account._id&&row.kind==='encore_level'),'Encore promotions retain a distinct audit record');
   console.log('PASS admin accounts: authorized/private email search, level overrides, real rental perks, unchanged billing/credit, password/Google/email/session/guest-booking blocks, revocation, unblocking and audit history.');
 })().catch(e=>{console.error(e);process.exitCode=1});

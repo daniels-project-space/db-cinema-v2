@@ -12,6 +12,7 @@ import {
 } from "convex/react";
 import { usePaginatedQuery } from "convex-helpers/react";
 import { api } from "@cvx/_generated/api";
+import type { Id } from "@cvx/_generated/dataModel";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useAccount } from "@/components/account/AccountProvider";
@@ -63,6 +64,12 @@ function AuthForm() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  function reviewReturn() {
+    const params = new URLSearchParams(window.location.search);
+    const bookingId = params.get("rental");
+    return params.get("review") === "1" && bookingId ? { next: "review" as const, bookingId: bookingId as Id<"bookings"> } : {};
+  }
+
   async function go(values: FormData) {
     // Password managers can fill the DOM without dispatching React onChange.
     // Authenticate the values the renter sees, rather than stale component state.
@@ -75,7 +82,8 @@ function AuthForm() {
     setErr(null);
     try {
       if (mode === "signup") {
-        await account.signUp(submittedEmail, submittedPassword, submittedName || undefined);
+        const target = reviewReturn();
+        await account.signUp(submittedEmail, submittedPassword, submittedName || undefined, target.next, target.bookingId);
         setLinkSent(true);
       }
       else await account.signIn(submittedEmail, submittedPassword);
@@ -156,7 +164,7 @@ function AuthForm() {
         {mode === "signin" && <>
           <Link href="/account/setup?purpose=reset" className="text-sm text-accent-300 hover:underline">Forgot password?</Link>
           <div className="mt-2 border-t border-white/10 pt-4 text-xs text-white/50">Booked without a password? Sign in with your rental email.</div>
-          <button type="button" className="btn-secondary py-3" disabled={busy || !email.trim()} onClick={async()=>{setBusy(true);setErr(null);setLinkSent(false);try{await requestSignIn({email});setLinkSent(true);}catch{setErr("Could not request a link. Please try again.");}finally{setBusy(false);}}}>Email me a sign-in link</button>
+          <button type="button" className="btn-secondary py-3" disabled={busy || !email.trim()} onClick={async()=>{setBusy(true);setErr(null);setLinkSent(false);try{await requestSignIn({email,...reviewReturn()});setLinkSent(true);}catch{setErr("Could not request a link. Please try again.");}finally{setBusy(false);}}}>Email me a sign-in link</button>
           {linkSent && <p role="status" className="text-xs text-accent-300">If an account uses this email, a private sign-in link is on its way. It expires in 15 minutes.</p>}
         </>}
       </form>

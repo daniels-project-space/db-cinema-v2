@@ -1,6 +1,7 @@
 /** Public recovery copy and fixed, own-rental destinations; never display provider stack traces. */
 export function accountAccessDestination(bookingId?:string,next?:string|null){
  if(next==="chat")return "/account?conversation=general#chat";
+ if(next==="review"&&bookingId){const id=encodeURIComponent(bookingId);return `/account?rental=${id}&review=1#rental-review-${id}`;}
  if(!bookingId)return "/account";
  return next==="verification"?`/account/verification/${encodeURIComponent(bookingId)}`:`/account?rental=${encodeURIComponent(bookingId)}#chat`;
 }

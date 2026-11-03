@@ -660,6 +660,7 @@ export default defineSchema({
     blockedAt: v.optional(v.number()),
     blockedReason: v.optional(v.string()),
     adminMembershipTier: v.optional(v.union(v.literal("standard"), v.literal("plus"), v.literal("pro"), v.literal("studio"))),
+    adminEncoreLevel: v.optional(v.union(v.literal(1), v.literal(2), v.literal(3))),
     membershipSignupOfferUsed: v.optional(v.boolean()),
     membershipPerksPendingBookingId: v.optional(v.id("bookings")),
     referralCode:v.optional(v.string()),referralFirstUsedAt:v.optional(v.number()),firstRentalPaidAt:v.optional(v.number()),referralRewardGrantedAt:v.optional(v.number()),referralRewardUsedAt:v.optional(v.number()),paymentIdentityHashes:v.optional(v.array(v.string())),
@@ -706,7 +707,7 @@ export default defineSchema({
   account_admin_notes: defineTable({ accountId: v.id("accounts"), text: v.string(), at: v.number() }).index("by_account", ["accountId"]),
   account_admin_changes: defineTable({
     accountId: v.id("accounts"), at: v.number(),
-    kind: v.union(v.literal("level"), v.literal("block"), v.literal("unblock"),v.literal("credit_grant")),
+    kind: v.union(v.literal("level"), v.literal("encore_level"), v.literal("block"), v.literal("unblock"),v.literal("credit_grant")),
     before: v.string(), after: v.string(), reason: v.string(),
   }).index("by_account", ["accountId"]),
 

@@ -23,6 +23,7 @@ export function celebratedLoyaltyLevel(account:any){
  * after email changes; only genuinely unlinked history uses the legacy email. */
 export async function loyaltyProgress(ctx:any,account:any){
  const qualifying:any[]=[],seen=new Set<string>();
+ const resolve=(completed:number)=>{const level=account.adminEncoreLevel??completed;return {eligible:completed>0||level>0,completed,level,percent:loyaltyPercent(level)}};
  const feeds=[ctx.db.query("bookings").withIndex("by_account",(q:any)=>q.eq("accountId",account._id)).order("desc"),
   ctx.db.query("bookings").withIndex("by_guestEmail",(q:any)=>q.eq("guestEmail",account.email.trim().toLowerCase())).order("desc")];
  for(const feed of feeds)for await(const booking of feed){
@@ -33,10 +34,9 @@ export async function loyaltyProgress(ctx:any,account:any){
   // Publishing/moderation and positive star ratings never decide the reward.
   if(booking.reviewEligibilityFingerprint!==reviewSettlementFingerprint(await reviewContext(ctx,booking)))continue;
   qualifying.push(booking);
-  if(qualifyingRentalCount(qualifying)===3)return {eligible:true,completed:3,level:3,percent:loyaltyPercent(3)};
+  if(qualifyingRentalCount(qualifying)===3)return resolve(3);
  }
- const completed=qualifyingRentalCount(qualifying);
- return {eligible:completed>0,completed,level:completed,percent:loyaltyPercent(completed)};
+ return resolve(qualifyingRentalCount(qualifying));
 }
 /** Called in the same transaction that saves the authenticated rental review. */
 export async function unlockLoyalty(ctx:any,account:any){

@@ -320,6 +320,28 @@ export default async function Home() {
         </Reveal>
       </section>
 
+      <section aria-labelledby="hygglo-profile-title" className="section-window px-6 pb-20">
+        <div className="mx-auto grid max-w-6xl gap-8 overflow-hidden rounded-[2rem] border border-accent-300/20 bg-[radial-gradient(ellipse_at_top_right,rgba(212,172,107,.14),transparent_48%),linear-gradient(135deg,#171513,#0d0e10)] p-7 shadow-[0_28px_80px_-46px_rgba(212,172,107,.45)] sm:grid-cols-[1fr_auto] sm:items-center sm:p-10">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[.28em] text-accent-300/75">Another way to rent</p>
+            <h2 id="hygglo-profile-title" className="mt-3 font-display text-2xl font-semibold text-white sm:text-3xl">We rent on Hygglo, too.</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">Prefer booking through the rental marketplace? Find DB Cinema Rentals’ London camera, lens, lighting and sound equipment on our Hygglo profile, with more than 1,300 renter reviews.</p>
+            <a href="https://hygglo.com/uk/users/dbcinemarentals" target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex min-h-11 items-center gap-2 text-sm font-medium text-accent-200 underline decoration-accent-300/40 underline-offset-4 transition-colors hover:text-white">Read our Hygglo rental reviews and browse listings <span aria-hidden="true">↗</span></a>
+          </div>
+          <div className="flex items-end gap-5 sm:gap-7">
+            <div>
+              <p className="font-poster text-4xl tabular-nums text-white sm:text-5xl">4.73<span className="text-xl text-white/50">/5</span></p>
+              <p className="mt-1 font-mono text-[9px] uppercase tracking-[.18em] text-white/40">Hygglo profile rating</p>
+            </div>
+            <div className="h-12 w-px bg-white/10" aria-hidden="true" />
+            <div>
+              <p className="font-poster text-4xl tabular-nums text-accent-200 sm:text-5xl">1,300+</p>
+              <p className="mt-1 font-mono text-[9px] uppercase tracking-[.18em] text-white/40">renter reviews</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
     </>
   );
 }

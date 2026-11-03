@@ -19,6 +19,7 @@ export default function AccountAccess() {
       if ((!fragment && handled.current !== null) || fragment === handled.current) return;
       handled.current = fragment;
       const next = new URLSearchParams(window.location.search).get("next");
+      const rental = new URLSearchParams(window.location.search).get("rental");
       window.history.replaceState(null, "", "/account/access");
       setError("");
       let secret: string;
@@ -27,7 +28,7 @@ export default function AccountAccess() {
       void exchange({ secret }).then(result => {
         if (!mounted.current || handled.current !== fragment) return;
         accept.current(result.token);
-        window.location.replace(accountAccessDestination(result.bookingId, next));
+        window.location.replace(accountAccessDestination(next === "review" ? rental ?? undefined : result.bookingId, next));
       }).catch(error => {
         if (mounted.current && handled.current === fragment) setError(accountAccessError(error));
       });
