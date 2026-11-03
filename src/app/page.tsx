@@ -256,6 +256,8 @@ export default async function Home() {
         </section>
       )}
 
+      <FilmFundInvite />
+
       <section id="reviews" className="section-glass scroll-mt-24 px-6 py-20">
         <Reveal className="mx-auto max-w-6xl">
           <div className="text-center">
@@ -272,8 +274,6 @@ export default async function Home() {
           )}
         </Reveal>
       </section>
-
-      <FilmFundInvite />
 
       <HowItWorksSteps />
 
@@ -303,7 +303,7 @@ export default async function Home() {
           className="pointer-events-none absolute left-1/2 top-1/2 h-[480px] w-[480px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent-500/[0.07] blur-[110px]"
           aria-hidden
         />
-        <div className="lens-flare left-1/4 top-1/2 w-1/2" aria-hidden />
+        <div className="lens-flare left-1/4 top-[85%] w-1/2" aria-hidden />
         <Reveal className="relative">
           <p className="serif-accent text-3xl text-white/85 sm:text-5xl">
             Your next shoot <span className="gradient-text">starts here.</span>

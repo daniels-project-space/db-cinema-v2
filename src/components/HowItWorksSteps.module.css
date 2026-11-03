@@ -246,6 +246,7 @@
 @media (max-width: 639px) {
   .grid { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
   .card { min-height: 300px; }
+  .copy { padding-bottom: 4rem; }
   .connector,
   .item:nth-child(2) .connector {
     top: auto;
