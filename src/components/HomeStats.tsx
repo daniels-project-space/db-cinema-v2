@@ -16,7 +16,7 @@ export function HomeStats() {
       </span>
       <span className="font-mono font-semibold text-white/80">{stats.average.toFixed(2)}</span>
       <span className="text-white/30">·</span>
-      <span>{stats.count} verified reviews</span>
+      <span>{stats.count} reviews</span>
     </div>
   );
 }
