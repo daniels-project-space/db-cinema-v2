@@ -117,8 +117,8 @@ function ReviewRow({
       className="hygglo-review-marquee"
       role="group"
       tabIndex={0}
-      aria-roledescription="auto-scrolling reviews"
-      aria-label={`Verified five-star reviews, row ${row + 1}. Focus or hover to pause.`}
+      aria-roledescription="review carousel"
+      aria-label={`Verified five-star reviews, row ${row + 1}. Swipe or scroll to browse; automatic movement pauses on focus or hover.`}
     >
       <div
         className="hygglo-review-track"
