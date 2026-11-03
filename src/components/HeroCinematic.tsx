@@ -312,18 +312,19 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
                 scroll-behavior: smooth, and drops it under prefers-reduced-motion). */}
             <a
               href="#reviews"
-              aria-label={`Read the ${rating.reviewCount}+ verified reviews`}
-              className="group mt-3 inline-flex items-center gap-2.5 rounded-full text-xs text-white/55 transition-colors hover:text-white/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent-400/70 lg:mt-5 lg:text-sm"
+              aria-label={`Rated ${rating.ratingValue.toFixed(2)} out of 5 from ${rating.reviewCount} reviews; read all reviews`}
+              className="group mt-3 inline-flex items-center gap-3 rounded-full border border-white/15 bg-black/30 px-4 py-2 text-sm text-white/70 shadow-lg backdrop-blur-md transition-colors hover:border-accent-400/40 hover:bg-black/45 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent-400/70 lg:mt-5"
             >
-              <span className="flex text-accent-400">
+              <span aria-hidden="true" className="flex text-accent-400">
                 {Array.from({ length: 5 }).map((_, i) => (
-                  <IconStar key={i} className="h-3.5 w-3.5" />
+                  <IconStar key={i} className="h-4 w-4" />
                 ))}
               </span>
-              <span className="font-mono text-white/80">{rating.ratingValue.toFixed(2)}</span>
-              <span className="text-white/25">·</span>
-              <span className="underline decoration-white/20 decoration-dotted underline-offset-4 transition-colors group-hover:decoration-accent-400/70">
-                {rating.reviewCount}+ verified reviews
+              <span className="font-mono font-semibold text-white">{rating.ratingValue.toFixed(2)}</span>
+              <span className="text-white/40">/ 5</span>
+              <span className="text-white/35">·</span>
+              <span className="font-medium underline decoration-white/30 decoration-dotted underline-offset-4 transition-colors group-hover:decoration-accent-400/70">
+                {rating.reviewCount} reviews
               </span>
             </a>
           </div>

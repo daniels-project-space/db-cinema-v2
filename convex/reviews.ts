@@ -57,7 +57,7 @@ export const listPublished = query({
 export const listVerifiedHyggloHighlights = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, { limit }) => {
-    const count = Math.min(50, Math.max(1, Math.floor(limit ?? 36)));
+    const count = Math.min(100, Math.max(1, Math.floor(limit ?? 100)));
     const candidates = await ctx.db
       .query("reviews")
       .withIndex("by_published_source_verified_date", (q) =>

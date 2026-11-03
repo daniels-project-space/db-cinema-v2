@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties } from "react";
+import Image from "next/image";
 
 export type VerifiedHyggloHighlight = {
   _id: string;
@@ -33,7 +34,7 @@ function Reviewer({ review }: { review: VerifiedHyggloHighlight }) {
       />
       <div className="min-w-0">
         <div className="truncate text-sm font-medium text-white/85">{review.author}</div>
-        <div className="truncate text-xs text-white/45">Hygglo renter{review.product ? ` · ${review.product}` : ""}</div>
+        <div className="truncate text-xs text-white/45">Renter{review.product ? ` · ${review.product}` : ""}</div>
       </div>
     </div>
   );
@@ -56,11 +57,20 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
       role="group"
       aria-roledescription="featured review"
       aria-label={`Review ${currentIndex + 1} of ${reviews.length}`}
-      className="spot gradient-border flex h-full min-h-[280px] flex-col justify-between rounded-2xl border border-white/10 bg-[radial-gradient(ellipse_at_top_right,rgba(212,172,107,.14),transparent_58%),#101013] p-5 shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:min-h-[304px] sm:p-6"
+      className="spot trust-card relative isolate h-full min-h-[280px] overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(ellipse_at_top_right,rgba(212,172,107,.14),transparent_58%),#101013] p-5 shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:min-h-[304px] sm:p-6"
     >
+      <Image
+        src="/images/home/maintained-cinema-gear-20261028.webp"
+        alt=""
+        fill
+        sizes="(max-width: 640px) 100vw, 420px"
+        className="trust-card-image object-cover"
+      />
+      <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-br from-black/55 via-black/55 to-black/80" />
+      <div className="relative z-10 flex h-full min-h-[240px] flex-col justify-between sm:min-h-[256px]">
       <div aria-live="off">
         <span className="inline-flex rounded-full border border-white/20 bg-black/35 px-3 py-1 font-mono text-[9px] uppercase tracking-[0.17em] text-white/75">
-          Hygglo · verified review
+          Trust that is earned
         </span>
         {reviews.length > 1 ? <button
           type="button"
@@ -74,11 +84,9 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
           “{review.text}”
         </blockquote>
       </div>
-      <div key={`reviewer-${review._id}`} className="hygglo-trust-review-fade mt-5 flex items-center justify-between gap-3">
+      <div key={`reviewer-${review._id}`} className="hygglo-trust-review-fade mt-5 flex items-center gap-3">
         <Reviewer review={review} />
-        <span className="shrink-0 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2.5 py-1 text-[10px] text-emerald-100/80">
-          5-star
-        </span>
+      </div>
       </div>
     </article>
   );
@@ -118,7 +126,7 @@ function ReviewRow({
       role="group"
       tabIndex={0}
       aria-roledescription="review carousel"
-      aria-label={`Verified five-star reviews, row ${row + 1}. Swipe or scroll to browse; automatic movement pauses on focus or hover.`}
+      aria-label={`Verified five-star reviews, row ${row + 1}. Swipe or scroll to browse; automatic movement continues on hover and pauses while focused.`}
     >
       <div
         className="hygglo-review-track"
