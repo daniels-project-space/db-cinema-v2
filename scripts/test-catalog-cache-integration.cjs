@@ -67,11 +67,11 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
         await browser.cmd('Page.navigate', { url: `http://127.0.0.1:${webPort}/` });
         let placement = false;
         for (let attempt = 0; attempt < 100; attempt++) {
-          placement = await browser.evaluate(`(()=>{const fund=document.querySelector('.fund-invite');const reviews=document.querySelector('#reviews');return !!reviews?.previousElementSibling?.querySelector('a[href^="/gear"]')&&fund?.previousElementSibling===reviews})()`);
+          placement = await browser.evaluate(`(()=>{const fund=document.querySelector('.fund-invite');const reviews=document.querySelector('#reviews');const hygglo=document.querySelector('#hygglo-profile-title')?.closest('section');const follows=(first,next)=>!!(first&&next&&(first.compareDocumentPosition(next)&Node.DOCUMENT_POSITION_FOLLOWING));return !!reviews?.previousElementSibling?.querySelector('a[href^="/gear"]')&&follows(reviews,fund)&&follows(fund,hygglo)})()`);
           if (placement) break;
           await wait(100);
         }
-        assert.equal(placement, true, 'Reviews must follow the gear catalogue and precede the Film Fund section');
+        assert.equal(placement, true, 'Reviews must follow the gear catalogue, with Film Fund near the bottom before Hygglo');
       } finally {
         browser.close();
         await fetch((process.env.DBC_CDP_URL || 'http://localhost:9224') + '/json/close/' + browser.tabId, { signal: AbortSignal.timeout(3000) }).catch(() => {});
