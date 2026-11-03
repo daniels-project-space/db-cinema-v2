@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
 import { IconCheck } from "@/components/icons";
+import styles from "./IdVerify.module.css";
+import { getDiditEmbeddedUrl, getDiditLayoutHeight, getDiditStandaloneUrl } from "@/lib/diditEmbed";
 
 const LABEL: Record<string, string> = {
   required: "Verify your identity, selfie and address",
@@ -35,17 +37,28 @@ export function IdVerify(props: IdVerifyProps) {
 function IdVerifySession({ bookingId, status, note, compact, autoStart = false, checkoutSessionId, accountToken }: IdVerifyProps & {accountToken: string | null}) {
   const getSession = useAction(api.didit.bookingSession);
   const [sessionUrl, setSessionUrl] = useState<string | null>(null);
+  const [frameHeight, setFrameHeight] = useState(700);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [reused, setReused] = useState(false);
   const [updated, setUpdated] = useState(false);
   const mounted = useRef(false);
   const flight = useRef(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const attempted = useRef<string | null>(null);
-  useEffect(() => { setSessionUrl(null); setErr(null); attempted.current = null; }, [bookingId]);
-  useEffect(() => { if (status === "requires_input") { setSessionUrl(null); attempted.current = null; } }, [status]);
+  useEffect(() => { setSessionUrl(null); setErr(null); setFrameHeight(700); attempted.current = null; }, [bookingId]);
+  useEffect(() => { if (status === "requires_input") { setSessionUrl(null); setFrameHeight(700); attempted.current = null; } }, [status]);
+  useEffect(() => {
+    if (!sessionUrl) return;
+    const onMessage = (event: MessageEvent) => {
+      const height = getDiditLayoutHeight(event, iframeRef.current?.contentWindow ?? null);
+      if (height !== null) setFrameHeight(height);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [sessionUrl]);
 
   const open = useCallback(async () => {
     if (flight.current || sessionUrl || reused) return;
@@ -62,7 +75,11 @@ function IdVerifySession({ bookingId, status, note, compact, autoStart = false, 
       if (!mounted.current) return;
       if (result.reused) setReused(true);
       else if (result.updated) setUpdated(true);
-      else if (result.url) setSessionUrl(result.url);
+      else if (result.url) {
+        const embeddedUrl = getDiditEmbeddedUrl(result.url);
+        if (embeddedUrl) setSessionUrl(embeddedUrl);
+        else setErr("Verification could not open securely. Try again or contact the team from your rental conversation.");
+      }
       else setErr("Verification could not open. Try again or contact the team from your rental conversation.");
     }
     catch { if (mounted.current) setErr("Verification could not open. Try again or contact the team from your rental conversation. Your payment and saved progress are unchanged."); }
@@ -93,14 +110,20 @@ function IdVerifySession({ bookingId, status, note, compact, autoStart = false, 
         </button>
       )}
       {sessionUrl && status !== "rejected" && status !== "manual_review" && (
-        <div className="mt-3 min-h-80">
+        <div className={styles.frameShell}>
+          <div className={styles.mobileBar}>
+            <button type="button" onClick={() => { setSessionUrl(null); setFrameHeight(700); }} className={styles.backButton}>Back to rental</button>
+            <a href={getDiditStandaloneUrl(sessionUrl) ?? sessionUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className={styles.newTabButton}>Open in new tab</a>
+          </div>
           <iframe
+            ref={iframeRef}
             src={sessionUrl}
             title="Identity, selfie and address verification"
             allow="camera; microphone; fullscreen; autoplay; encrypted-media"
-            className="h-[700px] w-full rounded-lg border-0 bg-white"
+            className={styles.frame}
+            style={{ "--didit-content-height": `${frameHeight}px` } as CSSProperties}
           />
-          <p className="mt-2 text-xs text-white/45">Your result will update here automatically. If the camera does not open, <a href={sessionUrl} target="_blank" rel="noreferrer" className="underline">open verification in a new tab</a>.</p>
+          <p className={styles.fallback}>Your result will update here automatically. If the camera does not open, <a href={getDiditStandaloneUrl(sessionUrl) ?? sessionUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className="underline">open verification in a new tab</a>.</p>
         </div>
       )}
       {err && <div role="alert" className="mt-2 text-xs text-red-300"><p>{err}</p><Link href={`/account?rental=${encodeURIComponent(bookingId)}#chat`} className="mt-2 inline-block underline underline-offset-4">Open this rental’s chat</Link></div>}
