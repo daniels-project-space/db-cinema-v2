@@ -24,7 +24,7 @@ import { CONTACT_EMAIL, SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib
 import { unstable_cache } from "next/cache";
 
 const homeReviews = unstable_cache(async () => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.stats, {}), ["public-home-reviews-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 3600 });
-const homeHyggloReviews = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.listVerifiedHyggloHighlights, { limit: 30 }), ["public-home-hygglo-reviews-v2", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 300 });
+const homeHyggloReviews = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.listVerifiedHyggloHighlights, { limit: 50 }), ["public-home-hygglo-reviews-v3", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 300 });
 const homeBest = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.bestSellers, { limit: 8 }), ["public-home-best-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
 const homeCategories = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.categories, {}), ["public-home-categories-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
 
@@ -179,6 +179,24 @@ export default async function Home() {
             </Reveal>
           ))}
         </div>
+      </section>
+
+      {/* ───────────────── reviews — the final trust signal ───────────────── */}
+      <section id="reviews" className="section-glass scroll-mt-24 px-6 py-20">
+        <Reveal className="mx-auto max-w-6xl">
+          <div className="text-center">
+            <div className="hud-label !text-accent-400/90">What crews say</div>
+            <h2 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
+              Loved by London&apos;s <span className="serif-accent gradient-text text-[1.06em]">filmmakers</span>
+            </h2>
+          </div>
+          <HomeStats />
+          {hyggloReviews.length >= 3 ? (
+            <HyggloReviewRows reviews={hyggloReviews} />
+          ) : (
+            <div className="mt-10"><ReviewCarousel /></div>
+          )}
+        </Reveal>
       </section>
 
       <section className="section-window px-6 py-8" aria-label="Find and book rental gear">
@@ -338,23 +356,6 @@ export default async function Home() {
         </Reveal>
       </section>
 
-      {/* ───────────────── reviews — the final trust signal ───────────────── */}
-      <section id="reviews" className="section-glass scroll-mt-24 px-6 py-20">
-        <Reveal className="mx-auto max-w-6xl">
-          <div className="text-center">
-            <div className="hud-label !text-accent-400/90">What crews say</div>
-            <h2 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
-              Loved by London&apos;s <span className="serif-accent gradient-text text-[1.06em]">filmmakers</span>
-            </h2>
-          </div>
-          <HomeStats />
-          {hyggloReviews.length >= 3 ? (
-            <HyggloReviewRows reviews={hyggloReviews} />
-          ) : (
-            <div className="mt-10"><ReviewCarousel /></div>
-          )}
-        </Reveal>
-      </section>
     </>
   );
 }

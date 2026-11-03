@@ -1,4 +1,4 @@
-const assert=require('node:assert/strict');
+const assert=require('node:assert/strict'),fs=require('node:fs');
 const {load,db,put,tables,setMock}=require('./lib/rentalTestHarness.cjs');
 let refunded=2000,holdStatus='canceled';
 class Stripe { constructor(){this.refunds={list:()=>({async *[Symbol.asyncIterator](){yield {id:'re_security',amount:refunded,currency:'gbp',status:'succeeded'}}})};this.paymentIntents={retrieve:async()=>({status:holdStatus,amount_received:0})};} }
@@ -64,5 +64,8 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  for(const invalid of [{...importItem,rating:4,sourceRating:4},{...importItem,sourceRating:4},{...importItem,text:'short'},{...importItem,sourcePhotoVerified:false},{...importItem,hyggloReviewId:0}])await assert.rejects(reviews.insertChunk.handler(ctx,{token:'review-admin-test',items:[invalid]}));
  await assert.rejects(reviews.insertChunk.handler(ctx,{token:'invalid',items:[]}));
  assert.equal(reviews.clearHygglo,undefined,'destructive clear-and-reinsert mutation is retired');
- console.log('PASS reviews: rental eligibility and native review; source rating/photo verification gates; authorized export validation; idempotent source-ID upserts; invalid and unauthorized imports denied.');
+ const home=fs.readFileSync('src/app/page.tsx','utf8'),header=fs.readFileSync('src/components/SiteHeader.tsx','utf8');
+ assert(home.indexOf('id="reviews"')<home.indexOf('aria-label="Find and book rental gear"'),'Put the review showcase before gear browsing so renters encounter it sooner');
+ assert(header.includes('{ href: "/#reviews", label: "Reviews" }'),'Give visitors a direct navigation link to the reviews');
+ console.log('PASS reviews: rental eligibility and native review; source rating/photo verification gates; authorized export validation; visible homepage placement/navigation; idempotent source-ID upserts; invalid and unauthorized imports denied.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>{if(old===undefined)delete process.env.STRIPE_SECRET_KEY;else process.env.STRIPE_SECRET_KEY=old;if(oldAdmin===undefined)delete process.env.ADMIN_TOKEN;else process.env.ADMIN_TOKEN=oldAdmin});
