@@ -58,17 +58,19 @@ export const directoryMetrics = query({
     if (args.accountIds.length > 10) throw Error("Invalid customer metrics page.");
     return Promise.all([...new Set(args.accountIds)].map(async id => {
       const account = await ctx.db.get(id);
-      if (!account) return { id, activeRentals: 0, activeRentalsMore: false, credit: 0 };
+      if (!account) return { id, activeRentals: 0, activeRentalsMore: false, credit: 0, unreadMessages: 0 };
       const active = (q: any) => q.or(q.eq(q.field("status"), "active"), q.eq(q.field("status"), "confirmed"));
-      const [owned, legacy, credits] = await Promise.all([
+      const [owned, legacy, credits, unreadThreads] = await Promise.all([
         ctx.db.query("bookings").withIndex("by_account", q => q.eq("accountId", id)).filter(active).take(101),
         ctx.db.query("bookings").withIndex("by_guestEmail", q => q.eq("guestEmail", account.email.trim().toLowerCase()))
           .filter(q => q.and(active(q), q.eq(q.field("accountId"), undefined))).take(101),
         availableCreditRows(ctx, id),
+        ctx.db.query("chat_threads").withIndex("by_account_unread_owner", q => q.eq("accountId", id).gt("unreadOwner", 0)).take(100),
       ]);
       const count = owned.length + legacy.length;
       return { id, activeRentals: Math.min(count, 100), activeRentalsMore: count > 100,
-        credit: credits.reduce((n: number, c: any) => n + c.availablePence, 0) / 100 };
+        credit: credits.reduce((n: number, c: any) => n + c.availablePence, 0) / 100,
+        unreadMessages: Math.min(100, unreadThreads.reduce((n, thread) => n + (thread.unreadOwner ?? 0), 0)) };
     }));
   },
 });

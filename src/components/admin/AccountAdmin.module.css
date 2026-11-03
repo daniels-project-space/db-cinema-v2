@@ -688,6 +688,7 @@
 
 .customer > span:last-child { min-width:0; flex:1; }
 .customer strong { max-width:100%; }
+.customer .unreadBadge { display:inline-block; margin-top:3px; padding:2px 6px; border-radius:999px; color:#171819; background:#e3ba8e; font-size:10px; font-weight:700; }
 @media(min-width:1101px) { .overviewGrid { grid-template-rows:minmax(255px,auto) minmax(207px,auto); } }
 
 .contacts svg { width:16px; height:16px; display:inline-block; vertical-align:middle; margin-right:7px; }
