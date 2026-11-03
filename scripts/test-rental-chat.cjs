@@ -61,6 +61,15 @@ const helper = load("convex/lib/rentalChat.ts"),
   rental = load("convex/rentalChat.ts");
 process.env.ADMIN_TOKEN = "fixture-owner-only";
 (async () => {
+  await db.patch(a._id, { phone: "+44 20 1234 5678" });
+  await db.patch(booking._id, { guestPhone: "+44 7700 900123" });
+  const ownerThread = await rental.messages.handler(ctx, { token: "fixture-owner-only", admin: true, bookingId: booking._id, paginationOpts: { numItems: 10, cursor: null } });
+  assert.equal(ownerThread.renter.phone, "+44 7700 900123", "the booking phone is visible to the owner");
+  const renterThread = await rental.messages.handler(ctx, { token: "valid", bookingId: booking._id, paginationOpts: { numItems: 10, cursor: null } });
+  assert.equal(renterThread.renter.phone, null, "the owner-only contact is never sent to renter clients");
+  const generalThread = await rental.messages.handler(ctx, { token: "fixture-owner-only", admin: true, accountId: a._id, paginationOpts: { numItems: 10, cursor: null } });
+  assert.equal(generalThread.renter.phone, "+44 20 1234 5678", "general conversations use the account phone");
+  assert.equal(await rental.messages.handler(ctx, { token: "invalid", admin: true, bookingId: booking._id, paginationOpts: { numItems: 10, cursor: null } }), null);
   assert.equal(await helper.accountForToken(ctx, "expired"), null);
   await assert.rejects(
     chat.send.handler(ctx, {

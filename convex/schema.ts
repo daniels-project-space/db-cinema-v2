@@ -939,6 +939,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_account", ["accountId"])
+    .index("by_account_unread_owner", ["accountId", "unreadOwner"])
     .index("by_tgMessageId", ["tgMessageId"])
     .index("by_account_booking", ["accountId", "bookingId"])
     .index("by_account_updated", ["accountId", "updatedAt"])

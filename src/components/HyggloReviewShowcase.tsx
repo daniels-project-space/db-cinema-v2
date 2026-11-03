@@ -42,13 +42,14 @@ function Reviewer({ review }: { review: VerifiedHyggloHighlight }) {
 
 export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[] }) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [paused, setPaused] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
 
   useEffect(() => {
-    if (reviews.length < 2 || paused || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (reviews.length < 2 || hovered || focused || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const timer = window.setInterval(() => setCurrentIndex((index) => (index + 1) % reviews.length), 3000);
     return () => window.clearInterval(timer);
-  }, [paused, reviews.length]);
+  }, [hovered, focused, reviews.length]);
 
   const review = reviews[currentIndex % reviews.length];
   return (
@@ -56,7 +57,12 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
       data-testid="hygglo-trust-card"
       role="group"
       aria-roledescription="featured review"
-      aria-label={`Review ${currentIndex + 1} of ${reviews.length}`}
+      aria-label={`Review ${currentIndex + 1} of ${reviews.length}. Focus or hover to pause rotation.`}
+      tabIndex={0}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       className="spot trust-card relative isolate h-full min-h-[280px] overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(ellipse_at_top_right,rgba(212,172,107,.14),transparent_58%),#101013] p-5 shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:min-h-[304px] sm:p-6"
     >
       <Image
@@ -72,13 +78,6 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
         <span className="inline-flex rounded-full border border-white/20 bg-black/35 px-3 py-1 font-mono text-[9px] uppercase tracking-[0.17em] text-white/75">
           Trust that is earned
         </span>
-        {reviews.length > 1 ? <button
-          type="button"
-          onClick={() => setPaused((value) => !value)}
-          aria-pressed={paused}
-          aria-label={paused ? "Resume featured review rotation" : "Pause featured review rotation"}
-          className="rounded-full border border-white/15 px-2.5 py-1 text-[10px] text-white/55 motion-reduce:hidden"
-        >{paused ? "Play" : "Pause"}</button> : null}
       </div>
       <div className="hygglo-trust-review-panel rounded-2xl border border-white/15 p-4 sm:p-5">
         <div aria-live="off">

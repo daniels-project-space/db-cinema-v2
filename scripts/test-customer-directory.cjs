@@ -44,10 +44,13 @@ async function find(search, filter = "all", tier = "all", verification = "all") 
  put("credits", { accountId: old._id, amount: 100, remaining: 100, status: "active", expiresAt: 1 });
  put("bookings", { guestEmail: old.email, status: "pending_payment", creditAllocations: [{ creditId: credit._id, amount: 5 }] });
  const beforeMetrics = scans;
+ put("chat_threads", { accountId: old._id, unreadOwner: 2, escalated: false, updatedAt: 1 });
+ put("chat_threads", { accountId: old._id, unreadOwner: 3, escalated: false, updatedAt: 2 });
+ put("chat_threads", { accountId: "foreign-account", unreadOwner: 9, escalated: false, updatedAt: 3 });
  assert.deepEqual(await admin.directoryMetrics.handler(ctx, { token: "wrong", accountIds: [old._id] }), []);
  assert.equal(scans, beforeMetrics, "Unauthorized metrics must not query data");
  const [metric] = await admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: [old._id, old._id] });
- assert.deepEqual(metric, { id: old._id, activeRentals: 2, activeRentalsMore: false, credit: 20 }, "Count owned and unclaimed legacy rentals; exclude foreign links, past rentals, expired and reserved credit");
+ assert.deepEqual(metric, { id: old._id, activeRentals: 2, activeRentalsMore: false, credit: 20, unreadMessages: 5 }, "Count owned and unclaimed legacy rentals, credit, and this customer's unread messages only");
  await assert.rejects(admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: Array(11).fill(old._id) }), /metrics page/);
  for (let i = 0; i < 105; i++) put("bookings", { accountId: old._id, status: "active" });
  const capped = (await admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: [old._id] }))[0];

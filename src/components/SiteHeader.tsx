@@ -32,7 +32,7 @@ const NAV: NavItem[] = [
 ];
 
 const DESKTOP_NAV = NAV.filter(
-  (n) => n.href !== "/membership" && n.href !== "/how-it-works" && n.href !== "/about" && n.href !== "/join"
+  (n) => n.href !== "/#reviews" && n.href !== "/membership" && n.href !== "/how-it-works" && n.href !== "/about" && n.href !== "/join"
 );
 
 export function SiteHeader() {
@@ -147,6 +147,8 @@ export function SiteHeader() {
               href="/"
               onMouseEnter={() => setHover("db")}
               onMouseLeave={() => setHover(null)}
+              onFocus={() => setHover("db")}
+              onBlur={() => setHover(null)}
               className="group inline-flex min-h-[44px] items-center gap-1.5 font-display text-xl font-bold tracking-tight sm:text-2xl"
             >
               <span className="text-white">DB</span>
@@ -208,7 +210,10 @@ export function SiteHeader() {
           <nav className="flex shrink-0 items-center gap-2 text-sm sm:gap-2.5">
             {/* sits hard against the account slot rather than drifting toward
                 the middle of the bar */}
-            <div className="mr-1 hidden items-center gap-4 md:flex lg:gap-5">
+            <div
+              className={`mr-1 hidden items-center gap-4 transition-opacity duration-300 md:flex lg:gap-5 ${hover || intro ? "pointer-events-none opacity-0" : "opacity-100"}`}
+              inert={Boolean(hover || intro)}
+            >
               {DESKTOP_NAV.map((n) => {
                 const active = pathname === n.href || pathname.startsWith(n.href + "/");
                 return (
