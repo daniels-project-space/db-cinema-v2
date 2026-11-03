@@ -1737,6 +1737,7 @@ export const setDiditResult = internalMutation({
     if (status === "verified") {
       await markAccountVerified(ctx, bookingId);
       await saveAccountDiditVerification(ctx, b, verifiedAt!, documentExpiresAt, checks, personKey ?? b.renterPersonKey);
+      if (["confirmed", "active"].includes(b.status)) await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
     }
     else if (["rejected", "requires_input", "manual_review"].includes(status)) await revokeReuse(ctx, bookingId);
     await verificationUpdateMessage(ctx, bookingId, previous, status);
@@ -1782,7 +1783,10 @@ export const adminSetIdStatus = mutation({
       verificationUpdatedAt: Date.now(),
       verificationNote: note.trim().slice(0, 400),
     });
-    if (status === "verified") await markAccountVerified(ctx, bookingId);
+    if (status === "verified") {
+      await markAccountVerified(ctx, bookingId);
+      await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
+    }
     else await revokeReuse(ctx, bookingId);
     await verificationUpdateMessage(ctx, bookingId, prev, status);
     if (status !== prev && ["verified", "requires_input", "canceled"].includes(status))
@@ -1819,7 +1823,10 @@ export const setDiditManualReview = internalMutation({
         : decision === "decline" ? "Identity and address verification was declined. Please contact us."
         : note.trim().slice(0, 400),
     });
-    if (status === "verified") await markAccountVerified(ctx, bookingId);
+    if (status === "verified") {
+      await markAccountVerified(ctx, bookingId);
+      await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
+    }
     else await revokeReuse(ctx, bookingId);
     await verificationUpdateMessage(ctx, bookingId, previous, status);
     if (status !== previous)
@@ -2090,6 +2097,7 @@ export const applyVerificationReuse = internalMutation({
       verificationExpiresAt: Math.min(record.expiresAt, documentExpiresAt), verificationReusedFrom: sourceBookingId,
       verificationNote: "Your recent approved identity and address verification was reused for this rental.", verificationUpdatedAt: Date.now() });
     await verificationUpdateMessage(ctx, bookingId, "required", "verified");
+    await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
     await queueRentalEmail(ctx,bookingId,"verification",{verificationStatus:"verified"});
     await queueRmv2Sync(ctx, bookingId);
     return true;

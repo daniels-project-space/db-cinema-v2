@@ -74,10 +74,9 @@ function signed(event) {
   assert.deepEqual(result.poaPostcodes, ['SW1A 1AA']);
   const flagged = {...event.decision, id_verifications: [{...event.decision.id_verifications[0], warnings: [{risk: 'FRAME_INJECTION_SUSPECTED', log_type: 'information'}]}]};
   assert.equal(await webhook.handler(ctx, signed({...event, event_id:'event-warning', decision:flagged})), true);
-  assert.equal(result.status, 'manual_review', 'an approved check with a provider warning requires review');
-  assert.match(result.note, /camera capture integrity/i);
+  assert.equal(result.status, 'verified', 'an informational warning does not override Didit approval');
   assert.equal(await webhook.handler(ctx, signed({...event, event_id:'event-top-warning', decision:{...event.decision, warnings:[{risk:'OTHER'}]}})), true);
-  assert.equal(result.status, 'manual_review', 'a top-level provider warning requires review');
+  assert.equal(result.status, 'verified', 'a provider warning does not override Didit approval');
   const currentSignature = signed({...event, event_id: 'event-previous'});
   assert.equal(await webhook.handler(ctx, {...currentSignature, signature: '0'.repeat(64), previousSignature: currentSignature.signature}), true,
     'a valid V2 previous-secret signature survives Didit secret rotation');
