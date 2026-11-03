@@ -164,12 +164,13 @@ export const changeEmail = internalAction({
 });
 
 export const timeChangeEmail = internalAction({
-  args:{bookingId:v.id("bookings"),detail:v.string(),deliveryKey:v.string(),prepareOnly:v.boolean()},
-  handler:async(ctx,{bookingId,detail,deliveryKey,prepareOnly}):Promise<any>=>{
+  args:{bookingId:v.id("bookings"),detail:v.string(),deliveryKey:v.string(),prepareOnly:v.boolean(),changeKind:v.optional(v.union(v.literal("pickup"),v.literal("return")))},
+  handler:async(ctx,{bookingId,detail,deliveryKey,prepareOnly,changeKind}):Promise<any>=>{
     const recipient: {email:string}|null=await ctx.runQuery(internal.rentalOperations.changeRecipient,{bookingId});
     if(!recipient)return null;
     const app=process.env.APP_URL??"https://dbcinemarentals.com",url=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
-    return email(recipient.email,"Your DB Cinema pickup time changed",rentalEmail({title:"Pickup time updated",preview:"Please review your updated pickup details.",url,button:"View rental conversation",body:`<p>${emailEscape(detail)}</p><p>All times are London local time. Your agreed charges remain unchanged.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
+    const label=changeKind==="return"?"return":"pickup";
+    return email(recipient.email,`Your DB Cinema ${label} time changed`,rentalEmail({title:`${label==="return"?"Return":"Pickup"} time updated`,preview:`Please review your updated ${label} details.`,url,button:"View rental conversation",body:`<p>${emailEscape(detail)}</p><p>All times are London local time. Your agreed charges remain unchanged.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
   },
 });
 

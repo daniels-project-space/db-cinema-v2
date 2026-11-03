@@ -6,13 +6,16 @@ import { bookingStockLines } from "../../shared/rentalWindow";
 export function pickupScheduleFingerprint(booking:{lineItems:any[];pickupTime?:string|null;returnTime?:string|null}) {
   return JSON.stringify(bookingStockLines({...booking,lineItems:booking.lineItems??[]}).map(line=>[String(line.listingId),line.qty,line.start,line.pickupTime??null]));
 }
+export function handoverScheduleFingerprint(booking:{lineItems:any[];pickupTime?:string|null;returnTime?:string|null}) {
+  return JSON.stringify(bookingStockLines({...booking,lineItems:booking.lineItems??[]}).map(line=>[String(line.listingId),line.qty,line.start,line.pickupTime??null,line.end,line.returnTime??null]));
+}
 
 export type RentalEmailKind = "payment" | "receipt" | "verification" | "cancellation" | "review" | "cancellation_choice" | "time_change";
 /** Persist in the same transaction as payment, verification or cancellation.
  * Stable financial keys prevent webhook replays from sending twice. Each real
  * verification transition gets a new sequence so returning to a status can notify. */
 export async function queueRentalEmail(ctx: MutationCtx, bookingId: Id<"bookings">, kind: RentalEmailKind,
-  detail: {verificationStatus?: string; mode?: string; refundAmount?: number; creditAmount?: number; changeDetail?:string;changeSchedule?:string} = {}) {
+  detail: {verificationStatus?: string; mode?: string; refundAmount?: number; creditAmount?: number; changeDetail?:string;changeSchedule?:string;changeKind?:"pickup"|"return"} = {}) {
   const previous = (await ctx.db.query("rental_email_deliveries").withIndex("by_booking_kind",q=>q.eq("bookingId",bookingId).eq("kind",kind)).order("desc").take(1))[0];
   if (kind !== "verification" && kind !== "cancellation_choice" && kind !== "time_change" && previous) return previous._id;
   const sequence = (previous?.sequence ?? 0) + 1;

@@ -42,7 +42,7 @@ export default defineSchema({
     bookingId: v.id("bookings"), kind: v.union(v.literal("payment"),v.literal("receipt"),v.literal("verification"),v.literal("cancellation"),v.literal("review"),v.literal("cancellation_choice"),v.literal("time_change")),
     key: v.string(), sequence: v.number(), verificationStatus: v.optional(v.string()), verificationSchedule:v.optional(v.string()),
     mode: v.optional(v.string()), refundAmount: v.optional(v.number()), creditAmount: v.optional(v.number()),
-    changeDetail:v.optional(v.string()), changeSchedule:v.optional(v.string()),
+    changeDetail:v.optional(v.string()), changeSchedule:v.optional(v.string()), changeKind:v.optional(v.union(v.literal("pickup"),v.literal("return"))),
     state: v.union(v.literal("pending"),v.literal("sending"),v.literal("sent"),v.literal("skipped"),v.literal("failed")),
     attempts: v.number(), generation: v.number(), dueAt: v.number(), createdAt: v.number(), updatedAt: v.number(), sentAt: v.optional(v.number()),
     lastError: v.optional(v.string()), payloadStorageId:v.optional(v.id("_storage")), recipientEmail:v.optional(v.string()), preparedPromotional:v.optional(v.boolean()),preparedCleanReturnRequired:v.optional(v.boolean()),
