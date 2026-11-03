@@ -19,12 +19,13 @@ import { HomeGearSearch } from "@/components/HomeGearSearch";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { Magnetic } from "@/components/Magnetic";
 import { IconArrowRight } from "@/components/icons";
-import { BadgeTruck, BadgeBrowse, BadgeCalendar, BadgeLock, BadgeSquare, BadgeShield, BadgeClock } from "@/components/AnimatedIcons";
+import { BadgeTruck, BadgeSquare, BadgeShield, BadgeClock } from "@/components/AnimatedIcons";
+import { HowItWorksSteps } from "@/components/HowItWorksSteps";
 import { CONTACT_EMAIL, SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib/site";
 import { unstable_cache } from "next/cache";
 
-const homeReviews = unstable_cache(async () => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.stats, {}), ["public-home-reviews-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 3600 });
-const homeHyggloReviews = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.listVerifiedHyggloHighlights, { limit: 50 }), ["public-home-hygglo-reviews-v3", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 300 });
+const homeReviews = unstable_cache(async () => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.stats, {}), ["public-home-reviews-v2", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 300 });
+const homeHyggloReviews = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.listVerifiedHyggloHighlights, { limit: 100 }), ["public-home-reviews-v4", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 300 });
 const homeBest = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.bestSellers, { limit: 8 }), ["public-home-best-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
 const homeCategories = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.categories, {}), ["public-home-categories-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
 
@@ -181,24 +182,6 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* ───────────────── reviews — the final trust signal ───────────────── */}
-      <section id="reviews" className="section-glass scroll-mt-24 px-6 py-20">
-        <Reveal className="mx-auto max-w-6xl">
-          <div className="text-center">
-            <div className="hud-label !text-accent-400/90">What crews say</div>
-            <h2 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
-              Loved by London&apos;s <span className="serif-accent gradient-text text-[1.06em]">filmmakers</span>
-            </h2>
-          </div>
-          <HomeStats />
-          {hyggloReviews.length >= 3 ? (
-            <HyggloReviewRows reviews={hyggloReviews} />
-          ) : (
-            <div className="mt-10"><ReviewCarousel /></div>
-          )}
-        </Reveal>
-      </section>
-
       <section className="section-window px-6 py-8" aria-label="Find and book rental gear">
         <div className="mx-auto max-w-7xl"><HomeGearSearch categories={categories} /></div>
       </section>
@@ -275,43 +258,24 @@ export default async function Home() {
 
       <FilmFundInvite />
 
-      {/* ───────────────── how it works teaser ───────────────── */}
-      <section className="section-window px-6 py-20">
-        <div className="mx-auto max-w-5xl">
-          <Reveal className="text-center">
-            <div className="hud-label !text-accent-400/90">How it works</div>
+      <section id="reviews" className="section-glass scroll-mt-24 px-6 py-20">
+        <Reveal className="mx-auto max-w-6xl">
+          <div className="text-center">
+            <div className="hud-label !text-accent-400/90">What crews say</div>
             <h2 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
-              On set in <span className="serif-accent gradient-text text-[1.06em]">four steps</span>
+              Loved by London&apos;s <span className="serif-accent gradient-text text-[1.06em]">filmmakers</span>
             </h2>
-          </Reveal>
-          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              ["01", "Browse", "Pick from cameras, lenses, light and sound.", BadgeBrowse],
-              ["02", "Dates", "Longer rentals unlock better day rates.", BadgeCalendar],
-              ["03", "Book", "Pay securely by card with a refundable deposit.", BadgeLock],
-              ["04", "Shoot", "Collect or get it delivered. Return. Done.", BadgeTruck],
-            ].map(([n, h, p, Icon]: any, i) => (
-              <Reveal key={n} delay={i * 80}>
-                <div className="spot h-full rounded-2xl p-5">
-                  <div className="flex items-start justify-between">
-                    <div className="font-poster text-3xl text-accent-400/35">{n}</div>
-                    <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-accent-500/10 text-accent-400">
-                      <Icon className="h-8 w-8" />
-                    </span>
-                  </div>
-                  <div className="mt-3 font-display text-lg font-semibold text-white/90">{h}</div>
-                  <p className="mt-1.5 text-sm leading-relaxed text-white/45">{p}</p>
-                </div>
-              </Reveal>
-            ))}
           </div>
-          <Reveal className="mt-8 text-center">
-            <Link href="/how-it-works" className="arrow-link inline-flex min-h-[40px] items-center text-sm text-accent-400 transition-colors hover:text-accent-300">
-              The whole flow, explained <span className="arrow">→</span>
-            </Link>
-          </Reveal>
-        </div>
+          <HomeStats />
+          {hyggloReviews.length >= 3 ? (
+            <HyggloReviewRows reviews={hyggloReviews} />
+          ) : (
+            <div className="mt-10"><ReviewCarousel /></div>
+          )}
+        </Reveal>
       </section>
+
+      <HowItWorksSteps />
 
       {/* ───────────────── numbers ───────────────── */}
       {trustStats.length > 0 && (
@@ -339,7 +303,7 @@ export default async function Home() {
           className="pointer-events-none absolute left-1/2 top-1/2 h-[480px] w-[480px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent-500/[0.07] blur-[110px]"
           aria-hidden
         />
-        <div className="lens-flare left-1/4 top-1/2 w-1/2" aria-hidden />
+        <div className="lens-flare left-1/4 top-[85%] w-1/2" aria-hidden />
         <Reveal className="relative">
           <p className="serif-accent text-3xl text-white/85 sm:text-5xl">
             Your next shoot <span className="gradient-text">starts here.</span>
