@@ -142,7 +142,7 @@ export const saveThroughManager = action({
     const operation = await ctx.runMutation(internal.marketingAdmin.prepareSave, { requestId, changes });
     if (!operation) throw Error("The save could not be prepared.");
     if (operation.state === "complete") return { saved: operation.saved ?? 0 };
-      const managerChanges = operation.changes.filter(change => change.productId !== undefined).map(change => ({ productId: change.productId!, marketingOnly: change.marketingOnly, mode: change.marketingOnly === null ? "automatic" as const : "manual" as const, ...(change.expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt: change.expectedUpdatedAt }) }));
+    const managerChanges = operation.changes.filter(change => change.productId !== undefined).map(change => ({ productId: change.productId!, marketingOnly: change.marketingOnly, ...(change.expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt: change.expectedUpdatedAt }) }));
     let results: Array<{productId:number;marketingOnly:boolean;mode:"automatic"|"manual";updatedAt:number}> = [];
     if (managerChanges.length) {
       const configured = process.env.RMV2_WEBHOOK_URL, secret = process.env.RMV2_MARKETING_WRITE_SECRET;

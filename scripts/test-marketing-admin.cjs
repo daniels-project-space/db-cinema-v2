@@ -62,8 +62,8 @@ const importItem=(l,title=l.title)=>({hyggloProductId:l===owned?10:20,stockMappi
   assert.deepEqual(await admin.saveThroughManager.handler(bridgeCtx,request),{saved:1});assert.equal(attempts,2,'A completed website operation does not call the manager again');
   const batchRequestId='a74c138d-e572-44a8-9b34-8e47f9e85126',batchBodies=[],managerReceipts=new Map();let droppedBatchReceipt=false;
   global.fetch=async(url,options)=>{
-   const body=JSON.parse(options.body);assert.equal(String(url),'https://fixture.convex.site/dbcinema/storefront-marketing-write');assert(body.changes.length<=50);batchBodies.push(body);
-   if(!managerReceipts.has(body.requestId))managerReceipts.set(body.requestId,{protocolVersion:1,status:'success',requestId:body.requestId,results:body.changes.map(change=>({productId:change.productId,marketingOnly:change.marketingOnly,mode:change.mode,updatedAt:(change.expectedUpdatedAt??0)+1}))});
+   const body=JSON.parse(options.body);assert.equal(String(url),'https://fixture.convex.site/dbcinema/storefront-marketing-write');assert(body.changes.length<=50);assert(body.changes.every(change=>Object.keys(change).every(key=>['productId','marketingOnly','expectedUpdatedAt'].includes(key))),'Manager requests contain only fields accepted by its strict endpoint validator');batchBodies.push(body);
+   if(!managerReceipts.has(body.requestId))managerReceipts.set(body.requestId,{protocolVersion:1,status:'success',requestId:body.requestId,results:body.changes.map(change=>({productId:change.productId,marketingOnly:change.marketingOnly,mode:change.marketingOnly===null?'automatic':'manual',updatedAt:(change.expectedUpdatedAt??0)+1}))});
    if(!droppedBatchReceipt&&batchBodies.length===2){droppedBatchReceipt=true;throw Error('connection lost after manager commit');}
    return new Response(JSON.stringify(managerReceipts.get(body.requestId)),{status:200});
   };
