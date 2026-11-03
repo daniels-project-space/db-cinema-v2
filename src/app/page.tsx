@@ -80,11 +80,6 @@ export default async function Home() {
   } catch {}
 
   const itemCount = categories.reduce((sum, category) => sum + category.count, 0);
-  const trustStats = [
-    { value: rating.ratingValue, decimals: 2, suffix: "", label: "profile rating" },
-    { value: rating.reviewCount, decimals: 0, suffix: "+", label: "renter reviews" },
-    ...(itemCount > 0 ? [{ value: itemCount, decimals: 0, suffix: "", label: "items for hire" }] : []),
-  ];
 
   const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const jsonLd = {
@@ -253,33 +248,13 @@ export default async function Home() {
               Loved by London&apos;s <span className="serif-accent gradient-text text-[1.06em]">filmmakers</span>
             </h2>
           </div>
-          <HomeStats ratingValue={rating.ratingValue} reviewCountLabel={rating.reviewCountLabel} />
           {hyggloReviews.length >= 3 && <HyggloReviewRows reviews={hyggloReviews} />}
           <div className={hyggloReviews.length >= 3 ? "mt-8" : "mt-10"}><ReviewCarousel /></div>
+          <HomeStats ratingValue={rating.ratingValue} reviewCount={rating.reviewCount} itemCount={itemCount} />
         </Reveal>
       </section>
 
-      <FilmFundInvite />
-
       <HowItWorksSteps />
-
-      {/* ───────────────── numbers ───────────────── */}
-      {trustStats.length > 0 && (
-        <section className="section-window border-y border-white/5 px-6 py-14" aria-label="Rental and review figures">
-          <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 text-center sm:grid-cols-2 lg:grid-cols-3">
-            {trustStats.map((stat) => (
-              <div key={stat.label}>
-                <div className="font-poster text-4xl text-white sm:text-5xl">
-                  <span className="tabular-nums gradient-text">
-                    {stat.value.toFixed(stat.decimals)}{stat.suffix}
-                  </span>
-                </div>
-                <div className="hud-label mt-2">{stat.label}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
 
       <div className="film-strip" aria-hidden />
 
@@ -306,23 +281,45 @@ export default async function Home() {
         </Reveal>
       </section>
 
+      <FilmFundInvite />
+
       <section aria-labelledby="hygglo-profile-title" className="section-window px-6 pb-20">
-        <div className="mx-auto grid max-w-6xl gap-8 overflow-hidden rounded-[2rem] border border-accent-300/20 bg-[radial-gradient(ellipse_at_top_right,rgba(212,172,107,.14),transparent_48%),linear-gradient(135deg,#171513,#0d0e10)] p-7 shadow-[0_28px_80px_-46px_rgba(212,172,107,.45)] sm:grid-cols-[1fr_auto] sm:items-center sm:p-10">
-          <div>
-            <p className="font-mono text-[10px] uppercase tracking-[.28em] text-accent-300/75">Another way to rent</p>
-            <h2 id="hygglo-profile-title" className="mt-3 font-display text-2xl font-semibold text-white sm:text-3xl">We rent on Hygglo, too.</h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">Prefer booking through the rental marketplace? Find DB Cinema Rentals’ London camera, lens, lighting and sound equipment on our Hygglo profile, with more than 1,300 renter reviews.</p>
-            <a href="https://hygglo.com/uk/users/dbcinemarentals" target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex min-h-11 items-center gap-2 text-sm font-medium text-accent-200 underline decoration-accent-300/40 underline-offset-4 transition-colors hover:text-white">Read our Hygglo rental reviews and browse listings <span aria-hidden="true">↗</span></a>
-          </div>
-          <div className="flex items-end gap-5 sm:gap-7">
-            <div>
-              <p className="font-poster text-4xl tabular-nums text-white sm:text-5xl">4.73<span className="text-xl text-white/50">/5</span></p>
-              <p className="mt-1 font-mono text-[9px] uppercase tracking-[.18em] text-white/40">Hygglo profile rating</p>
+        <div className="mx-auto max-w-6xl">
+          <div className="group relative isolate grid overflow-hidden rounded-[2rem] border border-accent-300/25 bg-[#0d0f12] shadow-[0_28px_90px_-48px_rgba(212,172,107,.45)] sm:grid-cols-[1.2fr_.8fr]">
+            <Image
+              src="/images/home/maintained-cinema-gear-20261028.webp"
+              alt=""
+              fill
+              sizes="(max-width: 640px) 100vw, 1152px"
+              className="pointer-events-none object-cover opacity-30 transition duration-700 group-hover:scale-[1.025] group-hover:opacity-40"
+            />
+            <div aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(100deg,rgba(8,10,12,.97)_0%,rgba(8,10,12,.9)_48%,rgba(8,10,12,.45)_100%)]" />
+            <div className="relative z-10 px-7 py-9 sm:px-11 sm:py-12">
+              <div className="inline-flex items-center gap-2 rounded-full border border-accent-300/25 bg-black/35 px-3 py-1.5 font-mono text-[9px] uppercase tracking-[.2em] text-accent-200/80">
+                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-accent-300 shadow-[0_0_12px_rgba(212,172,107,.9)]" />
+                DB Cinema Rentals × Hygglo
+              </div>
+              <h2 id="hygglo-profile-title" className="mt-5 max-w-xl font-display text-3xl font-semibold leading-tight text-white sm:text-4xl">
+                Another way to find your <span className="serif-accent gradient-text">next-shot kit.</span>
+              </h2>
+              <p className="mt-4 max-w-xl text-sm leading-6 text-white/65">
+                Browse our London camera, lens, lighting and sound rentals on Hygglo, and read the feedback from crews who have rented with us.
+              </p>
+              <a href="https://hygglo.com/uk/users/dbcinemarentals" target="_blank" rel="noopener noreferrer" className="mt-7 inline-flex min-h-12 items-center gap-3 rounded-xl border border-accent-300/35 bg-accent-300/10 px-5 text-sm font-medium text-accent-100 transition hover:border-accent-200/70 hover:bg-accent-300/20 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent-300">
+                Explore our Hygglo profile
+                <span aria-hidden="true" className="text-lg transition-transform group-hover:translate-x-1">↗</span>
+              </a>
             </div>
-            <div className="h-12 w-px bg-white/10" aria-hidden="true" />
-            <div>
-              <p className="font-poster text-4xl tabular-nums text-accent-200 sm:text-5xl">1,300+</p>
-              <p className="mt-1 font-mono text-[9px] uppercase tracking-[.18em] text-white/40">renter reviews</p>
+            <div className="relative z-10 grid grid-cols-2 gap-3 self-end p-6 pt-0 sm:gap-4 sm:p-8">
+              <div className="rounded-2xl border border-white/15 bg-black/45 p-4 backdrop-blur-xl sm:p-5">
+                <p className="font-poster text-3xl tabular-nums text-white sm:text-4xl">4.73<span className="ml-1 text-base text-white/45">/5</span></p>
+                <p className="mt-2 font-mono text-[9px] uppercase tracking-[.18em] text-white/50">Profile rating</p>
+              </div>
+              <div className="rounded-2xl border border-accent-200/20 bg-black/45 p-4 backdrop-blur-xl sm:p-5">
+                <p className="font-poster text-3xl tabular-nums text-accent-200 sm:text-4xl">1,300+</p>
+                <p className="mt-2 font-mono text-[9px] uppercase tracking-[.18em] text-white/50">Renter reviews</p>
+              </div>
+              <p className="col-span-2 text-right font-mono text-[9px] uppercase tracking-[.17em] text-white/40">A well-reviewed profile. Your next rental starts here.</p>
             </div>
           </div>
         </div>

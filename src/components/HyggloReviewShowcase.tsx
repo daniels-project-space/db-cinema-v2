@@ -68,7 +68,7 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
       />
       <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-br from-black/55 via-black/55 to-black/80" />
       <div className="relative z-10 flex h-full min-h-[240px] flex-col justify-between sm:min-h-[256px]">
-      <div aria-live="off">
+      <div className="flex items-start justify-between gap-3">
         <span className="inline-flex rounded-full border border-white/20 bg-black/35 px-3 py-1 font-mono text-[9px] uppercase tracking-[0.17em] text-white/75">
           Trust that is earned
         </span>
@@ -77,15 +77,19 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
           onClick={() => setPaused((value) => !value)}
           aria-pressed={paused}
           aria-label={paused ? "Resume featured review rotation" : "Pause featured review rotation"}
-          className="float-right rounded-full border border-white/15 px-2.5 py-1 text-[10px] text-white/55 motion-reduce:hidden"
+          className="rounded-full border border-white/15 px-2.5 py-1 text-[10px] text-white/55 motion-reduce:hidden"
         >{paused ? "Play" : "Pause"}</button> : null}
-        <div className="mt-7"><Rating /></div>
-        <blockquote key={review._id} className="hygglo-trust-review-fade mt-3 line-clamp-4 text-sm leading-relaxed text-white/80">
-          “{review.text}”
-        </blockquote>
       </div>
-      <div key={`reviewer-${review._id}`} className="hygglo-trust-review-fade mt-5 flex items-center gap-3">
-        <Reviewer review={review} />
+      <div className="hygglo-trust-review-panel rounded-2xl border border-white/15 p-4 sm:p-5">
+        <div aria-live="off">
+          <Rating />
+          <blockquote key={review._id} className="hygglo-trust-review-fade mt-3 line-clamp-4 text-sm leading-relaxed text-white/90">
+            “{review.text}”
+          </blockquote>
+        </div>
+        <div key={`reviewer-${review._id}`} className="hygglo-trust-review-fade mt-4 flex items-center gap-3 border-t border-white/10 pt-3">
+          <Reviewer review={review} />
+        </div>
       </div>
       </div>
     </article>

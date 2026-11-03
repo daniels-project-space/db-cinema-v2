@@ -49,10 +49,17 @@ export function CountUp({
     };
   }, [value, duration]);
 
+  const numberFormat = new Intl.NumberFormat("en-GB", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+
   return (
-    <span ref={ref} className={`tabular-nums ${className}`}>
-      {display.toFixed(decimals)}
-      {suffix}
-    </span>
+    <>
+      <span className="sr-only">{numberFormat.format(value)}{suffix}</span>
+      <span ref={ref} aria-hidden="true" className={`tabular-nums ${className}`}>
+        {numberFormat.format(display)}{suffix}
+      </span>
+    </>
   );
 }

@@ -1,22 +1,30 @@
-import { IconStar } from "@/components/icons";
+import { CountUp } from "@/components/CountUp";
 
 export function HomeStats({
   ratingValue,
-  reviewCountLabel,
+  reviewCount,
+  itemCount,
 }: {
   ratingValue: number;
-  reviewCountLabel: string;
+  reviewCount: number;
+  itemCount: number;
 }) {
+  const stats = [
+    { value: ratingValue, decimals: 2, suffix: "", label: "profile rating" },
+    { value: reviewCount, decimals: 0, suffix: "+", label: "renter reviews" },
+    ...(itemCount > 0 ? [{ value: itemCount, decimals: 0, suffix: "", label: "items for hire" }] : []),
+  ];
+
   return (
-    <div className="mt-5 flex flex-wrap items-center justify-center gap-3 text-sm text-white/50">
-      <span className="flex gap-0.5 text-accent-400">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <IconStar key={i} className="h-3.5 w-3.5" />
-        ))}
-      </span>
-      <span className="font-mono font-semibold text-white/80">{ratingValue.toFixed(2)}/5</span>
-      <span className="text-white/30">·</span>
-      <span>{reviewCountLabel} renter reviews</span>
+    <div role="group" aria-label="Rental and review figures" className="mt-12 grid grid-cols-1 gap-3 border-t border-white/10 pt-8 sm:grid-cols-3">
+      {stats.map((stat) => (
+        <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/[0.025] px-5 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,.04)]">
+          <div className="font-poster text-4xl text-white sm:text-5xl">
+            <CountUp value={stat.value} decimals={stat.decimals} suffix={stat.suffix} className="gradient-text" />
+          </div>
+          <div className="hud-label mt-2">{stat.label}</div>
+        </div>
+      ))}
     </div>
   );
 }
