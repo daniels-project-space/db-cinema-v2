@@ -413,7 +413,7 @@ export default function CheckoutPage() {
                   <label className={label} htmlFor="co-billing-address">Billing address *</label>
                   <textarea id="co-billing-address" value={billingAddress} onChange={(e) => setBillingAddress(e.target.value)} rows={2} placeholder="Street, town or city, postcode" className="input w-full" />
                   <p className="mt-1 text-[11px] text-white/40">Used on your rental statement. If needed, you will submit proof of address through the verification provider.</p>
-                  {!account.me && <p className="mt-2 text-xs text-accent-200/80">Create an account to reuse a fully approved verification for eligible rentals starting within 90 days. Your name and address must remain unchanged and your ID valid.</p>}
+                  {!account.me && <p className="mt-2 text-xs text-accent-200/80">Create an account to reuse a fully approved verification and show a verified badge for eligible rentals starting within 90 days. Your name and address must match, and your ID and saved documents must remain valid and accessible; otherwise, we’ll ask you to verify again.</p>}
                 </div>
               </div>
             </StepCard>

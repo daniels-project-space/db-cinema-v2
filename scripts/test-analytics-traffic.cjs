@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const ts = require('typescript');
 const { load, db, put, tables } = require('./lib/rentalTestHarness.cjs');
 const traffic = load('shared/analyticsTraffic.ts');
+const searchConsole = load('src/lib/searchConsoleInsights.ts');
 process.env.ADMIN_TOKEN = 'fixture-owner';
 const analytics = load('convex/analytics.ts');
 const now = Date.now();
@@ -19,6 +20,15 @@ function browser({ua='Mozilla/5.0 Chrome/140.0 Safari/537.36', webdriver=false, 
 }
 
 (async()=>{
+  const gscRange=searchConsole.buildSearchConsoleDateRange(7,Date.UTC(2026,10,2,20));
+  assert.equal(gscRange.startDate,'2026-10-24'); assert.equal(gscRange.endDate,'2026-10-30'); assert.equal(gscRange.days,7,'Search Console range uses finalized Pacific dates and a three-day processing buffer');
+  const searchSummary=searchConsole.summarizeSearchConsoleRows([
+    {clicks:2,impressions:20,ctr:.1,position:2},
+    {clicks:3,impressions:10,ctr:.3,position:4},
+  ]);
+  assert.equal(searchSummary.clicks,5); assert.equal(searchSummary.impressions,30); assert.equal(searchSummary.ctr,5/30); assert.equal(searchSummary.position,8/3,'Search Console totals weight average position by impressions');
+  const emptySearchSummary=searchConsole.summarizeSearchConsoleRows([]);
+  assert.equal(emptySearchSummary.clicks,0); assert.equal(emptySearchSummary.impressions,0); assert.equal(emptySearchSummary.ctr,0); assert.equal(emptySearchSummary.position,0);
   const human = browser(); assert.match(human.get(), /^[a-f0-9-]{36}$/); assert.equal(human.get(),human.get());
   const disabled = browser({storage:false}); assert.equal(disabled.get(),disabled.get());
   for (const ua of ['Googlebot/2.1','bingbot/2.0','HeadlessChrome/140.0','facebookexternalhit/1.1','curl/8.0','Python-requests/2.0','Lighthouse','UptimeRobot']) {

@@ -60,6 +60,19 @@ const importItem=(l,title=l.title)=>({hyggloProductId:l===owned?10:20,stockMappi
   await assert.rejects(admin.saveThroughManager.handler(bridgeCtx,request),/connection lost/);assert.equal(bridged.marketingOnly,false,'A lost manager receipt cannot be reported as a completed website save');
   assert.deepEqual(await admin.saveThroughManager.handler(bridgeCtx,request),{saved:1});assert.equal(bridged.marketingOnly,true);assert.equal(bridged.marketingOnlyUpdatedAt,11);
   assert.deepEqual(await admin.saveThroughManager.handler(bridgeCtx,request),{saved:1});assert.equal(attempts,2,'A completed website operation does not call the manager again');
+  const batchRequestId='a74c138d-e572-44a8-9b34-8e47f9e85126',batchBodies=[],managerReceipts=new Map();let droppedBatchReceipt=false;
+  global.fetch=async(url,options)=>{
+   const body=JSON.parse(options.body);assert.equal(String(url),'https://fixture.convex.site/dbcinema/storefront-marketing-write');assert(body.changes.length<=50);assert(body.changes.every(change=>Object.keys(change).every(key=>['productId','marketingOnly','expectedUpdatedAt'].includes(key))),'Manager requests contain only fields accepted by its strict endpoint validator');batchBodies.push(body);
+   if(!managerReceipts.has(body.requestId))managerReceipts.set(body.requestId,{protocolVersion:1,status:'success',requestId:body.requestId,results:body.changes.map(change=>({productId:change.productId,marketingOnly:change.marketingOnly,mode:change.marketingOnly===null?'automatic':'manual',updatedAt:(change.expectedUpdatedAt??0)+1}))});
+   if(!droppedBatchReceipt&&batchBodies.length===2){droppedBatchReceipt=true;throw Error('connection lost after manager commit');}
+   return new Response(JSON.stringify(managerReceipts.get(body.requestId)),{status:200});
+  };
+  const batchRequest={token:process.env.ADMIN_TOKEN,requestId:batchRequestId,changes:many.map(item=>({listingId:item._id,marketingOnly:false,expectedUpdatedAt:500}))};
+  await assert.rejects(admin.saveThroughManager.handler(bridgeCtx,batchRequest),/connection lost/);assert(many.every(item=>item.marketingOnly===true),'A partial manager receipt never publishes a partial website batch');
+  assert.deepEqual(await admin.saveThroughManager.handler(bridgeCtx,batchRequest),{saved:112});assert.deepEqual(batchBodies.map(body=>body.changes.length),[50,50,50,50,12]);
+  assert.deepEqual(batchBodies[0],batchBodies[2],'Retrying the first chunk preserves its idempotency key and payload');assert.deepEqual(batchBodies[1],batchBodies[3],'A chunk whose response was lost is safely replayed');
+  assert.equal(new Set([batchBodies[0],batchBodies[1],batchBodies[4]].map(body=>body.requestId)).size,3,'Each manager chunk has a distinct idempotency key');assert(many.every(item=>item.marketingOnly===false),'All 112 choices apply only after every chunk is acknowledged');
+  await admin.saveThroughManager.handler(bridgeCtx,batchRequest);assert.equal(batchBodies.length,5,'A completed 112-item save does not call the manager again');
  } finally {global.fetch=oldFetch;if(oldUrl===undefined)delete process.env.RMV2_WEBHOOK_URL;else process.env.RMV2_WEBHOOK_URL=oldUrl;if(oldSecret===undefined)delete process.env.RMV2_MARKETING_WRITE_SECRET;else process.env.RMV2_MARKETING_WRITE_SECRET=oldSecret;}
  assert(tables.get('admin_audit_log').some(l=>l.success&&l.fn==='marketingAdmin.save'));
  console.log('PASS marketing admin: protected reads/writes, seeded aliases, hidden public selection, cart/checkout guards and replacements, untag/reset, conflict-safe batches, import persistence and new-listing auto-tagging.');

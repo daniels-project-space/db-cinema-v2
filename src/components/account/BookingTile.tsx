@@ -161,7 +161,7 @@ export function BookingTile({
             rel="noopener noreferrer"
             className="font-medium text-white/55 hover:text-white"
           >
-            Receipt
+            Invoice
           </a>
         )}
         {booking.hasReturnStatement && token && token !== "preview" && (

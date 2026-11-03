@@ -14,7 +14,18 @@ export const listPublished = query({
       .withIndex("by_published", (q) => q.eq("published", true))
       .collect();
     // carousel shows only reviews that actually have text
-    const withText = rows.filter((r) => r.text && r.text.trim().length > 8);
+    const withText = rows.filter((r) =>
+      !!r.text && r.text.trim().length > 8 && (
+        r.source === "native" || (
+        r.source === "hygglo" &&
+        r.sourceRatingVerified === true &&
+        r.sourceRating === 5 &&
+        r.rating === 5 &&
+        r.sourcePhotoVerified === true &&
+        r.authorImage?.startsWith("https://hygglo.imgix.net/")
+        )
+      ),
+    );
     withText.sort((a, b) => b.date - a.date || b._creationTime - a._creationTime);
     const count = Math.min(50, Math.max(1, Math.floor(limit ?? 30)));
     // Reserve one card per desktop page for website reviews while both sources
@@ -43,6 +54,42 @@ export const listPublished = query({
   },
 });
 
+export const listVerifiedHyggloHighlights = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit }) => {
+    const count = Math.min(50, Math.max(1, Math.floor(limit ?? 36)));
+    const candidates = await ctx.db
+      .query("reviews")
+      .withIndex("by_published_source_verified_date", (q) =>
+        q.eq("published", true)
+          .eq("source", "hygglo")
+          .eq("sourceRating", 5)
+          .eq("sourceRatingVerified", true)
+          .eq("sourcePhotoVerified", true),
+      )
+      .order("desc")
+      .take(200);
+    return candidates
+      .filter((review) =>
+        review.sourceRatingVerified === true &&
+        review.sourceRating === review.rating &&
+        review.rating === 5 &&
+        review.sourcePhotoVerified === true &&
+        !!review.text && review.text.trim().length > 8 &&
+        !!review.authorImage && review.authorImage.startsWith("https://hygglo.imgix.net/"),
+      )
+      .slice(0, count)
+      .map((review) => ({
+        _id: review._id,
+        author: review.author,
+        authorImage: review.authorImage!,
+        rating: review.rating,
+        text: review.text!,
+        product: review.product ?? null,
+      }));
+  },
+});
+
 export const stats = query({
   args: {},
   handler: async (ctx) => {
@@ -50,7 +97,7 @@ export const stats = query({
       .query("reviews")
       .withIndex("by_published", (q) => q.eq("published", true))
       .collect();
-    const ordinary = rows.filter(r=>!r.incentivized);
+    const ordinary = rows.filter(r=>!r.incentivized && (r.source === "native" || (r.sourceRatingVerified === true && r.sourceRating === r.rating)));
     if (ordinary.length === 0) return { count: 0, average: 0, withText: 0 };
     const sum = ordinary.reduce((n, r) => n + r.rating, 0);
     return {
@@ -61,31 +108,18 @@ export const stats = query({
   },
 });
 
-export const clearHygglo = mutation({
-  args: { token: v.string() },
-  handler: async (ctx, { token }) => {
-    await assertAdmin(ctx, token, "reviews.clearHygglo");
-    const rows = await ctx.db.query("reviews").collect();
-    let n = 0;
-    for (const r of rows)
-      if (r.source === "hygglo") {
-        await ctx.db.delete(r._id);
-        n++;
-      }
-    return { deleted: n };
-  },
-});
-
 export const insertChunk = mutation({
   args: {
     token: v.string(),
     items: v.array(
       v.object({
-        hyggloReviewId: v.optional(v.number()),
+        hyggloReviewId: v.number(),
         author: v.string(),
-        authorImage: v.optional(v.string()),
+        authorImage: v.string(),
         rating: v.number(),
-        text: v.optional(v.string()),
+        sourceRating: v.number(),
+        sourcePhotoVerified: v.boolean(),
+        text: v.string(),
         product: v.optional(v.string()),
         listingSlug: v.optional(v.string()),
         date: v.number(),
@@ -94,22 +128,44 @@ export const insertChunk = mutation({
   },
   handler: async (ctx, { token, items }) => {
     await assertAdmin(ctx, token, "reviews.insertChunk");
+    const seenIds = new Set<number>();
+    const verifiedAt = Date.now();
+    let upserted = 0;
     for (const it of items) {
-      if (!Number.isInteger(it.rating) || it.rating < 1 || it.rating > 5) throw Error("Rating must be 1–5.");
-      await ctx.db.insert("reviews", {
-        source: "hygglo",
+      if (!Number.isSafeInteger(it.hyggloReviewId) || it.hyggloReviewId <= 0 || seenIds.has(it.hyggloReviewId)) throw Error("Each source review ID must be unique and positive.");
+      seenIds.add(it.hyggloReviewId);
+      if (it.rating !== 5 || it.sourceRating !== it.rating) throw Error("A verified source rating must exactly match five stars.");
+      if (!it.text.trim() || it.text.trim().length <= 8) throw Error("An eligible source review must contain text.");
+      if (!it.sourcePhotoVerified || !it.authorImage.startsWith("https://hygglo.imgix.net/")) throw Error("An eligible source review must have a verified profile photo.");
+      if (!Number.isFinite(it.date) || !it.author.trim()) throw Error("Source review details are invalid.");
+      const review = {
+        source: "hygglo" as const,
         hyggloReviewId: it.hyggloReviewId,
         author: it.author,
         authorImage: it.authorImage,
         rating: it.rating,
+        sourceRating: it.sourceRating,
         text: it.text,
         product: it.product,
         listingSlug: it.listingSlug,
         date: it.date,
         published: true,
-      });
+        sourceRatingVerified: true,
+        sourceRatingVerifiedAt: verifiedAt,
+        sourcePhotoVerified: true,
+        sourcePhotoVerifiedAt: verifiedAt,
+      };
+      const existing = await ctx.db
+        .query("reviews")
+        .withIndex("by_source_hygglo_review_id", (q) =>
+          q.eq("source", "hygglo").eq("hyggloReviewId", it.hyggloReviewId),
+        )
+        .unique();
+      if (existing) await ctx.db.patch(existing._id, review);
+      else await ctx.db.insert("reviews", review);
+      upserted++;
     }
-    return { inserted: items.length };
+    return { upserted };
   },
 });
 

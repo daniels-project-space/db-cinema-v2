@@ -74,8 +74,8 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  global.fetch=async()=>({ok:false});
  try{await invoiceModule.invoiceEmail.handler({runQuery:async()=>old},{bookingId:old._id});}finally{global.fetch=originalFetch;}
  assert.equal(mail.attachments.length,0);assert(!mail.html.includes('not automatic liability caps'),'new liability wording must not be imposed on a historical agreement');
- assert.match(mail.html,/payment receipt/);
- // Render the actual receipt component and inspect its decoded PDF text separately.
+ assert.match(mail.html,/paid rental invoice/);
+ // Render the actual invoice component and inspect its decoded PDF text separately.
  const renderer=await import('@react-pdf/renderer');
  const jsx=ts.transpileModule(fs.readFileSync('src/lib/invoice/InvoiceDocument.tsx','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
  const m={exports:{}};new Function('require','module','exports',jsx)(n=>n==='@react-pdf/renderer'?renderer:n==='../site'?load('src/lib/site.ts'):n.endsWith('shared/rentalSecurity')?require('./lib/rentalTestHarness.cjs').load('shared/rentalSecurity.ts'):require(n),m,m.exports);

@@ -22,6 +22,7 @@ type NavItem = { href: string; label: string; external?: boolean };
 // Membership / How it works move into the profile dropdown(s) instead.
 const NAV: NavItem[] = [
   { href: "/gear", label: "Gear" },
+  { href: "/#reviews", label: "Reviews" },
   { href: "/membership", label: "Subscriptions" },
   { href: "/how-it-works", label: "How it works" },
   { href: "/guides", label: "Guides" },

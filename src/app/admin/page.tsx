@@ -345,10 +345,11 @@ function AdminSettings({ token }: { token: string }) {
           />
         </label>
         <label className="flex flex-col gap-2 text-xs text-white/50">
-          Business address
-          <input
+          Business and pickup address
+          <textarea
             className={field}
-            placeholder="123 Example St, London"
+            placeholder="The Grand Building, Trafalgar Square, London, WC2N 5EJ"
+            rows={5}
             value={f.businessAddress ?? ""}
             onChange={(e) => setF({ ...f, businessAddress: e.target.value })}
           />

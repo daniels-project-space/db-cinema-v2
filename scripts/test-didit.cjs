@@ -67,16 +67,26 @@ function signed(event) {
       poa_verifications: [{status: 'Approved', poa_parsed_address: {postal_code: 'SW1A 1AA'}}],
     },
   };
-  let result;
-  const ctx = { runMutation: async (ref, args) => { assert.equal(ref, 'bookings:setDiditResult'); result = args; return true; } };
+  let result;const ownerAlerts=[];
+  const ctx = { runMutation: async (ref, args) => { if(ref==='bookings:flagDiditWebhookRejection'){ownerAlerts.push(args);return true;}assert.equal(ref, 'bookings:setDiditResult'); result = args; return true; } };
   assert.equal(await webhook.handler(ctx, signed(event)), true);
   assert.equal(result.status, 'verified');
   assert.deepEqual(result.poaPostcodes, ['SW1A 1AA']);
+  const currentSignature = signed({...event, event_id: 'event-previous'});
+  assert.equal(await webhook.handler(ctx, {...currentSignature, signature: '0'.repeat(64), previousSignature: currentSignature.signature}), true,
+    'a valid V2 previous-secret signature survives Didit secret rotation');
+  const rawSignature = signed({...event, event_id: 'event-raw'});
+  assert.equal(await webhook.handler(ctx, {...rawSignature, signature: '0'.repeat(64), rawSignature: createHmac('sha256', process.env.DIDIT_WEBHOOK_SECRET).update(rawSignature.body).digest('hex')}), true,
+    'a valid full-body raw signature is accepted when V2 is unavailable');
   assert.equal(await webhook.handler(ctx, signed({...event, event_id: 'event-2', decision: {...event.decision, poa_verifications: []}})), true);
   assert.equal(result.status, 'manual_review', 'top-level approval cannot bypass PoA');
   result = null;
   assert.equal(await webhook.handler(ctx, {...signed(event), signature: '0'.repeat(64)}), false);
   assert.equal(result, null, 'forged callback must not change booking');
+  assert.deepEqual(ownerAlerts.at(-1),{reason:'signature'},'a forged callback that claims the configured Didit app creates a rate-limited operational alert without booking data');
+  const alertedCount=ownerAlerts.length;
+  assert.equal(await webhook.handler(ctx,{...signed(event),signature:'0'.repeat(64),body:JSON.stringify({...event,application_id:'other-app'})}),false);
+  assert.equal(ownerAlerts.length,alertedCount,'unrelated internet traffic is logged but does not page the owner');
   assert.equal(await webhook.handler(ctx, signed({...event, environment: 'live'})), false);
   assert.equal(await webhook.handler(ctx, signed({...event, timestamp: now - 3600})), false);
   assert.equal(await webhook.handler(ctx, signed({...event, event_id: 'event-expired', status: 'Expired'})), true);
@@ -85,7 +95,7 @@ function signed(event) {
   const failureCalls=[];const broken={runMutation:async(ref,args)=>{failureCalls.push({ref,args});if(ref==='bookings:setDiditResult')throw Error('private provider detail');return true;}};
   assert.equal(await webhook.handler(broken,signed(event)),'processing_error','a signed callback with an internal failure is retryable, not malformed');
   assert.equal(failureCalls[1].ref,'bookings:flagDiditProcessingFailure');assert.equal(failureCalls[1].args.sessionId,event.session_id);
-  failureCalls.length=0;assert.equal(await webhook.handler(broken,{...signed(event),signature:'0'.repeat(64)}),false);assert.equal(failureCalls.length,0,'untrusted callbacks cannot trigger owner alerts');
+  failureCalls.length=0;assert.equal(await webhook.handler(broken,{...signed(event),signature:'0'.repeat(64)}),false);assert.equal(failureCalls.length,1,'a spoofed callback claiming this Didit application creates only a rate-limited operational alert');assert.equal(failureCalls[0].ref,'bookings:flagDiditWebhookRejection');assert.deepEqual(failureCalls[0].args,{reason:'signature'});
   failureCalls.length=0;assert.equal(await webhook.handler(broken,signed({...event,status:'Provider Added Status'})),'processing_error');assert.equal(failureCalls[0].ref,'bookings:flagDiditProcessingFailure','unknown signed statuses are surfaced instead of silently acknowledged');
 
   for (const idVerifyStatus of ['manual_review', 'rejected']) {

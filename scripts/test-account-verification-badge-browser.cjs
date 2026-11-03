@@ -15,7 +15,7 @@ const wait=milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds));
  try{
   client=await connect('about:blank');await client.cmd('Page.enable');await client.cmd('Runtime.enable');await client.cmd('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/#profile`});
   for(let attempts=0;attempts<100&&!(await client.evaluate(`document.readyState!=='loading'&&document.body?.textContent.includes('Your rental workspace')===true`));attempts++)await wait(100);
-  assert.equal(await client.evaluate(`document.body?.textContent.includes('Your rental workspace')===true`),true,'account page renders before badge assertions');
+  assert.equal(await client.evaluate(`document.body?.textContent.includes('Your rental workspace')===true`),true,'account page is mounted before badge assertions');
   assert.equal(await client.evaluate(`document.body.textContent.includes('ID verified')`),false,'failed/deleted archive must not show profile badge');
   await client.evaluate(`window.fixture.me={...window.fixture.me,idVerified:true,verificationReadyUntil:Date.now()+400};window.renderFixture()`);await wait(150);
   assert.equal(await client.evaluate(`document.body.textContent.includes('ID verified')`),true,'ready account renders the actual profile badge');

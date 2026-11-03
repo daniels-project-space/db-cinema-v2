@@ -123,6 +123,9 @@ http.route({
     const result: boolean | "processing_error" = await ctx.runAction(internal.didit.webhook, {
       body,
       signature: req.headers.get("x-signature-v2") ?? "",
+      previousSignature: req.headers.get("x-signature-v2-previous") ?? undefined,
+      rawSignature: req.headers.get("x-signature") ?? undefined,
+      previousRawSignature: req.headers.get("x-signature-previous") ?? undefined,
       timestamp: req.headers.get("x-timestamp") ?? "",
     });
     return new Response(result === true ? "ok" : result === "processing_error" ? "temporarily unavailable" : "invalid", { status: result === true ? 200 : result === "processing_error" ? 500 : 400 });
