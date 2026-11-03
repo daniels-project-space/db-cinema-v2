@@ -90,6 +90,44 @@ export const listVerifiedHyggloHighlights = query({
   },
 });
 
+export const listNativePublished = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit }) => {
+    const count = Math.min(50, Math.max(1, Math.floor(limit ?? 18)));
+    const rows = await ctx.db
+      .query("reviews")
+      .withIndex("by_published_source_date", (q) =>
+        q.eq("published", true).eq("source", "native"),
+      )
+      .order("desc")
+      .take(count);
+    const withText = rows.filter((review) =>
+      review.source === "native" &&
+      !!review.text &&
+      review.text.trim().length > 8 &&
+      Number.isInteger(review.rating) &&
+      review.rating >= 1 &&
+      review.rating <= 5,
+    );
+    return Promise.all(withText.map(async (review) => {
+      const account = review.authorAccountId ? await ctx.db.get(review.authorAccountId) : null;
+      const photo = account?.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null;
+      return {
+        _id: review._id,
+        source: review.source,
+        author: review.author,
+        authorImage: photo ?? account?.googleAvatarUrl ?? review.authorImage ?? null,
+        rating: review.rating,
+        incentivized: review.incentivized ?? false,
+        encoreReward: review.encoreReward ?? false,
+        prizeEntry: review.prizeEntry ?? (!!review.incentivized && !review.encoreReward),
+        text: review.text,
+        product: review.product ?? null,
+      };
+    }));
+  },
+});
+
 export const stats = query({
   args: {},
   handler: async (ctx) => {

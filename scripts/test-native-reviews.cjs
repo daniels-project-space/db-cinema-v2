@@ -45,6 +45,7 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  await assert.rejects(reviews.submitNative.handler(ctx,args),/fully settled/,'changed payment sources invalidate prior receipt');await db.delete(pending._id);await actions.checkEligibility.handler(ctx,args);
  await reviews.submitNative.handler(ctx,args);await assert.rejects(reviews.submitNative.handler(ctx,args),/already/);
  const carousel=await reviews.listPublished.handler(ctx,{});assert.equal(carousel[0].authorImage,'https://storage.test/avatar');assert.equal(carousel[0].rating,5);
+ const nativeCarousel=await reviews.listNativePublished.handler(ctx,{limit:50});assert.equal(nativeCarousel.length,1);assert.equal(nativeCarousel[0]._id,carousel[0]._id);assert.equal(nativeCarousel[0].source,'native','The live renter carousel selects newly submitted native reviews');
  assert.equal((await reviews.stats.handler(ctx,{})).average,5);
  // Import dates must not crowd verified website reviews out of the homepage.
  for(let i=0;i<100;i++)put('reviews',{source:'hygglo',published:true,sourceRatingVerified:true,sourceRating:5,sourcePhotoVerified:true,author:'Imported '+i,authorImage:'https://hygglo.imgix.net/profile-'+i+'.jpg',rating:5,text:'A genuine imported rental review.',date:Date.now()+i+10000});
@@ -68,12 +69,16 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  for(const invalid of [{...importItem,rating:4,sourceRating:4},{...importItem,sourceRating:4},{...importItem,text:'short'},{...importItem,sourcePhotoVerified:false},{...importItem,hyggloReviewId:0}])await assert.rejects(reviews.insertChunk.handler(ctx,{token:'review-admin-test',items:[invalid]}));
  await assert.rejects(reviews.insertChunk.handler(ctx,{token:'invalid',items:[]}));
  assert.equal(reviews.clearHygglo,undefined,'destructive clear-and-reinsert mutation is retired');
- const home=fs.readFileSync('src/app/page.tsx','utf8'),header=fs.readFileSync('src/components/SiteHeader.tsx','utf8'),showcase=fs.readFileSync('src/components/HyggloReviewShowcase.tsx','utf8'),styles=fs.readFileSync('src/app/globals.css','utf8'),hero=fs.readFileSync('src/components/HeroCinematic.tsx','utf8'),homeStats=fs.readFileSync('src/components/HomeStats.tsx','utf8'),stepsStyles=fs.readFileSync('src/components/HowItWorksSteps.module.css','utf8');
+ const home=fs.readFileSync('src/app/page.tsx','utf8'),header=fs.readFileSync('src/components/SiteHeader.tsx','utf8'),showcase=fs.readFileSync('src/components/HyggloReviewShowcase.tsx','utf8'),styles=fs.readFileSync('src/app/globals.css','utf8'),hero=fs.readFileSync('src/components/HeroCinematic.tsx','utf8'),homeStats=fs.readFileSync('src/components/HomeStats.tsx','utf8'),stepsStyles=fs.readFileSync('src/components/HowItWorksSteps.module.css','utf8'),carouselUi=fs.readFileSync('src/components/ReviewCarousel.tsx','utf8');
  const reviewsRoute=fs.readFileSync('src/app/reviews/page.tsx','utf8');
  assert(home.indexOf('id="reviews"')>home.indexOf('Every department,'),'Place reviews after the department showcase');
  assert(home.indexOf('Every department,')<home.indexOf('id="reviews"')&&home.indexOf('id="reviews"')<home.indexOf('<FilmFundInvite />'),'Place reviews directly after departments and before the Film Fund section');
  assert(home.includes('lens-flare left-1/4 top-[85%] w-1/2'),'Keep the lower CTA flare clear of its headline and copy');
  assert(home.includes('<HowItWorksSteps />'),'Use the enlarged animated four-step feature cards');
+ assert.match(home,/<HyggloReviewRows reviews=\{hyggloReviews\} \/>[\s\S]*<ReviewCarousel \/>/,'Keep the imported carousel and live native renter carousel visible together');
+ assert.match(home,/\{hyggloReviews\.length >= 3 && <HyggloReviewRows reviews=\{hyggloReviews\} \/>\}/,'Imported rows render independently of the native carousel');
+ assert(carouselUi.includes('api.reviews.listNativePublished'),'The live website-review carousel reads its native-only reactive feed');
+ assert(carouselUi.includes('Reviews from our renters'),'Label the website-submitted review carousel clearly');
  assert(stepsStyles.includes('.copy { padding-bottom: 4rem; }'),'Keep mobile step copy clear of the floating contact button');
  assert(header.includes('{ href: "/#reviews", label: "Reviews" }'),'Give visitors a direct navigation link to the reviews');
  assert.match(reviewsRoute,/redirect\("\/#reviews"\)/,'Make the direct /reviews path land on the homepage review section');

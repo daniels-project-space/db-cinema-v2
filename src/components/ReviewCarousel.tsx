@@ -18,7 +18,7 @@ function Stars({ n }: { n: number }) {
 }
 
 export function ReviewCarousel() {
-  const reviews = useQuery(api.reviews.listPublished, { limit: 18 }) ?? [];
+  const reviews = useQuery(api.reviews.listNativePublished, { limit: 50 }) ?? [];
   const [perPage, setPerPage] = useState(3);
   const [page, setPage] = useState(0);
   const [fade, setFade] = useState(true);
@@ -53,6 +53,7 @@ export function ReviewCarousel() {
 
   return (
     <div data-testid="review-carousel">
+      <h3 className="mb-4 text-center font-display text-xl font-semibold text-white">Reviews from our renters</h3>
       <div
         className={`grid gap-4 transition-[opacity,transform] duration-300 md:grid-cols-3 ${
           fade ? "translate-y-0 opacity-100" : "translate-y-1.5 opacity-0"
