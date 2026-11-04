@@ -64,7 +64,9 @@ const ctx={db:h.db,runQuery:async(ref,a)=>{if(ref==='internal.settings.pickupAdd
  assert.match(accountAccessError({data:{code:'ACCESS_LINK_EXPIRED'}}),/expired/);
  assert(!accountAccessError(Error('[CONVEX A(private:function)] Secret internal provider details')).includes('CONVEX'));
  assert(!accountAccessError(Error('Secret internal provider details')).includes('Secret'));
- await h.db.patch(b._id,{status:'confirmed',idVerifyStatus:'verified',verificationExpiresAt:Date.now()+60000});const beforeReminder=mails.length;await notify.sendReminders._handler(reminderContext,{});assert.equal(mails.length,beforeReminder+1,'A still-verified rental can receive the pickup reminder');
+ h.put('accounts',{email:b.guestEmail,marketingEmails:false});
+ await h.db.patch(b._id,{status:'confirmed',idVerifyStatus:'verified',verificationExpiresAt:Date.now()+60000});assert((await bookings.remindersFeed._handler(ctx,{})).some(row=>row._id===b._id),'Turning off promotional emails does not suppress booking reminders');const beforeReminder=mails.length;await notify.sendReminders._handler(reminderContext,{});assert.equal(mails.length,beforeReminder+1,'A still-verified rental can receive the pickup reminder without promotional consent');
+ const accountPage=require('node:fs').readFileSync('src/app/account/page.tsx','utf8');assert(accountPage.includes('Email me offers and promotions'));assert(accountPage.includes('Booking reminders are separate from promotional emails'));assert(!accountPage.includes('Email me booking reminders &amp; offers'));
  await h.db.patch(b._id,{verificationExpiresAt:Date.now()-1});await notify.sendReminders._handler(reminderContext,{});assert.equal(mails.length,beforeReminder+1,'Expired verification suppresses a stale reminder');
 
  if(process.env.DBC_EMAIL_RENDER_DIR){const fs=require('node:fs'),path=require('node:path');fs.mkdirSync(process.env.DBC_EMAIL_RENDER_DIR,{recursive:true});for(const [i,name]of ['payment','verification','cancellation-credit','cancellation-refund'].entries())fs.writeFileSync(path.join(process.env.DBC_EMAIL_RENDER_DIR,name+'.html'),mails[i].html)}

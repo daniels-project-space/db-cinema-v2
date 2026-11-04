@@ -390,9 +390,10 @@ function Dashboard() {
                 onChange={(e) => setMarketing(e.target.checked)}
                 className="accent-accent-500"
               />
-              Email me booking reminders &amp; offers
+              Email me offers and promotions
 
             </label>
+            <p className="mt-2 text-xs text-white/45">Booking reminders are separate from promotional emails and may be sent for your rentals.</p>
             {saveError && (
               <p role="alert" className="mt-3 text-xs text-rose-300">
                 {saveError}
