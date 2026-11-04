@@ -1,0 +1,38 @@
+const assert = require('node:assert/strict');
+const harness = require('./lib/rentalTestHarness.cjs');
+harness.setMock('./lib/rentalExposure', { attachRenterPerson: async () => {}, assertRenterExposure: async () => {}, renterExposure: async () => {}, replacementValues: async () => {} });
+harness.setMock('./verificationArchive', { queueVerificationArchive: async () => {}, assertVerificationArchive: async () => {} });
+const bookings = harness.load('convex/bookings.ts');
+const presentation = harness.load('shared/adminNotificationPresentation.ts');
+const ctx = { db: harness.db, scheduler: { runAfter: async () => {} } };
+const booking = harness.put('bookings', { status: 'confirmed', verificationProvider: 'didit', diditSessionId: 'fixture-session', idVerifyStatus: 'processing', guestEmail: 'fixture@example.invalid', lineItems: [] });
+const notices = () => (harness.tables.get('admin_notifications') ?? []).filter(row => row.bookingId === booking._id);
+const update = (eventId, eventAt, status, extra = {}) => bookings.setDiditResult.handler(ctx, { bookingId: booking._id, sessionId: 'fixture-session', eventId, eventAt, status, poaPostcodes: [], ...extra });
+
+(async () => {
+  await update('approved-1', 100, 'verified', { providerStatus: 'Approved', personKey: 'fixture-person' });
+  assert.equal(notices().length, 1); assert.equal(notices()[0].kind, 'verification_update'); assert.match(notices()[0].title, /approved/);
+  assert.match(presentation.adminPushPresentation(notices()[0]).body, /archiving may still be in progress/);
+  await update('approved-1', 100, 'verified', { providerStatus: 'Approved', personKey: 'fixture-person' });
+  await update('approved-2', 101, 'verified', { providerStatus: 'Approved', personKey: 'fixture-person' });
+  await update('old-reject', 99, 'rejected');
+  assert.equal(notices().length, 1, 'Repeated or stale provider events do not create duplicate alerts');
+  await update('input-1', 102, 'requires_input', { providerStatus: 'Resubmitted', note: 'Sensitive document details' });
+  assert.equal(notices().at(-1).title, 'Didit resubmission reported');
+  await update('rejected-1', 103, 'rejected', { providerStatus: 'Kyc Expired', note: 'Sensitive provider details' });
+  assert.equal(notices().at(-1).title, 'Didit verification not approved');
+  assert(!JSON.stringify(presentation.adminPushPresentation(notices().at(-1))).includes('Sensitive'));
+  const before = notices().length;
+  await bookings.setDiditResult.handler(ctx, { bookingId: booking._id, sessionId: 'wrong-session', eventId: 'foreign', eventAt: 104, status: 'requires_input', poaPostcodes: [] });
+  assert.equal(notices().length, before, 'An unrelated provider session cannot create an alert');
+  const risk = harness.put('bookings', { status:'confirmed',verificationProvider:'didit',diditSessionId:'risk-session',idVerifyStatus:'processing',guestEmail:'risk@example.invalid',lineItems:[] });
+  await bookings.setDiditResult.handler(ctx, { bookingId:risk._id,sessionId:'risk-session',eventId:'risk-approved',eventAt:105,status:'verified',providerStatus:'Approved',poaPostcodes:[] });
+  const riskAlerts = (harness.tables.get('admin_notifications') ?? []).filter(row => row.bookingId === risk._id);
+  assert.equal(riskAlerts.length,1,'An identity-risk warning is not accompanied by a second success alert');assert.equal(riskAlerts[0].title,'Booking identity or allocation notice');
+  const missing = harness.put('bookings', { status:'confirmed',verificationProvider:'didit',diditSessionId:'missing-session',idVerifyStatus:'processing',guestEmail:'missing@example.invalid',lineItems:[] });
+  await bookings.setDiditResult.handler(ctx, { bookingId:missing._id,sessionId:'missing-session',eventId:'missing-address',eventAt:106,status:'manual_review',providerStatus:'Approved',checks:{identity:'approved',selfie:'approved',address:'waiting'},poaPostcodes:[] });
+  const missingAlerts = (harness.tables.get('admin_notifications') ?? []).filter(row => row.bookingId === missing._id);
+  assert.equal(missingAlerts.length,1);assert.equal(missingAlerts[0].title,'Verification needs review');assert(!missingAlerts.some(row=>row.kind==='verification_update'),'Provider approval with missing required checks never emits a success alert');
+  assert.equal(presentation.adminNotificationCategory('verification_update'), 'Verification');
+  console.log('PASS synthetic Didit approval, input and decline alerts: authenticated session binding, transition deduplication, stale rejection, privacy and truthful archive caveat. No external push.');
+})().catch(error => { console.error(error); process.exitCode = 1; });

@@ -1771,6 +1771,14 @@ export const setDiditResult = internalMutation({
     await verificationUpdateMessage(ctx, bookingId, previous, status);
     if (["confirmed", "active"].includes(b.status) && previous !== status && ["verified", "manual_review", "requires_input", "rejected"].includes(status))
       await queueRentalEmail(ctx,bookingId,"verification",{verificationStatus:status});
+    if (["confirmed", "active"].includes(b.status) && previous !== status && (status === "requires_input" || status === "rejected" || status === "verified" && providerStatus === "Approved" && !identityRiskNotice)) {
+      const account = await accountForRental(ctx, b);
+      const approved = status === "verified";
+      const resubmitted = status === "requires_input" && providerStatus === "Resubmitted";
+      await queueOwnerNotification(ctx, {eventKey:`didit-status:${bookingId}:${sessionId}:${eventId}`,kind:approved?"verification_update":"verification_failure",...(account?{accountId:account._id}:{}),bookingId,
+        title:approved?"Didit verification approved":status === "rejected"?"Didit verification not approved":resubmitted?"Didit resubmission reported":"Didit verification incomplete",
+        body:approved?"Didit approved verification. Document archiving may still be in progress.":status === "rejected"?"Didit did not approve verification. Open the rental for details.":resubmitted?"Didit reports a resubmission; verification is not complete.":"Didit reports that verification is not complete. Open the rental for details."});
+    }
     if (["confirmed", "active"].includes(b.status) && status === "manual_review" &&
         (previous !== status || (b.verificationNote ?? null) !== (note ?? null))) {
       const account = await accountForRental(ctx, b);
