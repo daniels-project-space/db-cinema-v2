@@ -33,14 +33,6 @@ export function DeliveryProtectionTile() {
   const transitionId = useRef(0);
   const transitionTimer = useRef<number | undefined>(undefined);
 
-  useEffect(() => {
-    for (const src of ["/images/home/london-delivery-20261028.webp", "/images/home/cancellation-protection-20261103.webp"]) {
-      const preload = new window.Image();
-      preload.decoding = "async";
-      preload.src = src;
-    }
-  }, []);
-
   const transitionTo = useCallback((next: boolean) => {
     if (activeSlide.current === next) return;
     window.clearTimeout(transitionTimer.current);
@@ -78,10 +70,14 @@ export function DeliveryProtectionTile() {
   }, [focused, transitionTo]);
 
   return <article data-testid="delivery-protection-tile" ref={card} className="trust-card group relative isolate h-[280px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:h-[304px]" onFocus={() => setFocused(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
-    <div data-testid="delivery-slide" aria-hidden={Boolean(transition)} inert={Boolean(transition)} className={`absolute inset-0 ${styles.layer} ${transition ? styles.exiting : styles.visible}`}>
-      <DeliverySlide protection={transition ? transition.from : protection} outgoing={Boolean(transition)} />
-    </div>
-    {transition && <div data-testid="delivery-slide-incoming" aria-hidden="true" inert className={`absolute inset-0 ${styles.layer} ${styles.entering}`}><DeliverySlide protection={transition.to} incoming /></div>}
-    <button type="button" onClick={() => transitionTo(!activeSlide.current)} aria-label={protection ? "Show London delivery" : "Show cancellation protection"} className="absolute bottom-3 right-4 z-10 rounded-full border border-white/30 bg-black/70 px-2 py-1 text-xs text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">↻</button>
+    {([false, true] as const).map(slideProtection => {
+      const isActive = protection === slideProtection;
+      const isIncoming = transition?.to === slideProtection;
+      const isOutgoing = transition?.from === slideProtection;
+      const testId = isIncoming ? "delivery-slide-incoming" : isOutgoing ? "delivery-slide-outgoing" : isActive ? "delivery-slide" : undefined;
+      return <div key={slideProtection ? "protection" : "delivery"} data-testid={testId} aria-hidden={!isActive} inert={!isActive} className={`absolute inset-0 ${styles.layer} ${isIncoming ? styles.entering : isOutgoing ? styles.exiting : isActive ? styles.visible : styles.hidden}`}>
+        <DeliverySlide protection={slideProtection} outgoing={isOutgoing} incoming={isIncoming} />
+      </div>;
+    })}
   </article>;
 }

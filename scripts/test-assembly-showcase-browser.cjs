@@ -23,10 +23,11 @@ const connect = new Function('require', source.slice(0, source.indexOf('const { 
     assert(await browser.evaluate(`document.querySelector('[data-stage="2"]') !== null`), 'Budget scene appears');
     const snapshot = `(()=>{const root=document.querySelector('[data-stage="2"]'), dial=root.querySelector('[role="img"]');return {label:dial?.getAttribute('aria-label'),total:dial?.innerText,needle:getComputedStyle(dial.querySelector('i')).transform,copy:root.innerText,hasSlider:!!root.querySelector('[role="slider"],input[type="range"]'),hasFakeTrack:!!root.querySelector('[style*="--budget-position"]')};})()`;
     const first = await browser.evaluate(snapshot); await wait(1850); const second = await browser.evaluate(snapshot);
-    assert.equal(first.label, 'Example kit £55 per day', 'Starting example uses the actual lower daily rate');
-    assert.equal(second.label, 'Example kit £180 per day', 'Higher-budget example uses the actual higher daily rate');
+    assert.equal(first.label, 'Kit budget: £55 per day', 'Starting build uses the actual lower daily rate');
+    assert.equal(second.label, 'Kit budget: £180 per day', 'Higher-budget build uses the actual higher daily rate');
     assert.equal(second.total, '£180\nPER DAY', 'Displayed amount settles on the actual higher daily rate');
-    assert.match(first.copy, /Example daily rates from the live catalogue/);
+    assert.match(first.copy, /Daily hire rates from the live catalogue/);
+    assert.doesNotMatch(first.copy, /example|placeholder/i, 'The assembly tile has no placeholder copy');
     assert.doesNotMatch(first.copy, /LEAN|MORE OPTIONS/);
     assert.equal(first.hasSlider, false, 'Showcase does not imply an interactive budget control');
     assert.equal(first.hasFakeTrack, false, 'Showcase has no decorative fake slider');

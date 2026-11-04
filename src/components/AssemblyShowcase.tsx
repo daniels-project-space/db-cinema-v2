@@ -230,7 +230,7 @@ function BudgetDial({ total, position, loading, animateChanges }: { total: numbe
   const angle = -132 + position * 2.64;
   const displayTotal = useAnimatedBudgetTotal(total, animateChanges, loading);
   return (
-    <div className={styles.dial} role="img" style={{ "--needle-turn": `${angle}deg` } as CSSProperties} aria-label={loading ? "Matching live catalogue gear" : `Example kit ${currency(total)} per day`}>
+    <div className={styles.dial} role="img" style={{ "--needle-turn": `${angle}deg` } as CSSProperties} aria-label={loading ? "Matching live catalogue gear" : `Kit budget: ${currency(total)} per day`}>
       <svg viewBox="0 0 160 160" fill="none" aria-hidden="true">
         <circle className={styles.dialOuter} cx="80" cy="80" r="70" />
         <circle className={styles.dialInner} cx="80" cy="80" r="61" />
@@ -513,8 +513,8 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
                 <BudgetDial total={budgetRaised ? examples.high.total : examples.low.total} position={budgetRaised ? highPosition : lowPosition} loading={loading} animateChanges={moving && !loading && !reducedMotion} />
                 <div className={styles.budgetCopy}>
                   <span className={styles.sceneKicker}>{budgetRaised ? "MORE ROOM" : "STARTING FIT"}</span>
-                  <strong>{loading ? "Matching live gear" : budgetRaised && hasHigherKit ? "Higher-budget example" : "Balanced example"}</strong>
-                  <p>Example daily rates from the live catalogue.</p>
+                  <strong>{loading ? "Matching live gear" : budgetRaised && hasHigherKit ? "Higher-budget kit" : "Balanced kit"}</strong>
+                  <p>Daily hire rates from the live catalogue.</p>
                 </div>
                 <div className={styles.budgetEcho} aria-hidden="true" />
               </div>

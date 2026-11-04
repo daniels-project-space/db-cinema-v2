@@ -23,7 +23,7 @@ function Rating({ label = "5 out of 5 stars" }: { label?: string }) {
 
 function Reviewer({ review }: { review: VerifiedHyggloHighlight }) {
   return (
-    <div className="flex min-w-0 items-center gap-3">
+    <div className="flex h-10 min-w-0 items-center gap-3 overflow-hidden">
       <img
         src={review.authorImage}
         alt=""
@@ -83,7 +83,7 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
       <div className="hygglo-trust-review-panel rounded-2xl border border-white/15 p-4 sm:p-5">
         <div aria-live="off">
           <Rating />
-          <blockquote key={review._id} className="hygglo-trust-review-fade hygglo-trust-review-quote mt-3 text-[13px] leading-5 text-white/90">
+          <blockquote key={review._id} className="hygglo-trust-review-fade hygglo-trust-review-quote mt-3 text-[12px] leading-[18px] text-white/90">
             “{review.text}”
           </blockquote>
         </div>

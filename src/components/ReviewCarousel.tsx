@@ -2,7 +2,7 @@
 import { REVIEW_PRIZE_GBP } from "../../shared/reviewPrize";
 
 import { ChatAvatar } from "./rentals/ChatIdentity";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { IconStar, IconChevronLeft, IconChevronRight } from "@/components/icons";
@@ -22,6 +22,7 @@ export function ReviewCarousel() {
   const [perPage, setPerPage] = useState(3);
   const [page, setPage] = useState(0);
   const [fade, setFade] = useState(true);
+  const changeTimer = useRef<number | null>(null);
 
   useEffect(() => {
     const set = () => setPerPage(window.innerWidth < 768 ? 1 : 3);
@@ -33,20 +34,25 @@ export function ReviewCarousel() {
   const pages = Math.max(1, Math.ceil(reviews.length / perPage));
   const visiblePage = Math.min(page, pages - 1);
 
-  useEffect(() => {
-    if (reviews.length <= perPage) return;
-    const t = setInterval(() => { if (document.visibilityState === "visible") change((p) => (p + 1) % pages); }, 12000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reviews.length, perPage, pages]);
-
-  function change(next: (p: number) => number) {
+  const change = useCallback((next: (p: number) => number) => {
+    if (changeTimer.current !== null) window.clearTimeout(changeTimer.current);
     setFade(false);
-    setTimeout(() => {
+    changeTimer.current = window.setTimeout(() => {
       setPage((p) => next(Math.min(p, pages - 1)) % pages);
       setFade(true);
+      changeTimer.current = null;
     }, 200);
-  }
+  }, [pages]);
+
+  useEffect(() => {
+    if (reviews.length <= perPage) return;
+    const t = window.setInterval(() => { if (document.visibilityState === "visible") change((p) => (p + 1) % pages); }, 12000);
+    return () => window.clearInterval(t);
+  }, [change, reviews.length, perPage, pages]);
+
+  useEffect(() => () => {
+    if (changeTimer.current !== null) window.clearTimeout(changeTimer.current);
+  }, []);
 
   if (reviews.length === 0) return null;
   const slice = reviews.slice(visiblePage * perPage, visiblePage * perPage + perPage);
@@ -55,7 +61,7 @@ export function ReviewCarousel() {
     <div data-testid="review-carousel">
       <h3 className="mb-4 text-center font-display text-xl font-semibold text-white">Reviews from our renters</h3>
       <div
-        className={`grid gap-4 transition-[opacity,transform] duration-300 md:grid-cols-3 ${
+        className={`grid min-h-[252px] gap-4 transition-[opacity,transform] duration-300 md:min-h-[240px] md:grid-cols-3 ${
           fade ? "translate-y-0 opacity-100" : "translate-y-1.5 opacity-0"
         }`}
       >
@@ -64,14 +70,14 @@ export function ReviewCarousel() {
             key={r._id}
             data-testid="review-card"
             data-review-source={r.source}
-            className="spot gradient-border relative flex flex-col gap-3 rounded-2xl p-5"
+            className="spot gradient-border relative flex h-[252px] min-h-0 flex-col gap-3 overflow-hidden rounded-2xl p-5 md:h-[240px]"
           >
             <span className="serif-accent pointer-events-none absolute right-4 top-1 text-6xl leading-none text-accent-400/15" aria-hidden>
               &rdquo;
             </span>
             <Stars n={r.rating} />
             {r.incentivized && <span className="text-[10px] text-amber-200/80">{r.encoreReward?"Encore benefit":""}{r.encoreReward&&r.prizeEntry?" + ":""}{r.prizeEntry?`£${REVIEW_PRIZE_GBP} story-prize entrant`:""} · incentivised review</span>}
-            <blockquote className="flex-1 text-sm leading-relaxed text-white/70">
+            <blockquote className="review-carousel-quote min-h-0 flex-1 text-sm leading-relaxed text-white/70">
               {r.text}
             </blockquote>
             <figcaption className="flex items-center gap-3 pt-2">

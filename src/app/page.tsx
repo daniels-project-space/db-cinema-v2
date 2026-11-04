@@ -17,14 +17,13 @@ import { ViewfinderHUD } from "@/components/ViewfinderHUD";
 import { GearCard, type GearListing } from "@/components/GearCard";
 import { HomeGearSearch } from "@/components/HomeGearSearch";
 import { CategoryIcon } from "@/components/CategoryIcon";
-import { Magnetic } from "@/components/Magnetic";
 import { IconArrowRight } from "@/components/icons";
 import { BadgeTruck, BadgeSquare, BadgeShield, BadgeClock } from "@/components/AnimatedIcons";
 import { HowItWorksSteps } from "@/components/HowItWorksSteps";
 import { DeliveryProtectionTile } from "@/components/DeliveryProtectionTile";
 import { CONTACT_EMAIL, SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib/site";
 import { unstable_cache } from "next/cache";
-import closingStyles from "./HomeClosing.module.css";
+import { HomeClosingAperture } from "@/components/HomeClosingAperture";
 
 const homeHyggloReviews = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.listVerifiedHyggloHighlights, { limit: 100 }), ["public-home-reviews-v4", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 300 });
 const homeBest = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.bestSellers, { limit: 8 }), ["public-home-best-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
@@ -304,24 +303,7 @@ export default async function Home() {
         </div>
       </section>
 
-      <section className={`section-window relative overflow-hidden px-6 py-28 text-center ${closingStyles.section}`} aria-labelledby="home-closing-title">
-        <div className={closingStyles.lights} aria-hidden="true"><span/><span/><span/><span/><span/></div>
-        <Reveal className="relative">
-          <p className="hud-label !text-accent-300/80">Your story is waiting</p>
-          <h2 id="home-closing-title" className="serif-accent mt-4 text-3xl text-white/85 sm:text-5xl">Your next shot <span className="gradient-text">starts here.</span></h2>
-          <p className="mx-auto mt-4 max-w-md text-white/55">Pick your dates, build your kit, and get back to the work that matters.</p>
-          <Magnetic className="mt-9"><Link href="/gear" className={closingStyles.irisButton}>
-            <svg className={closingStyles.iris} viewBox="0 0 100 100" aria-hidden="true">
-              <defs><clipPath id="closing-iris-clip"><circle cx="50" cy="50" r="46" /></clipPath></defs>
-              <circle cx="50" cy="50" r="48" className={closingStyles.irisRim} />
-              <g clipPath="url(#closing-iris-clip)" className={closingStyles.irisBlades}>
-                {[0, 60, 120, 180, 240, 300].map(angle => <g key={angle} transform={`rotate(${angle} 50 50)`}><path d="M50 2 A48 48 0 0 1 91.6 26 L63 43 L50 36 Z" /></g>)}
-              </g>
-            </svg>
-            <span>Start your booking <IconArrowRight className="h-4 w-4" /></span>
-          </Link></Magnetic>
-        </Reveal>
-      </section>
+      <HomeClosingAperture />
 
     </>
   );

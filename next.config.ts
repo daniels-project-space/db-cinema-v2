@@ -34,13 +34,24 @@ const securityHeaders = [
   { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
 ];
 
+const gearPreviewHeaders = securityHeaders.map((header) =>
+  header.key === "X-Frame-Options"
+    ? { ...header, value: "SAMEORIGIN" }
+    : header.key === "Content-Security-Policy"
+      ? { ...header, value: csp.replace("frame-ancestors 'none'", "frame-ancestors 'self'") }
+      : header,
+);
+
 const nextConfig: NextConfig = {
   poweredByHeader: false, // hide "X-Powered-By: Next.js"
   productionBrowserSourceMaps: false, // don't ship source maps to the browser
   // react-pdf (invoice route) ships its own fonts/wasm — keep it external so Next doesn't bundle it
   serverExternalPackages: ["@react-pdf/renderer"],
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      { source: "/gear", headers: gearPreviewHeaders },
+    ];
   },
 };
 
