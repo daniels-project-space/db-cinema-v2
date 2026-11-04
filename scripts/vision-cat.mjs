@@ -4,6 +4,8 @@
 import { ConvexHttpClient } from "convex/browser";
 import { readFileSync } from "node:fs";
 
+const adminToken = process.env.ADMIN_TOKEN;
+if (process.env.apply === "1" && !adminToken) throw new Error("ADMIN_TOKEN is required to apply classification changes");
 const env = Object.fromEntries(readFileSync(".env.local", "utf8").split(/\r?\n/).filter((l) => l.includes("=")).map((l) => { const i = l.indexOf("="); return [l.slice(0, i), l.slice(i + 1)]; }));
 const vault = new ConvexHttpClient("https://fantastic-roadrunner-485.convex.cloud");
 const ork = await vault.query("secrets:getOne", { service: "openrouter", keyName: "OPENROUTER_API_KEY" });
@@ -53,6 +55,6 @@ if (process.env.apply === "1" && mism.length) {
   // only apply clear, safe flips (not into the vague 'accessory', and not bundles the vision likely misread)
   const safe = mism.filter((m) => m.vision !== "accessory" && !/\+|\bset\b|\bkit\b|bundle/i.test(m.title));
   console.log(`\napplying ${safe.length} safe corrections...`);
-  const r = await c.mutation("sync:setItemTypes", { updates: safe.map((m) => ({ id: m.id, itemType: m.vision })) });
+  const r = await c.mutation("sync:setItemTypes", { token: adminToken, updates: safe.map((m) => ({ id: m.id, itemType: m.vision })) });
   console.log("applied:", JSON.stringify(r));
 }

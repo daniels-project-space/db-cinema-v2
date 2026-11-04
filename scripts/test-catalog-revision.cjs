@@ -26,7 +26,7 @@ const ctx = { db };
   assert.equal(await catalog.publicRevision.handler(ctx, {}), 'v2:3', 'Suppression invalidates cached discovery');
   await sync.suppressByIds.handler(ctx, { ids: [], suppressed: false });
   assert.equal(await catalog.publicRevision.handler(ctx, {}), 'v2:3');
-  await sync.setItemTypes.handler(ctx, { updates: [{ id: row._id, itemType: 'accessory' }] });
+  await sync.setItemTypes.handler(ctx, { token: process.env.ADMIN_TOKEN, updates: [{ id: row._id, itemType: 'accessory' }] });
   assert.equal(await catalog.publicRevision.handler(ctx, {}), 'v2:4', 'Classification changes invalidate cached discovery');
   row.quietDeal = 10;
   await catalog.refreshQuietDeals.handler(ctx, {});

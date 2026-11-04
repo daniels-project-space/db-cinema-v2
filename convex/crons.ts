@@ -52,7 +52,7 @@ crons.interval("expire-rental-verifications", { hours: 1 }, internal.bookings.ex
 crons.interval("expire-credits", { hours: 24 }, internal.credits.expire, {});
 
 // Keep the storefront catalog fresh from RMv2 (listings, pricing, images-source).
-crons.interval("sync-rmv2-catalog", { minutes: 30 }, api.sync.syncFromRmv2, {});
+crons.interval("sync-rmv2-catalog", { minutes: 30 }, internal.sync.syncFromRmv2, {});
 
 // Mirror all upstream shared stock, repair holds and owner blocks. Website
 // reservations stay local; their manager copies are excluded to avoid duplication.
@@ -67,7 +67,7 @@ crons.interval(
 
 // Demand is historical analytics, not live availability. Recompute daily
 // rather than rereading the history during every reservation sync.
-crons.interval("refresh-rental-demand", { hours: 24 }, api.sync.refreshDemandFromRmv2, {});
+crons.interval("refresh-rental-demand", { hours: 24 }, internal.sync.refreshDemandFromRmv2, {});
 
 // Sweep stale API rate-limit rows.
 crons.interval("sweep-rate-limits", { hours: 24 }, internal.rateLimit.sweep, {});

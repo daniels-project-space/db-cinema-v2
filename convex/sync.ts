@@ -121,7 +121,7 @@ type RawProduct = {
   stockMapping?: {version:number;complete:boolean;owned:boolean|null;components:{masterItemId:string;name:string;qty:number;quantityOwned:number;active:boolean;replacementCost:number}[];inventoryFacts?:{version:1;contents:string[];optionalContents:string[];reviewRequired:boolean;owned:boolean|null}};
 };
 
-export const syncFromRmv2 = action({
+export const syncFromRmv2 = internalAction({
   args: {},
   handler: async (ctx): Promise<{ listings: number; units: number }> => {
     const products: RawProduct[] = await rmv2Query("hygglo_products:catalogueForStorefront", {
@@ -609,7 +609,7 @@ export const refreshCartStock = action({
 /** Demand changes slowly; refresh it daily instead of during every 15-minute
  * availability mirror. This keeps recommendation quality while removing the
  * largest repeated cross-project history read. */
-export const refreshDemandFromRmv2 = action({
+export const refreshDemandFromRmv2 = internalAction({
   args: {},
   handler: async (ctx) => {
     const all: any[] = await rmv2Query("reservations:listForReconcile", {
@@ -744,8 +744,9 @@ export const suppressByIds = internalMutation({
  * This is the durable, data-driven "what exists vs what doesn't" check.
  */
 export const reconcileCameras = action({
-  args: { apply: v.optional(v.boolean()) },
-  handler: async (ctx, { apply }): Promise<any> => {
+  args: { apply: v.optional(v.boolean()), token: v.string() },
+  handler: async (ctx, { apply, token }): Promise<any> => {
+    await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "sync.reconcileCameras" });
     const items: any[] = await rmv2Query("items:listForReconcile", {});
     const owned = new Set<string>();
     for (const i of items) { const m = camModel(i.name); if (m) owned.add(m); }
@@ -764,8 +765,9 @@ export const reconcileCameras = action({
 
 // apply vision-validated itemType corrections (one-off, from scripts/vision-cat.mjs)
 export const setItemTypes = mutation({
-  args: { updates: v.array(v.object({ id: v.id("listings"), itemType: v.string() })) },
-  handler: async (ctx, { updates }) => {
+  args: { token: v.string(), updates: v.array(v.object({ id: v.id("listings"), itemType: v.string() })) },
+  handler: async (ctx, { token, updates }) => {
+    await assertAdmin(ctx, token, "sync.setItemTypes");
     for (const u of updates) await ctx.db.patch(u.id, { itemType: u.itemType });
     if (updates.length) await bumpCatalogRevision(ctx);
     return { updated: updates.length };
@@ -773,8 +775,9 @@ export const setItemTypes = mutation({
 });
 
 export const reclassify = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await assertAdmin(ctx, token, "sync.reclassify");
     const ls = await ctx.db.query("listings").collect();
     let n = 0;
     for (const l of ls) {
@@ -794,8 +797,9 @@ export const reclassify = mutation({
 // (taxonomy.categoryFor / isGenuineBundle). One-time purge of the old mis-categories;
 // the 30-min sync keeps them correct afterwards via applyCatalog.
 export const recategorize = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await assertAdmin(ctx, token, "sync.recategorize");
     const ls = await ctx.db.query("listings").collect();
     let n = 0;
     for (const l of ls) {
@@ -812,8 +816,9 @@ export const recategorize = mutation({
 });
 
 export const respec = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await assertAdmin(ctx, token, "sync.respec");
     const ls = await ctx.db.query("listings").collect();
     let n = 0;
     for (const l of ls) {
