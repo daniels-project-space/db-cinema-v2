@@ -19,6 +19,7 @@ import { ScrollProgress } from "@/components/ScrollProgress";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import { BotBubble } from "@/components/BotBubble";
 import { FormSevenPrewarm } from "@/components/FormSevenPrewarm";
+import { HomeApertureTransitionProvider } from "@/components/HomeApertureTransition";
 import { CONTACT_EMAIL, SITE_URL } from "@/lib/site";
 
 // Flip NEXT_PUBLIC_SITE_LIVE=true on Vercel at launch → site becomes indexable.
@@ -145,10 +146,12 @@ export default function RootLayout({
                 {/* Inside Account + Cart (its tools read both) and outside the
                     page tree, so a call survives Gaffer navigating between pages. */}
                 <GafferSessionProvider>
-                  <div id="main-content" tabIndex={-1} className="relative z-10">
-                    {children}
-                    <Footer />
-                  </div>
+                  <HomeApertureTransitionProvider>
+                    <div id="main-content" tabIndex={-1} className="relative z-10">
+                      {children}
+                      <Footer />
+                    </div>
+                  </HomeApertureTransitionProvider>
                   <CartDrawer />
                   <CartToast />
                   <BotBubble />

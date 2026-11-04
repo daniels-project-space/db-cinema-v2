@@ -3388,3 +3388,6 @@ html[data-gaffer-nav="1"] .tile-in {
 .trust-symbol { box-shadow:0 0 26px color-mix(in srgb,var(--color-accent-400) 14%,transparent); }
 @keyframes trust-edge { to { --trust-angle:360deg; } }
 @media(prefers-reduced-motion:reduce) { .trust-card::after { animation:none; } .trust-card-image { transition:none; } }
+
+body[data-aperture-transition] .launcher:not([data-on-call="true"]),
+body[data-aperture-transition] .chat-panel { opacity:0; pointer-events:none; visibility:hidden; transition:opacity .3s ease,visibility 0s linear .3s; }

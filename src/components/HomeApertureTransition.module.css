@@ -1,0 +1,4 @@
+.portal { position: fixed; z-index: 10000; inset: 0; overflow: hidden; pointer-events: auto; background: #030304; }
+.homeStage { pointer-events: none; background: transparent; }
+.curtain { position: absolute; inset: 0; background: radial-gradient(ellipse at var(--aperture-x, 50vw) var(--aperture-y, 50vh), #101012 0, #030304 42%, #000 100%); }
+.particleField { position: absolute; inset: 0; pointer-events: none; }
