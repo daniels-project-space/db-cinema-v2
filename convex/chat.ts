@@ -6,6 +6,7 @@ import { accountForRental } from "./lib/rentalAccount";
 import { bookingCancelKind, cancellationDaysForBooking } from "../src/lib/cancellationPolicy";
 import { contentsText } from "../shared/rentalContents";
 import { verificationExpired } from "../shared/verificationProgress";
+import { gafferBookingStatus } from "./lib/gafferBookingGuidance";
 import { query, mutation, internalQuery, internalMutation, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
@@ -92,13 +93,6 @@ export const _gafferContext = internalQuery({
       : (await ctx.db.query("messages").withIndex("by_account_at",q=>q.eq("accountId",accountId)).filter(q=>q.eq(q.field("bookingId"),undefined)).order("desc").take(12));
     const msgs=rawMessages.reverse().map(m=>({_id:m._id,sender:m.sender,text:m.text}));
     const pick:any=focusBookingId?await ownedBooking(ctx,acct,focusBookingId):null;
-    const STATUS_PHRASE: Record<string, string> = {
-      pending_payment: "NOT YET CONFIRMED — an unpaid draft; the customer must complete checkout to confirm it",
-      confirmed: "confirmed",
-      active: "out now (rental in progress)",
-      returned: "completed and returned",
-      cancelled: "cancelled",
-    };
     let booking: any = null;
     if (pick) {
       const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -127,11 +121,11 @@ export const _gafferContext = internalQuery({
         stage:pick.status,
         verification:{status:pick.idVerifyStatus ?? "required",checks:pick.verificationChecks ?? null,expired:verificationExpired(pick)},
         cancellation:{fullRefundDays:cancellationDaysForBooking(pick),policy:pick.cancellationDecision?.kind??bookingCancelKind(pick,Date.now()),cardRefund:pick.refundAmount??null,creditIssued:creditIssue?creditIssue.amountPence/100:credit?.amount??0,creditBonus:(creditIssue?.bonusPence??0)/100,creditExpiresAt:creditIssue?.expiresAt??credit?.expiresAt??null,rentalRefunds:refunds.map(r=>({amount:r.amountPence/100,status:r.status}))},
-        payment:{securityPolicyVersion:pick.securityPolicyVersion??null,savedCardLimit:pick.savedCardLimit??null,total:pick.total,securityPaid:pick.depositAmount,securityRefunded:pick.depositRefundAmount??null,depositRefunded:!!pick.depositRefunded,securityRetained:pick.depositKept??0,holdStatus:pick.depositHoldStatus??null,savedCardChargePaidPence:pick.savedCardChargePaidPence??0,savedCardChargeReservedPence:pick.savedCardChargeReservedPence??0,lateFee:pick.lateFeeAmount??0,lateFeeStatus:pick.lateFeeStatus??null},
+        payment:{securityPolicyVersion:pick.securityPolicyVersion??null,savedCardLimit:pick.savedCardLimit??null,total:pick.total,securityPaid:["confirmed","active","returned"].includes(pick.status)?pick.depositAmount:null,securityExpected:pick.status==="pending_payment"?pick.depositAmount:null,securityRefunded:pick.depositRefundAmount??null,depositRefunded:!!pick.depositRefunded,securityRetained:pick.depositKept??0,holdStatus:pick.depositHoldStatus??null,savedCardChargePaidPence:pick.savedCardChargePaidPence??0,savedCardChargeReservedPence:pick.savedCardChargeReservedPence??0,lateFee:pick.lateFeeAmount??0,lateFeeStatus:pick.lateFeeStatus??null},
         summary: pick.lineItems.map((li: any) => li.title).join(", "),
         dates: `${iso(start)} → ${iso(end)}`,
         fulfilment: pick.fulfilment,
-        status: STATUS_PHRASE[pick.status] ?? pick.status,
+        status: gafferBookingStatus(pick),
         pickupTime: pick.pickupTime ?? null,
         returnTime: pick.returnTime ?? null,
       };
@@ -141,7 +135,7 @@ export const _gafferContext = internalQuery({
     return {
       accountCredit:{available:availableCreditPence/100,expiresAt:creditRows.find((row:any)=>row.availablePence>0)?.expiresAt??null,currency:"GBP",selection:"Choose Use account credit at checkout; it is not automatically spent",nonRefundable:true,securityAndMembershipExcluded:true},
       checkoutUi:{accountCredit:"Header credit bar opens Account credit and receipts. Checkout shows the credit checkbox only when an available balance exists.",cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true",cancellationProtection:"Free shield card at checkout opens the policy. After DB cancels before pickup and the one-hour account decision, eligible renters receive private email links to review a full refund or 130% rental credit, with refundable deposit returned separately. No choice is executed by opening a link."},
-      accountRentals: (await rentalsForAccount(ctx,acct,10)).map(b => ({id:b._id,status:b.status,items:b.lineItems.map((i:any)=>({title:i.title,qty:i.qty,start:i.start,end:i.end})),total:b.total,securityPaid:b.depositAmount})),
+      accountRentals: (await rentalsForAccount(ctx,acct,10)).map(b => ({id:b._id,status:gafferBookingStatus(b),items:b.lineItems.map((i:any)=>({title:i.title,qty:i.qty,start:i.start,end:i.end})),total:b.total,securityPaid:["confirmed","active","returned"].includes(b.status)?b.depositAmount:null,securityExpected:b.status==="pending_payment"?b.depositAmount:null})),
       email: acct.email,
       gafferGeneration: thread?.gafferGeneration ?? 0,
       escalated: !!thread?.escalated,
