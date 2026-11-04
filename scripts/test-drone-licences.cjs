@@ -42,6 +42,9 @@ const upload=storageId=>({bookingId:booking._id,token:'owner',storageId,sha256:'
  assert.equal(rows.length,1);assert.equal(rows[0].source,'drone');assert.equal(rows[0].documents[0].kind,'drone-operator-licence');assert.equal(rows[0].documents[0].storageId,undefined);
  assert.equal((await archives.accountDocuments.handler(ctx,{token:'fixture-admin',accountId:other._id})).length,0);
  const admin=await licences.adminDetails.handler(ctx,{token:'fixture-admin',bookingId:booking._id});assert.equal(admin.documentId,result.documentId);assert.equal(admin.url,undefined);
+ const foreignBooking=put('bookings',{accountId:other._id,status:'confirmed',lineItems:[{listingId:drone._id}],droneLicenceDocumentId:result.documentId,droneLicenceStorageId:'valid-file'});assert.equal((await licences.adminDetails.handler(ctx,{token:'fixture-admin',bookingId:foreignBooking._id})).documentId,null,'A foreign rental pointer cannot disclose this document');
+ const doc=await db.get(result.documentId),docArchive=await db.get(doc.archiveId);for(const [row,key,value] of [[doc,'kind','identity'],[docArchive,'source','didit'],[docArchive,'sessionId','drone:other']]){const before=row[key];row[key]=value;assert.equal((await licences.adminDetails.handler(ctx,{token:'fixture-admin',bookingId:booking._id})).documentId,null);row[key]=before;}
+ booking.droneLicenceStorageId='different-file';assert.equal((await licences.adminDetails.handler(ctx,{token:'fixture-admin',bookingId:booking._id})).documentId,null);booking.droneLicenceStorageId='valid-file';
  assert.equal((await db.query('admin_notifications').collect()).length,1,'New upload reaches the real team notification list');
  assert.equal((await db.query('messages').collect()).length,1,'Upload is logged in the permanent account rental conversation');
  await assert.rejects(()=>licences.review.handler(ctx,{token:'fixture-admin',bookingId:booking._id,documentId:result.documentId,decision:'approved',note:'ok'}),/Record/);

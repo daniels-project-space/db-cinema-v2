@@ -49,7 +49,7 @@ export const adminDetails=query({args:{token:v.string(),bookingId:v.id("bookings
   const document=booking.droneLicenceDocumentId?await ctx.db.get(booking.droneLicenceDocumentId):null;
   const archive=document?await ctx.db.get(document.archiveId):null;
   const retention=archive?await archiveRetention(ctx,archive):null;
-  const available=!!document && !!archive && !!retention?.viewable && await documentCopyAvailable(ctx,archive,document);
+  const available=!!document && !!archive && document.bookingId===booking._id && archive.bookingId===booking._id && archive.source==="drone" && document.kind==="drone-operator-licence" && archive.sessionId===`drone:${booking._id}` && document.storageId===booking.droneLicenceStorageId && !!retention?.viewable && await documentCopyAvailable(ctx,archive,document);
   return {status:await droneLicenceStatusForRental(ctx,booking),note:booking.droneLicenceNote,documentId:available?document!._id:null,expiresAt:retention?.expiresAt??null,legacy:!!booking.droneLicenceStorageId&&!booking.droneLicenceDocumentId,canReview:booking.status==="confirmed"&&verificationCanStart(booking)};
 }});
 export const archiveExisting=mutation({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,args)=>{
