@@ -122,7 +122,7 @@ export async function assertVerificationArchive(ctx: any, booking: any) {
   throw Error("Verification document copies must be fully archived and within their retention period before handover. Check account documents or complete a new verification.");
 }
 export const reuseReadCandidate=internalQuery({args:{bookingId:v.id("bookings")},handler:async(ctx,{bookingId})=>{
-  const booking=await ctx.db.get(bookingId);if(!booking?.diditSessionId)return null;
+  const booking=await ctx.db.get(bookingId);if(!booking?.diditSessionId||booking.identityRiskNotice)return null;
   const archives=await ctx.db.query("verification_archives").withIndex("by_booking",query=>query.eq("bookingId",bookingId)).collect();
   for(const archive of archives){
     if(archive.sessionId!==booking.diditSessionId||archive.status!=="complete"||!(await archiveRetention(ctx,archive)).viewable)continue;

@@ -167,6 +167,8 @@ function signed(event) {
     runMutation: async (ref, args) => { calls.push({ref,args}); return true; },
   };
   const originalFetch = global.fetch;
+  await assert.rejects(adminReview.handler({...reviewCtx,runQuery:async()=>({...reviewBooking,idVerifyStatus:'rejected'})},{token:'admin',bookingId:'booking-1',decision:'approve',note:'Reviewed identity evidence'}),/not awaiting Didit review/);
+  assert.equal(calls.some(x=>x.options?.method==='PATCH'),false,'a locally rejected case cannot send an approval');calls.length=0;
   try {
     let sentBody;
     global.fetch = async (_url, options) => {
@@ -206,23 +208,32 @@ function signed(event) {
       if (options.method === 'PATCH') return new Response(JSON.stringify({session_id:'session-1'}),{status:200});
       return new Response(JSON.stringify(report),{status:200});
     };
-    await adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'resubmit',note:'Please replace the ID'});
-    const patchCall = calls.find(x=>x.options?.method === 'PATCH');
-    assert.deepEqual(JSON.parse(patchCall.options.body).nodes_to_resubmit,[{node_id:'feature_ocr',feature:'OCR'}]);
-    assert.equal(calls.find(x=>x.ref === 'bookings:setDiditManualReview').args.decision,'resubmit');
+    await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'resubmit',note:'Please replace the ID'}),/Didit Business Console/);
+    assert.equal(calls.some(x=>x.options?.method==='PATCH'),false,'Resubmission must be requested directly in Didit');
     calls.length = 0;
     report.status = 'Approved';
+    await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'approve',note:'Address evidence reviewed'}),/failed or missing checks/);
+    assert.equal(calls.some(x=>x.options?.method === 'PATCH'),false);assert.equal(calls.some(x=>x.ref === 'bookings:setDiditManualReview'),false);
+    report.id_verifications[0].status = 'Approved';
     await adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'approve',note:'Address evidence reviewed'});
     assert.equal(calls.some(x=>x.options?.method === 'PATCH'),false,'already approved provider case must not be patched twice');
+    assert.equal(calls.find(x=>x.ref==='bookings:setDiditResult').args.status,'verified','An already approved case reconciles as provider-sourced');assert.equal(calls.find(x=>x.ref==='bookings:setDiditResult').args.requireApplied,true);assert.equal(calls.some(x=>x.ref==='bookings:setDiditManualReview'),false);
+    report.status='In Review';report.poa_verifications[0].status='In Review';calls.length=0;
+    await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'approve',note:'Address evidence reviewed'}),/Approve it in Didit Business Console/);
+    assert.equal(calls.some(x=>x.options?.method==='PATCH'),false,'The website cannot override a provider review or a concurrent decline');
+    assert.equal(calls.some(x=>x.ref==='bookings:setDiditManualReview'),false);
+    report.face_matches=[];calls.length=0;
+    await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'approve',note:'Address evidence reviewed'}),/failed or missing checks/);
+    assert.equal(calls.some(x=>x.options?.method==='PATCH'),false);report.face_matches=[{status:'Approved',node_id:'feature_face'}];
+    report.status='Approved';report.poa_verifications[0].status='Approved';
     calls.length = 0;
-    await adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'resubmit',note:'Postcode does not match booking'});
-    assert.deepEqual(JSON.parse(calls.find(x=>x.options?.method === 'PATCH').options.body).nodes_to_resubmit,
-      [{node_id:'feature_ocr',feature:'OCR'}],'failed steps take priority over an address-only redo');
+    report.id_verifications[0].status = 'Declined';
+    await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'resubmit',note:'Postcode does not match booking'}),/Didit Business Console/);
+    assert.equal(calls.some(x=>x.options?.method==='PATCH'),false);
     report.id_verifications[0].status = 'Approved';
     calls.length = 0;
-    await adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'resubmit',note:'Postcode does not match booking'});
-    assert.deepEqual(JSON.parse(calls.find(x=>x.options?.method === 'PATCH').options.body).nodes_to_resubmit,
-      [{node_id:'feature_poa',feature:'PROOF_OF_ADDRESS'}],'an address mismatch reopens PoA when all features passed');
+    await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'decline',note:'Identity evidence needs review'}),/Didit Business Console/);
+    assert.equal(calls.some(x=>x.options?.method==='PATCH'),false,'Decline cannot race and overwrite provider approval');
     calls.length = 0;
     report.vendor_data = 'dbc-booking-another';
     await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'approve',note:'Address evidence reviewed'}),/does not match/);
@@ -298,8 +309,12 @@ function signed(event) {
       return new Response(JSON.stringify(options.method === 'PATCH' ? {detail:'denied'} : report),
         {status:options.method === 'PATCH' ? 403 : 200});
     };
-    await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'approve',note:'Reviewed identity evidence'}),/did not accept/);
+    await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'approve',note:'Reviewed identity evidence'}),/cannot be approved/);
+    assert.equal(calls.some(x=>x.options?.method === 'PATCH'),false,'declined cases cannot be overridden');
     assert.equal(calls.some(x=>x.ref === 'bookings:setDiditManualReview'),false,'failed provider writes must not approve the rental');
+    report.status='In Review';calls.length=0;
+    await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'approve',note:'Reviewed identity evidence'}),/Approve it in Didit Business Console/);
+    assert.equal(calls.some(x=>x.ref === 'bookings:setDiditManualReview'),false,'website review cannot approve the provider case');
   } finally { global.fetch = originalFetch; }
   // Expired approval renews only for the bound, paid renter. Old documents remain archived.
   const expiredBooking = {...reviewBooking,idVerifyStatus:'verified',verificationExpiresAt:Date.now()-1};
@@ -322,13 +337,10 @@ function signed(event) {
   assert.equal(await setDiditSession.handler(expiredDb,{bookingId:'booking-1',sessionId:'new-renew-session',previousSessionId:'session-1'}),true);
   assert.equal(reset.idVerifyStatus,'processing');assert.equal(reset.verificationExpiresAt,undefined);assert.equal(reset.documentExpiresAt,undefined);assert.equal(reset.verificationReusedFrom,undefined);assert.equal(reset.idVerifiedAt,undefined);assert.equal(reset.idVerificationSource,undefined);
   assert.equal(await setDiditSession.handler(expiredDb,{bookingId:'booking-1',sessionId:'stale-session',previousSessionId:'not-current'}),false,'renewal uses compare-and-set against the exact previous case');
-  let reviewPatch;const queuedEmails=[];
-  assert.equal(await setDiditManualReview.handler({
-    db:{get:async()=>reviewBooking,patch:async(_id,value)=>{reviewPatch=value;},insert:async(table,value)=>{assert.equal(table,"rental_email_deliveries");queuedEmails.push(value);return "delivery-fixture";},query:()=>({withIndex:()=>({first:async()=>null,collect:async()=>[],order:()=>({take:async()=>[]})})})},
-    scheduler:{runAfter:async()=>{}},
-  },{bookingId:'booking-1',sessionId:'session-1',decision:'resubmit',note:'Replace ID'}),true);
-  assert.equal(reviewPatch.idVerifyStatus,'requires_input');assert.equal(queuedEmails.length,1);assert.equal(queuedEmails[0].verificationStatus,'requires_input');
-  assert.ok(reviewPatch.diditManualDecisionAt > 0);
+  for(const decision of ['approve','resubmit','decline'])assert.equal(await setDiditManualReview.handler({},{bookingId:'booking-1',sessionId:'session-1',decision,note:'Reviewed'}),false,'A stale internal manual decision cannot alter provider status');
+  let rejectedPatch=false;assert.equal(await setDiditManualReview.handler({db:{get:async()=>({...reviewBooking,idVerifyStatus:'rejected'}),patch:async()=>{rejectedPatch=true}}},{bookingId:'booking-1',sessionId:'session-1',decision:'approve',note:'Reviewed'}),false);assert.equal(rejectedPatch,false,'a later provider rejection cannot be overridden by a stale review');
+  let racedPatch=false;assert.equal(await setDiditManualReview.handler({db:{get:async()=>({...reviewBooking,diditEventId:'new-signed-event',diditEventAt:100}),patch:async()=>{racedPatch=true}}},{bookingId:'booking-1',sessionId:'session-1',decision:'approve',note:'Reviewed',expectedEventId:null,expectedEventAt:null,expectedManualDecisionAt:null}),false);assert.equal(racedPatch,false,'Any newer signed provider event fences a stale manual review even when status is unchanged');
+  assert.equal(await setDiditResult.handler({db:{get:async()=>({...reviewBooking,diditEventId:'new-signed-event',diditEventAt:100})}},{bookingId:'booking-1',sessionId:'session-1',eventId:'stale-reconcile',eventAt:101,status:'verified',providerStatus:'Approved',poaPostcodes:[],reconciliation:true,requireApplied:true,expectedEventId:null,expectedEventAt:null,expectedManualDecisionAt:null}),false,'A newer signed event prevents stale provider reconciliation from claiming success');
   let stalePatch = false;
   await setDiditResult.handler({db:{get:async()=>({...reviewBooking,diditManualDecisionAt:now*1000+1000}),patch:async()=>{stalePatch=true;}}},
     {bookingId:'booking-1',sessionId:'session-1',eventId:'stale',eventAt:now*1000,

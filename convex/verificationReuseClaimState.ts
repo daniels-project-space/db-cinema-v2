@@ -12,7 +12,7 @@ function profileMatches(account:any,booking:any) {
 }
 async function eligible(ctx:any,account:any,booking:any,requireProfile=true) {
   if(process.env.VERIFICATION_ARCHIVE_REUSE_ENABLED!=="true" || !account || account.blockedAt!=null || account.emailVerificationRequired && !account.emailVerifiedAt || !booking || booking.accountId!==account._id || booking.accountAccessRequired!==true ||
-    !booking.diditSessionId || booking.verificationReuseBlockedSessionId===booking.diditSessionId || booking.idVerificationSource!=="didit" || booking.idVerifyStatus!=="verified" ||
+    !booking.diditSessionId || booking.identityRiskNotice || booking.verificationReuseBlockedSessionId===booking.diditSessionId || booking.idVerificationSource!=="didit" || booking.idVerifyStatus!=="verified" ||
     !["identity","selfie","address"].every(key=>booking.verificationChecks?.[key]==="approved") || !booking.renterPersonKey || !booking.idVerifiedAt || !booking.documentExpiresAt ||
     Math.min(booking.idVerifiedAt+VERIFICATION_REUSE_DAYS*86400000,booking.documentExpiresAt)<=Date.now())return false;
   const email=(account.email??"").trim().toLowerCase();

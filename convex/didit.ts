@@ -230,46 +230,36 @@ export const adminReview = action({
         !["confirmed", "active"].includes(booking.status) ||
         !["manual_review", "rejected"].includes(booking.idVerifyStatus))
       throw new Error("Only a paid rental with a completed Didit case can be reviewed here.");
+    if (decision === "approve" && booking.idVerifyStatus !== "manual_review")
+      throw new Error("The rental is not awaiting Didit review. Refresh the case or request resubmission.");
     const cfg = config();
+    const readStartedAt = Date.now();
     const session = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(bookingId), booking.guestEmail);
     if (session.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
     if (!["Approved", "Declined", "In Review", "Kyc Expired", "Abandoned", "Resubmitted"].includes(session.status))
       throw new Error("This verification is still in progress or expired; it cannot be manually decided.");
-    if (decision === "approve" && !["Approved", "Declined", "In Review"].includes(session.status))
-      throw new Error("Review a completed identity, selfie and address case before approving it.");
-
-    const next = decision === "approve" ? "Approved" : decision === "decline" ? "Declined" : "Resubmitted";
-    if (session.status !== next) {
-      const body: Record<string, unknown> = { new_status: next, comment: `Db Cinema Rentals review: ${reason}` };
-      if (decision === "resubmit") {
-        const features = [
-          ["id_verifications", "OCR"], ["liveness_checks", "LIVENESS"],
-          ["face_matches", "FACE_MATCH"], ["poa_verifications", "PROOF_OF_ADDRESS"],
-        ] as const;
-        const needsRedo = features.flatMap(([field, feature]) =>
-          (Array.isArray(session[field]) ? session[field] : [])
-            .filter((item: any) => item?.status !== "Approved" && typeof item?.node_id === "string")
-            .map((item: any) => ({ node_id: item.node_id, feature })));
-        const addressOnly = (Array.isArray(session.poa_verifications) ? session.poa_verifications : [])
-          .filter((item: any) => typeof item?.node_id === "string")
-          .map((item: any) => ({ node_id: item.node_id, feature: "PROOF_OF_ADDRESS" }));
-        body.nodes_to_resubmit = needsRedo.length ? needsRedo : addressOnly;
-        if (!(body.nodes_to_resubmit as unknown[]).length)
-          throw new Error("No document step is available to resubmit. Review the case in Didit Business Console.");
+    if (decision === "approve") {
+      if (!["Approved", "In Review"].includes(session.status))
+        throw new Error("This Didit case cannot be approved; request resubmission for failed documents.");
+      const fields = ["id_verifications", "liveness_checks", "face_matches", "poa_verifications"] as const;
+      const valid = fields.every(field => Array.isArray(session[field]) && session[field].length > 0 && session[field].every((item:any) =>
+        item?.status === "Approved" || session.status === "In Review" && item?.status === "In Review"));
+      if (!valid) throw new Error("All required Didit checks must be approved or awaiting review; request resubmission for failed or missing checks.");
+      if (session.status === "Approved") {
+        const mapped = mapDecision(session.status, session);
+        if (!mapped || mapped.status !== "verified") throw new Error("The approved Didit decision could not be reconciled.");
+        const saved: boolean = await ctx.runMutation(internal.bookings.setDiditResult, {
+          bookingId, sessionId:booking.diditSessionId, eventId:`manual-reconcile-${booking.diditSessionId}-${readStartedAt}`,
+          eventAt:readStartedAt, providerStatus:session.status, ...mapped, reconciliation:true, requireApplied:true,
+          expectedEventId:booking.diditEventId ?? null, expectedEventAt:booking.diditEventAt ?? null, expectedManualDecisionAt:booking.diditManualDecisionAt ?? null,
+        });
+        if (!saved) throw new Error("The rental changed during review. Check its current status and the Didit case.");
+        return;
       }
-      const res = await fetch(`${sessionApi}${booking.diditSessionId}/update-status/`, {
-        method: "PATCH", headers: { "content-type": "application/json", "x-api-key": cfg.apiKey },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error("Didit did not accept the review decision. Refresh the case and try again.");
-      const updated: { session_id?: string } = await res.json();
-      if (updated.session_id !== booking.diditSessionId)
-        throw new Error("Didit returned a different case. Check the provider decision before continuing.");
+      throw new Error("This case is awaiting Didit review. Approve it in Didit Business Console, then refresh verification here.");
     }
-    const saved: boolean = await ctx.runMutation(internal.bookings.setDiditManualReview, {
-      bookingId, sessionId: booking.diditSessionId, decision, note: reason, personKey: mapDecision(session.status, session)?.personKey,
-    });
-    if (!saved) throw new Error("The rental changed during review. Check its current status and the Didit case.");
+
+    throw new Error("Review this case in Didit Business Console, then refresh verification here. The website cannot change Didit decisions.");
   },
 });
 
@@ -311,7 +301,8 @@ async function refreshBoundProgress(ctx: any, bookingId: any, booking: any): Pro
     // Polling is for progress, not a synthetic new document event on every
     // tick. Signed data.updated webhooks and full reconciliation still capture
     // document changes; identical progress must not reset a completed archive.
-    if (booking.idVerifyStatus === mapped.status && (["identity", "selfie", "address"] as const).every(key => booking.verificationChecks?.[key] === mapped.checks[key]) &&
+    const advisoryCannotChange = booking.identityRiskNotice === "Didit approved the identity, but cross-account identity matching is unavailable." && !mapped.personKey;
+    if ((!booking.identityRiskNotice || advisoryCannotChange) && booking.idVerifyStatus === mapped.status && (["identity", "selfie", "address"] as const).every(key => booking.verificationChecks?.[key] === mapped.checks[key]) &&
         (booking.verificationNote ?? null) === (mapped.note ?? null) && (booking.documentExpiresAt ?? null) === (mapped.documentExpiresAt ?? null) &&
         (!mapped.personKey || booking.renterPersonKey === mapped.personKey)) return {status: "unchanged"};
     const saved = await ctx.runMutation(internal.bookings.setDiditResult, {
@@ -447,7 +438,6 @@ function mapDecision(rawStatus: unknown, decision: any): {
   const keys = identities.map((item: any) => JSON.stringify([item.full_name.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " "), item.date_of_birth]));
   const secret = process.env.INVOICE_SECRET;
   const personKey = secret && keys.length && new Set(keys).size === 1 ? createHmac("sha256", secret).update(`dbc-person-v1:${keys[0]}`).digest("hex") : undefined;
-  if (status === "verified" && !personKey) { status = "manual_review"; note = "The verified identity details need a team check before the per-person equipment limit can be confirmed."; }
   return { status, note, poaPostcodes, checks: verificationChecks(decision), ...(personKey ? { personKey } : {}), ...(documentExpiresAt ? { documentExpiresAt } : {}) };
 }
 

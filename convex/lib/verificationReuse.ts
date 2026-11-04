@@ -26,7 +26,7 @@ export function validReuse(record: any, booking: any, now = Date.now()) {
     record.name === verificationDetail(booking.agreementName) && record.address === verificationDetail(booking.billingAddress);
 }
 export async function saveAccountDiditVerification(ctx: any, booking: any, verifiedAt: number, documentExpiresAt: number | undefined, checks: any, personKey: string | undefined) {
-  if (!await verificationReuseOwnerMatches(ctx,booking) || !booking.diditSessionId || booking.verificationReuseBlockedSessionId === booking.diditSessionId ||
+  if (booking.identityRiskNotice || !await verificationReuseOwnerMatches(ctx,booking) || !booking.diditSessionId || booking.verificationReuseBlockedSessionId === booking.diditSessionId ||
       !["identity", "selfie", "address"].every(key => checks?.[key] === "approved") ||
       !personKey || !Number.isFinite(verifiedAt) || !Number.isFinite(documentExpiresAt)) return false;
   const name = verificationDetail(booking.agreementName), address = verificationDetail(booking.billingAddress);

@@ -8,6 +8,6 @@ export async function accountVerificationReady(ctx:any,account:any,name=account?
     !validReuse(record,{agreementName:name,billingAddress:address,lineItems:starts.map((start:number)=>({start}))}))return null;
   const sourceId=ctx.db.normalizeId("bookings",record.sourceBookingId);if(!sourceId)return null;
   const source=await ctx.db.get(sourceId);
-  if(!source||source.accountId!==account._id||!await verificationReuseOwnerMatches(ctx,source)||source.idVerifyStatus!=="verified"||source.idVerificationSource!=="didit"||!source.diditSessionId||source.verificationReuseBlockedSessionId===source.diditSessionId||!source.renterPersonKey||!source.documentExpiresAt||record.expiresAt>source.documentExpiresAt||!["identity","selfie","address"].every(key=>source.verificationChecks?.[key]==="approved"))return null;
+  if(!source||source.identityRiskNotice||source.accountId!==account._id||!await verificationReuseOwnerMatches(ctx,source)||source.idVerifyStatus!=="verified"||source.idVerificationSource!=="didit"||!source.diditSessionId||source.verificationReuseBlockedSessionId===source.diditSessionId||!source.renterPersonKey||!source.documentExpiresAt||record.expiresAt>source.documentExpiresAt||!["identity","selfie","address"].every(key=>source.verificationChecks?.[key]==="approved"))return null;
   try{const proofExpiresAt=await assertVerificationArchive(ctx,source);if(!proofExpiresAt)return null;return {expiresAt:record.expiresAt,proofExpiresAt:Math.min(record.expiresAt,proofExpiresAt)};}catch{return null}
 }

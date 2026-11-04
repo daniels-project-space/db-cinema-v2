@@ -54,9 +54,14 @@ const {rentalProgress}=load('shared/rentalProgress.ts');
   provider.status='Approved';provider.face_matches=[{status:'Approved'}];provider.poa_verifications=[];mutations=[];
   await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'manual_review','top-level approval cannot bypass missing address');
   provider.poa_verifications=[{status:'Approved'}];mutations=[];
-  await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'manual_review','approved features still require an attested person');
+  await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'verified','Didit approval is not blocked by unavailable cross-account matching');
   provider.id_verifications=[{status:'Approved',full_name:'Test Rental Customer',date_of_birth:'1990-01-01'}];mutations=[];
   await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'verified');
+  const approvedResult=mutations.find(([ref])=>ref==='bookings.setDiditResult')[1];Object.assign(booking,{idVerifyStatus:'verified',verificationChecks:approvedResult.checks,verificationNote:approvedResult.note,documentExpiresAt:approvedResult.documentExpiresAt,renterPersonKey:approvedResult.personKey,identityRiskNotice:'The overlapping allocation needs attention'});mutations=[];
+  assert.equal((await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'})).status,'updated');assert(mutations.some(([ref])=>ref==='bookings.setDiditResult'),'An unchanged provider decision still re-evaluates an existing advisory');
+  provider.id_verifications=[{status:'Approved'}];booking.identityRiskNotice='Didit approved the identity, but cross-account identity matching is unavailable.';booking.renterPersonKey=undefined;mutations=[];
+  assert.equal((await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'})).status,'unchanged');assert(!mutations.some(([ref])=>ref==='bookings.setDiditResult'),'An unchanged missing-key advisory does not repeatedly write');
+  provider.id_verifications=[{status:'Approved',full_name:'Test Rental Customer',date_of_birth:'1990-01-01'}];mutations=[];assert.equal((await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'})).status,'updated');assert(mutations.some(([ref])=>ref==='bookings.setDiditResult'),'A newly available key re-evaluates and can clear the advisory');
  }finally{global.fetch=previousFetch;}
  const owner=put('accounts',{email:'alert-owner@example.invalid'});
  const alertBooking=put('bookings',{accountId:owner._id,status:'confirmed',verificationProvider:'didit',diditSessionId:'alert-session',guestEmail:owner.email});

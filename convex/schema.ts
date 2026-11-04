@@ -329,6 +329,7 @@ export default defineSchema({
     diditReconciledAt: v.optional(v.number()),
     verificationProvider: v.optional(v.string()),
     verificationNote: v.optional(v.string()),
+    identityRiskNotice: v.optional(v.string()),
     verificationUpdatedAt: v.optional(v.number()),
     idVerifyStatus: v.optional(v.string()),
     droneLicenceStorageId: v.optional(v.id("_storage")),

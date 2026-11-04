@@ -848,7 +848,6 @@ export const adminSetStatus = mutation({
       await assertVerificationArchive(ctx, booking);
       assertAgreementBeforeRelease(booking);
       await assertRenterExposure(ctx, { ...booking, status: "active" });
-      if (!booking.renterPersonKey) throw Error("The verified person needs a team identity check before handover.");
     }
     await ctx.db.patch(bookingId, { status, ...(status === "active" ? { pickedUpAt: booking.pickedUpAt ?? Date.now(), deliveryBenefitConsumed: !!booking.deliveryBenefitMonth } : {}) });
     await queueRmv2Sync(ctx, bookingId);
@@ -1556,6 +1555,7 @@ export const verificationAccess = internalQuery({
       diditEventAt: b.diditEventAt ?? null, diditManualDecisionAt: b.diditManualDecisionAt ?? null,
       verificationChecks: b.verificationChecks ?? null,
       verificationNote: b.verificationNote ?? null,
+      identityRiskNotice: b.identityRiskNotice ?? null,
       documentExpiresAt: b.documentExpiresAt ?? null,
       verificationExpiresAt: b.verificationExpiresAt ?? null,
       renterPersonKey: b.renterPersonKey ?? null,
@@ -1694,19 +1694,20 @@ export const setDiditResult = internalMutation({
     personKey: v.optional(v.string()),
     checks: v.optional(v.object({ identity: v.string(), selfie: v.string(), address: v.string() })),
     reconciliation: v.optional(v.boolean()),
+    requireApplied: v.optional(v.boolean()),
     sweepGeneration: v.optional(v.number()),
     expectedEventId: v.optional(v.union(v.string(), v.null())),
     expectedEventAt: v.optional(v.union(v.number(), v.null())),
     expectedManualDecisionAt: v.optional(v.union(v.number(), v.null())),
   },
-  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, reconciliation, sweepGeneration, expectedEventId, expectedEventAt, expectedManualDecisionAt }) => {
+  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, reconciliation, requireApplied, sweepGeneration, expectedEventId, expectedEventAt, expectedManualDecisionAt }) => {
     if (sweepGeneration !== undefined && !(await currentDiditSweep(ctx, sweepGeneration))) return false;
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
     if (expectedEventId !== undefined && ((b.diditEventId ?? null) !== expectedEventId || (b.diditEventAt ?? null) !== expectedEventAt ||
-        (b.diditManualDecisionAt ?? null) !== expectedManualDecisionAt)) return true;
+        (b.diditManualDecisionAt ?? null) !== expectedManualDecisionAt)) return !requireApplied;
     if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt ||
-        (b.diditManualDecisionAt ?? 0) >= eventAt) return true;
+        (b.diditManualDecisionAt ?? 0) >= eventAt) return !requireApplied;
     if (status!=="processing" || providerStatus==="In Progress" || Object.values(checks??{}).some(check=>check!=="waiting")) {
       const changed=b.idVerifyStatus!==status || (["identity","selfie","address"] as const).some(key=>b.verificationChecks?.[key]!==checks?.[key]) || (b.documentExpiresAt??null)!==(documentExpiresAt??null);
       await queueVerificationArchive(ctx,b,!reconciliation || changed);
@@ -1725,15 +1726,19 @@ export const setDiditResult = internalMutation({
       await queueRmv2Sync(ctx, bookingId);
       return true;
     }
+    let identityRiskNotice: string | undefined = status === "verified" && providerStatus === "Approved" && !personKey
+      ? "Didit approved the identity, but cross-account identity matching is unavailable."
+      : undefined;
     if (personKey) {
       try { await attachRenterPerson(ctx, b, personKey); }
-      catch { status = "manual_review"; note = "The verified person needs a team identity review before handover."; personKey = undefined; }
+      catch { identityRiskNotice = "The verified person could not be linked to the rental identity record."; personKey = undefined; }
     }
-    if (status === "verified") {
+    if (status === "verified" && !identityRiskNotice) {
       try { await assertRenterExposure(ctx, { ...b, renterPersonKey: personKey ?? b.renterPersonKey }); }
-      catch { status = "manual_review"; note = "Your overlapping equipment allocation needs a team review against the £15,000 per-person limit. Handover remains blocked."; }
+      catch { identityRiskNotice = "The overlapping equipment allocation needs attention against the per-person limit."; }
     }
     const previous = b.idVerifyStatus;
+    const identityRiskNoticeChanged = identityRiskNotice !== b.identityRiskNotice;
     const verifiedAt = status === "verified" ? (b.idVerifiedAt ?? Date.now()) : undefined;
     await ctx.db.patch(bookingId, {
       diditEventId: eventId,
@@ -1745,11 +1750,18 @@ export const setDiditResult = internalMutation({
       verificationExpiresAt: status === "verified" ? Math.min(verifiedAt! + VERIFICATION_REUSE_DAYS * 86400000, documentExpiresAt ?? Infinity) : undefined,
       idVerifiedAt: verifiedAt,
       verificationNote: note?.slice(0, 400),
+      identityRiskNotice: status === "verified" ? identityRiskNotice : undefined,
       verificationUpdatedAt: Date.now(),
     });
     if (status === "verified") {
-      await markAccountVerified(ctx, bookingId);
-      await saveAccountDiditVerification(ctx, b, verifiedAt!, documentExpiresAt, checks, personKey ?? b.renterPersonKey);
+      if (!identityRiskNotice) await markAccountVerified(ctx, bookingId);
+      if (identityRiskNotice && identityRiskNoticeChanged) {
+        const account = await accountForRental(ctx, b);
+        await queueOwnerNotification(ctx, {eventKey:`allocation-review:${bookingId}:${eventId}`,kind:"verification_failure",...(account?{accountId:account._id}:{}),bookingId,title:"Booking identity or allocation notice",body:identityRiskNotice});
+      } else if (!identityRiskNotice) {
+        const updated = await ctx.db.get(bookingId);
+        if (updated) await saveAccountDiditVerification(ctx, updated, verifiedAt!, documentExpiresAt, checks, updated.renterPersonKey);
+      }
       if (["confirmed", "active"].includes(b.status)) await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
     }
     else if (["rejected", "requires_input", "manual_review"].includes(status)) await revokeReuse(ctx, bookingId);
@@ -1815,38 +1827,9 @@ export const setDiditManualReview = internalMutation({
     bookingId: v.id("bookings"), sessionId: v.string(),
     decision: v.union(v.literal("approve"), v.literal("resubmit"), v.literal("decline")),
     note: v.string(), personKey: v.optional(v.string()),
+    expectedEventId:v.union(v.string(),v.null()), expectedEventAt:v.union(v.number(),v.null()), expectedManualDecisionAt:v.union(v.number(),v.null()),
   },
-  handler: async (ctx, { bookingId, sessionId, decision, note, personKey }) => {
-    const b = await ctx.db.get(bookingId);
-    if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId ||
-        !["confirmed", "active"].includes(b.status)) return false;
-    const previous = b.idVerifyStatus ?? "required";
-    if (decision === "approve" && !["manual_review", "rejected", "verified"].includes(previous)) return false;
-    if (decision !== "approve" && !["manual_review", "rejected", "requires_input"].includes(previous)) return false;
-    const status = decision === "approve" ? "verified" : decision === "resubmit" ? "requires_input" : "rejected";
-    if (status === "verified") { await attachRenterPerson(ctx, b, personKey); await assertRenterExposure(ctx, { ...b, renterPersonKey: personKey ?? b.renterPersonKey }); }
-    await ctx.db.patch(bookingId, {
-      idVerifyStatus: status,
-      idVerificationSource: "manual",
-      diditManualDecisionAt: Date.now(),
-      verificationExpiresAt: status === "verified" ? Date.now() + VERIFICATION_REUSE_DAYS * 86400000 : undefined,
-      idVerifiedAt: status === "verified" ? Date.now() : undefined,
-      verificationUpdatedAt: Date.now(),
-      verificationNote: decision === "resubmit" ? "Please replace the requested verification document."
-        : decision === "decline" ? "Identity and address verification was declined. Please contact us."
-        : note.trim().slice(0, 400),
-    });
-    if (status === "verified") {
-      await markAccountVerified(ctx, bookingId);
-      await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
-    }
-    else await revokeReuse(ctx, bookingId);
-    await verificationUpdateMessage(ctx, bookingId, previous, status);
-    if (status !== previous)
-      await queueRentalEmail(ctx,bookingId,"verification",{verificationStatus:status});
-    await queueRmv2Sync(ctx, bookingId);
-    return true;
-  },
+  handler: async () => false,
 });
 
 // ── Customer self-service cancellation (Phase 3) ──────────────────
@@ -2077,7 +2060,7 @@ async function potentialVerificationReuse(ctx: any, bookingId: any) {
     const account: Doc<"accounts"> | null = await accountForRental(ctx,b);
     if (!validReuse(account?.rentalVerification, b)) return null;
     const source = await ctx.db.get(account!.rentalVerification!.sourceBookingId);
-    if (!source?.diditSessionId || source.verificationReuseBlockedSessionId === source.diditSessionId || source.accountId !== account?._id || !await verificationReuseOwnerMatches(ctx,source) || !belongsToRentalAccount(source,account) || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !["identity","selfie","address"].every(key => source.verificationChecks?.[key as "identity"|"selfie"|"address"] === "approved") || !source.documentExpiresAt || !source.renterPersonKey) return null;
+    if (!source?.diditSessionId || source.identityRiskNotice || source.verificationReuseBlockedSessionId === source.diditSessionId || source.accountId !== account?._id || !await verificationReuseOwnerMatches(ctx,source) || !belongsToRentalAccount(source,account) || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !["identity","selfie","address"].every(key => source.verificationChecks?.[key as "identity"|"selfie"|"address"] === "approved") || !source.documentExpiresAt || !source.renterPersonKey) return null;
     return { source };
 }
 export const reuseVerificationPotential = internalQuery({
@@ -2099,7 +2082,7 @@ export const applyVerificationReuse = internalMutation({
   handler: async (ctx, { bookingId, sourceBookingId, documentExpiresAt, personKey }) => {
     if(process.env.VERIFICATION_ARCHIVE_REUSE_ENABLED!=="true")return false;
     const b = await ctx.db.get(bookingId), source = await ctx.db.get(sourceBookingId);
-    if (!b || !source || !source.diditSessionId || source.verificationReuseBlockedSessionId === source.diditSessionId || !b.accountId || b.accountAccessRequired !== false || !await verificationReuseOwnerMatches(ctx,source) || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.diditSessionId || b.idVerifyStatus !== "required" || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !verificationCanStart(b) || !["identity","selfie","address"].every(key => source.verificationChecks?.[key as "identity"|"selfie"|"address"] === "approved") || !source.renterPersonKey || personKey !== source.renterPersonKey || documentExpiresAt !== source.documentExpiresAt) return false;
+    if (!b || !source || !source.diditSessionId || source.identityRiskNotice || source.verificationReuseBlockedSessionId === source.diditSessionId || !b.accountId || b.accountAccessRequired !== false || !await verificationReuseOwnerMatches(ctx,source) || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.diditSessionId || b.idVerifyStatus !== "required" || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !verificationCanStart(b) || !["identity","selfie","address"].every(key => source.verificationChecks?.[key as "identity"|"selfie"|"address"] === "approved") || !source.renterPersonKey || personKey !== source.renterPersonKey || documentExpiresAt !== source.documentExpiresAt) return false;
     try { await assertVerificationArchive(ctx, source); } catch { return false; }
     const account = await accountForRental(ctx,b);
     const record = account?.rentalVerification;

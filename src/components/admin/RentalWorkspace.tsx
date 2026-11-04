@@ -33,7 +33,7 @@ export function RentalWorkspace({
   });
   const setStatus = useMutation(api.bookings.adminSetStatus),
     setIdentity = useMutation(api.bookings.adminSetIdStatus),
-    review = useAction(api.didit.adminReview),
+    refreshVerification = useAction(api.didit.refreshProgress),
     reverify = useMutation(api.bookings.adminRequireReverification),
     suspendReuse = useMutation(api.bookings.adminSuspendVerificationReuse);
   const [section, setSection] = useState("order"),
@@ -101,6 +101,7 @@ export function RentalWorkspace({
         </div>
       </header>
       <RentalVerificationSummary bookingId={bookingId} token={token} admin/>
+      {b.identityRiskNotice && <p role="alert" className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-sm text-amber-100">Didit approved this identity. Team notice: {b.identityRiskNotice}</p>}
       <nav className="mt-6 flex gap-2 overflow-x-auto border-b border-white/[0.06] pb-4">
         {[
           ["order", "Order & payments"],
@@ -203,6 +204,7 @@ export function RentalWorkspace({
               </span>
             </a>
           )}
+          {b.verificationProvider === "didit" && b.diditSessionId && b.idVerifyStatus !== "verified" && <div className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-sm text-amber-100"><p>Review this case and make any decision or resubmission request in Didit Business Console, then refresh verification here. The website cannot change a Didit decision.</p><button type="button" disabled={busy} onClick={()=>void execute(()=>refreshVerification({bookingId:b._id,accountToken:token,admin:true}))} className="mt-3 rounded-full border border-amber-300/30 px-4 py-2 text-xs disabled:opacity-30">Refresh verification</button></div>}
           {b.diditSessionId && <div className="mt-4 rounded-xl border border-white/10 p-3">
             <label className="block text-xs text-white/50">Reason to stop using this verification<textarea value={reuseReason} onChange={event=>setReuseReason(event.target.value)} rows={2} className="input mt-2 w-full" /></label>
             <button disabled={busy || reuseReason.trim().length<10} onClick={()=>void execute(()=>suspendReuse({token,bookingId:b._id,reason:reuseReason}))} className="mt-3 rounded-full border border-amber-300/20 px-4 py-2 text-xs text-amber-200 disabled:opacity-30">Suspend verification reuse</button>
@@ -213,59 +215,10 @@ export function RentalWorkspace({
             <label className="mt-3 block text-xs text-white/50">Reason for a new check<textarea value={note} onChange={e=>setNote(e.target.value)} rows={2} className="input mt-2 w-full" /></label>
             <button disabled={busy || note.trim().length < 10} onClick={()=>void execute(()=>reverify({token,bookingId:b._id,note}))} className="mt-3 rounded-full border border-amber-300/20 px-4 py-2 text-xs text-amber-200 disabled:opacity-30">Require fresh verification</button>
           </div>}
-          {b.idVerifyStatus !== "verified" && (
+          {b.idVerifyStatus !== "verified" && b.verificationProvider !== "didit" && (
             <>
-              <label className="mt-5 block text-xs text-white/50">
-                Evidence and decision reason
-                <textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  rows={3}
-                  className="input mt-2 w-full"
-                />
-              </label>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {b.verificationProvider === "didit" ? (
-                  (["manual_review", "rejected"].includes(
-                    b.idVerifyStatus ?? "",
-                  )
-                    ? (["approve", "resubmit", "decline"] as const)
-                    : []
-                  ).map((decision) => (
-                    <button
-                      key={decision}
-                      disabled={busy || note.trim().length < 10}
-                      onClick={() =>
-                        void execute(() =>
-                          review({ token, bookingId: b._id, decision, note }),
-                        )
-                      }
-                      className="rounded-full border border-white/10 px-4 py-2 text-xs capitalize text-white/70 disabled:opacity-30"
-                    >
-                      {decision === "resubmit"
-                        ? "Request resubmission"
-                        : decision}
-                    </button>
-                  ))
-                ) : (
-                  <button
-                    disabled={busy || note.trim().length < 10}
-                    onClick={() =>
-                      void execute(() =>
-                        setIdentity({
-                          token,
-                          bookingId: b._id,
-                          status: "verified",
-                          note,
-                        }),
-                      )
-                    }
-                    className="rounded-full border border-white/10 px-4 py-2 text-xs text-white/70 disabled:opacity-30"
-                  >
-                    Approve with evidence
-                  </button>
-                )}
-              </div>
+              <label className="mt-5 block text-xs text-white/50">Evidence and decision reason<textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} className="input mt-2 w-full" /></label>
+              <button disabled={busy || note.trim().length < 10} onClick={() => void execute(() => setIdentity({token, bookingId:b._id, status:"verified", note}))} className="mt-3 rounded-full border border-white/10 px-4 py-2 text-xs text-white/70 disabled:opacity-30">Approve with evidence</button>
             </>
           )}
         </div>
