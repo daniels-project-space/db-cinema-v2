@@ -1562,10 +1562,30 @@ export const refundRental=action({
  }
 });
 
+function savedReturnArguments(bookingId:any,d:any){
+ return {token:process.env.ADMIN_TOKEN??"",bookingId,actualReturnedAt:d.actualReturnedAt,damageKept:d.damageKept,depositKept:d.depositKept,expectedSnapshot:d.expectedSnapshot,damageNote:d.damageNote,chargeLate:d.chargeLate,lateWaiverReason:d.lateWaiverReason,inspection:d.inspection?.map(({key,condition,details,openCase}:any)=>({key,condition,details,openCase}))};
+}
 async function resumeDepositDecision(ctx:any,bookingId:any,b:any){
  if(!b.returnDecision||b.depositRefunded)return {ok:true,alreadyReleased:!!b.depositRefunded};
- const d=b.returnDecision;return ctx.runAction(api.checkout.markReturned,{token:process.env.ADMIN_TOKEN??"",bookingId,actualReturnedAt:d.actualReturnedAt,damageKept:d.damageKept,depositKept:d.depositKept,expectedSnapshot:d.expectedSnapshot,damageNote:d.damageNote,chargeLate:d.chargeLate,lateWaiverReason:d.lateWaiverReason,inspection:d.inspection});
+ return ctx.runAction(api.checkout.markReturned,savedReturnArguments(bookingId,b.returnDecision));
 }
+export const recoverDepositReturn=internalAction({args:{bookingId:v.id("bookings"),attempt:v.number()},handler:async(ctx,{bookingId,attempt}):Promise<void>=>{
+ if(!Number.isInteger(attempt)||attempt<0||attempt>5)return;
+ const delays=[900000,3600000,21600000,86400000,86400000];
+ let b:any;
+ try{b=await ctx.runQuery(internal.bookings.getForRefund,{bookingId,includeControlsSnapshot:true});}catch{if(attempt<delays.length)await ctx.scheduler.runAfter(delays[attempt],internal.checkout.recoverDepositReturn,{bookingId,attempt:attempt+1});await ctx.runMutation(internal.bookings.alertDepositRecovery,{bookingId});return;}
+ if(!b?.returnDecision||!hasCashDepositPolicy(b.securityPolicyVersion))return;
+ const expected=pence(Math.max(0,(b.depositAmount??0)-(b.returnDecision.depositKept??0)));
+ const state=depositRefundState(b.depositReturnReceipts??[],expected);
+ if(b.actualReturnedAt&&b.depositRefunded&&state==="succeeded")return;
+ if(state==="failed"){await ctx.runMutation(internal.bookings.alertDepositRecovery,{bookingId});return;}
+ if(attempt<delays.length)await ctx.scheduler.runAfter(delays[attempt],internal.checkout.recoverDepositReturn,{bookingId,attempt:attempt+1});
+ try{
+  if(!b.depositRefunded||!b.actualReturnedAt)await ctx.runAction(api.checkout.markReturned,savedReturnArguments(bookingId,b.returnDecision));
+  else for(const receipt of b.depositReturnReceipts??[])if(receipt.status==="pending"&&receipt.stripeRefundId)await ctx.runAction(internal.checkout.reconcileDepositRefund,{refundId:receipt.stripeRefundId});
+ }catch{await ctx.runMutation(internal.bookings.alertDepositRecovery,{bookingId});return;}
+ if(attempt>=2)await ctx.runMutation(internal.bookings.alertDepositRecovery,{bookingId});
+}});
 export const reconcileDepositRefund=internalAction({args:{refundId:v.string()},handler:async(ctx,{refundId}):Promise<any>=>{
  const refund=await stripe().refunds.retrieve(refundId),bookingId=refund.metadata?.dbc_deposit_return_booking;if(!bookingId)return {ignored:true};
  const b:any=await ctx.runQuery(internal.bookings.getForRefund,{bookingId:bookingId as any,includeControlsSnapshot:true});if(!b||!hasCashDepositPolicy(b.securityPolicyVersion)||!b.returnDecision)return {ignored:true};

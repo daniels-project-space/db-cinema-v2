@@ -92,7 +92,7 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     try {
       const result = await submit({...selection,expectedSnapshot:reviewData.snapshot});
       if (!alive.current) return;
-      alert(refundablePolicy ? `Return recorded. Deposit retained ${formatGbp(result.kept)}; ${result.refundState==="pending"?"refund processing":"refund confirmed"} to the original card ${formatGbp(result.released)}; damage assessed ${formatGbp(damageAmount)}. An itemised completion statement will be emailed.` : `Return recorded. Damage/loss ${formatGbp(result.kept)}; refundable security payment returned ${formatGbp(result.released)}; separate late charge assessed ${formatGbp(result.lateAmount)}. A return statement will be emailed.`);
+      alert(refundablePolicy ? `Return recorded. Deposit retained ${formatGbp(result.kept)}; ${result.released>0?`${result.refundState==="pending"?"refund processing":"refund processed by Stripe"} to the original payment method ${formatGbp(result.released)}. Bank display can take 5–10 business days.`:"no deposit refund is due."} Damage assessed ${formatGbp(damageAmount)}. An itemised completion statement will be emailed.` : `Return recorded. Damage/loss ${formatGbp(result.kept)}; refundable security payment returned ${formatGbp(result.released)}; separate late charge assessed ${formatGbp(result.lateAmount)}. A return statement will be emailed.`);
       onClose();
     } catch (e: any) { if (alive.current) setError(e?.message ?? "Return could not be recorded."); }
     finally { if (alive.current) setWorking(false); }

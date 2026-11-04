@@ -33,6 +33,7 @@ const ctx = { db, runMutation:async(ref,args)=>bookings[ref.split('.')[1]].handl
   assert.equal(deliveries.length,1);
   const mail=deliveries[0]; assert.equal(mail.to,statement.customerEmail);
   assert(mail.html.includes('Deposit retained £25.00')); assert(mail.html.includes(statement.damageNote));
+  assert(mail.html.includes('original payment method')); assert(mail.html.includes('5–10 business days')); assert(mail.html.includes('Refunds confirmed by Stripe')); assert(!mail.html.includes('Confirmed bank refunds'));
   assert.equal(Buffer.from(mail.attachments[0].content,'base64').compare(pdf),0);
   row.returnStatementEmailStatus='sending'; row.returnStatementEmailAttemptAt=Date.now();
   await invoice.returnSettlementEmail.handler(ctx,{bookingId:row._id});

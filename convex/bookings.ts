@@ -877,6 +877,7 @@ export const getForRefund = internalQuery({
       lineItems: b.lineItems,
       returnTime: b.returnTime ?? null,
       guestEmail: b.guestEmail ?? null,
+      actualReturnedAt: b.actualReturnedAt ?? null,
       returnDecision: b.returnDecision ?? null,
       depositReturnReceipts:b.depositReturnReceipts??[],
       depositReturnReceiptHistory:b.depositReturnReceiptHistory??[],
@@ -908,6 +909,7 @@ export const beginReturnDecision = internalMutation({
       return;
     }
     await ctx.db.patch(bookingId, { returnDecision: { actualReturnedAt, damageKept, depositKept, expectedSnapshot, damageNote, chargeLate, lateWaiverReason, inspection: inspected as any, startedAt: Date.now() } });
+    if(hasCashDepositPolicy(b.securityPolicyVersion)&&b.depositAmount>0)await ctx.scheduler.runAfter(120000,internal.checkout.recoverDepositReturn,{bookingId,attempt:0});
     const accountId = b.accountId ?? (await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first())?._id;
     for (const item of inspected ?? []) if (item.openCase) await ctx.db.insert("rental_damage_cases", { bookingId, accountId, itemKey: item.key, title: item.title, inventoryUnitId: item.inventoryUnitId as any, details: item.details, status: "open", openedAt: Date.now() });
     if ((inspected ?? []).some(item => item.openCase)) await queueRmv2Sync(ctx, bookingId);
@@ -2223,6 +2225,14 @@ export const recordDepositReturnReceipt=internalMutation({args:{bookingId:v.id("
  if(previous&&JSON.stringify(previous)===JSON.stringify(receipt))return;
  const updated=[...rows.filter(row=>row.paymentIntentId!==receipt.paymentIntentId),receipt],state=depositRefundState(updated,amountPence);
  await ctx.db.patch(bookingId,{depositReturnReceipts:updated,...(b.returnStatement?{returnStatement:{...b.returnStatement,...depositRefundStatementFields({...b,depositReturnReceipts:updated})}}:{}),...(["failed","awaiting_approval","processing"].includes(state)?{depositRefunded:false}:{})});await queueRmv2Sync(ctx,bookingId);
+ if(["failed","awaiting_approval"].includes(receipt.status)&&previous?.status!==receipt.status)await queueOwnerNotification(ctx,{eventKey:`deposit-refund-${receipt.status}:${bookingId}:${receipt.stripeRefundId??receipt.approvalRequestId??receipt.attemptedAt}`,kind:"deposit_refund_failure",bookingId,...(b.accountId?{accountId:b.accountId}:{}),title:"Deposit refund needs attention",body:receipt.status==="failed"?"Stripe reports a failed deposit refund. Open the rental and review the original payment before retrying.":"Stripe requires approval for a deposit refund. Open the rental to review it."});
+}});
+
+export const alertDepositRecovery=internalMutation({args:{bookingId:v.id("bookings")},handler:async(ctx,{bookingId})=>{
+ const b=await ctx.db.get(bookingId);if(!b?.returnDecision||!hasCashDepositPolicy(b.securityPolicyVersion))return;
+ const state=depositRefundState(b.depositReturnReceipts??[],Math.round(Math.max(0,b.depositAmount-(b.returnDecision.depositKept??0))*100));
+ if(b.actualReturnedAt&&b.depositRefunded&&state==="succeeded")return;
+ await queueOwnerNotification(ctx,{eventKey:`deposit-return-recovery:${bookingId}:${b.returnDecision.startedAt}`,kind:"deposit_refund_failure",bookingId,...(b.accountId?{accountId:b.accountId}:{}),title:"Deposit return needs attention",body:"The saved return has not fully settled. Open the rental and check the Stripe refund before taking action."});
 }});
 
 export const beginDepositRefundRetry=internalMutation({args:{bookingId:v.id("bookings"),refundId:v.string(),requestId:v.string(),expectedSnapshot:v.string()},handler:async(ctx,a)=>{
