@@ -2264,8 +2264,9 @@ html[data-gaffer-nav="1"] .tile-in {
 }
 .skip-link:focus { transform: translateY(0); outline: none; }
 #main-content:focus { outline: none; }
+body[data-aperture-transition="navigating"] #main-content { visibility: hidden; }
 body[data-aperture-transition="revealing"] #main-content { position: relative; z-index: 10001; pointer-events: none; animation: aperture-page-reveal 1.8s cubic-bezier(.22,.7,.22,1) both; }
-@keyframes aperture-page-reveal { from { clip-path: circle(8px at var(--aperture-main-x) var(--aperture-main-y)); } to { clip-path: circle(160vmax at var(--aperture-main-x) var(--aperture-main-y)); } }
+@keyframes aperture-page-reveal { 0% { opacity: 0; clip-path: circle(var(--aperture-reveal-start) at var(--aperture-main-x) var(--aperture-main-y)); } 30% { opacity: 1; } 100% { opacity: 1; clip-path: circle(var(--aperture-reveal-end) at var(--aperture-main-x) var(--aperture-main-y)); } }
 
 /* ── Gaffer voice-call button ──────────────────────────────────
    Design rule: nothing that changes while Gaffer is speaking may change layout.

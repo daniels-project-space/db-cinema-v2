@@ -2,6 +2,7 @@
 .canceling { opacity: 0; }
 .curtain { position: absolute; inset: 0; background: radial-gradient(circle at var(--aperture-x) var(--aperture-y), #120b08, #030304 55%); opacity: 0; transition: opacity 1.4s ease .25s; }
 .committed .curtain { opacity: 1; }
+.portal[data-transition-phase="navigating"] .curtain,.portal[data-transition-phase="revealing"] .curtain { opacity: 1; transition: none; }
 .wind { position: absolute; left: var(--aperture-x); top: var(--aperture-y); width: max(140vmax, 900px); aspect-ratio: 1; transform: translate(-50%,-50%); }
 .windArt { width: 100%; height: 100%; overflow: visible; animation: wind-turn 18s linear infinite; }
 .stream { fill: none; stroke: url(#aperture-wind); stroke-width: 1; opacity: 0; animation: stream-appear 1s ease var(--stream-delay) forwards; }

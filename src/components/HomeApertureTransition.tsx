@@ -58,6 +58,7 @@ export function HomeApertureTransitionProvider({ children }: { children: React.R
   const openNow = useCallback((source?: HTMLElement | null) => {
     if (phaseRef.current === "committed" || phaseRef.current === "navigating" || phaseRef.current === "revealing") return;
     clearTimers();
+    router.prefetch("/gear");
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { setCurrentPhase("idle"); router.push("/gear"); return; }
     if (phaseRef.current !== "charging") {
       const aperture = source?.querySelector<HTMLElement>("[data-testid='home-aperture-iris']") ?? source;
@@ -75,8 +76,13 @@ export function HomeApertureTransitionProvider({ children }: { children: React.R
     clearTimers();
     window.scrollTo({ top: 0, behavior: "instant" });
     const rect = document.getElementById("main-content")?.getBoundingClientRect();
+    const horizon = document.querySelector<HTMLElement>("[data-testid='home-aperture-horizon']")?.getBoundingClientRect();
+    const initialRadius = Math.max(4, (horizon?.width ?? 16) * .46);
+    const finalRadius = Math.hypot(Math.max(origin.x, window.innerWidth - origin.x), Math.max(origin.y, window.innerHeight - origin.y)) + 8;
     document.body.style.setProperty("--aperture-main-x", `${origin.x - (rect?.left ?? 0)}px`);
     document.body.style.setProperty("--aperture-main-y", `${origin.y - (rect?.top ?? 0)}px`);
+    document.body.style.setProperty("--aperture-reveal-start", `${initialRadius}px`);
+    document.body.style.setProperty("--aperture-reveal-end", `${Math.max(initialRadius, finalRadius)}px`);
     setCurrentPhase("revealing");
     timers.current.push(window.setTimeout(() => setCurrentPhase("idle"), REVEAL_MS));
   }, [clearTimers, origin, pathname, phase, setCurrentPhase]);
@@ -86,6 +92,8 @@ export function HomeApertureTransitionProvider({ children }: { children: React.R
       delete document.body.dataset.apertureTransition;
       document.body.style.removeProperty("--aperture-main-x");
       document.body.style.removeProperty("--aperture-main-y");
+      document.body.style.removeProperty("--aperture-reveal-start");
+      document.body.style.removeProperty("--aperture-reveal-end");
     } else document.body.dataset.apertureTransition = phase;
   }, [phase]);
   useEffect(() => () => { clearTimers(); delete document.body.dataset.apertureTransition; }, [clearTimers]);
@@ -115,6 +123,6 @@ function ApertureTransitionOverlay({ origin, phase }: { origin: Origin; phase: E
       </svg>
     </div>
     <div data-testid="home-aperture-portal-iris" className={`${styles.portalIris} ${irisStyles.active}`}><span className={irisStyles.aperture}><HomeApertureArt id="portal-aperture" /></span></div>
-    <div className={styles.horizon}/>
+    <div data-testid="home-aperture-horizon" className={styles.horizon}/>
   </div>;
 }
