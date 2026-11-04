@@ -37,6 +37,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
       await client.cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 });
       await delay(100);
+      await client.evaluate(`window.__apertureMotion=[]; (()=>{const sample=()=>{const letter=document.querySelector('[data-portal-letter]'),phase=document.body.dataset.apertureTransition;if(!letter)return;const rect=letter.getBoundingClientRect();window.__apertureMotion.push({phase,x:rect.left,y:rect.top});if(phase!=='committed')requestAnimationFrame(sample)};requestAnimationFrame(sample)})()`);
       await client.cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x: position.x, y: position.y });
       await delay(1100);
       const charging = await client.evaluate(`(() => {const button=document.querySelector('[data-testid="home-aperture-button"]'),bar=document.querySelector('[role="progressbar"]'),blade=button?.querySelector('[data-aperture-blade]'),transform=blade&&getComputedStyle(blade).transform;return {progress:Number(bar?.getAttribute('aria-valuenow')||0),transform,phase:button?.className,route:location.pathname,bodyPhase:document.body.dataset.apertureTransition,portal:!!document.querySelector('[data-testid="home-aperture-portal"]')}})()`);
@@ -52,8 +53,8 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
       await client.cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 });
       await delay(550);
-      assert.equal(await client.evaluate(`document.querySelector('[role="progressbar"]')`), null, 'Leaving before 2.5 seconds cancels the sequence');
-      assert.equal(await client.evaluate(`document.querySelector('[data-testid="home-aperture-portal"]')`), null, 'A cancelled hover leaves no transition layer');
+      assert.equal(await client.evaluate(`!!document.querySelector('[role="progressbar"]')`), false, 'Leaving before 2.5 seconds cancels the sequence');
+      assert.equal(await client.evaluate(`!!document.querySelector('[data-testid="home-aperture-portal"]')`), false, 'A cancelled hover leaves no transition layer');
       assert.equal(await client.evaluate('location.pathname'), '/', 'Cancellation keeps the visitor on the home page');
       assert.equal(await client.evaluate('document.body.dataset.apertureTransition'), undefined, 'Cancellation restores the floating contact chip');
 
@@ -69,6 +70,9 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       if (committed.launcherVisibility) assert.equal(committed.launcherVisibility, 'hidden', 'The floating contact chip does not cover the aperture');
       assert.equal(committed.gearFrames, 0, 'The transition never creates a second gear-page instance');
       assert(committed.letterCount > 80, 'The full copy is available for the letter-by-letter animation');
+      const continuity = await client.evaluate(`(() => {const samples=window.__apertureMotion,index=samples.findIndex(sample=>sample.phase==='committed');return {before:samples.slice(0,index).reverse().find(sample=>sample.phase==='charging'),after:samples[index]}})()`);
+      assert(continuity.before && continuity.after, `Letter motion is sampled across commitment: ${JSON.stringify(continuity)}`);
+      assert(Math.hypot(continuity.after.x-continuity.before.x,continuity.after.y-continuity.before.y)<12, `The first letter continues without jumping at commitment: ${JSON.stringify(continuity)}`);
       await delay(850);
       const movingLetters = await client.evaluate(`(() => [...document.querySelectorAll('[data-portal-letter]')].filter(letter=>Number(getComputedStyle(letter).opacity)<0.98||getComputedStyle(letter).transform!=='none').length)()`);
       assert(movingLetters > 10, `Text moves into the aperture as individual letters: ${movingLetters}`);

@@ -61,6 +61,45 @@ export function HomeClosingAperture() {
     releasedLetters.current = [];
   }, [phase]);
 
+  useLayoutEffect(() => {
+    if (!committed || !section.current || !iris.current || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const copyElement = section.current.querySelector<HTMLElement>("[data-portal-copy]");
+    if (!copyElement) return;
+    const target = iris.current.getBoundingClientRect();
+    const targetX = target.left + target.width / 2;
+    const targetY = target.top + target.height / 2;
+    const copyTransform = getComputedStyle(copyElement).transform;
+    const letters = Array.from(copyElement.querySelectorAll<HTMLElement>("[data-portal-letter]"), letter => {
+      const rect = letter.getBoundingClientRect();
+      const computed = getComputedStyle(letter);
+      return {
+        letter,
+        transform: computed.transform === "none" ? "translate(0px, 0px)" : computed.transform,
+        delay: parseFloat(computed.getPropertyValue("--letter-delay")) || 0,
+        twist: parseFloat(computed.getPropertyValue("--letter-twist")) || 0,
+        x: targetX - rect.left - rect.width / 2,
+        y: targetY - rect.top - rect.height / 2,
+      };
+    });
+    copyElement.style.animation = "none";
+    copyElement.style.transform = copyTransform;
+    const animations = letters.map(({ letter, transform, delay, twist, x, y }) => {
+      letter.style.animation = "none";
+      return letter.animate([
+        { transform, opacity: 1, offset: 0 },
+        { transform: `translate(${x * .16}px, ${y * .16}px) ${transform} rotate(${twist * -.2}deg) scale(1.02)`, opacity: 1, offset: .42 },
+        { transform: `translate(${x * .7}px, ${y * .7}px) ${transform} rotate(${twist}deg) scale(.58)`, opacity: .95, offset: .8 },
+        { transform: `translate(${x}px, ${y}px) ${transform} rotate(${twist * 1.4}deg) scale(.015)`, opacity: 0, offset: 1 },
+      ], { duration: 1200, delay, easing: "cubic-bezier(.45,0,.6,1)", fill: "both" });
+    });
+    return () => {
+      animations.forEach(animation => animation.cancel());
+      copyElement.style.removeProperty("animation");
+      copyElement.style.removeProperty("transform");
+      letters.forEach(({ letter }) => letter.style.removeProperty("animation"));
+    };
+  }, [committed]);
+
   const start = () => begin(apertureButton.current);
   const release = () => {
     if (phase === "charging" && section.current) {
@@ -77,7 +116,7 @@ export function HomeClosingAperture() {
 
   return <section ref={section} className={`section-window relative overflow-hidden px-6 py-28 text-center ${styles.section}`} aria-labelledby="home-closing-title">
     <div className={styles.lights} aria-hidden="true"><span/><span/><span/><span/><span/><span/></div>
-    <div className={`${styles.content} ${phase === "charging" ? styles.anticipating : ""} ${committed ? styles.sucked : ""}`}>
+    <div className={`${styles.content} ${phase === "charging" || committed ? styles.anticipating : ""} ${committed ? styles.sucked : ""}`}>
       <div className={styles.accessibleCopy}>
         <p>Your story is waiting</p><h2 id="home-closing-title">Your next shot starts here.</h2><p>Pick your dates, build your kit, and get back to the work that matters.</p>
       </div>

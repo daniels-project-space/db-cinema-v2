@@ -73,8 +73,9 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  const reviewsRoute=fs.readFileSync('src/app/reviews/page.tsx','utf8');
  assert(home.indexOf('id="reviews"')>home.indexOf('Every department,'),'Place reviews after the department showcase');
  assert(home.indexOf('Every department,')<home.indexOf('id="reviews"'),'Place reviews after the department showcase');
- assert(home.indexOf('<FilmFundInvite />')<home.indexOf('aria-labelledby="hygglo-profile-title"')&&home.indexOf('aria-labelledby="hygglo-profile-title"')<home.indexOf('id="home-closing-title"'),'Place Film Fund and the Hygglo profile before the closing CTA');
- const closingStyles=fs.readFileSync('src/app/HomeClosing.module.css','utf8');
+ const closing=fs.readFileSync('src/components/HomeClosingAperture.tsx','utf8');
+ assert(home.indexOf('<FilmFundInvite />')<home.indexOf('aria-labelledby="hygglo-profile-title"')&&home.indexOf('aria-labelledby="hygglo-profile-title"')<home.indexOf('<HomeClosingAperture />')&&closing.includes('id="home-closing-title"'),'Place Film Fund and the Hygglo profile before the closing CTA');
+ const closingStyles=fs.readFileSync('src/components/HomeClosingAperture.module.css','utf8');
  assert(closingStyles.includes('pointer-events: none')&&closingStyles.includes('prefers-reduced-motion: reduce'),'Keep the closing lights decorative and respect reduced motion');
  assert(home.includes('<HowItWorksSteps />'),'Use the enlarged animated four-step feature cards');
  assert.match(home,/<HyggloReviewRows reviews=\{hyggloReviews\} \/>[\s\S]*<ReviewCarousel \/>[\s\S]*<HomeStats ratingValue=\{rating\.ratingValue\} reviewCount=\{rating\.reviewCount\} itemCount=\{itemCount\} \/>/,'Place the three animated trust figures below both review carousels');
@@ -84,7 +85,7 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  assert(stepsStyles.includes('.copy { padding-bottom: 4rem; }'),'Keep mobile step copy clear of the floating contact button');
  assert(header.includes('{ href: "/#reviews", label: "Reviews" }'),'Give visitors a direct navigation link to the reviews');
  assert(header.includes('inert={Boolean(hover)}') && !header.includes('inert={Boolean(hover || intro)}'),'The automatic FORM / SEVEN introduction must not hide or disable navigation');
- assert(showcase.includes('hygglo-trust-review-fade hygglo-trust-review-quote mt-3 text-[13px] leading-5 text-white/90')&&styles.includes('-webkit-line-clamp: 4;')&&styles.includes('min-height: 5rem;')&&showcase.includes('h-[280px]')&&showcase.includes('sm:h-[304px]')&&!showcase.includes('min-h-[')&&!showcase.includes('max-h-['),'Keep featured tiles fixed-height and clamp longer review text');
+ assert(showcase.includes('hygglo-trust-review-fade hygglo-trust-review-quote mt-3 text-[12px] leading-[18px] text-white/90')&&styles.includes('-webkit-line-clamp: 3;')&&styles.includes('min-height: 3.375rem;')&&showcase.includes('h-[280px]')&&showcase.includes('sm:h-[304px]')&&!showcase.includes('min-h-[')&&!showcase.includes('max-h-['),'Keep featured tiles fixed-height and clamp longer review text');
  assert(showcase.includes('href="/#reviews"')&&showcase.includes('data-testid="review-eye-glyph"')&&styles.includes('@keyframes review-eye-look'),'Make the featured review tile link to all reviews with its animated eye glyph');
  assert(fs.readFileSync('src/components/DeliveryProtectionTile.tsx','utf8').includes('}, 5000);'),'Rotate delivery and protection headlines every five seconds');
  assert.match(reviewsRoute,/redirect\("\/#reviews"\)/,'Make the direct /reviews path land on the homepage review section');
