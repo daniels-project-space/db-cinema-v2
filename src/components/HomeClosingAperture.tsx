@@ -14,7 +14,7 @@ const copy = [
 
 function LetteredCopy({ text, className, delay, stagger }: { text: string; className: string; delay: number; stagger: number }) {
   return <span className={className} aria-hidden="true">{Array.from(text).map((letter, letterIndex) => {
-    const style = { "--letter-index": letterIndex, "--letter-delay": `${delay + letterIndex * stagger}ms`, "--letter-twist": `${(letterIndex % 2 ? 1 : -1) * (8 + letterIndex % 9 * 2)}deg` } as CSSProperties;
+    const style = { "--letter-index": letterIndex, "--letter-delay": `${delay + letterIndex * stagger}ms`, "--strain-delay": `${letterIndex % 9 * 24}ms`, "--letter-twist": `${(letterIndex % 2 ? 1 : -1) * (8 + letterIndex % 9 * 2)}deg` } as CSSProperties;
     return letter === " "
       ? <span key={letterIndex} data-portal-letter className={`${styles.letter} ${styles.space}`} style={style}>{"\u00a0"}</span>
       : <span key={letterIndex} data-portal-letter className={styles.letter} style={style}>{letter}</span>;
@@ -27,6 +27,7 @@ export function HomeClosingAperture() {
   const apertureButton = useRef<HTMLButtonElement>(null);
   const iris = useRef<HTMLSpanElement>(null);
   const progress = useRef<HTMLDivElement>(null);
+  const releasedLetters = useRef<Array<{ letter: HTMLElement; transform: string }>>([]);
   const engaged = phase !== "idle" && phase !== "canceling";
   const committed = phase === "committed" || phase === "navigating" || phase === "revealing";
 
@@ -39,7 +40,7 @@ export function HomeClosingAperture() {
   }, [committed, phase]);
 
   useLayoutEffect(() => {
-    if (!committed || !section.current || !iris.current) return;
+    if (phase !== "charging" || !section.current || !iris.current) return;
     const target = iris.current.getBoundingClientRect();
     const targetX = target.left + target.width / 2;
     const targetY = target.top + target.height / 2;
@@ -47,24 +48,40 @@ export function HomeClosingAperture() {
     letters.forEach(({ letter, rect }) => {
       letter.style.setProperty("--pull-x", `${targetX - rect.left - rect.width / 2}px`);
       letter.style.setProperty("--pull-y", `${targetY - rect.top - rect.height / 2}px`);
+      letter.style.setProperty("--strain-x", `${Math.max(-12, Math.min(12, (targetX - rect.left - rect.width / 2) * .045))}px`);
+      letter.style.setProperty("--strain-y", `${Math.max(-12, Math.min(12, (targetY - rect.top - rect.height / 2) * .045))}px`);
     });
-  }, [committed]);
+  }, [phase]);
+
+  useLayoutEffect(() => {
+    if (phase !== "canceling") return;
+    releasedLetters.current.forEach(({ letter, transform }) => {
+      letter.animate([{ transform }, { transform: "none" }], { duration: 480, easing: "cubic-bezier(.2,.8,.2,1)" });
+    });
+    releasedLetters.current = [];
+  }, [phase]);
 
   const start = () => begin(apertureButton.current);
+  const release = () => {
+    if (phase === "charging" && section.current) {
+      releasedLetters.current = Array.from(section.current.querySelectorAll<HTMLElement>("[data-portal-copy], [data-portal-letter]"), letter => ({ letter, transform: getComputedStyle(letter).transform }));
+    }
+    cancel();
+  };
   const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.pointerType === "touch") start();
   };
   const handlePointerUp = (event: PointerEvent<HTMLButtonElement>) => {
-    if (event.pointerType === "touch") cancel();
+    if (event.pointerType === "touch") release();
   };
 
   return <section ref={section} className={`section-window relative overflow-hidden px-6 py-28 text-center ${styles.section}`} aria-labelledby="home-closing-title">
     <div className={styles.lights} aria-hidden="true"><span/><span/><span/><span/><span/><span/></div>
-    <div className={`${styles.content} ${committed ? styles.sucked : ""}`}>
+    <div className={`${styles.content} ${phase === "charging" ? styles.anticipating : ""} ${committed ? styles.sucked : ""}`}>
       <div className={styles.accessibleCopy}>
         <p>Your story is waiting</p><h2 id="home-closing-title">Your next shot starts here.</h2><p>Pick your dates, build your kit, and get back to the work that matters.</p>
       </div>
-      <div className={styles.visibleCopy} aria-hidden="true">
+      <div data-portal-copy className={styles.visibleCopy} aria-hidden="true">
         {copy.map(line => <LetteredCopy key={line.text} {...line} />)}
       </div>
       <button
@@ -76,12 +93,12 @@ export function HomeClosingAperture() {
         aria-describedby="home-aperture-hint"
         aria-busy={engaged}
         onPointerEnter={event => { if (event.pointerType !== "touch") start(); }}
-        onPointerLeave={event => { if (event.pointerType !== "touch") cancel(); }}
+        onPointerLeave={event => { if (event.pointerType !== "touch") release(); }}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
-        onPointerCancel={cancel}
+        onPointerCancel={release}
         onFocus={start}
-        onBlur={cancel}
+        onBlur={release}
         onClick={() => openNow(apertureButton.current)}
       >
         <span ref={iris} data-testid="home-aperture-iris" className={styles.aperture} aria-hidden="true">

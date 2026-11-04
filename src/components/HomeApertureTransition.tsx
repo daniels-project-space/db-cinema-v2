@@ -13,7 +13,7 @@ type TransitionContextValue = { phase: TransitionPhase; begin: (source?: HTMLEle
 type Origin = { x: number; y: number; size: number };
 const TransitionContext = createContext<TransitionContextValue | null>(null);
 const CHARGE_MS = 2500;
-const REVEAL_MS = 1800;
+const REVEAL_MS = 2600;
 
 export function HomeApertureTransitionProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -77,12 +77,14 @@ export function HomeApertureTransitionProvider({ children }: { children: React.R
     window.scrollTo({ top: 0, behavior: "instant" });
     const rect = document.getElementById("main-content")?.getBoundingClientRect();
     const horizon = document.querySelector<HTMLElement>("[data-testid='home-aperture-horizon']")?.getBoundingClientRect();
-    const initialRadius = Math.max(4, (horizon?.width ?? 16) * .46);
+    const initialRadius = Math.max(4, (horizon?.width ?? 16) * .28);
     const finalRadius = Math.hypot(Math.max(origin.x, window.innerWidth - origin.x), Math.max(origin.y, window.innerHeight - origin.y)) + 8;
     document.body.style.setProperty("--aperture-main-x", `${origin.x - (rect?.left ?? 0)}px`);
     document.body.style.setProperty("--aperture-main-y", `${origin.y - (rect?.top ?? 0)}px`);
     document.body.style.setProperty("--aperture-reveal-start", `${initialRadius}px`);
     document.body.style.setProperty("--aperture-reveal-end", `${Math.max(initialRadius, finalRadius)}px`);
+    document.body.style.setProperty("--aperture-hole-start-scale", String((horizon?.width ?? origin.size * .2) / origin.size));
+    document.body.style.setProperty("--aperture-hole-end-scale", String(Math.max(initialRadius, finalRadius) / (origin.size * .28)));
     setCurrentPhase("revealing");
     timers.current.push(window.setTimeout(() => setCurrentPhase("idle"), REVEAL_MS));
   }, [clearTimers, origin, pathname, phase, setCurrentPhase]);
@@ -94,6 +96,8 @@ export function HomeApertureTransitionProvider({ children }: { children: React.R
       document.body.style.removeProperty("--aperture-main-y");
       document.body.style.removeProperty("--aperture-reveal-start");
       document.body.style.removeProperty("--aperture-reveal-end");
+      document.body.style.removeProperty("--aperture-hole-start-scale");
+      document.body.style.removeProperty("--aperture-hole-end-scale");
     } else document.body.dataset.apertureTransition = phase;
   }, [phase]);
   useEffect(() => () => { clearTimers(); delete document.body.dataset.apertureTransition; }, [clearTimers]);
