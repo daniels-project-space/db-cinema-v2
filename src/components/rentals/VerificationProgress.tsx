@@ -307,7 +307,9 @@ export function VerificationProgress({
               {journey.closed
                 ? "This rental no longer accepts document uploads."
                 : !ready
-                  ? "Complete your rental payment before verification can begin."
+                  ? booking.status === "pending_payment"
+                    ? "Complete your rental payment before verification can begin."
+                    : "Verification is unavailable right now. Message the team for help."
                   : approved
                     ? booking.verificationReused
                       ? "Your recent verified documents have been reused for this rental."
