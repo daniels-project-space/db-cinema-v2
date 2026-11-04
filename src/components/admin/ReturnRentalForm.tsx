@@ -43,8 +43,10 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
   const [returnedAt, setReturnedAt] = useState(() => saved ? new Date(saved.actualReturnedAt - new Date(saved.actualReturnedAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : localNow());
   const [damage, setDamage] = useState(() => String(saved?.damageKept ?? 0));
   const [damageNote, setDamageNote] = useState(() => saved?.damageNote ?? "");
-  const [chargeLate, setChargeLate] = useState(() => saved?.chargeLate ?? true);
-  const [waiverReason, setWaiverReason] = useState(() => saved?.lateWaiverReason ?? "");
+  const [chargeLate, setChargeLate] = useState(() => saved?.chargeLate ?? false);
+  const waiverReason = saved?.lateWaiverReason ?? "";
+  const [lateClaimReason, setLateClaimReason] = useState(() => saved?.lateClaimReason ?? "");
+  const legacyReturnDecision = !!saved && saved.lateClaimPolicyVersion !== "owner-claim-v1";
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const parsedAt = new Date(returnedAt).getTime();
@@ -67,12 +69,14 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
   const valid = !!quote && Number.isFinite(at) && at <= Date.now() + 60000 && Number.isFinite(damageAmount) && damageAmount >= 0 &&
     damageAmount <= damageLimit && (!refundablePolicy || (Number.isFinite(depositKept)&&depositKept>=0&&depositKept<=Math.min(booking.depositAmount??0,damageAmount))) &&
     (damageAmount === 0 || damageNote.trim().length >= 10) &&
-    (chargeLate || !quote?.amount || waiverReason.trim().length >= 5) && inspectionValid;
+    (!chargeLate || !quote?.amount || legacyReturnDecision || lateClaimReason.trim().length >= 10) &&
+    (!legacyReturnDecision || chargeLate || !quote?.amount || waiverReason.trim().length >= 5) && inspectionValid;
 
   const selection = {
         token, bookingId: booking._id, actualReturnedAt: at,
         damageKept: damageAmount, ...(refundablePolicy?{depositKept}:{}), damageNote: damageAmount ? damageNote.trim() : undefined,
-        chargeLate, lateWaiverReason: !chargeLate ? waiverReason.trim() || undefined : undefined,
+        chargeLate, lateWaiverReason: legacyReturnDecision && !chargeLate ? waiverReason.trim() || undefined : undefined,
+        lateClaimReason: chargeLate && quote?.amount ? lateClaimReason.trim() || undefined : undefined,
         inspection: legacyResume ? undefined : schedule?.items.map(i => conditions[i.key]),
   };
   const decisionKey = JSON.stringify(selection);
@@ -122,10 +126,11 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
       {!booking.returnTime && !booking.lineItems.some((li: { returnTime?: string | null }) => li.returnTime) && <p className="mt-1 text-amber-200">No agreed return time is stored for this booking, so no automatic late charge can be assessed.</p>}
       {quote?.breakdown.map((line, i) => <div key={i} className="mt-1 flex justify-between gap-2"><span>{line.title} · {line.days} commenced day{line.days === 1 ? "" : "s"} × {formatGbp(line.dailyRate)}</span><span>{formatGbp(line.amount)}</span></div>)}
       {quote?.breakdown.some((line) => line.dailyRate === 0) && <p className="mt-1 text-amber-200">A booked daily rate is missing for at least one item; it will not be charged automatically.</p>}
-      {quote && quote.amount > 0 && <label className="mt-2 flex items-center gap-2"><input type="checkbox" disabled={working || reviewBusy || !!saved} checked={chargeLate} onChange={(e) => setChargeLate(e.target.checked)} /> Apply this separately agreed late rental charge</label>}
-      {quote && quote.amount > 0 && !chargeLate && <label className="mt-2 block">Reason for waiving late time<input disabled={working || reviewBusy || !!saved} value={waiverReason} onChange={(e) => setWaiverReason(e.target.value)} className="input mt-1 w-full" placeholder="Required for the booking record" /></label>}
+      {quote && quote.amount > 0 && <label className="mt-2 flex items-center gap-2"><input type="checkbox" disabled={working || reviewBusy || !!saved} checked={chargeLate} onChange={(e) => setChargeLate(e.target.checked)} /> I am claiming this late amount</label>}
+      {quote && quote.amount > 0 && chargeLate && <label className="mt-2 block">Reason for your claim<input disabled={working || reviewBusy || !!saved} value={lateClaimReason} onChange={(e) => setLateClaimReason(e.target.value)} className="input mt-1 w-full" placeholder="Explain the reason for claiming this amount" /></label>}
+      {quote && quote.amount > 0 && !chargeLate && <p className="mt-2 text-emerald-200">No late fee will be claimed. Any unused active card hold is released when the return is settled.</p>}
     </div>
-    <p className="mt-3 text-white/45">{savedCard ? "This records the inspection and assessed late time only. No money is taken here. Prepare an itemised notice and collect a properly owed amount separately using the saved-card controls under the accepted terms." : "An active card hold covers damage first. If there is no damage, an unused active hold may cover the late charge after the separate notice and dispute period. Any remaining late balance is a separate saved-card attempt."}</p>
+    <p className="mt-3 text-white/45">{savedCard ? "This records the inspection only. No money is taken here. Any separately claimed amount requires its own itemised notice and review." : "A damage deduction requires an amount, itemised evidence and a reason. Otherwise, the full unused hold is released when the return is settled."}</p>
     </details>
     {error && <p role="alert" className="mt-2 text-rose-300">{error}</p>}
     {!inspectionValid && !legacyResume && <p className="mt-3 text-amber-200">Select a condition for every item and complete the required issue details. Any deduction must correspond to an item with an issue.</p>}

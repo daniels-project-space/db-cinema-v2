@@ -891,8 +891,8 @@ export const getForRefund = internalQuery({
 });
 
 export const beginReturnDecision = internalMutation({
-  args: { bookingId: v.id("bookings"), actualReturnedAt: v.number(), damageKept: v.number(), depositKept: v.optional(v.number()), expectedSnapshot: v.optional(v.string()), damageNote: v.optional(v.string()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
-  handler: async (ctx, { bookingId, actualReturnedAt, damageKept, depositKept, expectedSnapshot, damageNote, chargeLate, lateWaiverReason, inspection }) => {
+  args: { bookingId: v.id("bookings"), actualReturnedAt: v.number(), damageKept: v.number(), depositKept: v.optional(v.number()), expectedSnapshot: v.optional(v.string()), damageNote: v.optional(v.string()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), lateClaimReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
+  handler: async (ctx, { bookingId, actualReturnedAt, damageKept, depositKept, expectedSnapshot, damageNote, chargeLate, lateWaiverReason, lateClaimReason, inspection }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || !["confirmed", "active", "returned"].includes(b.status)) throw new Error("Booking is not available for return.");
     if((b.activeAdditionId || b.activeExtensionId || b.activePriceAdjustmentId))throw Error("Finish or withdraw the item addition or approved extension before returning this rental");
@@ -904,11 +904,11 @@ export const beginReturnDecision = internalMutation({
     if (saved) {
       if (saved.actualReturnedAt !== actualReturnedAt || saved.damageKept !== damageKept || saved.depositKept !== depositKept || (saved.expectedSnapshot && saved.expectedSnapshot !== expectedSnapshot) ||
           (saved.damageNote ?? "") !== (damageNote ?? "") || saved.chargeLate !== chargeLate ||
-          (saved.lateWaiverReason ?? "") !== (lateWaiverReason ?? "") || !sameReturnInspection(saved.inspection, inspected))
+          (saved.lateWaiverReason ?? "") !== (lateWaiverReason ?? "") || (saved.lateClaimReason ?? "") !== (lateClaimReason ?? "") || !sameReturnInspection(saved.inspection, inspected))
         throw new Error("A return settlement is already in progress with different amounts. Resume the saved decision or contact support before changing it.");
       return;
     }
-    await ctx.db.patch(bookingId, { returnDecision: { actualReturnedAt, damageKept, depositKept, expectedSnapshot, damageNote, chargeLate, lateWaiverReason, inspection: inspected as any, startedAt: Date.now() } });
+    await ctx.db.patch(bookingId, { returnDecision: { actualReturnedAt, damageKept, depositKept, expectedSnapshot, damageNote, chargeLate, lateWaiverReason, lateClaimReason, lateClaimPolicyVersion: "owner-claim-v1", inspection: inspected as any, startedAt: Date.now() } });
     if(hasCashDepositPolicy(b.securityPolicyVersion)&&b.depositAmount>0)await ctx.scheduler.runAfter(120000,internal.checkout.recoverDepositReturn,{bookingId,attempt:0});
     const accountId = b.accountId ?? (await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first())?._id;
     for (const item of inspected ?? []) if (item.openCase) await ctx.db.insert("rental_damage_cases", { bookingId, accountId, itemKey: item.key, title: item.title, inventoryUnitId: item.inventoryUnitId as any, details: item.details, status: "open", openedAt: Date.now() });
@@ -1100,11 +1100,15 @@ export const recordLateFee = internalMutation({
   handler: async (ctx, { bookingId, actualReturnedAt, amount, breakdown, waivedAmount, waiverReason }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.actualReturnedAt) return;
+    if (amount > 0 && b.returnDecision?.lateClaimPolicyVersion === "owner-claim-v1" &&
+      (!b.returnDecision.chargeLate || (b.returnDecision.lateClaimReason ?? "").trim().length < 10))
+      throw Error("A late amount needs an explicit claim and reason before it can be recorded.");
     await ctx.db.patch(bookingId, {
       actualReturnedAt,
       lateFeeAmount: amount,
       lateFeeWaivedAmount: waivedAmount,
       lateFeeWaiverReason: waiverReason,
+      lateFeeClaimReason: amount > 0 ? b.returnDecision?.lateClaimReason : undefined,
       lateFeeBreakdown: breakdown,
       lateFeeStatus: amount > 0 ? isSavedCardRental(b) ? "admin_review" : "notice_pending" : waivedAmount ? "waived" : "none",
       ...(isSavedCardRental(b)&&amount===0&&!b.returnDecision?.damageKept&&b.returnDecision?.inspection?.length&&b.returnDecision.inspection.every(item=>item.condition==='good')?{savedCardStatus:"closed"}:{}),
@@ -1131,7 +1135,7 @@ export const recordLateFee = internalMutation({
         ...(isSavedCardRental(b)?{securityPolicyVersion:b.securityPolicyVersion,...(b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?{}:{savedCardLimit:b.savedCardLimit}),damageAssessed:b.returnDecision?.damageKept??0}:{}),
         damageNote: b.depositDeductionNote,
         inspection: b.returnDecision?.inspection,
-        lateAssessed: amount, lateWaived: waivedAmount ?? 0, lateBreakdown: breakdown,
+        lateAssessed: amount, lateWaived: waivedAmount ?? 0, lateClaimReason: amount > 0 ? b.returnDecision?.lateClaimReason : undefined, lateBreakdown: breakdown,
       },
       returnStatementEmailStatus: "pending",
     });

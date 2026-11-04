@@ -5,7 +5,7 @@
   "scripts": {
     "prebuild": "node scripts/generate-voice-worklets.cjs",
     "predev": "node scripts/generate-voice-worklets.cjs",
-    "pretest": "node scripts/test-deposit-return-recovery.cjs && node scripts/test-stripe-checkout-idempotency-sdk.cjs && node scripts/test-checkout-failure-alert.cjs && node scripts/test-swml-diagnostic-boundary.cjs && node scripts/test-identity-provider-boundary.cjs && node scripts/test-didit-embed.cjs && node scripts/test-verification-link-display.cjs && node scripts/test-didit-status-alerts.cjs && node scripts/test-rmv2-physical-ledger.cjs && node scripts/test-ios-notification-steps.cjs",
+    "pretest": "node scripts/test-deposit-return-recovery.cjs && node scripts/test-stripe-checkout-idempotency-sdk.cjs && node scripts/test-checkout-failure-alert.cjs && node scripts/test-swml-diagnostic-boundary.cjs && node scripts/test-identity-provider-boundary.cjs && node scripts/test-didit-embed.cjs && node scripts/test-verification-link-display.cjs && node scripts/test-didit-status-alerts.cjs && node scripts/test-rmv2-physical-ledger.cjs && node scripts/test-ios-notification-steps.cjs && node scripts/test-return-release-claim-policy.cjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

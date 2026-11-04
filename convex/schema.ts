@@ -395,7 +395,7 @@ export default defineSchema({
     returnDecision: v.optional(v.object({
       actualReturnedAt: v.number(), damageKept: v.number(), depositKept: v.optional(v.number()), expectedSnapshot: v.optional(v.string()),
       damageNote: v.optional(v.string()), chargeLate: v.boolean(),
-      lateWaiverReason: v.optional(v.string()), startedAt: v.number(),
+      lateWaiverReason: v.optional(v.string()), lateClaimReason: v.optional(v.string()), lateClaimPolicyVersion: v.optional(v.string()), startedAt: v.number(),
       inspection: v.optional(v.array(inspectionRecord)),
     })),
     rmv2Revision: v.optional(v.number()),
@@ -419,6 +419,7 @@ export default defineSchema({
     lateFeeReceiptEmailAttemptAt: v.optional(v.number()),
     lateFeeReceiptEmailedAt: v.optional(v.number()),
     lateFeeNote: v.optional(v.string()),
+    lateFeeClaimReason: v.optional(v.string()),
     lateFeeBreakdown: v.optional(v.array(v.object({ title: v.string(), days: v.number(), dailyRate: v.number(), amount: v.number() }))),
     returnStatement: v.optional(v.object({
       number: v.string(), issuedAt: v.number(), actualReturnedAt: v.number(),
@@ -432,7 +433,7 @@ export default defineSchema({
       damageTotal: v.number(), damageFromHold: v.number(), damageNote: v.optional(v.string()),
       securityPolicyVersion:v.optional(v.string()),savedCardLimit:v.optional(v.number()),damageAssessed:v.optional(v.number()),depositRefundState:v.optional(v.string()),securityRefundedConfirmed:v.optional(v.number()),
       inspection: v.optional(v.array(inspectionRecord)),
-      lateAssessed: v.number(), lateWaived: v.number(),
+      lateAssessed: v.number(), lateWaived: v.number(), lateClaimReason: v.optional(v.string()),
       lateBreakdown: v.array(v.object({ title: v.string(), days: v.number(), dailyRate: v.number(), amount: v.number() })),
     })),
     returnStatementEmailStatus: v.optional(v.string()),
