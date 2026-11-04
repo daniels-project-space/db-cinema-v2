@@ -31,7 +31,7 @@ const card = `Array.from(document.querySelectorAll('article')).find(element => e
       assert(await client.evaluate(`document.activeElement === ${card}.querySelector('button')`),'Focus remains on the switch');
       assert.equal(await client.evaluate(`${card}.querySelector('h2').textContent`),title,'A focused control stops automatic changes');
       await client.evaluate(`${card}.querySelector('button').click()`);
-      await delay(1500);
+      await delay(2050);
       assert.equal(await client.evaluate(`${card}.querySelector('h2').textContent`),'Delivered across London','Manual switching works while focused');
     }
     await client.cmd('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion',value:'reduce'}]});

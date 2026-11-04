@@ -51,7 +51,7 @@ export function DeliveryProtectionTile() {
     }
     const id = ++transitionId.current;
     setTransition({ from, to: next, id });
-    transitionTimer.current = window.setTimeout(() => setTransition(current => current?.id === id ? null : current), 1550);
+    transitionTimer.current = window.setTimeout(() => setTransition(current => current?.id === id ? null : current), 1900);
   }, []);
 
   useEffect(() => () => {
