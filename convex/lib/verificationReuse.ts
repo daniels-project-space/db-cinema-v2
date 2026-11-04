@@ -2,6 +2,7 @@ import { postRentalMessage } from "./rentalChat";
 import { accountForRental } from "./rentalAccount";
 import { bookingStockLines } from "../../shared/rentalWindow";
 import { pickupMapAvailable } from "../../shared/pickupLocation";
+import { verificationExpired } from "../../shared/verificationProgress";
 
 /** Rental risk policy, separate from a Collective membership badge. */
 export const VERIFICATION_REUSE_DAYS = 90;
@@ -46,6 +47,7 @@ export async function verificationUpdateMessage(ctx: any, bookingId: any, previo
   if (previous === status) return;
   const booking = await ctx.db.get(bookingId);
   if (!booking || !["confirmed", "active"].includes(booking.status)) return;
+  if (status === "verified" && verificationExpired(booking)) return;
   const account = await accountForRental(ctx, booking);
   if (!account) return;
   const text: Record<string, string> = {

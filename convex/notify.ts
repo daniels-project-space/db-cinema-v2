@@ -365,6 +365,8 @@ export const sendReminders = internalAction({
       const endDay = new Date(b.end).toISOString().slice(0, 10);
 
       if (startDay === tomorrow && !b.remindedPickup) {
+        const current: any = await ctx.runQuery(internal.bookings.get, {bookingId:b._id});
+        if (!current || !["confirmed","active"].includes(current.status) || current.idVerifyStatus !== "verified" || verificationExpired(current) || current.guestEmail?.trim().toLowerCase() !== b.guestEmail?.trim().toLowerCase()) continue;
         await email(
           b.guestEmail,
           "Your Db Cinema pickup is tomorrow 🎬",

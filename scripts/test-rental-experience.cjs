@@ -9,6 +9,8 @@ assert.equal(replies.length, 1);
 assert.ok(!JSON.stringify(replies).includes(settings.businessAddress));
 assert.ok(!replies.some(r => ["Rental details", "Verification needed"].includes(r.label)));
 replies = rentalReplyTemplates({ ...booking, status: "confirmed" }, settings);
+assert.match(replies[0].text, /payment is recorded; verification is still required/i);
+assert.doesNotMatch(replies[0].text, /your rental is confirmed/i);
 assert.match(replies[0].text, /1 Apr 2027 at 10:30/);
 assert.match(replies[0].text, /2 Apr 2027 at 16:00/);
 assert.ok(!replies[0].text.includes(settings.businessAddress));

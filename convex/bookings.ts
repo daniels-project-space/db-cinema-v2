@@ -27,7 +27,7 @@ import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecove
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { isLegacyStripeIdentity } from "../shared/identityProvider";
 import { assertRenterExposure, renterExposure, replacementValues, attachRenterPerson } from "./lib/rentalExposure";
-import { securityReady, verificationCanStart, verificationSessionCanOpen, renterVerificationNote } from "../shared/verificationProgress";
+import { securityReady, verificationCanStart, verificationSessionCanOpen, renterVerificationNote, verificationExpired } from "../shared/verificationProgress";
 import { assertDroneApproval, requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
 import { queueVerificationArchive, assertVerificationArchive } from "./verificationArchive";
 import { listingImages } from "./lib/catalogImages";
@@ -1333,6 +1333,7 @@ export const remindersFeed = internalQuery({
     const out = [];
     for (const b of [...confirmed, ...active, ...returned]) {
       if (!b.guestEmail) continue;
+      if (b.status === "confirmed" && (b.idVerifyStatus !== "verified" || verificationExpired(b))) continue;
       const acct = await ctx.db
         .query("accounts")
         .withIndex("by_email", (q) => q.eq("email", b.guestEmail!.trim().toLowerCase()))
@@ -1406,6 +1407,8 @@ export const get = internalQuery({
       returnTime: b.returnTime ?? null,
       guestEmail: account?.email??(b.accountId?null:b.guestEmail),
       idVerifyStatus: b.idVerifyStatus ?? "required",
+      verificationExpiresAt: b.verificationExpiresAt ?? null,
+      documentExpiresAt: b.documentExpiresAt ?? null,
       verificationProvider: b.verificationProvider ?? "stripe",
       verificationNote: b.verificationNote ?? null,
       agreementName: b.agreementName ?? null,
