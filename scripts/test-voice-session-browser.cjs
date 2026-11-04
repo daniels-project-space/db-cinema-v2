@@ -15,10 +15,16 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     if (process.env.DBC_TEST_MOBILE === '1') await client.cmd('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:true});
     client.on(event => { if (event.method === 'Runtime.consoleAPICalled' && event.params.type === 'error') errors.push(event.params.args.map(arg => arg.value ?? arg.description ?? '').join(' ')); });
     await client.cmd('Network.enable');
-    await client.cmd('Network.setBlockedURLs', {urls:['*convex.cloud*', '*convex.site*', '*elevenlabs.io*']});
+    await client.cmd('Network.setBlockedURLs', {urls:['*convex.cloud*', '*convex.site*', '*elevenlabs.io*', ...(process.env.DBC_TEST_WORKLET_FAILURE === '1' ? ['*/voice-worklets/*'] : [])]});
     await client.cmd('Browser.grantPermissions', {origin, permissions:['audioCapture']});
     await client.cmd('Page.addScriptToEvaluateOnNewDocument', {source:`(() => {
+      if (${process.env.DBC_TEST_GENERIC_FAILURE === '1'}) localStorage.removeItem('dbc_gaffer_overrides_blocked_at_v2');
       if (${process.env.DBC_TEST_MIC_DENIED === '1'}) navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Synthetic refusal', 'NotAllowedError'); };
+      if (${process.env.DBC_TEST_WORKLET_FAILURE === '1'}) {
+        const audio = new AudioContext();
+        Object.getPrototypeOf(audio.audioWorklet).addModule = async () => { throw new Error('Synthetic worklet initialization failure'); };
+        void audio.close();
+      }
       const NativeSocket = window.WebSocket;
       window.__voiceSockets = [];
       window.WebSocket = class extends EventTarget {
@@ -26,7 +32,9 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
           super();
           if (!String(url).startsWith('wss://api.elevenlabs.io/')) return new NativeSocket(url, protocols);
           this.readyState = 0; this.sent = []; window.__voiceSockets.push(this);
-          setTimeout(() => { this.readyState = 1; this.dispatchEvent(new Event('open')); }, ${process.env.DBC_TEST_RECONNECT === '1' ? 'window.__voiceSockets.length === 2 ? 3000 : 10' : '10'});
+          if (${process.env.DBC_TEST_GENERIC_FAILURE === '1'} && window.__voiceSockets.length === 1) {
+            setTimeout(() => { this.readyState = 3; this.dispatchEvent(new CloseEvent('close', {code:1011,reason:'Synthetic generic failure'})); }, 10);
+          } else setTimeout(() => { this.readyState = 1; this.dispatchEvent(new Event('open')); }, ${process.env.DBC_TEST_RECONNECT === '1' ? 'window.__voiceSockets.length === 2 ? 3000 : 10' : '10'});
         }
         send(value) {
           this.sent.push(value);
@@ -47,6 +55,14 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     await client.cmd('Input.dispatchMouseEvent', {type:'mouseMoved',...position});
     await client.cmd('Input.dispatchMouseEvent', {type:'mousePressed',button:'left',clickCount:1,...position});
     await client.cmd('Input.dispatchMouseEvent', {type:'mouseReleased',button:'left',clickCount:1,...position});
+    if (process.env.DBC_TEST_WORKLET_FAILURE === '1') {
+      for (let attempt=0;attempt<150&&!(await client.evaluate('document.body.innerText.includes("Audio couldn\u0027t start on this device")'));attempt++) await delay(100);
+      assert(await client.evaluate('document.body.innerText.includes("Audio couldn\u0027t start on this device")'),'Audio initialization failure explains the problem visibly');
+      assert.equal(await client.evaluate('window.__voiceSockets.length'),1,'An audio failure is not retried as an override failure');
+      assert.equal(await client.evaluate('window.__voiceSockets[0].readyState'),3,'Failed setup closes the synthetic provider socket');
+      console.log('PASS actionable audio failure with one closed synthetic provider connection.');
+      return;
+    }
     if (process.env.DBC_TEST_MIC_DENIED === '1') {
       for (let attempt=0;attempt<100&&!(await client.evaluate('document.body.innerText.includes("Microphone blocked")'));attempt++) await delay(100);
       assert(await client.evaluate('document.body.innerText.includes("Microphone blocked")'),'A denied microphone explains the actual problem visibly');
@@ -59,7 +75,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     for (let attempt=0;attempt<150&&!(await client.evaluate('!!document.querySelector("button[data-state=live]")'));attempt++) await delay(100);
     const started = await client.evaluate(`({live:!!document.querySelector('button[data-state=live]'), sockets:window.__voiceSockets.length, labels:[...document.querySelectorAll('button[aria-label*="voice call"]')].map(button=>button.getAttribute('aria-label')), alerts:[...document.querySelectorAll('[role=alert],[role=dialog]')].map(item=>item.textContent.slice(0,250))})`);
     assert(started.live, `The actual voice control starts with a synthetic provider and microphone: ${JSON.stringify({target,position,started,errors})}`);
-    assert.equal(await client.evaluate('window.__voiceSockets.length'),1,'One synthetic connection is established');
+    assert.equal(await client.evaluate('window.__voiceSockets.length'),process.env.DBC_TEST_GENERIC_FAILURE === '1' ? 2 : 1,'A generic initial rejection retains the one-time fallback');
     if (process.env.DBC_TEST_RECONNECT === '1') {
       await client.evaluate('window.__voiceSockets[0].close()');
       for (let attempt=0;attempt<50&&!(await client.evaluate('window.__voiceSockets.length === 2'));attempt++) await delay(100);

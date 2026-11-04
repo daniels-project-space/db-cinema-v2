@@ -606,15 +606,20 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         } catch { /* non-fatal */ }
       } catch (err: any) {
         if (!mine()) return;
-        // Some rejections do throw. Same fallback, so either shape recovers.
-        if (withOverrides) {
-          overridesAllowed = false;
-          console.warn("[Gaffer] firstMessage override rejected outright — retrying without it.", err);
+        const failure = String(err?.message ?? err ?? "");
+        const audioFailure = /worklet|audiocontext|audio.*(?:initializ|start|process)/i.test(failure);
+        const microphoneFailure = err?.name === "NotAllowedError" || err?.name === "SecurityError";
+        if (withOverrides && !audioFailure && !microphoneFailure) {
+          console.warn("[Gaffer] Connection failed — retrying once without the greeting override.", err);
           void start(false);
           return;
         }
         console.error("[Gaffer] failed to start session", err);
-        setError("Couldn't start the call — please try again.");
+        setError(audioFailure
+          ? "Audio couldn't start on this device. Check your microphone and audio settings, then try again."
+          : microphoneFailure
+            ? "Microphone blocked — allow mic access to talk to Gaffer."
+            : "Couldn't start the call — please try again.");
         setState("idle");
         conv.current = null;
       }
