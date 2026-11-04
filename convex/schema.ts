@@ -654,7 +654,8 @@ export default defineSchema({
   })
     .index("by_operator", ["operatorId"])
     .index("by_status", ["status"])
-    .index("by_email", ["email"]),
+    .index("by_email", ["email"])
+    .index("by_email_status", ["email", "status"]),
 
   // ── RMv2 availability bridge state ────────────────────────────
   accounts: defineTable({

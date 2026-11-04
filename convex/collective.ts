@@ -93,15 +93,11 @@ async function emailFromToken(ctx: any, token: string): Promise<string | null> {
   return acct?.email ?? null;
 }
 
-/** The most relevant (non-rejected, newest) application for an email. */
+/** Preserve an established approved application when newer applications arrive. */
 async function memberApp(ctx: any, email: string) {
-  const rows = await ctx.db
-    .query("collective_applications")
-    .withIndex("by_email", (q: any) => q.eq("email", email))
-    .collect();
-  const live = rows.filter((r: any) => r.status !== "rejected");
-  live.sort((a: any, b: any) => b._creationTime - a._creationTime);
-  return live[0] ?? null;
+  const approved = await ctx.db.query("collective_applications").withIndex("by_email_status", (q: any) => q.eq("email", email).eq("status", "approved")).order("desc").first();
+  if (approved) return approved;
+  return await ctx.db.query("collective_applications").withIndex("by_email_status", (q: any) => q.eq("email", email).eq("status", "pending")).order("desc").first();
 }
 
 /** Member-facing membership status + completeness (drives the profile glow). */
@@ -240,6 +236,10 @@ export const review = mutation({
       await ctx.db.patch(id, { status: "rejected", reviewedAt: Date.now() });
       return { ok: true, published: false };
     }
+
+    const existingApplications = await ctx.db.query("collective_applications").withIndex("by_email_status", q => q.eq("email", app.email).eq("status", "approved")).take(2);
+    if (existingApplications.some(existing => existing._id !== app._id && existing.status === "approved"))
+      throw new Error("An approved application already exists for this email. Review the existing membership before approving another application.");
 
     // fold any admin edits over the submitted values, both for the published
     // card and the stored application record

@@ -306,7 +306,7 @@ export const _grantComplimentaryMembership = internalMutation({
       .query("accounts")
       .withIndex("by_email", (q) => q.eq("email", email.trim().toLowerCase()))
       .first();
-    if (!a) return;
+    if (!a || a.membershipActive || a.stripeSubscriptionId) return;
     await ctx.db.patch(a._id, { membershipTier: tier, membershipActive: true, membershipSource: "collective-comp" });
   },
 });
