@@ -8,7 +8,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { BOT_MODEL_DEFAULT, BOT_PROVIDER_ROUTING } from "./lib/botModel";
 import { verificationRecovery } from "./lib/gafferVerificationGuidance";
-import { bookingRecovery } from "./lib/gafferBookingGuidance";
+import { bookingRecovery, paymentRecovery } from "./lib/gafferBookingGuidance";
 
 /** Owner-selected suggestions only: never posts a message or executes a rental action. */
 export const ownerDrafts = action({
@@ -49,7 +49,7 @@ export const gafferReply = internalAction({
       }
     }
 
-    const recovery = bookingId && latestRenter ? verificationRecovery(latestRenter.text, cx.booking?.verification) ?? bookingRecovery(latestRenter.text, cx.booking) : null;
+    const recovery = bookingId && latestRenter ? paymentRecovery(latestRenter.text, cx.booking) ?? verificationRecovery(latestRenter.text, cx.booking?.verification) ?? bookingRecovery(latestRenter.text, cx.booking) : null;
     if (recovery) {
       await ctx.runMutation(internal.chat._postBot, { accountId, bookingId, generation: cx.gafferGeneration, replyTo: messageId ?? cx.latestRenterId ?? undefined, text: recovery });
       return;

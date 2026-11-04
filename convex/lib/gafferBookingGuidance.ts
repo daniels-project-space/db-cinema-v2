@@ -2,6 +2,16 @@ import { verificationExpired } from "../../shared/verificationProgress";
 
 type BookingStatus = {status:string;idVerifyStatus?:string|null;verificationExpiresAt?:number|null;documentExpiresAt?:number|null};
 
+export function paymentRecovery(message:string, booking:{stage?:string}|null|undefined):string|null {
+  const text=message.toLowerCase();
+  if (/\b(human|person|someone|staff|manager|team|operator|representative|refund\w*|cancel\w*|disput\w*|chargeback\w*|damage\w*|fraud\w*|threat\w*|injur\w*|abus\w*|harm\w*|suicid\w*|unsafe|safety|safeguard\w*|emergenc\w*|police|ambulance|fire|999|911|speak (?:to|with)|talk (?:to|with)|call me)\b/.test(text)) return null;
+  const duplicate=/\b(?:charged|charge|paid|payment|payments|transaction|transactions)\b.{0,35}\b(?:twice|duplicate|duplicated|two times)\b|\b(?:twice|duplicate|duplicated)\b.{0,35}\b(?:charged|charge|paid|payment|payments|transaction|transactions)\b/.test(text);
+  const checkout=/\b(?:charged|charge|paid|payment|bank)\b.{0,65}\b(?:checkout|booking|payment)\b.{0,35}\b(?:failed|error|stuck|not (?:working|confirmed)|didn.t work)\b|\b(?:checkout|booking|payment)\b.{0,35}\b(?:failed|error|stuck|not (?:working|confirmed)|didn.t work)\b.{0,65}\b(?:charged|charge|paid|payment|bank)\b/.test(text);
+  if((!duplicate && !checkout) || !booking?.stage)return null;
+  const status=booking.stage==="pending_payment"?"The website has not yet confirmed payment for this rental. ":"";
+  return `${status}I can't establish here whether a bank charge settled or was duplicated. Please don't pay again if your bank shows a charge; use Request a human in this conversation so the team can check securely. Don't post card or bank details in chat.`;
+}
+
 export function gafferBookingStatus(booking: BookingStatus): string {
   if (booking.status === "pending_payment") return "Payment has not yet been confirmed; do not assume it failed or ask the renter to pay again if they see a charge.";
   if (booking.status === "confirmed" && booking.idVerifyStatus !== "verified") return "Payment recorded; identity and address verification is not yet approved for handover.";
