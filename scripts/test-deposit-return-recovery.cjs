@@ -5,7 +5,7 @@ h.ctx.runAction=async(ref,args)=>{if(ref==='checkout.markReturned')for(const ite
 (async()=>{
  const clean=h.rental(50),selection=h.selection(clean,0,0);h.setLost(true);
  await assert.rejects(h.checkout.markReturned.handler(h.ctx,selection),/Lost provider response/);
- assert(clean.returnDecision&&!clean.depositRefunded);assert(h.scheduled.some(([,ref,args])=>ref==='checkout.recoverDepositReturn'&&args.bookingId===clean._id));
+ assert(clean.returnDecision&&!clean.depositRefunded);assert(h.scheduled.some(([,ref,args])=>ref==='checkout.recoverDepositReturn'&&args.bookingId===clean._id));clean.returnDecision.inspection=clean.returnDecision.inspection.map(item=>Object.fromEntries(Object.entries(item).sort(([left],[right])=>left.localeCompare(right))));
  const count=h.calls.length;await h.checkout.recoverDepositReturn.handler(h.ctx,{bookingId:clean._id,attempt:0});
  assert(clean.depositRefunded&&clean.returnStatement&&clean.actualReturnedAt);assert.equal(h.calls.length,count,'An ambiguous original refund is recovered, not created again');assert.equal(clean.depositRefundAmount,50);
  const scheduled=h.scheduled.length;await h.checkout.recoverDepositReturn.handler(h.ctx,{bookingId:clean._id,attempt:1});assert.equal(h.calls.length,count);assert.equal(h.scheduled.length,scheduled,'Completed settlement does not schedule further work');

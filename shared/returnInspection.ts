@@ -1,5 +1,15 @@
 export type InspectionInput = { key: string; condition: "good" | "issue"; details: string; openCase: boolean };
 export type InspectionItem = { key: string; title: string; sku?: string; inventoryUnitId?: string };
+export function sameReturnInspection(left: (InspectionItem & InspectionInput)[] | null | undefined, right: (InspectionItem & InspectionInput)[] | null | undefined) {
+  if (left == null || right == null) return left == null && right == null;
+  if (left.length !== right.length) return false;
+  return left.every((item, index) => {
+    const other = right[index];
+    return !!other && item.key === other.key && item.title === other.title &&
+      (item.sku ?? null) === (other.sku ?? null) && (item.inventoryUnitId ?? null) === (other.inventoryUnitId ?? null) &&
+      item.condition === other.condition && item.details === other.details && item.openCase === other.openCase;
+  });
+}
 /** Freeze the server's equipment identity, never accept client-supplied titles. */
 export function normalizeReturnInspection(schedule: InspectionItem[], input: InspectionInput[], damage: number) {
   if (!schedule.length || schedule.length !== input.length || new Set(input.map(i => i.key)).size !== input.length) throw Error("Inspect every individual item before confirming the return.");

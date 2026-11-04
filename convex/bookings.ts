@@ -53,7 +53,7 @@ import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { startRequest, finishRequest, cancellationRequestKey } from "./lib/rentalRequestExecution";
 import { inspectionInput } from "./lib/returnInspectionFields";
 import { returnInspectionSchedule } from "./lib/returnInspection";
-import { normalizeReturnInspection } from "../shared/returnInspection";
+import { normalizeReturnInspection, sameReturnInspection } from "../shared/returnInspection";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage, saveAccountDiditVerification, verificationReuseOwnerMatches } from "./lib/verificationReuse";
 import { assertCreditOffer } from "./lib/rentalCreditPolicy";
@@ -904,7 +904,7 @@ export const beginReturnDecision = internalMutation({
     if (saved) {
       if (saved.actualReturnedAt !== actualReturnedAt || saved.damageKept !== damageKept || saved.depositKept !== depositKept || (saved.expectedSnapshot && saved.expectedSnapshot !== expectedSnapshot) ||
           (saved.damageNote ?? "") !== (damageNote ?? "") || saved.chargeLate !== chargeLate ||
-          (saved.lateWaiverReason ?? "") !== (lateWaiverReason ?? "") || JSON.stringify(saved.inspection ?? null) !== JSON.stringify(inspected ?? null))
+          (saved.lateWaiverReason ?? "") !== (lateWaiverReason ?? "") || !sameReturnInspection(saved.inspection, inspected))
         throw new Error("A return settlement is already in progress with different amounts. Resume the saved decision or contact support before changing it.");
       return;
     }

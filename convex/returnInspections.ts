@@ -7,7 +7,7 @@ import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { lateFeeQuote } from "./lib/lateFee";
 import { returnInspectionSchedule } from "./lib/returnInspection";
 import { inspectionInput } from "./lib/returnInspectionFields";
-import { normalizeReturnInspection } from "../shared/returnInspection";
+import { normalizeReturnInspection, sameReturnInspection } from "../shared/returnInspection";
 import { listingImages } from "./lib/catalogImages";
 import type { InspectionItem } from "../shared/returnInspection";
 
@@ -35,7 +35,7 @@ export const validate = internalQuery({ args: { bookingId: v.id("bookings"), ins
   const booking = await ctx.db.get(args.bookingId);
   if (!booking) throw Error("Rental not found");
   const inspection = normalizeReturnInspection(await returnInspectionSchedule(ctx, booking), args.inspection, args.damage);
-  if (booking.returnDecision && JSON.stringify(booking.returnDecision.inspection ?? null) !== JSON.stringify(inspection)) throw Error("Resume the saved item inspection; its decision cannot be changed during settlement.");
+  if (booking.returnDecision && !sameReturnInspection(booking.returnDecision.inspection, inspection)) throw Error("Resume the saved item inspection; its decision cannot be changed during settlement.");
   return inspection;
 } });
 

@@ -45,6 +45,9 @@ const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
  assert.throws(()=>normalizeReturnInspection(schedule,input.map((i,index)=>index?i:{...i,openCase:true}),0),/good condition/);
  const decision={bookingId:b._id,actualReturnedAt:Date.now(),damageKept:0,chargeLate:false,inspection:issue};
  await bookings.beginReturnDecision.handler(ctx,decision);assert.equal(b.returnDecision.inspection.length,5);
+ b.returnDecision.inspection=b.returnDecision.inspection.map(item=>Object.fromEntries(Object.entries(item).sort(([left],[right])=>left.localeCompare(right))));
+ assert.equal((await cases.validate.handler(ctx,{bookingId:b._id,inspection:issue,damage:0})).length,5,'Canonical storage key ordering does not invalidate an unchanged inspection');
+ const {sameReturnInspection}=require('./lib/rentalTestHarness.cjs').load('shared/returnInspection.ts');const original=b.returnDecision.inspection;for(const field of ['key','title','sku','inventoryUnitId','condition','details','openCase']){const changed=original.map(item=>({...item}));changed[0][field]=field==='openCase'?!changed[0][field]:'changed';assert(!sameReturnInspection(original,changed),`Changed ${field} must not pass frozen inspection validation`)}
  assert.equal(tables.get('rental_damage_cases').length,1);assert.equal(tables.get('rental_damage_cases')[0].accountId,account._id);
  await bookings.beginReturnDecision.handler(ctx,{...decision,inspection:[...issue].reverse()});assert.equal(tables.get('rental_damage_cases').length,1,'Retries preserve order-independent inspection and create no duplicate case');
  await assert.rejects(()=>bookings.beginReturnDecision.handler(ctx,{...decision,inspection:input}),/already in progress/);
