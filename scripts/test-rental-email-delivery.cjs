@@ -15,7 +15,8 @@ const stored=new Map();let storageSerial=0;const scheduled=[],ctx={db:h.db,stora
  const [group,name]=ref.split('.');return ({notify,invoice})[group][name].handler(ctx,a);
 }};
 const account=h.put('accounts',{email:'permanent@example.invalid'});
-const b=h.put('bookings',{accountId:account._id,guestEmail:'reused@example.invalid',status:'confirmed',idVerifyStatus:'requires_input',stripePaymentIntentId:'pi_synthetic',subtotal:20,discount:0,total:25,depositAmount:5,depositHoldAmount:10,lineItems:[{title:'Cinema lens',lineTotal:20,start:now,end:now+86400000}]});
+const b=h.put('bookings',{accountId:account._id,guestEmail:'reused@example.invalid',status:'confirmed',idVerifyStatus:'requires_input',stripeIdentitySessionId:'vs_fixture',stripePaymentIntentId:'pi_synthetic',subtotal:20,discount:0,total:25,depositAmount:5,depositHoldAmount:10,lineItems:[{title:'Cinema lens',lineTotal:20,start:now,end:now+86400000}]});
+h.put('sessions',{token:'fixture-owner',accountId:account._id,expiresAt:now+86400000});
 const get=id=>h.docs.get(id);
 async function dispatch(id){await delivery.dispatchOne.handler(ctx,{deliveryId:id});return scheduled.at(-1).args}
 (async()=>{
@@ -49,9 +50,9 @@ async function dispatch(id){await delivery.dispatchOne.handler(ctx,{deliveryId:i
  // A crash after the final claim is also terminal after lease expiry.
  const crash=await queue.queueRentalEmail(ctx,b._id,'verification',{verificationStatus:'requires_input'});await h.db.patch(crash,{attempts:7});await dispatch(crash);now=get(crash).dueAt;await delivery.dispatchOne.handler(ctx,{deliveryId:crash});assert.equal(get(crash).state,'failed');
  // Real verification writer persists an event atomically, and duplicate state does not enqueue.
- await bookings.setIdentity.handler(ctx,{bookingId:b._id,status:"canceled"});
+ await bookings.setIdentity.handler(ctx,{bookingId:b._id,expectedSessionId:'vs_fixture',token:'fixture-owner',status:"canceled"});
  let notices=h.tables.get("rental_email_deliveries").filter(x=>x.bookingId===b._id&&x.kind==="verification");const length=notices.length;assert.equal(notices.at(-1).verificationStatus,"canceled");
- await bookings.setIdentity.handler(ctx,{bookingId:b._id,status:"canceled"});assert.equal(h.tables.get("rental_email_deliveries").filter(x=>x.bookingId===b._id&&x.kind==="verification").length,length);
+ await bookings.setIdentity.handler(ctx,{bookingId:b._id,expectedSessionId:'vs_fixture',token:'fixture-owner',status:"canceled"});assert.equal(h.tables.get("rental_email_deliveries").filter(x=>x.bookingId===b._id&&x.kind==="verification").length,length);
  b.status="cancelled";await delivery.dispatchOne.handler(ctx,{deliveryId:notices.at(-1)._id});b.status="confirmed";
  // Due index is moved past the lease; a burst of in-flight rows cannot starve new work.
  await h.db.patch(receipt,{dueAt:now+86400000});

@@ -29,15 +29,17 @@ function Inner() {
         .then((r) => setStatus(r.status))
         .catch(() => setStatus("error"));
     } else if (bookingId) {
+      if (!token) return;
       ran.current = true;
-      refresh({ bookingId: bookingId as any })
+      refresh({ bookingId: bookingId as any, token })
         .then((r) => setStatus(r.status))
         .catch(() => setStatus("error"));
     }
   }, [bookingId, isAccount, token, refresh, refreshAccount]);
 
   const verified = status === "verified";
-  const pending = status === "processing" || status === null;
+  const needsSignIn = !account.loading && !token;
+  const pending = !needsSignIn && (status === "processing" || status === null);
 
   return (
     <div className="page-in mx-auto max-w-md px-6 py-20 text-center">
@@ -67,10 +69,10 @@ function Inner() {
       </h1>
       <p className="mt-2 text-sm text-white/40">
         {verified
-          ? "Thanks — your booking is ready for handover."
+          ? "Thanks — check your rental conversation for the next steps."
           : pending
             ? "Stripe is processing your documents. This can take a moment."
-            : "You can retry verification from your account."}
+            : needsSignIn ? "Sign in to your account to check your verification." : "You can retry verification from your account."}
       </p>
       <Link href="/account" className="btn-primary mt-6 px-6 py-2.5 text-sm">
         Go to my account

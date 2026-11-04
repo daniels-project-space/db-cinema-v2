@@ -13,42 +13,25 @@ function stripe() {
 
 /** Start a Stripe Identity (document + selfie) verification for a booking. */
 export const createSession = action({
-  args: { bookingId: v.id("bookings"), origin: v.string() },
-  handler: async (ctx, { bookingId, origin }): Promise<{ url: string }> => {
-    let vs;
-    try {
-      vs = await stripe().identity.verificationSessions.create({
-        type: "document",
-        metadata: { bookingId },
-        return_url: `${origin}/verify/return?booking=${bookingId}`,
-        options: { document: { require_matching_selfie: true } },
-      });
-    } catch (e: any) {
-      throw new Error(
-        e?.message?.includes("Identity")
-          ? "Identity verification isn't enabled on the Stripe account yet."
-          : (e?.message ?? "Could not start verification"),
-      );
-    }
-    await ctx.runMutation(internal.bookings.setIdentity, {
-      bookingId,
-      sessionId: vs.id,
-      status: "processing",
-    });
-    if (!vs.url) throw new Error("Stripe did not return a verification URL");
-    return { url: vs.url };
+  args: { bookingId: v.id("bookings"), origin: v.string(), token:v.optional(v.string()), checkoutSessionId:v.optional(v.string()) },
+  handler: async (): Promise<{ url: string }> => {
+    throw new Error("New Stripe Identity sessions are no longer available. Open verification from your rental conversation.");
   },
 });
 
 /** Re-check the verification status from Stripe and persist it. */
 export const refresh = action({
-  args: { bookingId: v.id("bookings") },
-  handler: async (ctx, { bookingId }): Promise<{ status: string }> => {
-    const id: any = await ctx.runQuery(internal.bookings.getIdentity, { bookingId });
+  args: { bookingId: v.id("bookings"), token:v.optional(v.string()), checkoutSessionId:v.optional(v.string()) },
+  handler: async (ctx, { bookingId, token, checkoutSessionId }): Promise<{ status: string }> => {
+    const id: any = await ctx.runQuery(internal.bookings.getIdentity, { bookingId, token, checkoutSessionId });
+    if (!id) throw new Error("Stripe Identity is not available for this rental.");
     if (!id?.sessionId) return { status: id?.status ?? "required" };
     const vs = await stripe().identity.verificationSessions.retrieve(id.sessionId);
+    if(vs.id!==id.sessionId || vs.metadata?.bookingId!==String(bookingId))throw new Error("Stripe Identity session does not match this rental.");
     await ctx.runMutation(internal.bookings.setIdentity, {
       bookingId,
+      expectedSessionId:id.sessionId,
+      token,checkoutSessionId,
       status: vs.status,
     });
     return { status: vs.status };

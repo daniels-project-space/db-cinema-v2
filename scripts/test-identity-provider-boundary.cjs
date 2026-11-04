@@ -1,0 +1,41 @@
+const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
+let created=0,retrieved=0,lastParams,returnMetadata,returnId,afterRetrieve;
+class StripeFixture {identity={verificationSessions:{create:async params=>{created++;lastParams=params;return {id:'vs_fixture',url:'https://fixture.invalid/verify'}},retrieve:async id=>{retrieved++;if(afterRetrieve)await afterRetrieve();return {id:returnId??id,metadata:returnMetadata??{bookingId:legacy._id},status:'verified'}}}}}
+h.setMock('stripe',{default:StripeFixture});
+process.env.STRIPE_SECRET_KEY='sk_test_fixture';process.env.APP_URL='https://dbcinemarentals.com';
+const bookings=h.load('convex/bookings.ts'),identity=h.load('convex/identity.ts');
+const account=h.put('accounts',{email:'owner@example.invalid'}),foreign=h.put('accounts',{email:'foreign@example.invalid'});
+h.put('sessions',{token:'owner',accountId:account._id,expiresAt:Date.now()+600000});h.put('sessions',{token:'foreign',accountId:foreign._id,expiresAt:Date.now()+600000});h.put('sessions',{token:'expired',accountId:account._id,expiresAt:Date.now()-1});
+const legacy=h.put('bookings',{accountId:account._id,guestEmail:account.email,status:'confirmed',idVerifyStatus:'processing',lineItems:[],stripeCheckoutSessionId:'cs_fixture',stripeIdentitySessionId:'vs_fixture'});
+const emailOnly=h.put('bookings',{guestEmail:account.email,status:'confirmed',idVerifyStatus:'processing',lineItems:[],stripeCheckoutSessionId:'cs_email_fixture',stripeIdentitySessionId:'vs_email_fixture'});
+const orphan=h.put('bookings',{accountId:'accounts-missing',guestEmail:account.email,status:'confirmed',idVerifyStatus:'processing',lineItems:[],stripeCheckoutSessionId:'cs_orphan',stripeIdentitySessionId:'vs_orphan'});
+const didit=h.put('bookings',{accountId:account._id,guestEmail:account.email,status:'confirmed',verificationProvider:'didit',idVerifyStatus:'required',lineItems:[]});
+const diditLegacy=h.put('bookings',{accountId:account._id,guestEmail:account.email,status:'confirmed',diditSessionId:'didit_fixture',idVerifyStatus:'required',lineItems:[]});
+const diditManual=h.put('bookings',{accountId:account._id,guestEmail:account.email,status:'confirmed',diditManualDecisionAt:1,idVerifyStatus:'required',lineItems:[]});
+const diditChecks=h.put('bookings',{accountId:account._id,guestEmail:account.email,status:'confirmed',verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},idVerifyStatus:'required',lineItems:[]});
+const unknown=h.put('bookings',{accountId:account._id,guestEmail:account.email,status:'confirmed',verificationProvider:'future_provider',idVerifyStatus:'required',lineItems:[]});
+const ctx={db:h.db,scheduler:{runAfter:async()=>{}},runQuery:async(ref,args)=>{assert.equal(ref,'bookings.getIdentity');return bookings.getIdentity.handler(ctx,args)},runMutation:async(ref,args)=>{assert.equal(ref,'bookings.setIdentity');return bookings.setIdentity.handler(ctx,args)}};
+(async()=>{
+ for(const args of [{bookingId:legacy._id,origin:'https://attacker.invalid'},{bookingId:legacy._id,origin:'https://attacker.invalid',token:'owner'},{bookingId:didit._id,origin:'https://attacker.invalid',token:'owner'}])await assert.rejects(identity.createSession.handler(ctx,args),/no longer available/);
+ assert.equal(created,0,'new sessions never reach Stripe, including concurrent requests');
+ await Promise.all(Array.from({length:5},()=>assert.rejects(identity.createSession.handler(ctx,{bookingId:legacy._id,origin:'https://attacker.invalid',token:'owner'}),/no longer available/)));assert.equal(created,0);
+ await assert.rejects(bookings.setIdentity.handler(ctx,{bookingId:didit._id,status:'verified'}),/not available/);assert.equal(didit.idVerifyStatus,'required');
+ await assert.rejects(bookings.setIdentity.handler(ctx,{bookingId:legacy._id,token:'owner',status:'verified'}),/session changed/);assert.equal(legacy.idVerifyStatus,'processing');
+ for(const booking of [diditLegacy,diditManual,diditChecks,unknown]){await assert.rejects(bookings.setIdentity.handler(ctx,{bookingId:booking._id,status:'verified'}),/not available/);await assert.rejects(identity.refresh.handler(ctx,{bookingId:booking._id,token:'owner'}),/not available/);}
+ assert.equal(await bookings.getIdentity.handler(ctx,{bookingId:legacy._id,token:'foreign'}),null);assert.equal(await bookings.getIdentity.handler(ctx,{bookingId:legacy._id,checkoutSessionId:'cs_wrong'}),null);
+ assert.equal(await bookings.getIdentity.handler(ctx,{bookingId:emailOnly._id,token:'owner'}),null,'an unverified email alone does not establish historical ownership');
+ assert.equal(await bookings.getIdentity.handler(ctx,{bookingId:emailOnly._id,token:'foreign'}),null);
+ assert.equal(await bookings.getIdentity.handler(ctx,{bookingId:orphan._id,checkoutSessionId:'cs_orphan'}),null,'a linked but missing account cannot be bypassed by a checkout capability');
+ assert.ok(await bookings.getIdentity.handler(ctx,{bookingId:emailOnly._id,checkoutSessionId:'cs_email_fixture'}),'the exact checkout capability remains valid without an account email assertion');
+ account.emailVerifiedAt=Date.now();assert.ok(await bookings.getIdentity.handler(ctx,{bookingId:emailOnly._id,token:'owner'}));delete account.emailVerifiedAt;
+ assert.equal((await bookings.getIdentity.handler(ctx,{bookingId:legacy._id,checkoutSessionId:'cs_fixture'})).verificationProvider,'stripe');
+ for(const args of [{bookingId:legacy._id},{bookingId:legacy._id,token:'foreign'},{bookingId:legacy._id,token:'expired'},{bookingId:legacy._id,checkoutSessionId:'cs_wrong'}])await assert.rejects(identity.refresh.handler(ctx,args),/not available/);
+ await assert.rejects(identity.refresh.handler(ctx,{bookingId:didit._id,token:'owner'}),/not available/);assert.equal(retrieved,0);
+ returnMetadata={bookingId:'foreign'};await assert.rejects(identity.refresh.handler(ctx,{bookingId:legacy._id,token:'owner'}),/does not match/);assert.equal(legacy.idVerifyStatus,'processing');returnMetadata=undefined;
+ returnId='vs_foreign';await assert.rejects(identity.refresh.handler(ctx,{bookingId:legacy._id,token:'owner'}),/does not match/);returnId=undefined;
+ afterRetrieve=async()=>{legacy.stripeIdentitySessionId='vs_newer'};await assert.rejects(identity.refresh.handler(ctx,{bookingId:legacy._id,token:'owner'}),/session changed/);assert.equal(legacy.idVerifyStatus,'processing');afterRetrieve=undefined;legacy.stripeIdentitySessionId='vs_fixture';
+ afterRetrieve=async()=>{legacy.status='cancelled'};await assert.rejects(identity.refresh.handler(ctx,{bookingId:legacy._id,token:'owner'}),/not available/);assert.equal(legacy.idVerifyStatus,'processing');legacy.status='confirmed';
+ afterRetrieve=async()=>{account.blockedAt=Date.now()};await assert.rejects(identity.refresh.handler(ctx,{bookingId:legacy._id,token:'owner'}),/not available/);assert.equal(legacy.idVerifyStatus,'processing');delete account.blockedAt;afterRetrieve=undefined;
+ assert.equal((await identity.refresh.handler(ctx,{bookingId:legacy._id,token:'owner'})).status,'verified');assert.equal(legacy.idVerifyStatus,'verified');
+ console.log('PASS retired Stripe Identity creation and authorized legacy refresh: no provider spend, owner and checkout-session access, unknown/Didit isolation, exact provider binding and stale-session race. Synthetic provider and data only.');
+})().catch(error=>{console.error(error);process.exitCode=1});

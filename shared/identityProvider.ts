@@ -1,0 +1,3 @@
+export function isLegacyStripeIdentity(booking: {verificationProvider?:string|null;diditSessionId?:string|null;diditEventId?:string|null;diditEventAt?:number|null;diditManualDecisionAt?:number|null;diditReconciledAt?:number|null;verificationReusedFrom?:unknown;verificationChecks?:unknown;idVerificationSource?:string|null}) {
+  return (booking.verificationProvider == null || booking.verificationProvider === "stripe") && !booking.diditSessionId && !booking.diditEventId && !booking.diditEventAt && !booking.diditManualDecisionAt && !booking.diditReconciledAt && !booking.verificationReusedFrom && booking.verificationChecks == null && booking.idVerificationSource !== "didit" && booking.idVerificationSource !== "reused_didit";
+}

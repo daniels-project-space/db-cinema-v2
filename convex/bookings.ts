@@ -25,6 +25,7 @@ import { paidDepositExempt, membershipActiveNow } from "../shared/membership";
 import { checkoutMembershipCredit, membershipSignupOffer } from "../shared/checkoutMembershipCredit";
 import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecovery";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
+import { isLegacyStripeIdentity } from "../shared/identityProvider";
 import { assertRenterExposure, renterExposure, replacementValues, attachRenterPerson } from "./lib/rentalExposure";
 import { securityReady, verificationCanStart, verificationSessionCanOpen, renterVerificationNote } from "../shared/verificationProgress";
 import { assertDroneApproval, requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
@@ -1523,14 +1524,22 @@ export const dueReturnStatementEmails = internalQuery({
   },
 });
 
+async function legacyIdentityAccessAllowed(ctx:any,b:any,token?:string,checkoutSessionId?:string) {
+  if(token){const account=await accountForToken(ctx,token,true);if(account && (b.accountId || Number.isFinite(account.emailVerifiedAt) && account.emailVerifiedAt>0)){try{await ownedBooking(ctx,account,b._id);return true;}catch{}}}
+  if(checkoutSessionId && b.stripeCheckoutSessionId === checkoutSessionId){const account=await accountForRental(ctx,b);return (!b.accountId || !!account) && account?.blockedAt==null;}
+  return false;
+}
+
 export const getIdentity = internalQuery({
-  args: { bookingId: v.id("bookings") },
-  handler: async (ctx, { bookingId }) => {
+  args: { bookingId: v.id("bookings"), token:v.optional(v.string()), checkoutSessionId:v.optional(v.string()) },
+  handler: async (ctx, { bookingId, token, checkoutSessionId }) => {
     const b = await ctx.db.get(bookingId);
-    if (!b) return null;
+    if (!b || !["confirmed","active"].includes(b.status) || !isLegacyStripeIdentity(b)) return null;
+    if(!await legacyIdentityAccessAllowed(ctx,b,token,checkoutSessionId))return null;
     return {
       sessionId: b.stripeIdentitySessionId ?? null,
       status: b.idVerifyStatus ?? "required",
+      verificationProvider: b.verificationProvider ?? "stripe",
     };
   },
 });
@@ -1613,13 +1622,18 @@ export const flagDiditOpeningFailure = internalMutation({
 export const setIdentity = internalMutation({
   args: {
     bookingId: v.id("bookings"),
-    sessionId: v.optional(v.string()),
+    expectedSessionId: v.string(),
+    token:v.optional(v.string()),
+    checkoutSessionId:v.optional(v.string()),
     status: v.string(),
   },
-  handler: async (ctx, { bookingId, sessionId, status }) => {
-    const prev = (await ctx.db.get(bookingId))?.idVerifyStatus ?? "required";
+  handler: async (ctx, { bookingId, expectedSessionId, token, checkoutSessionId, status }) => {
+    const booking = await ctx.db.get(bookingId);
+    if (!booking || !isLegacyStripeIdentity(booking)) throw Error("Stripe Identity is not available for this rental.");
+    if (!expectedSessionId || booking.stripeIdentitySessionId !== expectedSessionId) throw Error("Stripe Identity session changed. Refresh the rental and try again.");
+    if (!["confirmed","active"].includes(booking.status) || !await legacyIdentityAccessAllowed(ctx,booking,token,checkoutSessionId)) throw Error("Stripe Identity is not available for this rental.");
+    const prev = booking.idVerifyStatus ?? "required";
     const patch: any = { idVerifyStatus: status, idVerifiedAt: status === "verified" ? Date.now() : undefined, verificationExpiresAt: status === "verified" ? Date.now() + VERIFICATION_REUSE_DAYS * 86400000 : undefined };
-    if (sessionId) patch.stripeIdentitySessionId = sessionId;
     await ctx.db.patch(bookingId, patch);
     if (status === "verified") await markAccountVerified(ctx, bookingId);
     else await revokeReuse(ctx, bookingId);
