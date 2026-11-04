@@ -301,6 +301,7 @@ async function refreshBoundProgress(ctx: any, bookingId: any, booking: any): Pro
     if (booking.verificationProvider !== "didit" || !booking.diditSessionId) return {status: "not_started"};
     const claimed = await ctx.runMutation(internal.bookings.claimDiditProgressRefresh, {bookingId, sessionId:booking.diditSessionId});
     if (!claimed) return {status: "unchanged"};
+    try {
     const cfg = config();
     const readStartedAt = Date.now();
     const report = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(bookingId), booking.guestEmail);
@@ -321,6 +322,11 @@ async function refreshBoundProgress(ctx: any, bookingId: any, booking: any): Pro
     });
     if (!saved) throw Error("The verification session changed. Refresh this rental.");
     return {status: "updated"};
+    } catch (error) {
+      try { await ctx.runMutation(internal.bookings.flagDiditProcessingFailure, {bookingId, sessionId:booking.diditSessionId}); }
+      catch { console.error("Didit progress failure alert could not be queued"); }
+      throw error;
+    }
 }
 
 export const refreshForGaffer = internalAction({

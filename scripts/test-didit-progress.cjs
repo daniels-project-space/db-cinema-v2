@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict');
-const {load,put,db}=require('./lib/rentalTestHarness.cjs');
+const {load,put,db,tables}=require('./lib/rentalTestHarness.cjs');
 const ctx={db};
 Object.assign(process.env,{DIDIT_API_KEY:'unused',DIDIT_WORKFLOW_ID:'workflow-1',DIDIT_WEBHOOK_SECRET:'unused',DIDIT_APPLICATION_ID:'application-1',DIDIT_ENVIRONMENT:'sandbox',INVOICE_SECRET:'progress-fixture-only'});
 const {refreshProgress,refreshForGaffer}=load('convex/didit.ts');
@@ -20,6 +20,17 @@ const {rentalProgress}=load('shared/rentalProgress.ts');
   const deniedCtx={...gafferCtx,runQuery:async()=>null};
   const beforeDenied=gets;
   await assert.rejects(refreshForGaffer.handler(deniedCtx,{accountId:'other',bookingId:'booking-1'}),/unavailable/);assert.equal(gets,beforeDenied);
+  mutations=[];global.fetch=async()=>{throw Error('provider unavailable')};
+  await assert.rejects(refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'}),/Could not check the current verification decision/);
+  assert.deepEqual(mutations.filter(([ref])=>ref==='bookings.flagDiditProcessingFailure'),[['bookings.flagDiditProcessingFailure',{bookingId:'booking-1',sessionId:booking.diditSessionId}]],'authenticated refresh failure alerts the owner for the bound session');
+  mutations=[];
+  await assert.rejects(refreshForGaffer.handler(gafferCtx,{accountId:'account-1',bookingId:'booking-1'}),/Could not check the current verification decision/);
+  assert.equal(mutations.filter(([ref])=>ref==='bookings.flagDiditProcessingFailure').length,1,'Gaffer refresh failure uses the same owner alert');
+  const alertDown={...actionCtx,runMutation:async(ref,args)=>{mutations.push([ref,args]);if(ref==='bookings.flagDiditProcessingFailure')throw Error('alert unavailable');return true;}};
+  const previousError=console.error;console.error=()=>{};
+  try { await assert.rejects(refreshProgress.handler(alertDown,{bookingId:'booking-1',accountToken:'owner'}),/Could not check the current verification decision/,'alert failure must not hide the original provider failure'); }
+  finally { console.error=previousError; }
+  global.fetch=async()=>{gets++;return{ok:true,json:async()=>provider}};
   mutations=[];gets=0;
   assert.equal((await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'})).status,'updated');
   const saved=mutations.find(([ref])=>ref==='bookings.setDiditResult')[1];
@@ -47,6 +58,22 @@ const {rentalProgress}=load('shared/rentalProgress.ts');
   provider.id_verifications=[{status:'Approved',full_name:'Test Rental Customer',date_of_birth:'1990-01-01'}];mutations=[];
   await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'verified');
  }finally{global.fetch=previousFetch;}
+ const owner=put('accounts',{email:'alert-owner@example.invalid'});
+ const alertBooking=put('bookings',{accountId:owner._id,status:'confirmed',verificationProvider:'didit',diditSessionId:'alert-session',guestEmail:owner.email});
+ const scheduled=[],alertCtx={db,scheduler:{runAfter:async(...args)=>scheduled.push(args)}};
+ const bookingHandlers=load('convex/bookings.ts');
+ const refreshCtx={runQuery:async ref=>ref==='bookings.verificationAccess'?alertBooking:owner,runMutation:async(ref,args)=>{
+  if(ref==='bookings.claimDiditProgressRefresh')return bookingHandlers.claimDiditProgressRefresh.handler(alertCtx,args);
+  if(ref==='bookings.flagDiditProcessingFailure')return bookingHandlers.flagDiditProcessingFailure.handler(alertCtx,args);
+  throw Error('Unexpected mutation');
+ }};
+ global.fetch=async()=>{throw Error('synthetic provider outage')};
+ try {await assert.rejects(refreshProgress.handler(refreshCtx,{bookingId:alertBooking._id,accountToken:'owner'}),/Could not check the current verification decision/);}
+ finally {global.fetch=previousFetch;}
+ const incident=(tables.get('admin_notifications')??[]).find(row=>row.bookingId===alertBooking._id&&row.kind==='verification_failure');
+ assert.ok(incident,'a real authorized refresh failure creates a durable owner incident');
+ assert.match(incident.body,/verification processing could not complete/i);
+ assert(!JSON.stringify(incident).includes('synthetic provider outage'),'provider details are not exposed in alerts');
  const row=put('bookings',{_id:'claimed-booking',status:'confirmed',diditSessionId:'claimed-session'});
  assert.equal(await claimDiditProgressRefresh.handler(ctx,{bookingId:row._id,sessionId:row.diditSessionId}),true);
  assert.equal(await claimDiditProgressRefresh.handler(ctx,{bookingId:row._id,sessionId:row.diditSessionId}),false,'concurrent replay throttled');
