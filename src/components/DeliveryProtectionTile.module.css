@@ -1,5 +1,14 @@
-.enter { animation: enter .55s ease-out both; }
-.glyph { animation: glyph-in .7s ease-out both; }
-@keyframes enter { from { opacity: 0; } to { opacity: 1; } }
+.layer {
+  transition: opacity 1.15s cubic-bezier(.2,.75,.25,1), transform 1.35s cubic-bezier(.2,.75,.25,1), filter 1.15s cubic-bezier(.2,.75,.25,1);
+  will-change: opacity, transform, filter;
+}
+.visible { opacity: 1; transform: scale(1); filter: blur(0); }
+.entering { opacity: 0; transform: scale(1.025); filter: blur(2px); }
+.exiting { opacity: 0; transform: scale(1.015); filter: blur(1.5px); pointer-events: none; }
+.glyph { animation: glyph-in .95s cubic-bezier(.2,.75,.25,1) both; }
 @keyframes glyph-in { from { opacity: .3; transform: scale(.8); } to { opacity: 1; transform: scale(1); } }
-@media (prefers-reduced-motion: reduce) { .enter, .glyph { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .layer { transition: none; will-change: auto; }
+  .visible, .entering, .exiting { opacity: 1; transform: none; filter: none; }
+  .glyph { animation: none; }
+}

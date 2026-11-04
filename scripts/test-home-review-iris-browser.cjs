@@ -15,15 +15,24 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       for (let attempt = 0; attempt < 100 && !(await client.evaluate('!!document.querySelector("[data-testid=hygglo-trust-card]")')); attempt++) await delay(100);
       assert(await client.evaluate('!!document.querySelector("[data-testid=hygglo-trust-card]")'), 'Published reviews are required for this browser check');
       await client.cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x: width - 2, y: 700 });
+      await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=delivery-protection-tile]'), button = tile?.querySelector('button'); button?.focus(); button?.click(); })()`);
+      await delay(100);
+      const delivery = await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=delivery-protection-tile]'); if (!tile) return null; const outgoing = tile.querySelector('[data-testid=delivery-slide]'), incoming = tile.querySelector('[data-testid=delivery-slide-incoming]'); return {titles:[...tile.querySelectorAll('h2')].map(title=>title.textContent), duration:getComputedStyle(incoming).transitionDuration, outgoingOpacity:getComputedStyle(outgoing).opacity}; })()`);
+      assert(delivery, `The rotating delivery and protection tile exists at ${width}px`);
+      assert(delivery.titles.includes('Delivered across London') && delivery.titles.includes('Cancellation protection for free'), `Both tile images and messages overlap during the crossfade at ${width}px`);
+      assert(delivery.duration.includes('1.15s'), `The tile crossfade uses an unhurried transition at ${width}px`);
+      await delay(1500);
+      assert.equal(await client.evaluate(`document.querySelector('[data-testid=delivery-protection-tile] h2').textContent`), 'Cancellation protection for free', `The incoming protection slide settles cleanly at ${width}px`);
       const samples = [];
       for (let index = 0; index < 4; index++) {
         samples.push(await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=hygglo-trust-card]'); return {height:tile.getBoundingClientRect().height, text:tile.querySelector('blockquote').textContent}; })()`));
-        await delay(3200);
+        await delay(4200);
       }
       assert(new Set(samples.map(sample => sample.text)).size > 1, `The featured review rotates at ${width}px`);
-      const extremes = await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=hygglo-trust-card]'), quote = tile.querySelector('blockquote'); quote.textContent = 'Excellent.'; const short = tile.getBoundingClientRect().height; quote.textContent = 'A long review with many words. '.repeat(100); return {short, long:tile.getBoundingClientRect().height}; })()`);
-      assert(extremes.long > extremes.short + 32, `The featured tile grows to fit longer reviews at ${width}px`);
-      assert(await client.evaluate(`(() => { const quote = document.querySelector('[data-testid=hygglo-trust-card] blockquote'); return quote.scrollHeight <= quote.clientHeight + 1; })()`), `The longer featured review is not clipped at ${width}px`);
+      const dimensions = await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=hygglo-trust-card]'), quote = tile.querySelector('blockquote'); quote.textContent = 'Excellent.'; const short = tile.getBoundingClientRect().height; quote.textContent = 'A thoughtful review with useful detail about every part of the rental. '.repeat(6); const detailed = tile.getBoundingClientRect().height; quote.textContent = 'A long review with many words. '.repeat(100); return {short, detailed, extreme:tile.getBoundingClientRect().height, quoteHeight:quote.clientHeight, quoteScrollHeight:quote.scrollHeight}; })()`);
+      assert(dimensions.detailed > dimensions.short + 24, `A normally detailed review gets more room at ${width}px`);
+      assert(dimensions.extreme <= 420, `An extreme review cannot stretch the featured tile past its cap at ${width}px`);
+      assert(dimensions.quoteScrollHeight > dimensions.quoteHeight + 1, `An extreme review is capped at seven visible lines at ${width}px`);
       assert(await client.evaluate('document.documentElement.scrollWidth <= innerWidth'), `No horizontal overflow at ${width}px`);
     }
     await client.evaluate('document.documentElement.style.scrollBehavior="auto";document.getElementById("home-closing-title").scrollIntoView({block:"center",behavior:"instant"})');

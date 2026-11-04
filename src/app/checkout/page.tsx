@@ -388,7 +388,7 @@ export default function CheckoutPage() {
       <CheckoutLoopBanner />
       <main className="section-window mx-auto max-w-5xl px-6 pb-12 pt-8">
         <CheckoutCode benefitKind={currentQuote?.benefitKind}/>
-        {checkoutSettings?.cancellationProtectionEnabled&&<div className="mb-4"><CancellationProtection/></div>}
+        {checkoutSettings?.cancellationProtectionEnabled&&<div className="mb-4"><CancellationProtection showV16RenterPolicy={Boolean(checkoutSettings.assessmentSecurityEnabled&&checkoutSettings.cancellationProtectionEnabled)}/></div>}
         <CheckoutMembership variant="checkout" loading={rentalPreview.loading && !quoteError} appliedSavings={membershipDisplayQuote ?? undefined} suggestions={displayedRecommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
         <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_330px]">
           <div className="flex flex-col gap-5">

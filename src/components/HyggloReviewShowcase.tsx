@@ -47,7 +47,7 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
 
   useEffect(() => {
     if (reviews.length < 2 || hovered || focused || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const timer = window.setInterval(() => setCurrentIndex((index) => (index + 1) % reviews.length), 3000);
+    const timer = window.setInterval(() => setCurrentIndex((index) => (index + 1) % reviews.length), 4000);
     return () => window.clearInterval(timer);
   }, [hovered, focused, reviews.length]);
 
@@ -63,7 +63,7 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
-      className="spot trust-card relative isolate h-full min-h-[280px] overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(ellipse_at_top_right,rgba(212,172,107,.14),transparent_58%),#101013] p-5 shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:min-h-[304px] sm:p-6"
+      className="spot trust-card relative isolate h-full min-h-[280px] max-h-[410px] overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(ellipse_at_top_right,rgba(212,172,107,.14),transparent_58%),#101013] p-5 shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:min-h-[304px] sm:p-6"
     >
       <Image
         src="/images/home/maintained-cinema-gear-20261028.webp"
@@ -82,7 +82,7 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
       <div className="hygglo-trust-review-panel rounded-2xl border border-white/15 p-4 sm:p-5">
         <div aria-live="off">
           <Rating />
-          <blockquote key={review._id} className="hygglo-trust-review-fade mt-3 text-sm leading-relaxed text-white/90">
+          <blockquote key={review._id} className="hygglo-trust-review-fade hygglo-trust-review-quote mt-3 text-sm leading-relaxed text-white/90">
             “{review.text}”
           </blockquote>
         </div>

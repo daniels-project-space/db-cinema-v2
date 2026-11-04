@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import {currentLegalVersion} from "@/lib/currentLegalVersion";
+import { CancellationPolicyQuickGuide } from "@/components/CancellationPolicyQuickGuide";
 export const dynamic="force-dynamic";
 import { LEGAL_VERSION } from "@/lib/legal";
 
@@ -35,6 +36,7 @@ export default async function LegalPage({
           </h1>
           <p className="mt-2 font-mono text-xs text-white/30">Last updated {doc.updated} · {currentPrivacy ? `Privacy notice ${CURRENT_PRIVACY_NOTICE_VERSION}` : `Agreement version ${version}`}</p>
         </div>
+        {["cancellation", "terms"].includes(slug) && version === "2026-10-v16" && <CancellationPolicyQuickGuide />}
         <div className="mt-10 flex flex-col gap-7">
           {doc.sections.map((s, i) => (
             <section key={i} className="relative border-l border-white/[0.07] pl-5">

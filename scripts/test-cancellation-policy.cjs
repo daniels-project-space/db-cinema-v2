@@ -45,6 +45,7 @@ for(const [now,start]of [[at(2026,3,22),at(2026,3,29)],[at(2026,10,18),at(2026,1
  assert.equal(bookingCancelKind({...seven,lineItems:[{start}]},now-86400000),'full_refund');
  assert.equal(bookingCancelKind({...seven,lineItems:[{start}]},now+86400000),'store_credit');
 }
+assert.equal(bookingCancelKind({...seven,lineItems:[{start:at(2026,10,25,12)}]},at(2026,10,23,12)),'store_credit','The current signed v16 terms also issue credit for a renter canceling 48 hours before pickup');
 for(const agreementDocs of [undefined,[{kind:'cancellation',version:'2026-10-v10'}]]) {
   const older={...booking,agreementDocs};
   assert.equal(cancellationDaysForBooking(older),3);
@@ -70,4 +71,12 @@ for (const invalid of [-1, 1.5, NaN, Infinity]) {
   assert.throws(() => cancellationSettlement('full_refund', invalid, 0, 0, false),
     /Invalid cancellation amount/);
 }
-console.log('PASS: London cancellation windows, DST, captured-card refund limits, and redeemed-credit restoration.');
+const guide=fs.readFileSync(path.join(__dirname,'../src/components/CancellationPolicyQuickGuide.tsx'),'utf8');
+const legalPage=fs.readFileSync(path.join(__dirname,'../src/app/legal/[slug]/page.tsx'),'utf8');
+const checkoutProtection=fs.readFileSync(path.join(__dirname,'../src/components/cart/CancellationProtection.tsx'),'utf8');
+assert(guide.includes('130% of the eligible rental amount')&&guide.includes('more than 7 London days before the first start')&&guide.includes('7 London days or less before the first start'));
+assert(guide.includes('including within 48 hours')&&guide.includes('refundable deposit is returned separately'));
+assert(guide.includes('Statutory refund rights take priority'));
+assert(legalPage.includes('["cancellation", "terms"].includes(slug) && version === "2026-10-v16"'));
+assert(checkoutProtection.includes('{showV16RenterPolicy&&<CancellationPolicyQuickGuide includeCompanyCancellation={false}/>}'));
+console.log('PASS: London cancellation windows, DST, settlement limits, and concise v16 policy wording stays aligned across terms and checkout.');

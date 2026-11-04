@@ -18,7 +18,7 @@ const card = `Array.from(document.querySelectorAll('article')).find(element => e
       for (let attempt=0;attempt<100&&!(await client.evaluate(`!!(${card})`));attempt++) await delay(100);
       assert(await client.evaluate(`!!(${card})`), 'The delivery tile exists');
       let title = await client.evaluate(`${card}.querySelector('h2').textContent`);
-      for (let attempt=0;attempt<80&&title==='Delivered across London';attempt++) { await delay(100); title=await client.evaluate(`${card}.querySelector('h2').textContent`); }
+      for (let attempt=0;attempt<100&&title==='Delivered across London';attempt++) { await delay(100); title=await client.evaluate(`${card}.querySelector('h2').textContent`); }
       assert.equal(title,'Cancellation protection for free',`The tile rotates at ${width}px`);
       assert.equal(await client.evaluate(`${card}.querySelector('a').getAttribute('href')`),'/legal/cancellation');
       const dimensions = await client.evaluate(`(() => {const rect=${card}.getBoundingClientRect();return {left:rect.left,right:rect.right,width:innerWidth,scroll:document.documentElement.scrollWidth}})()`);
@@ -30,6 +30,7 @@ const card = `Array.from(document.querySelectorAll('article')).find(element => e
       assert(await client.evaluate(`document.activeElement === ${card}.querySelector('button')`),'Focus remains on the switch');
       assert.equal(await client.evaluate(`${card}.querySelector('h2').textContent`),title,'A focused control stops automatic changes');
       await client.evaluate(`${card}.querySelector('button').click()`);
+      await delay(1500);
       assert.equal(await client.evaluate(`${card}.querySelector('h2').textContent`),'Delivered across London','Manual switching works while focused');
     }
     await client.cmd('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion',value:'reduce'}]});
