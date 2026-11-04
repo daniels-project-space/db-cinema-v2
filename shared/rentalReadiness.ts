@@ -24,11 +24,11 @@ export function rentalStageLabel(b: VerificationBooking): string {
   if (b.status !== "confirmed") return "Awaiting payment";
   if (isSavedCardRental(b) && b.savedCardStatus !== 'saved') return "Awaiting saved-card setup";
   if (b.depositHoldAmount && (b.depositHoldStatus !== "held" || (b.depositHoldExpiresAt != null && b.depositHoldExpiresAt <= Date.now()))) return "Awaiting card authorisation";
-  if (b.idVerifyStatus === "manual_review") return "Verification under review";
+  if (b.idVerifyStatus === "manual_review") return "Verification needs review";
   if (b.idVerifyStatus === "requires_input") return "Documents needed";
   if (b.idVerifyStatus === "rejected") return "Verification needs attention";
   if (b.idVerifyStatus !== "verified" || (b.verificationExpiresAt != null && b.verificationExpiresAt <= Date.now()) || (b.documentExpiresAt != null && b.documentExpiresAt <= Date.now()) || (b.idVerificationSource !== "manual" && b.verificationChecks && ["identity", "selfie", "address"].some(key => b.verificationChecks?.[key] !== "approved"))) return "Awaiting verification";
-  if (b.verificationArchiveReady === false) return "Saving verification documents";
+  if (b.verificationArchiveReady === false) return "Document storage not confirmed";
   if (b.requiresDroneLicence && b.droneLicenceStatus !== "approved") return "Awaiting drone licence";
   return "Verification approved";
 }

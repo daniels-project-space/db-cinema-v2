@@ -11,8 +11,8 @@ import { getDiditEmbeddedUrl, getDiditLayoutHeight, getDiditStandaloneUrl } from
 
 const LABEL: Record<string, string> = {
   required: "Verify your identity, selfie and address",
-  processing: "Your documents are being checked automatically",
-  manual_review: "Your documents need a human review — we will contact you",
+  processing: "Verification in progress",
+  manual_review: "Your verification needs review",
   requires_input: "A document needs replacing — follow the instructions below",
   rejected: "Verification could not be completed — contact us for review",
   verified: "Identity and address verified",
@@ -100,8 +100,8 @@ function IdVerifySession({ bookingId, status, note, compact, autoStart = false, 
     <div className={compact ? "" : "rounded-xl border border-accent-400/20 bg-accent-400/[0.06] p-4"}>
       {!compact && <div className="text-sm text-white/70">{restart ? "Verification needs restarting" : LABEL[status] ?? LABEL.required}</div>}
       {note && (status === "requires_input" || status === "manual_review") && <p className="mt-1 text-xs text-amber-200">{note}</p>}
-      {status === "processing" && <p className="mt-1 text-xs text-white/45">We will update this page when the provider completes its check. You can return later.</p>}
-      {status === "manual_review" && <p className="mt-1 text-xs text-white/45">We will review this result and contact you if another document is needed.</p>}
+      {status === "processing" && <p className="mt-1 text-xs text-white/45">Continue verification if any steps remain. This page updates when a result is available.</p>}
+      {status === "manual_review" && <p className="mt-1 text-xs text-white/45">Message the team if you need an update on this review.</p>}
       {reused && <p role="status" className="mt-2 text-sm text-emerald-300">Your recent verification has been reused. We’re updating your rental progress.</p>}
       {updated && <p role="status" className="mt-2 text-sm text-emerald-300">We checked your existing verification. Your rental progress is updating.</p>}
       {status !== "rejected" && status !== "manual_review" && !sessionUrl && !reused && (

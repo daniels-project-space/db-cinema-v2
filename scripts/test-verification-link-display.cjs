@@ -20,7 +20,7 @@ const { renderToStaticMarkup } = require('react-dom/server');
   compiled._compile(bundle.outputFiles[0].text, compiled.filename);
   const { VerificationLink, VerificationProgress } = compiled.exports;
   const fixture = { _id: 'synthetic-booking', status: 'confirmed' };
-  for (const [state, label] of [['required', 'Open verification and uploads'], ['processing', 'View verification progress'], ['manual_review', 'Verification under review · view progress'], ['requires_input', 'Replace documents · view progress'], ['rejected', 'Verification needs attention · view progress']]) {
+  for (const [state, label] of [['required', 'Open verification and uploads'], ['processing', 'View verification progress'], ['manual_review', 'Verification needs review · view progress'], ['requires_input', 'Replace documents · view progress'], ['rejected', 'Verification needs attention · view progress']]) {
     const html = renderToStaticMarkup(React.createElement(VerificationLink, { booking: {...fixture, idVerifyStatus: state}, compact: true }));
     assert(html.includes(label), state);
     assert(html.includes('href="/account/verification/synthetic-booking"'), 'Link stays on the exact rental');

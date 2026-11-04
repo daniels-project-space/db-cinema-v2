@@ -134,8 +134,8 @@ const checkLabels: Record<string, string> = {
 };
 const statusLabels: Record<string, string> = {
   required: "Verify your identity",
-  processing: "Checking your documents",
-  manual_review: "Your verification is under review",
+  processing: "Verification in progress",
+  manual_review: "Your verification needs review",
   requires_input: "Replace the requested documents",
   rejected: "Verification needs attention",
   verified: "Verification approved",
@@ -245,6 +245,7 @@ export function VerificationProgress({
     booking.idVerifyStatus === "verified" &&
     booking.verificationExpiresAt == null;
   const expired = verificationExpired(booking, now);
+  const providerApproved = booking.idVerifyStatus === "verified" && !expired && !approvalUnknown && journey.documents;
   const uploadStatus =
     expired && booking.idVerifyStatus === "verified"
       ? "requires_input"
@@ -264,13 +265,15 @@ export function VerificationProgress({
           ? "Return being settled"
           : !journey.closed && !approved && ready
             ? booking.idVerifyStatus === "manual_review"
-              ? "Verification under review"
+              ? "Verification needs review"
+              : booking.idVerifyStatus === "processing"
+                ? "Verification in progress"
               : expired || booking.idVerifyStatus === "requires_input"
                 ? "Documents needed"
                 : booking.idVerifyStatus === "rejected"
                   ? "Verification needs attention"
                   : booking.idVerifyStatus === "verified"
-                    ? "Saving verification documents"
+                    ? journey.documents ? "Document storage not confirmed" : "Verification needs attention"
                     : "Verification needed"
             : rentalStageLabel(booking);
   const content = (
@@ -314,8 +317,20 @@ export function VerificationProgress({
                     ? booking.verificationReused
                       ? "Your recent verified documents have been reused for this rental."
                       : "Your identity and address checks are complete."
+                    : expired
+                      ? "Your previous verification has expired. Complete a new check."
+                    : booking.idVerifyStatus === "verified"
+                      ? providerApproved
+                        ? "Your identity and address verification is approved. Document storage has not yet been confirmed. Message the team for an update."
+                        : "We can't confirm all verification details yet. Message the team for an update."
                     : booking.idVerifyStatus === "manual_review"
-                      ? "The team is reviewing your documents. We'll contact you if anything else is needed."
+                      ? "Your verification needs review. Message the team if you need an update."
+                      : booking.idVerifyStatus === "processing"
+                        ? "Open verification to continue, or return later for an update."
+                        : booking.idVerifyStatus === "requires_input"
+                          ? "Please replace the requested document to continue."
+                          : booking.idVerifyStatus === "rejected"
+                            ? "Verification could not be completed. Message the team for help."
                       : "Have your photo ID and proof of address ready."}
             </p>
             {ready && !journey.closed && (
@@ -330,7 +345,7 @@ export function VerificationProgress({
                   const check = expired
                     ? "requires_input"
                     : (booking.verificationChecks?.[key] ??
-                      (approved ? "approved" : "waiting"));
+                      (journey.documents ? "approved" : booking.idVerifyStatus === "processing" ? "unknown" : "waiting"));
                   return (
                     <div
                       key={key}
@@ -536,6 +551,10 @@ export function VerificationProgress({
             ? "View your rental details and conversation."
             : approved
               ? isSavedCardRental(booking) ? `Your documents are approved. Check your ${booking.fulfilment === "delivery" ? "delivery" : "pickup"} and saved-card setup below.` : `Your documents are approved. Check your ${booking.fulfilment === "delivery" ? "delivery" : "pickup"} and card hold below.`
+              : providerApproved
+                ? "Your verification is approved. Document storage is not yet confirmed."
+              : booking.idVerifyStatus === "verified" && !expired
+                ? "Your verification needs attention. Message the team for an update."
               : `Complete verification to get ready for ${booking.fulfilment === "delivery" ? "delivery" : "pickup"}.`
         }
         active="rentals"

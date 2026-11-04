@@ -5,11 +5,21 @@ const {peakRentalValue,RENTAL_VALUE_CAP_PENCE}=load('shared/rentalExposure.ts');
 const {verificationChecks,securityReady,verificationCanStart}=load('shared/verificationProgress.ts');
 const {verificationJourney}=load('shared/verificationJourney.ts');
 const journeyNow=Date.UTC(2026,9,8);
+for(const [state,detail] of [['required','Awaiting checks'],['processing','Verification in progress'],['manual_review','Review needed'],['requires_input','Replacement needed'],['rejected','Needs attention']]) {
+ const result=verificationJourney({status:'confirmed',idVerifyStatus:state},journeyNow);
+ assert.equal(result.steps.find(step=>step.label==='Review').detail,detail);
+ if(state==='processing')assert.equal(result.steps.find(step=>step.label==='Documents').detail,'Verification in progress');
+ assert.equal(result.ready,false);
+}
 const journeyBooking={status:'confirmed',idVerifyStatus:'verified',verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},verificationArchiveReady:true,verificationExpiresAt:journeyNow+3600000,depositHoldAmount:100,depositHoldStatus:'scheduled',requiresDroneLicence:false};
+for(const state of ['requires_input','rejected'])assert.equal(verificationJourney({...journeyBooking,idVerifyStatus:state},journeyNow).documents,false,'Stale per-check passes cannot hide a replacement or rejection');
 assert.equal(verificationJourney(journeyBooking,journeyNow).ready,false,'approved documents do not bypass scheduled card security');
 assert.equal(verificationJourney({...journeyBooking,depositHoldStatus:'held',depositHoldExpiresAt:journeyNow+3600000},journeyNow).ready,true);
 assert.equal(verificationJourney({...journeyBooking,depositHoldStatus:'held',depositHoldExpiresAt:journeyNow-1},journeyNow).ready,false,'expired card holds never count as ready');
 assert.equal(verificationJourney({...journeyBooking,depositHoldAmount:0,verificationArchiveReady:undefined},journeyNow).ready,false,'unknown archive readiness cannot approve handover');
+const archivePending=verificationJourney({...journeyBooking,verificationArchiveReady:false},journeyNow);
+assert.equal(archivePending.reviewed,false,'An unconfirmed archive cannot enable the reusable approval');
+assert.equal(archivePending.steps.find(step=>step.label==='Review').detail,'Document storage unconfirmed');
 assert.equal(verificationJourney({...journeyBooking,depositHoldAmount:0,requiresDroneLicence:true,droneLicenceStatus:'review'},journeyNow).ready,false);
 assert.equal(verificationJourney({...journeyBooking,depositHoldAmount:0,verificationExpiresAt:journeyNow},journeyNow).ready,false);
 assert.equal(verificationJourney({...journeyBooking,depositHoldAmount:0,cancellationPending:true},journeyNow).current,-1,'cancellation preparation closes the upload journey');
@@ -31,7 +41,7 @@ assert.equal(verificationJourney({status:'confirmed',fulfilment:'delivery'}).ste
 assert.equal(verificationJourney({status:'confirmed',fulfilment:'pickup'}).steps.at(-1).label,'Ready for pickup');
 assert.equal(verificationJourney({status:'confirmed'}).steps.at(-1).label,'Ready for pickup');
 for(const state of [undefined,'required'])assert.equal(verificationLinkLabel({status:'confirmed',idVerifyStatus:state},false),'Open verification and uploads');
-for(const [state,label] of [['processing','View verification progress'],['manual_review','Verification under review · view progress'],['requires_input','Replace documents · view progress'],['rejected','Verification needs attention · view progress'],['verified','View verification progress']])assert.equal(verificationLinkLabel({status:'confirmed',idVerifyStatus:state},false),label);
+for(const [state,label] of [['processing','View verification progress'],['manual_review','Verification needs review · view progress'],['requires_input','Replace documents · view progress'],['rejected','Verification needs attention · view progress'],['verified','View verification progress']])assert.equal(verificationLinkLabel({status:'confirmed',idVerifyStatus:state},false),label);
 assert.equal(verificationLinkLabel({status:'confirmed',idVerifyStatus:'verified'},true),'View approved verification');
 assert.equal(verificationLinkLabel({status:'confirmed',idVerifyStatus:'not_required'},false),'View verification progress');
 for(const [state,label] of [['review','Drone licence review · view progress'],['requires_input','Replace drone licence · view progress'],['required','Upload drone licence · view progress']])assert.equal(verificationLinkLabel({status:'confirmed',idVerifyStatus:'verified',requiresDroneLicence:true,droneLicenceStatus:state},true),label);

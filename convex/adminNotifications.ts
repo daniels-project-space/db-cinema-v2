@@ -46,7 +46,7 @@ export const latest = query({
     return Promise.all(notifications.map(async n => {
       const b = n.bookingId ? await ctx.db.get(n.bookingId) : null;
       const account = n.accountId ? await ctx.db.get(n.accountId) : null;
-      return { ...n, rentalStage: b?.status ?? "general", renterName: account?.name?.split(/\s+/)[0] ?? "Renter" };
+      return { ...n, rentalStage: b?.status ?? "general", renterName: account?.name?.split(/\s+/)[0] ?? (n.bookingId || n.accountId ? "Renter" : "System alert") };
     }));
   },
 });

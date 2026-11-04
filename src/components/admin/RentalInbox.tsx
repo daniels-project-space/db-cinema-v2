@@ -322,7 +322,7 @@ export function RentalInbox({
           setPendingAttention({id:n._id,target,general:!n.bookingId});setNavigationRevision(v=>v+1);
           window.history.replaceState(null,"",ownerConversationUrl(n.bookingId?{bookingId:n.bookingId}:{accountId:n.accountId}));
         }} aria-busy={pendingAttention?.id===n._id} className={chatStyles.attentionItem}>
-          <span className="block text-xs font-medium text-white/85">{n.title} · {n.renterName}</span><span className="mt-1 block text-[10px] text-[#d7b49b]">{RENTAL_STAGE_LABELS[n.rentalStage] ?? "General support"}</span><span className="mt-2 block text-[11px] leading-5 text-white/50">{n.body}</span>
+          <span className="block text-xs font-medium text-white/85">{n.title}{(n.bookingId || n.accountId) && ` · ${n.renterName}`}</span><span className="mt-1 block text-[10px] text-[#d7b49b]">{n.bookingId || n.accountId ? RENTAL_STAGE_LABELS[n.rentalStage] ?? "General support" : "System alert · Select to mark read"}</span><span className="mt-2 block text-[11px] leading-5 text-white/50">{n.body}</span>
         </button>)}</section>;
         })}</div>}
       </div>}

@@ -10,7 +10,7 @@ export function verificationLinkLabel(booking: VerificationBooking, reviewed: bo
   }
   if (reviewed) return "View approved verification";
   if (booking.idVerifyStatus === "requires_input") return "Replace documents · view progress";
-  if (booking.idVerifyStatus === "manual_review") return "Verification under review · view progress";
+  if (booking.idVerifyStatus === "manual_review") return "Verification needs review · view progress";
   if (booking.idVerifyStatus === "rejected") return "Verification needs attention · view progress";
   if (!booking.idVerifyStatus || booking.idVerifyStatus === "required") return "Open verification and uploads";
   return "View verification progress";
@@ -41,7 +41,7 @@ export function verificationJourney(
       !booking.verificationChecks ||
       checksPassed);
   const reviewed = verified && booking.verificationArchiveReady === true;
-  const documents = unexpired && (checksPassed || verified);
+  const documents = unexpired && !["requires_input", "rejected"].includes(booking.idVerifyStatus ?? "") && (checksPassed || verified);
   const drone =
     !booking.requiresDroneLicence || booking.droneLicenceStatus === "approved";
   const security =
@@ -58,7 +58,7 @@ export function verificationJourney(
     },
     {
       label: "Documents",
-      detail: documents ? "Checks complete" : "Verify your identity",
+      detail: documents ? "Checks complete" : booking.idVerifyStatus === "processing" ? "Verification in progress" : "Verify your identity",
       done: documents,
     },
     {
@@ -66,8 +66,16 @@ export function verificationJourney(
       detail: reviewed
         ? "Approved"
         : verified
-          ? "Saving documents"
-          : "We'll check your details",
+          ? "Document storage unconfirmed"
+          : booking.idVerifyStatus === "processing"
+            ? "Verification in progress"
+            : booking.idVerifyStatus === "manual_review"
+              ? "Review needed"
+              : booking.idVerifyStatus === "requires_input"
+                ? "Replacement needed"
+                : booking.idVerifyStatus === "rejected"
+                  ? "Needs attention"
+                  : "Awaiting checks",
       done: reviewed,
     },
     ...(booking.requiresDroneLicence
