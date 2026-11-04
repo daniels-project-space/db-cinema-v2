@@ -1,14 +1,15 @@
 "use client";
 
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { CSSProperties, PointerEvent } from "react";
+import { HomeApertureArt } from "./HomeApertureArt";
 import { useHomeApertureTransition } from "./HomeApertureTransition";
 import styles from "./HomeClosingAperture.module.css";
 
 const copy = [
-  { text: "Your story is waiting", className: styles.kicker, delay: 0, stagger: 12 },
-  { text: "Your next shot starts here.", className: styles.title, delay: 190, stagger: 10 },
-  { text: "Pick your dates, build your kit, and get back to the work that matters.", className: styles.description, delay: 460, stagger: 5 },
+  { text: "Your story is waiting", className: styles.kicker, delay: 0, stagger: 9 },
+  { text: "Your next shot starts here.", className: styles.title, delay: 130, stagger: 7 },
+  { text: "Pick your dates, build your kit, and get back to the work that matters.", className: styles.description, delay: 250, stagger: 3 },
 ];
 
 function LetteredCopy({ text, className, delay, stagger }: { text: string; className: string; delay: number; stagger: number }) {
@@ -21,20 +22,29 @@ function LetteredCopy({ text, className, delay, stagger }: { text: string; class
 }
 
 export function HomeClosingAperture() {
-  const { phase, progress, begin, cancel } = useHomeApertureTransition();
+  const { phase, begin, cancel, openNow } = useHomeApertureTransition();
   const section = useRef<HTMLElement>(null);
   const apertureButton = useRef<HTMLButtonElement>(null);
   const iris = useRef<HTMLSpanElement>(null);
-  const engaged = phase !== "idle";
-  const committed = phase === "committed" || phase === "revealing";
+  const progress = useRef<HTMLDivElement>(null);
+  const engaged = phase !== "idle" && phase !== "canceling";
+  const committed = phase === "committed" || phase === "navigating" || phase === "revealing";
+
+  useEffect(() => {
+    if (committed) { progress.current?.setAttribute("aria-valuenow", "100"); return; }
+    if (phase !== "charging") return;
+    const started = performance.now();
+    const timer = window.setInterval(() => progress.current?.setAttribute("aria-valuenow", String(Math.min(100, Math.round((performance.now() - started) / 25)))), 200);
+    return () => window.clearInterval(timer);
+  }, [committed, phase]);
 
   useLayoutEffect(() => {
     if (!committed || !section.current || !iris.current) return;
     const target = iris.current.getBoundingClientRect();
     const targetX = target.left + target.width / 2;
     const targetY = target.top + target.height / 2;
-    section.current.querySelectorAll<HTMLElement>("[data-portal-letter]").forEach(letter => {
-      const rect = letter.getBoundingClientRect();
+    const letters = Array.from(section.current.querySelectorAll<HTMLElement>("[data-portal-letter]"), letter => ({ letter, rect: letter.getBoundingClientRect() }));
+    letters.forEach(({ letter, rect }) => {
       letter.style.setProperty("--pull-x", `${targetX - rect.left - rect.width / 2}px`);
       letter.style.setProperty("--pull-y", `${targetY - rect.top - rect.height / 2}px`);
     });
@@ -62,7 +72,7 @@ export function HomeClosingAperture() {
         ref={apertureButton}
         data-testid="home-aperture-button"
         className={`${styles.irisButton} ${engaged ? styles.active : ""} ${phase === "charging" ? styles.charging : ""} ${committed ? styles.committed : ""}`}
-        aria-label="Press and hold or keep focused to open the gear catalogue"
+        aria-label="Click to open the gear catalogue, or hold for the full transition"
         aria-describedby="home-aperture-hint"
         aria-busy={engaged}
         onPointerEnter={event => { if (event.pointerType !== "touch") start(); }}
@@ -72,42 +82,18 @@ export function HomeClosingAperture() {
         onPointerCancel={cancel}
         onFocus={start}
         onBlur={cancel}
-        onClick={event => { if (event.detail === 0) start(); }}
+        onClick={() => openNow(apertureButton.current)}
       >
         <span ref={iris} data-testid="home-aperture-iris" className={styles.aperture} aria-hidden="true">
-          <svg className={styles.blades} viewBox="0 0 120 120" focusable="false">
-            <defs>
-              <radialGradient id="home-aperture-depth"><stop offset="0" stopColor="#010102"/><stop offset=".58" stopColor="#090809"/><stop offset=".9" stopColor="#160f0b"/><stop offset="1" stopColor="#030304"/></radialGradient>
-              <linearGradient id="home-aperture-metal" x1=".1" y1=".12" x2=".88" y2=".93"><stop offset="0" stopColor="#fff0d8"/><stop offset=".12" stopColor="#9f623d"/><stop offset=".38" stopColor="#34231b"/><stop offset=".64" stopColor="#d38a56"/><stop offset=".82" stopColor="#513324"/><stop offset="1" stopColor="#f4bd8b"/></linearGradient>
-              <linearGradient id="home-aperture-edge" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#fff0d8" stopOpacity=".68"/><stop offset=".45" stopColor="#df9562" stopOpacity=".14"/><stop offset="1" stopColor="#1c100a" stopOpacity=".7"/></linearGradient>
-              <filter id="home-aperture-glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="2.2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-            </defs>
-            <circle cx="60" cy="60" r="57" className={styles.outerRing}/>
-            <circle cx="60" cy="60" r="52" className={styles.trackRing}/>
-            <circle cx="60" cy="60" r="47" className={styles.innerRing}/>
-            <g className={styles.ticks}>{Array.from({ length: 48 }, (_, index) => <line key={index} x1="60" y1={index % 4 === 0 ? 3.5 : 4.5} x2="60" y2={index % 4 === 0 ? 9 : 7} transform={`rotate(${index * 7.5} 60 60)`} className={index % 4 === 0 ? styles.majorTick : ""}/>)}</g>
-            <circle cx="60" cy="60" r="47" fill="url(#home-aperture-depth)" />
-            <g className={styles.bladeStack}>
-              {Array.from({ length: 8 }, (_, index) => <g key={index} transform={`rotate(${index * 45} 60 60)`}>
-                <g className={styles.blade} data-aperture-blade="">
-                  <path className={styles.bladeFace} d="M55 14 C73 9 92 17 104 30 L87 43 C78 33 67 27 53 29 Z" />
-                  <path className={styles.bladeHighlight} d="M55 15 C73 10 91 18 102 30" />
-                </g>
-              </g>)}
-            </g>
-            <circle cx="60" cy="60" r="20" fill="url(#home-aperture-depth)" className={styles.core}/>
-            <circle cx="60" cy="60" r="20" className={styles.coreRim}/>
-            <circle cx="60" cy="60" r="4" className={styles.coreGlint}/>
-            <g className={styles.screws}>{Array.from({ length: 8 }, (_, index) => <g key={index} transform={`rotate(${index * 45} 60 60)`}><circle cx="60" cy="8" r="1.4"/><path d="M59.1 8h1.8"/></g>)}</g>
-          </svg>
+          <HomeApertureArt id="home-aperture" />
           <span className={styles.apertureHalo}/><span className={styles.aperturePulse}/><span className={styles.apertureFlare}/>
         </span>
         <span className={styles.buttonLabel}>Open the gear room <span aria-hidden="true">↗</span></span>
       </button>
       <p id="home-aperture-hint" className={styles.hint} aria-live="polite">
-        {phase === "idle" ? "Hover, focus, or press and hold to enter" : phase === "charging" ? "Hold steady · the iris is opening" : "Committed · opening the gear room"}
+        {!engaged ? "Click to enter, or hover and hold for the full reveal" : phase === "charging" ? "Click to enter now · or hold for the full reveal" : "Committed · opening the gear room"}
       </p>
-      {engaged && <div className={`${styles.progressTrack} ${committed ? styles.progressCommitted : ""}`} role="progressbar" aria-label="Opening the gear catalogue" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}><span style={{ "--charge-progress": `${progress * 100}%` } as CSSProperties}/></div>}
+      {engaged && <div ref={progress} className={`${styles.progressTrack} ${committed ? styles.progressCommitted : ""}`} role="progressbar" aria-label="Opening the gear catalogue" aria-valuemin={0} aria-valuemax={100} aria-valuenow={0}><span /></div>}
     </div>
   </section>;
 }

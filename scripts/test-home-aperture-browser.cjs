@@ -44,6 +44,8 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       assert(charging.transform !== 'none', 'The physical leaves open during the cancellable hold');
       assert.equal(charging.route, '/', 'No route change occurs before commitment');
       assert.equal(charging.bodyPhase, 'charging', 'The transition coordinates the floating contact chip');
+      assert(charging.portal, 'Wind begins during the cancellable hold');
+      assert.equal(await client.evaluate(`document.querySelectorAll('[data-testid="home-aperture-portal"] path').length >= 24`), true, 'The hold builds layered wind');
       const midCharge = await client.cmd('Page.captureScreenshot', { format: 'png' });
       fs.writeFileSync(`/tmp/dbc-home-aperture-charge-${width}.png`, Buffer.from(midCharge.data, 'base64'));
 
@@ -80,6 +82,8 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
         if (!routeReveal) await delay(50);
       }
       assert(routeReveal, 'The real gear route is revealed through the aperture');
+      assert.equal(await client.evaluate(`getComputedStyle(document.querySelector('[data-testid="home-aperture-portal-iris"]')).opacity`), '1', 'The iris persists as the gear page begins to reveal');
+      assert.notEqual(await client.evaluate(`getComputedStyle(document.getElementById('main-content')).clipPath`), 'none', 'The actual gear page opens through the growing aperture');
       const revealScreenshot = await client.cmd('Page.captureScreenshot', { format: 'png' });
       fs.writeFileSync(`/tmp/dbc-home-aperture-reveal-${width}.png`, Buffer.from(revealScreenshot.data, 'base64'));
       assert.equal(await client.evaluate(`([...document.querySelectorAll('iframe')].filter(frame=>frame.title==='Gear catalogue preview'||new URL(frame.src,location.href).pathname==='/gear').length)`), 0, 'The revealed gear page is not duplicated in an iframe');
@@ -87,6 +91,14 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       assert.equal(await client.evaluate(`!!document.querySelector('[data-testid="home-aperture-portal"]')`), false, 'The full gear page settles after the reveal');
       assert.equal(await client.evaluate('document.querySelectorAll("#main-content").length'), 1, 'Only one site page tree remains after navigation');
       assert.equal(await client.evaluate('document.body.dataset.apertureTransition'), undefined, 'The contact chip returns after the transition');
+      await client.cmd('Page.navigate', { url: process.env.DBC_TEST_URL || 'https://dbcinemarentals.com/' });
+      await delay(2500);
+      await client.evaluate(`document.querySelector('[data-testid="home-aperture-button"]').scrollIntoView({block:'center',behavior:'instant'})`);
+      await delay(300);
+      await client.evaluate(`document.querySelector('[data-testid="home-aperture-button"]').click()`);
+      for (let attempt = 0; attempt < 50 && await client.evaluate('location.pathname') !== '/gear'; attempt++) await delay(100);
+      assert.equal(await client.evaluate('location.pathname'), '/gear', 'Clicking the iris opens gear without waiting for the hold');
+      assert.equal(await client.evaluate(`document.querySelector('[data-testid="home-aperture-portal"]')?.getAttribute('data-transition-phase')`), 'revealing', 'The click shortcut still reveals the real page through the iris');
     }
     console.log('PASS aligned iris, cancellable charge, letter suction, continuous vortex, single gear route, mobile/desktop reveal.');
   } finally {
