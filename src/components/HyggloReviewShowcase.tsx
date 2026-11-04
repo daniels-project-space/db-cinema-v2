@@ -74,11 +74,11 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
       />
       <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-br from-black/55 via-black/55 to-black/80" />
       <div className="relative z-10 flex h-full flex-col justify-between">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/35 px-3 py-1 font-mono text-[9px] uppercase tracking-[0.17em] text-white/75">
           Trust that is earned
-          <span data-testid="review-eye-glyph" className="review-eye" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d="M2.25 10s2.7-4.75 7.75-4.75S17.75 10 17.75 10s-2.7 4.75-7.75 4.75S2.25 10 2.25 10Z"/><circle className="review-eye-iris" cx="10" cy="10" r="3.25"/><circle cx="10" cy="10" r="1.2"/></svg></span>
         </span>
+        <span className="trust-symbol ci-host rounded-xl border border-accent-300/25 bg-[#160d11]/85 p-2 text-accent-300" aria-hidden="true"><span data-testid="review-eye-glyph" className="review-eye"><svg viewBox="0 0 20 20" fill="none"><path d="M2.25 10s2.7-4.75 7.75-4.75S17.75 10 17.75 10s-2.7 4.75-7.75 4.75S2.25 10 2.25 10Z"/><circle className="review-eye-iris" cx="10" cy="10" r="3.25"/><circle cx="10" cy="10" r="1.2"/></svg></span></span>
       </div>
       <div className="hygglo-trust-review-panel rounded-2xl border border-white/15 p-4 sm:p-5">
         <div aria-live="off">

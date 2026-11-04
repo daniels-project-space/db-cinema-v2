@@ -645,7 +645,7 @@ body {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 5;
 }
-.review-eye { display:inline-flex; width:18px; height:18px; flex:none; color:var(--color-accent-300); filter:drop-shadow(0 0 5px color-mix(in srgb,var(--color-accent-300) 55%,transparent)); animation:review-eye-pulse 3.4s ease-in-out infinite; }
+.review-eye { display:inline-flex; width:32px; height:32px; flex:none; color:var(--color-accent-300); filter:drop-shadow(0 0 5px color-mix(in srgb,var(--color-accent-300) 55%,transparent)); animation:review-eye-pulse 3.4s ease-in-out infinite; }
 .review-eye svg { width:100%; height:100%; overflow:visible; }
 .review-eye path,.review-eye circle:first-of-type { stroke:currentColor; stroke-width:1.35; }
 .review-eye circle:first-of-type { fill:color-mix(in srgb,var(--color-accent-300) 12%,transparent); }
