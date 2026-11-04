@@ -24,13 +24,13 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       }
       await client.evaluate(`document.querySelector('[data-testid=delivery-protection-tile] button').click()`);
       await delay(100);
-      const delivery = await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=delivery-protection-tile]'); if (!tile) return null; const outgoing = tile.querySelector('[data-testid=delivery-slide]'), incoming = tile.querySelector('[data-testid=delivery-slide-incoming]'); return {titles:[...tile.querySelectorAll('h2')].map(title=>title.textContent), duration:incoming&&getComputedStyle(incoming).transitionDuration, outgoingOpacity:outgoing&&getComputedStyle(outgoing).opacity}; })()`);
+      const delivery = await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=delivery-protection-tile]'); if (!tile) return null; const outgoing = tile.querySelector('[data-testid=delivery-slide]'), incoming = tile.querySelector('[data-testid=delivery-slide-incoming]'); return {titles:[...tile.querySelectorAll('h2')].map(title=>title.textContent), duration:incoming&&getComputedStyle(incoming).animationDuration, animation:incoming&&getComputedStyle(incoming).animationName, outgoingOpacity:outgoing&&getComputedStyle(outgoing).opacity}; })()`);
       assert(delivery, `The rotating delivery and protection tile exists at ${width}px`);
       assert(delivery.titles.includes('Delivered across London') && delivery.titles.includes('Cancellation protection for free'), `Both tile images and messages overlap during the crossfade at ${width}px`);
-      assert(delivery.duration.includes('1.15s'), `The tile crossfade uses an unhurried transition at ${width}px`);
+      assert(delivery.duration.includes('1.35s') && delivery.animation.includes('slide-in'), `The tile crossfade uses a synchronized, unhurried animation at ${width}px`);
       await delay(500);
       const crossfade = await client.evaluate(`(() => {const tile=document.querySelector('[data-testid=delivery-protection-tile]');return {incoming:Number(getComputedStyle(tile.querySelector('[data-testid=delivery-slide-incoming]')).opacity),outgoing:Number(getComputedStyle(tile.querySelector('[data-testid=delivery-slide]')).opacity)}})()`);
-      assert(crossfade.incoming > 0 && crossfade.incoming < 1 && crossfade.outgoing > 0 && crossfade.outgoing < 1, `Both slides visibly crossfade instead of switching abruptly at ${width}px`);
+      assert(crossfade.incoming > 0 && crossfade.incoming < 1 && crossfade.outgoing > 0 && crossfade.outgoing < 1, `Both slides visibly crossfade instead of switching abruptly at ${width}px: ${JSON.stringify(crossfade)}`);
       await delay(1000);
       assert.equal(await client.evaluate(`document.querySelector('[data-testid=delivery-protection-tile] h2').textContent`), 'Cancellation protection for free', `The incoming protection slide settles cleanly at ${width}px`);
       const samples = [];
@@ -41,8 +41,8 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       assert(new Set(samples.map(sample => sample.text)).size > 1, `The featured review rotates at ${width}px`);
       const dimensions = await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=hygglo-trust-card]'), quote = tile.querySelector('blockquote'); quote.textContent = 'Excellent.'; const short = tile.getBoundingClientRect().height; quote.textContent = 'A thoughtful review with useful detail about every part of the rental. '.repeat(6); const detailed = tile.getBoundingClientRect().height; quote.textContent = 'A long review with many words. '.repeat(100); return {short, detailed, extreme:tile.getBoundingClientRect().height, quoteHeight:quote.clientHeight, quoteScrollHeight:quote.scrollHeight}; })()`);
       assert(dimensions.detailed > dimensions.short + 24, `A normally detailed review gets more room at ${width}px`);
-      assert(dimensions.extreme <= 420, `An extreme review cannot stretch the featured tile past its cap at ${width}px`);
-      assert(dimensions.quoteScrollHeight > dimensions.quoteHeight + 1, `An extreme review is capped at seven visible lines at ${width}px`);
+      assert(dimensions.extreme <= 370, `An extreme review cannot stretch the featured tile past its cap at ${width}px`);
+      assert(dimensions.quoteScrollHeight > dimensions.quoteHeight + 1, `An extreme review is capped at six visible lines at ${width}px`);
       assert(await client.evaluate('document.documentElement.scrollWidth <= innerWidth'), `No horizontal overflow at ${width}px`);
     }
     await client.evaluate('document.documentElement.style.scrollBehavior="auto";document.getElementById("home-closing-title").scrollIntoView({block:"center",behavior:"instant"})');

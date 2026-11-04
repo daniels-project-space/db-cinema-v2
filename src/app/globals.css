@@ -635,11 +635,11 @@ body {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 7;
+  -webkit-line-clamp: 6;
 }
-.hygglo-trust-review-fade { animation: hygglo-trust-review-fade 800ms cubic-bezier(.2,.75,.25,1) both; }
+.hygglo-trust-review-fade { animation: hygglo-trust-review-fade 1s cubic-bezier(.22,.61,.36,1) both; }
 @keyframes hygglo-trust-review-fade {
-  from { opacity: 0; transform: translateY(8px); filter: blur(2px); }
+  from { opacity: 0; transform: translateY(6px); filter: blur(1.5px); }
   to { opacity: 1; transform: translateY(0); filter: blur(0); }
 }
 .hygglo-review-marquee:focus-within .hygglo-review-track { animation-play-state: paused; }

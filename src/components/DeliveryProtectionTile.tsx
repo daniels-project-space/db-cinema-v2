@@ -24,13 +24,12 @@ function DeliverySlide({ protection, outgoing = false }: { protection: boolean; 
 
 export function DeliveryProtectionTile() {
   const [protection, setProtection] = useState(false);
-  const [transition, setTransition] = useState<{ from: boolean; to: boolean; id: number; entered: boolean } | null>(null);
+  const [transition, setTransition] = useState<{ from: boolean; to: boolean; id: number } | null>(null);
   const [focused, setFocused] = useState(false);
   const card = useRef<HTMLElement>(null);
   const activeSlide = useRef(false);
   const transitionId = useRef(0);
   const transitionTimer = useRef<number | undefined>(undefined);
-  const transitionFrame = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     for (const src of ["/images/home/london-delivery-20261028.webp", "/images/home/cancellation-protection-20261103.webp"]) {
@@ -43,7 +42,6 @@ export function DeliveryProtectionTile() {
   const transitionTo = useCallback((next: boolean) => {
     if (activeSlide.current === next) return;
     window.clearTimeout(transitionTimer.current);
-    window.cancelAnimationFrame(transitionFrame.current ?? 0);
     const from = activeSlide.current;
     activeSlide.current = next;
     setProtection(next);
@@ -52,16 +50,12 @@ export function DeliveryProtectionTile() {
       return;
     }
     const id = ++transitionId.current;
-    setTransition({ from, to: next, id, entered: false });
-    transitionFrame.current = window.requestAnimationFrame(() => {
-      transitionFrame.current = window.requestAnimationFrame(() => setTransition(current => current?.id === id ? { ...current, entered: true } : current));
-    });
-    transitionTimer.current = window.setTimeout(() => setTransition(current => current?.id === id ? null : current), 1400);
+    setTransition({ from, to: next, id });
+    transitionTimer.current = window.setTimeout(() => setTransition(current => current?.id === id ? null : current), 1550);
   }, []);
 
   useEffect(() => () => {
     window.clearTimeout(transitionTimer.current);
-    window.cancelAnimationFrame(transitionFrame.current ?? 0);
   }, []);
 
   useEffect(() => {
@@ -85,7 +79,7 @@ export function DeliveryProtectionTile() {
     <div data-testid="delivery-slide" aria-hidden={Boolean(transition)} inert={Boolean(transition)} className={`absolute inset-0 ${styles.layer} ${transition ? styles.exiting : styles.visible}`}>
       <DeliverySlide protection={transition ? transition.from : protection} outgoing={Boolean(transition)} />
     </div>
-    {transition && <div data-testid="delivery-slide-incoming" aria-hidden="true" inert className={`absolute inset-0 ${styles.layer} ${transition.entered ? styles.visible : styles.entering}`}><DeliverySlide protection={transition.to} /></div>}
+    {transition && <div data-testid="delivery-slide-incoming" aria-hidden="true" inert className={`absolute inset-0 ${styles.layer} ${styles.entering}`}><DeliverySlide protection={transition.to} /></div>}
     <button type="button" onClick={() => transitionTo(!activeSlide.current)} aria-label={protection ? "Show London delivery" : "Show cancellation protection"} className="absolute bottom-3 right-4 z-10 rounded-full border border-white/30 bg-black/70 px-2 py-1 text-xs text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">↻</button>
   </article>;
 }

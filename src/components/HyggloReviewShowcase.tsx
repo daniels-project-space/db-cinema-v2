@@ -63,7 +63,7 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
-      className="spot trust-card relative isolate h-full min-h-[280px] max-h-[410px] overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(ellipse_at_top_right,rgba(212,172,107,.14),transparent_58%),#101013] p-5 shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:min-h-[304px] sm:p-6"
+      className="spot trust-card relative isolate h-full min-h-[280px] max-h-[360px] overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(ellipse_at_top_right,rgba(212,172,107,.14),transparent_58%),#101013] p-5 shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:min-h-[304px] sm:p-6"
     >
       <Image
         src="/images/home/maintained-cinema-gear-20261028.webp"
