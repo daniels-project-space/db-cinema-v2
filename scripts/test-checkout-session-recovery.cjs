@@ -1,9 +1,9 @@
 const {createHash}=require('node:crypto');const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
-const sessions=new Map(),trace=[];let creates=0,retrieves=0,sourceOk=true,sessionStatus='open',sessionMismatch=false,transportError=false;
+const sessions=new Map(),trace=[];let creates=0,retrieves=0,sourceOk=true,sessionStatus='open',sessionMismatch=false,transportError=false,createFailure;
 class StripeFixture {
  static errors={StripeInvalidRequestError:class extends Error{}};
  paymentMethodConfigurations={retrieve:async()=>({active:true,card:{display_preference:{value:'on'}},apple_pay:{display_preference:{value:'off'}},google_pay:{display_preference:{value:'off'}},link:{display_preference:{value:'off'}}})};
- checkout={sessions:{create:async params=>{creates++;const s={id:'cs-fixture-'+creates,status:'open',url:'https://fixture.invalid/payment/'+creates,metadata:params.metadata};sessions.set(s.id,s);return s},retrieve:async id=>{retrieves++;if(transportError)throw Error('Unknown provider outcome');const s=sessions.get(id);return {...s,status:sessionStatus,...(sessionMismatch?{metadata:{bookingId:'wrong-booking'}}:{})}}}};
+ checkout={sessions:{create:async params=>{creates++;if(createFailure==='invalid')throw new StripeFixture.errors.StripeInvalidRequestError('Provider rejected request');if(createFailure==='unknown')throw Error('Unknown create outcome');const s={id:'cs-fixture-'+creates,status:'open',url:createFailure==='no-url'?null:'https://fixture.invalid/payment/'+creates,metadata:params.metadata};sessions.set(s.id,s);return s},retrieve:async id=>{retrieves++;if(transportError)throw Error('Unknown provider outcome');const s=sessions.get(id);return {...s,status:sessionStatus,...(sessionMismatch?{metadata:{bookingId:'wrong-booking'}}:{})}}}};
 }
 h.setMock('stripe',{default:StripeFixture});
 const checkout=h.load('convex/checkout.ts'),bookings=h.load('convex/bookings.ts'),catalog=h.load('convex/catalog.ts'),availability=h.load('convex/availability.ts'),sync=h.load('convex/sync.ts'),memberBenefits=h.load('convex/membershipBenefits.ts'),{agreementRequestFingerprint}=h.load('shared/rentalAgreement.ts'),{AGREEMENTS}=h.load('src/lib/legal.ts');
@@ -33,5 +33,20 @@ const args={items:[{listingId:listing._id,title:listing.title,start,end,qty:1,to
  await h.db.patch(member._id,{state:'creating',sessionId:undefined,sessionParams:JSON.stringify({metadata:{bookingId:'foreign-booking'}})});await assert.rejects(checkout.start.handler(ctx,structuredClone(memberArgs)),/payment setup does not match/);assert.equal(creates,1,'Conflicting frozen membership setup never creates a payment');
  await h.db.patch(member._id,{sessionParams:JSON.stringify({metadata:{bookingId:b._id}})});const restored=await checkout.start.handler(ctx,structuredClone(memberArgs));assert.equal(creates,2);assert.equal(b.stripeCheckoutSessionId,'cs-fixture-2');assert.equal((await checkout.start.handler(ctx,structuredClone(memberArgs))).url,restored.url);assert.equal(creates,2,'Prepared membership recovery binds once and future retry retrieves it');
  await h.db.patch(b._id,{checkoutInputFingerprint:undefined});assert.equal(await bookings.checkoutAttempt.handler(ctx,{requestId:args.agreement.requestId,checkoutInputFingerprint:'0'.repeat(64)}),null,'Legacy records are not assigned guessed input receipts');
+ sourceOk=true;
+ for(const [index,kind] of ['invalid','unknown','alert-unavailable','no-url','bind-failure'].entries()){
+  const failure=structuredClone(args);failure.agreement.requestId=`fixture-create-failure-${index}-long`;failure.customer.email=`failure-${index}@example.invalid`;failure.items[0].start+=(40+index*5)*86400000;failure.items[0].end+=(40+index*5)*86400000;
+  failure.expectedTotalDue=(await checkout.priceQuote.handler(ctx,{items:failure.items,customerEmail:failure.customer.email,fulfilment:'pickup'})).combinedTotalDue;
+  createFailure=kind==='invalid'?'invalid':kind==='no-url'?'no-url':kind==='bind-failure'?undefined:'unknown';const runMutation=ctx.runMutation;
+  if(kind==='alert-unavailable')ctx.runMutation=async(ref,params)=>{if(ref==='bookings.flagCheckoutSessionFailure')throw Error('Synthetic alert failure');return runMutation(ref,params)};
+  if(kind==='bind-failure')ctx.runMutation=async(ref,params)=>{if(ref==='bookings.bindCheckoutSession')throw Error('Synthetic binding failure');return runMutation(ref,params)};
+  await assert.rejects(checkout.start.handler(ctx,structuredClone(failure)),kind==='invalid'?/Provider rejected request/:kind==='no-url'?/did not return a checkout URL/:kind==='bind-failure'?/Synthetic binding failure/:/Unknown create outcome/);
+  ctx.runMutation=runMutation;createFailure=undefined;
+  const failed=h.tables.get('bookings').find(row=>row.agreementRequestId===failure.agreement.requestId);assert(failed);
+  assert.equal(failed.status,kind==='invalid'?'cancelled':'pending_payment','only attested provider rejection releases the pending booking');
+  const alert=(h.tables.get('admin_notifications')??[]).find(row=>row.eventKey===`checkout-session-failed:${failed._id}`);
+  assert.equal(!!alert,kind!=='alert-unavailable','alert failures must not replace the original provider error');
+  if(['unknown','no-url','bind-failure'].includes(kind)){const before=creates;await assert.rejects(checkout.start.handler(ctx,structuredClone(failure)),/pending reconciliation/);assert.equal(creates,before,'unknown outcomes cannot create another provider session');}
+ }
  console.log('PASS actual first checkout and exact saved-session recovery: last-unit own hold, outage recovery before source/repricing/new writes, stable frozen agreement/allocation, changed particulars rejected, provider binding/status/errors, unknown unbound outcome retained, linked/interrupted/prepared membership recovery, foreign/closed setup rejection and explicit legacy compatibility. Synthetic source/database/Stripe; no provider writes.');
 }finally{global.fetch=realFetch}})().catch(e=>{console.error(e);process.exitCode=1});

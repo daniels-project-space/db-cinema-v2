@@ -1,4 +1,5 @@
 import { queueOwnerNotification } from "./lib/adminPush";
+import { bump } from "./rateLimit";
 import {operatorCancellationOptions} from "../shared/operatorCancellationCredit";
 import {depositRefundProjection,depositRefundState,depositRefundStatementFields} from "../shared/depositRefundStatus";
 import { depositReturnReceipt } from "./lib/depositReturnReceipt";
@@ -1600,6 +1601,23 @@ export const flagDiditProcessingFailure = internalMutation({
     if(!booking||booking.verificationProvider!=="didit"||booking.diditSessionId!==sessionId)return;
     const account=await accountForRental(ctx,booking);
     await queueOwnerNotification(ctx,{eventKey:`didit-processing-failed:${bookingId}:${sessionId}:${Math.floor(Date.now()/86400000)}`,kind:"verification_failure",...(account?{accountId:account._id}:{}),bookingId,title:"Verification update needs attention",body:"Verification processing could not complete. Open the rental and check its status."});
+  },
+});
+
+export const flagCheckoutSessionFailure = internalMutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const booking = await ctx.db.get(bookingId);
+    if (!booking || booking.status !== "pending_payment" || booking.stripeCheckoutSessionId) return;
+    const eventKey = `checkout-session-failed:${bookingId}`;
+    if (await ctx.db.query("admin_notifications").withIndex("by_event", q => q.eq("eventKey", eventKey)).first()) return;
+    const window = Math.floor(Date.now() / 900000);
+    const allowed = await bump(ctx, "checkout-session-alerts", 10, 900000);
+    if (!allowed.allowed) {
+      await queueOwnerNotification(ctx, { eventKey: `checkout-session-failures:${window}`, kind: "checkout_failure", bookingId, title: "Multiple checkouts need attention", body: "Checkout sessions could not be opened. Check payment-provider health and pending rentals before retrying." });
+      return;
+    }
+    await queueOwnerNotification(ctx, { eventKey, kind: "checkout_failure", ...(booking.accountAccessRequired === false && booking.accountId ? { accountId: booking.accountId } : {}), bookingId, title: "Checkout could not open", body: "The payment page could not be confirmed. Check the provider and rental before advising a retry." });
   },
 });
 

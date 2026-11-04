@@ -494,13 +494,25 @@ export const start = action({
       cancel_url: `${new URL(process.env.APP_URL!).origin}/cart`, metadata:meta,
     };
     if (membershipCheckout) await ctx.runMutation(internal.membershipBenefits.saveSessionParams,{id:membershipCheckout._id,bookingId,sessionParams:JSON.stringify(sessionParams)});
+    const flagCheckoutFailure = async () => {
+      try { await ctx.runMutation(internal.bookings.flagCheckoutSessionFailure,{bookingId}); }
+      catch { console.error("Could not record checkout session failure", bookingId); }
+    };
     let session:Stripe.Checkout.Session;
     try{session=await sb.checkout.sessions.create(sessionParams,membershipCheckout ? {idempotencyKey:`dbc-member-checkout-${membershipCheckout._id}`} : undefined);}
-    catch(error){if(error instanceof Stripe.errors.StripeInvalidRequestError)await ctx.runMutation(internal.bookings.checkoutCreationRejected,{bookingId});throw error;}
-    if (membershipCheckout) await ctx.runMutation(internal.membershipBenefits.bindCheckout,{id:membershipCheckout._id,sessionId:session.id,bookingId});
-
-    if (!session.url) throw new Error("Stripe did not return a checkout URL");
-    await ctx.runMutation(internal.bookings.bindCheckoutSession, { bookingId, sessionId: session.id });
+    catch(error){
+      await flagCheckoutFailure();
+      if(error instanceof Stripe.errors.StripeInvalidRequestError)await ctx.runMutation(internal.bookings.checkoutCreationRejected,{bookingId});
+      throw error;
+    }
+    try {
+      if (membershipCheckout) await ctx.runMutation(internal.membershipBenefits.bindCheckout,{id:membershipCheckout._id,sessionId:session.id,bookingId});
+      if (!session.url) throw new Error("Stripe did not return a checkout URL");
+      await ctx.runMutation(internal.bookings.bindCheckoutSession, { bookingId, sessionId: session.id });
+    } catch (error) {
+      await flagCheckoutFailure();
+      throw error;
+    }
     return { url: session.url };
   },
 });
