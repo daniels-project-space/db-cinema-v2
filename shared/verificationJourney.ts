@@ -2,6 +2,20 @@ import { securityReady, verificationExpired } from "./verificationProgress";
 import type { VerificationBooking } from "./rentalReadiness";
 import {isSavedCardRental} from './savedCardSecurity';
 
+export function verificationLinkLabel(booking: VerificationBooking, reviewed: boolean): string {
+  if (booking.idVerifyStatus === "verified" && booking.requiresDroneLicence && booking.droneLicenceStatus !== "approved") {
+    if (booking.droneLicenceStatus === "review") return "Drone licence review · view progress";
+    if (booking.droneLicenceStatus === "requires_input") return "Replace drone licence · view progress";
+    return "Upload drone licence · view progress";
+  }
+  if (reviewed) return "View approved verification";
+  if (booking.idVerifyStatus === "requires_input") return "Replace documents · view progress";
+  if (booking.idVerifyStatus === "manual_review") return "Verification under review · view progress";
+  if (booking.idVerifyStatus === "rejected") return "Verification needs attention · view progress";
+  if (!booking.idVerifyStatus || booking.idVerifyStatus === "required") return "Open verification and uploads";
+  return "View verification progress";
+}
+
 /** Display real provider decisions; payment alone never means pickup approval. */
 export function verificationJourney(
   booking: VerificationBooking & {

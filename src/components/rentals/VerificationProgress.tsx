@@ -11,7 +11,7 @@ import {
   verificationCanStart,
   verificationExpired,
 } from "../../../shared/verificationProgress";
-import { verificationJourney } from "../../../shared/verificationJourney";
+import { verificationJourney, verificationLinkLabel } from "../../../shared/verificationJourney";
 import type { VerificationBooking } from "../../../shared/rentalReadiness";
 import { SmartImage } from "@/components/SmartImage";
 import { IconCheck, IconLock } from "@/components/icons";
@@ -105,20 +105,7 @@ export function VerificationLink({
 }) {
   const now = useVerificationClock(booking);
   const approved = verificationJourney(booking, now).reviewed;
-  const dronePending =
-    booking.requiresDroneLicence && booking.droneLicenceStatus !== "approved";
-  const label =
-    booking.idVerifyStatus === "verified" && dronePending
-      ? booking.droneLicenceStatus === "review"
-        ? "Drone licence review · view progress"
-        : booking.droneLicenceStatus === "requires_input"
-          ? "Replace drone licence · view progress"
-          : "Upload drone licence · view progress"
-      : approved
-        ? "View approved verification"
-        : booking.idVerifyStatus === "requires_input"
-          ? "Replace documents · view progress"
-          : "View verification progress";
+  const label = verificationLinkLabel(booking, approved);
   return (
     <section
       className={

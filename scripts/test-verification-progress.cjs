@@ -26,6 +26,12 @@ for(const s of ['awaiting_payment','requires_action','failed','released',null])a
 assert.equal(securityReady({status:'confirmed',depositHoldAmount:0}),true);
 assert.equal(securityReady({status:'confirmed',depositHoldAmount:250,depositHoldStatus:'held'}),true);
 const pickupPaid={status:'confirmed',depositHoldAmount:100,depositHoldStatus:'scheduled',securityHoldPolicyVersion:'2026-10-pickup-hold-v1'};
+const {verificationLinkLabel}=load('shared/verificationJourney.ts');
+for(const state of [undefined,'required'])assert.equal(verificationLinkLabel({status:'confirmed',idVerifyStatus:state},false),'Open verification and uploads');
+for(const [state,label] of [['processing','View verification progress'],['manual_review','Verification under review · view progress'],['requires_input','Replace documents · view progress'],['rejected','Verification needs attention · view progress'],['verified','View verification progress']])assert.equal(verificationLinkLabel({status:'confirmed',idVerifyStatus:state},false),label);
+assert.equal(verificationLinkLabel({status:'confirmed',idVerifyStatus:'verified'},true),'View approved verification');
+assert.equal(verificationLinkLabel({status:'confirmed',idVerifyStatus:'not_required'},false),'View verification progress');
+for(const [state,label] of [['review','Drone licence review · view progress'],['requires_input','Replace drone licence · view progress'],['required','Upload drone licence · view progress']])assert.equal(verificationLinkLabel({status:'confirmed',idVerifyStatus:'verified',requiresDroneLicence:true,droneLicenceStatus:state},true),label);
 assert.equal(verificationCanStart(pickupPaid),true,'paid new-policy rental must allow document onboarding before pickup');
 assert.equal(securityReady(pickupPaid),false,'document onboarding must never approve security handover');
 assert.equal(verificationCanStart({...pickupPaid,status:'pending_payment'}),false);
