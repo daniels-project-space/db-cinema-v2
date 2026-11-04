@@ -18,7 +18,7 @@ function DeliverySlide({ protection, outgoing = false, incoming = false }: { pro
       </div>
       <div className="absolute inset-x-0 bottom-0 p-5 sm:p-6">
         <h2 className="mt-4 max-w-[17rem] font-display text-xl font-semibold leading-tight text-white sm:text-2xl">{protection ? "Cancellation protection for free" : "Delivered across London"}</h2>
-        {protection ? <p className="mt-2 max-w-[18rem] text-sm leading-relaxed text-white/75">If kit is unavailable before pickup, eligible renters choose a full refund or 130% rental credit. <Link className="underline underline-offset-2" href="/legal/cancellation" tabIndex={outgoing ? -1 : undefined}>See terms</Link></p> : <p className="mt-2 max-w-[18rem] text-sm leading-relaxed text-white/75">Reliable delivery and collection, straight to your set.</p>}
+        {protection ? <p className="mt-2 max-w-[18rem] text-sm leading-relaxed text-white/75">If kit is unavailable before pickup, all accounts can get a full refund. Non-blocked accounts may choose 130% rental credit. <Link className="underline underline-offset-2" href="/legal/cancellation" tabIndex={outgoing ? -1 : undefined}>See terms</Link></p> : <p className="mt-2 max-w-[18rem] text-sm leading-relaxed text-white/75">Reliable delivery and collection, straight to your set.</p>}
       </div>
     </div>
   </>;
