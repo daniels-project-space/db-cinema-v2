@@ -31,7 +31,10 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       await delay(500);
       const crossfade = await client.evaluate(`(() => {const tile=document.querySelector('[data-testid=delivery-protection-tile]');return {incoming:Number(getComputedStyle(tile.querySelector('[data-testid=delivery-slide-incoming]')).opacity),outgoing:Number(getComputedStyle(tile.querySelector('[data-testid=delivery-slide]')).opacity)}})()`);
       assert(crossfade.incoming > 0 && crossfade.incoming < 1 && crossfade.outgoing > 0 && crossfade.outgoing < 1, `Both slides visibly crossfade instead of switching abruptly at ${width}px: ${JSON.stringify(crossfade)}`);
-      await delay(1400);
+      await delay(350);
+      const textFade = await client.evaluate(`(() => {const tile=document.querySelector('[data-testid=delivery-protection-tile]'),outgoing=tile.querySelector('[data-testid=delivery-slide] [data-testid=delivery-slide-copy]'),incoming=tile.querySelector('[data-testid=delivery-slide-incoming] [data-testid=delivery-slide-copy]');return {incoming:Number(getComputedStyle(incoming).opacity),outgoing:Number(getComputedStyle(outgoing).opacity)}})()`);
+      assert(textFade.outgoing < 0.05 && textFade.incoming > 0 && textFade.incoming < 1, `Slide copy does not ghost over itself during the image crossfade at ${width}px: ${JSON.stringify(textFade)}`);
+      await delay(1050);
       assert.equal(await client.evaluate(`document.querySelector('[data-testid=delivery-protection-tile] h2').textContent`), 'Cancellation protection for free', `The incoming protection slide settles cleanly at ${width}px`);
       const samples = [];
       for (let index = 0; index < 4; index++) {
