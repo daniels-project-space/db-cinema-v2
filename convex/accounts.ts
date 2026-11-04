@@ -70,13 +70,8 @@ export const _byEmail = internalQuery({
 export const _byToken = internalQuery({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
-    const s = await ctx.db
-      .query("sessions")
-      .withIndex("by_token", (q) => q.eq("token", token))
-      .first();
-    if (!s || (s.expiresAt != null && s.expiresAt <= Date.now())) return null;
-    const account=await ctx.db.get(s.accountId);
-    if (!account || (account.emailVerificationRequired && !account.emailVerifiedAt)) return null;
+    const account=await resolve(ctx,token);
+    if (!account) return null;
     const loyalty=await loyaltyProgress(ctx,account);
     return {...account,loyaltyEligible:loyalty.eligible,loyaltyLevel:loyalty.level,loyaltyPercent:loyalty.percent,loyaltyCompleted:loyalty.completed};
   },
