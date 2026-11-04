@@ -3,7 +3,7 @@ export const ADMIN_NOTIFICATION_CATEGORIES = ["Messages", "Verification", "Booki
 export function adminNotificationCategory(kind: string): typeof ADMIN_NOTIFICATION_CATEGORIES[number] {
   if (["renter_message", "human_request", "gaffer_resumed"].includes(kind)) return "Messages";
   if (["verification_failure", "verification_update", "verification_archive", "drone_document"].includes(kind)) return "Verification";
-  if (["booking_paid", "booking_cancelled", "checkout_failure", "deposit_refund_failure"].includes(kind)) return "Bookings & payments";
+  if (["booking_paid", "booking_cancelled", "checkout_failure", "deposit_refund_failure", "stripe_dispute"].includes(kind)) return "Bookings & payments";
   if (["email_failure", "email_sent"].includes(kind)) return "Email";
   return "Other";
 }

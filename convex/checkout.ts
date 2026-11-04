@@ -1192,6 +1192,12 @@ export const stripeWebhook = internalAction({
     } catch {
       return false; // bad signature
     }
+    if (event.type === "charge.dispute.created" || event.type === "charge.dispute.updated" || event.type === "charge.dispute.closed") {
+      const dispute = event.data.object as Stripe.Dispute;
+      const intent = typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
+      await ctx.runMutation((internal as any).stripeDisputes.record, { eventId: event.id, eventType: event.type, paymentIntentId: intent ?? undefined });
+      return true;
+    }
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const s = event.data.object as Stripe.Checkout.Session;
       const m = s.metadata ?? {};
