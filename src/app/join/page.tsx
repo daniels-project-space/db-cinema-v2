@@ -332,7 +332,6 @@ const STEPS = ["Your craft", "About you", "Rates & reel", "The deal"];
 
 function ProfessionalForm({ onSent }: { onSent: () => void }) {
   const apply = useMutation(api.collective.apply);
-  const uploadUrl = useMutation(api.collective.applicantUploadUrl);
   const [step, setStep] = useState(0);
   const [f, setF] = useState({
     fullName: "", email: "", phone: "", firstName: "",
@@ -343,9 +342,6 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
   const [customSkill, setCustomSkill] = useState("");
   const [tags, setTags] = useState<Set<string>>(new Set());
   const [customTag, setCustomTag] = useState("");
-  const [headshotId, setHeadshotId] = useState<string | undefined>();
-  const [headshotPreview, setHeadshotPreview] = useState<string | undefined>();
-  const [uploadingHs, setUploadingHs] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -358,17 +354,6 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
   const toggleTag = toggleIn(setTags);
   function addCustomSkill() { const s = customSkill.trim(); if (s) setSkills((p) => new Set(p).add(s)); setCustomSkill(""); }
   function addCustomTag() { const s = customTag.trim(); if (s) setTags((p) => new Set(p).add(s)); setCustomTag(""); }
-  async function onHeadshot(file: File) {
-    setUploadingHs(true);
-    try {
-      const url = await uploadUrl({});
-      const res = await fetch(url, { method: "POST", headers: { "content-type": file.type }, body: file });
-      const { storageId } = await res.json();
-      setHeadshotId(storageId);
-      setHeadshotPreview(URL.createObjectURL(file));
-    } catch { /* keep going — headshot is optional */ }
-    finally { setUploadingHs(false); }
-  }
 
   async function submit() {
     if (!valid || busy) return;
@@ -389,7 +374,6 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
         tagline: f.tagline.trim() || undefined,
         bio: f.bio.trim() || undefined,
         tags: Array.from(tags),
-        headshotStorageId: headshotId as any,
         skills: Array.from(skills),
         rateHourly: num(f.rateHourly),
         rateHalfDay: num(f.rateHalfDay),
@@ -460,26 +444,7 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
       {/* step 1: about */}
       {step === 1 && (
         <div className="mt-7 space-y-5">
-          <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <label className="relative h-20 w-20 shrink-0 cursor-pointer overflow-hidden rounded-2xl border border-white/15 bg-white/[0.04] transition hover:border-accent-400/50">
-              {headshotPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={headshotPreview} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <span className="flex h-full w-full flex-col items-center justify-center gap-1 text-white/40">
-                  <span className="text-2xl leading-none">＋</span>
-                  <span className="text-[9px] uppercase tracking-wide">{uploadingHs ? "…" : "Photo"}</span>
-                </span>
-              )}
-              <input type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && onHeadshot(e.target.files[0])} />
-            </label>
-            <div>
-              <div className="font-display text-sm font-semibold text-white/85">Profile headshot</div>
-              <p className="mt-0.5 text-xs leading-relaxed text-white/45">
-                A clear, professional headshot for your crew card. {uploadingHs ? "Uploading…" : headshotId ? "Uploaded ✓" : "Optional — you can add it later."}
-              </p>
-            </div>
-          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/70">Profile photo uploads are temporarily unavailable. You can still submit your application without one.</div>
           <Row>
             <div>
               <label className={labelCls}>Display name (shown publicly)</label>

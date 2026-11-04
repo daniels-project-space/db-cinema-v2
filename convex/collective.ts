@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
+import { accountForToken } from "./lib/rentalChat";
 
 const NEONS = ["cyan", "violet", "amber", "green", "pink", "blue", "orange"];
 
@@ -37,6 +38,7 @@ export const apply = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
+    if (a.headshotStorageId) throw new Error("Headshot uploads are temporarily unavailable. Please submit your application without a photo.");
     if (!a.fullName.trim() || !/\S+@\S+\.\S+/.test(a.email)) {
       throw new Error("Please give your name and a valid email.");
     }
@@ -81,19 +83,13 @@ export const apply = mutation({
 /** Anonymous upload URL for an applicant's headshot during onboarding (pre-account). */
 export const applicantUploadUrl = mutation({
   args: {},
-  handler: async (ctx) => await ctx.storage.generateUploadUrl(),
+  handler: async () => { throw new Error("Headshot uploads are temporarily unavailable. Please submit your application without a photo."); },
 });
 
 // ── Member profile (token-scoped) ────────────────────────────────────
 /** Resolve the signed-in account's email from a session token. */
 async function emailFromToken(ctx: any, token: string): Promise<string | null> {
-  // expiry is enforced by the session sweep cron (matches accounts.resolve)
-  const s = await ctx.db
-    .query("sessions")
-    .withIndex("by_token", (q: any) => q.eq("token", token))
-    .first();
-  if (!s) return null;
-  const acct = await ctx.db.get(s.accountId);
+  const acct = await accountForToken(ctx, token);
   return acct?.email ?? null;
 }
 
@@ -112,9 +108,7 @@ async function memberApp(ctx: any, email: string) {
 export const myMembership = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
-    const s = await ctx.db.query("sessions").withIndex("by_token", (q: any) => q.eq("token", token)).first();
-    if (!s) return null;
-    const acct: any = await ctx.db.get(s.accountId);
+    const acct = await accountForToken(ctx, token);
     if (!acct?.email) return null;
     const app = await memberApp(ctx, acct.email);
     if (!app) return null;
@@ -166,7 +160,7 @@ export const idUploadUrl = mutation({
   handler: async (ctx, { token }) => {
     const email = await emailFromToken(ctx, token);
     if (!email) throw new Error("Please sign in.");
-    return await ctx.storage.generateUploadUrl();
+    throw new Error("Collective ID uploads are temporarily unavailable. Please contact the team.");
   },
 });
 
@@ -176,10 +170,7 @@ export const attachId = mutation({
   handler: async (ctx, { token, storageId }) => {
     const email = await emailFromToken(ctx, token);
     if (!email) throw new Error("Please sign in.");
-    const app = await memberApp(ctx, email);
-    if (!app || app.status !== "approved") throw new Error("No approved membership found for this account.");
-    await ctx.db.patch(app._id, { idStorageId: storageId, idStatus: "submitted" });
-    return { ok: true };
+    throw new Error("Collective ID uploads are temporarily unavailable. Please contact the team.");
   },
 });
 
