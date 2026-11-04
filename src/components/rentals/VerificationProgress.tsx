@@ -479,7 +479,7 @@ export function VerificationProgress({
                   <div className={styles.holdTop}>
                     <span>
                       {booking.depositHoldStatus === "scheduled"
-                        ? "Card hold at pickup"
+                        ? booking.fulfilment === "delivery" ? "Card hold at delivery" : "Card hold at pickup"
                         : "Card authorisation"}
                     </span>
                     <strong>{formatGbp(booking.depositHoldAmount)}</strong>
@@ -535,8 +535,8 @@ export function VerificationProgress({
           journey.closed
             ? "View your rental details and conversation."
             : approved
-              ? isSavedCardRental(booking) ? "Your documents are approved. Check your pickup and saved-card setup below." : "Your documents are approved. Check your pickup and card hold below."
-              : "Complete verification to get ready for pickup."
+              ? isSavedCardRental(booking) ? `Your documents are approved. Check your ${booking.fulfilment === "delivery" ? "delivery" : "pickup"} and saved-card setup below.` : `Your documents are approved. Check your ${booking.fulfilment === "delivery" ? "delivery" : "pickup"} and card hold below.`
+              : `Complete verification to get ready for ${booking.fulfilment === "delivery" ? "delivery" : "pickup"}.`
         }
         active="rentals"
         nav={[

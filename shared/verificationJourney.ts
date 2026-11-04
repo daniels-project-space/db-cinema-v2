@@ -80,7 +80,7 @@ export function verificationJourney(
         ]
       : []),
     {
-      label: "Ready for pickup",
+      label: booking.fulfilment === "delivery" ? "Ready for delivery" : "Ready for pickup",
       detail: ready
         ? "All set"
         : reviewed && drone

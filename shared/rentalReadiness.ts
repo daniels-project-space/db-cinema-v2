@@ -1,6 +1,7 @@
 import {isSavedCardRental} from './savedCardSecurity';
 export type VerificationBooking = {
   status: string;
+  fulfilment?: string | null;
   idVerifyStatus?: string;
   idVerificationSource?: string | null;
   verificationChecks?: Record<string, string> | null;

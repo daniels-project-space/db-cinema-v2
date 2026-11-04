@@ -18,6 +18,9 @@ export function adminPushPresentation(notification: { kind: string; title: strin
         : notification.title === "Didit verification not approved" ? "Didit did not approve verification. Open the rental for details."
           : notification.title === "Didit resubmission reported" ? "Didit reports a resubmission; verification is not complete."
             : notification.title === "Didit verification incomplete" ? "Didit reports that verification is not complete. Open the rental for details."
+              : notification.title === "Verification could not open" ? "A renter could not open verification. Open the rental to help."
+                : notification.title === "Verification update needs attention" ? "A verification update could not be processed. Open the rental to review."
+                  : notification.title === "Didit webhook rejected" ? "A Didit update was rejected. Check the webhook configuration and logs."
         : "Verification needs attention. Open the admin panel for details.";
   return { title: `${category} · ${notification.title}`, body: `${reference}${body}` };
 }
