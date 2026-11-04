@@ -1,6 +1,7 @@
 import { mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { bump } from "./rateLimit";
 
 /**
  * A lead captured by the Gaffer voice agent (phone or web call): a booking,
@@ -16,16 +17,19 @@ export const lead = mutation({
     message: v.string(),
   },
   handler: async (ctx, a) => {
-    const body = `[VOICE · ${a.kind}] ${a.name}${a.phone ? ` · ${a.phone}` : ""}${a.email ? ` · ${a.email}` : ""}\n${a.message}`;
+    const kind=a.kind.trim(),name=a.name.trim(),message=a.message.trim(),phone=a.phone?.trim(),email=a.email?.trim();
+    if(!kind || kind.length>20 || !name || name.length>120 || !message || message.length>4000 || (phone?.length??0)>40 || (email?.length??0)>200)throw Error("Voice lead details are invalid.");
+    if(!(await bump(ctx,"voice-lead:global",20,60000)).allowed)throw Error("The team is receiving many requests. Please try again shortly.");
+    const body = `[VOICE · ${kind}] ${name}${phone ? ` · ${phone}` : ""}${email ? ` · ${email}` : ""}\n${message}`;
     await ctx.db.insert("contact_messages", {
-      name: a.name,
-      email: a.email || "voice@dbcinemarentals.com",
+      name,
+      email: email || "voice@dbcinemarentals.com",
       message: body,
-      routedTo: `voice-${a.kind}`,
+      routedTo: `voice-${kind}`,
       handled: false,
     });
     await ctx.scheduler.runAfter(0, internal.notify.ownerLead, {
-      kind: a.kind, name: a.name, phone: a.phone, email: a.email, message: a.message,
+      kind, name, phone:phone||undefined, email:email||undefined, message,
     });
     return { ok: true };
   },
