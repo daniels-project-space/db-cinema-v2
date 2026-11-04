@@ -22,10 +22,11 @@ export async function bump(ctx: MutationCtx, key: string, limit: number, windowM
 export const hit = mutation({
   args: { key: v.string(), limit: v.number(), windowMs: v.number() },
   handler: async (ctx, { key, limit, windowMs }) => {
-    // These counters belong to server-owned account/application workflows. A
-    // caller must not reset their windows through the public API-route limiter.
-    if (/^(account-signin:|account-signup:|account-code:|checkout-cart:|fund-signup:|fund-upload:)/.test(key))
-      throw new Error("Reserved rate-limit key.");
+    const separator = key.indexOf(":");
+    const limits = new Map([["voice", 40], ["bot", 30], ["compat", 60], ["assemble", 15]]);
+    const expected = limits.get(key.slice(0, separator));
+    if (key.length > 256 || separator < 1 || separator === key.length - 1 || expected === undefined || limit !== expected || windowMs !== 60_000)
+      throw new Error("Reserved rate-limit key. Invalid API rate-limit request.");
     return bump(ctx, key, limit, windowMs);
   },
 });

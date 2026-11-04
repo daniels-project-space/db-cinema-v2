@@ -4,8 +4,8 @@ import { api } from "@cvx/_generated/api";
 /** Best-effort client IP from Vercel/proxy headers. */
 export function clientIp(req: Request): string {
   const xff = req.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0]!.trim();
-  return req.headers.get("x-real-ip") || "anon";
+  const identifier = (xff ? xff.split(",")[0] : req.headers.get("x-real-ip"))?.trim();
+  return identifier && identifier.length <= 200 ? identifier : "anon";
 }
 
 export type RateResult = { allowed: boolean; retryAfterSec: number };
