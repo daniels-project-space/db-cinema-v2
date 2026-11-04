@@ -26,21 +26,20 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       }
       await client.evaluate(`document.querySelector('[data-testid=delivery-protection-tile] button').click()`);
       await delay(100);
-      const delivery = await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=delivery-protection-tile]'); if (!tile) return null; const outgoing = tile.querySelector('[data-testid=delivery-slide]'), incoming = tile.querySelector('[data-testid=delivery-slide-incoming]'); return {titles:[...tile.querySelectorAll('h2')].map(title=>title.textContent), duration:incoming&&getComputedStyle(incoming).animationDuration, animation:incoming&&getComputedStyle(incoming).animationName, outgoingOpacity:outgoing&&getComputedStyle(outgoing).opacity}; })()`);
+      const delivery = await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=delivery-protection-tile]'); if (!tile) return null; const outgoing = tile.querySelector('[data-testid=delivery-slide]'), incoming = tile.querySelector('[data-testid=delivery-slide-incoming]'); return {titles:[...tile.querySelectorAll('h2')].map(title=>title.textContent), duration:incoming&&getComputedStyle(incoming).animationDuration, animation:incoming&&getComputedStyle(incoming).animationName, incomingCopyDuration:incoming&&getComputedStyle(incoming.querySelector('[data-testid=delivery-slide-copy]')).animationDuration, outgoingCopyDuration:outgoing&&getComputedStyle(outgoing.querySelector('[data-testid=delivery-slide-copy]')).animationDuration, outgoingOpacity:outgoing&&getComputedStyle(outgoing).opacity}; })()`);
       assert(delivery, `The rotating delivery and protection tile exists at ${width}px`);
       assert(delivery.titles.includes('Delivered across London') && delivery.titles.includes('Cancellation protection for free'), `Both tile images and messages overlap during the crossfade at ${width}px`);
       assert(delivery.duration.includes('2.4s') && delivery.animation.includes('slide-in'), `The tile image crossfade uses the slower synchronized animation at ${width}px`);
+      assert.equal(delivery.incomingCopyDuration,'1.1s',`Incoming copy eases in gradually at ${width}px`);
+      assert.equal(delivery.outgoingCopyDuration,'0.65s',`Outgoing copy has time to fade away before new copy appears at ${width}px`);
       await delay(500);
       const crossfade = await client.evaluate(`(() => {const tile=document.querySelector('[data-testid=delivery-protection-tile]');return {incoming:Number(getComputedStyle(tile.querySelector('[data-testid=delivery-slide-incoming]')).opacity),outgoing:Number(getComputedStyle(tile.querySelector('[data-testid=delivery-slide]')).opacity)}})()`);
       assert(crossfade.incoming > 0 && crossfade.incoming < 1 && crossfade.outgoing > 0 && crossfade.outgoing < 1, `Both slides visibly crossfade instead of switching abruptly at ${width}px: ${JSON.stringify(crossfade)}`);
       await delay(850);
       const textFade = await client.evaluate(`(() => {const tile=document.querySelector('[data-testid=delivery-protection-tile]'),outgoing=tile.querySelector('[data-testid=delivery-slide] [data-testid=delivery-slide-copy]'),incoming=tile.querySelector('[data-testid=delivery-slide-incoming] [data-testid=delivery-slide-copy]');return {incoming:Number(getComputedStyle(incoming).opacity),outgoing:Number(getComputedStyle(outgoing).opacity)}})()`);
       assert(textFade.outgoing < 0.05 && textFade.incoming > 0 && textFade.incoming < 1, `Slide copy does not ghost over itself during the image crossfade at ${width}px: ${JSON.stringify(textFade)}`);
-      await delay(1050);
+      await delay(1250);
       assert.equal(await client.evaluate(`document.querySelector('[data-testid=delivery-protection-tile] h2').textContent`), 'Cancellation protection for free', `The incoming protection slide settles cleanly at ${width}px`);
-      const textTimings = await client.evaluate(`(() => { const tile=document.querySelector('[data-testid=delivery-protection-tile]'),incoming=tile.querySelector('[data-testid=delivery-slide-incoming] [data-testid=delivery-slide-copy]'),outgoing=tile.querySelector('[data-testid=delivery-slide] [data-testid=delivery-slide-copy]'); return {incoming:getComputedStyle(incoming).animationDuration,outgoing:getComputedStyle(outgoing).animationDuration}; })()`);
-      assert.equal(textTimings.incoming,'1.1s',`Incoming copy eases in gradually at ${width}px`);
-      assert.equal(textTimings.outgoing,'0.65s',`Outgoing copy has time to fade away before new copy appears at ${width}px`);
       const samples = [];
       for (let index = 0; index < 4; index++) {
         samples.push(await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=hygglo-trust-card]'); return {height:tile.getBoundingClientRect().height, text:tile.querySelector('blockquote').textContent}; })()`));

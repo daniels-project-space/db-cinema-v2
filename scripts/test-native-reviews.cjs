@@ -86,6 +86,7 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  assert(header.includes('inert={Boolean(hover)}') && !header.includes('inert={Boolean(hover || intro)}'),'The automatic FORM / SEVEN introduction must not hide or disable navigation');
  assert(showcase.includes('hygglo-trust-review-fade hygglo-trust-review-quote mt-3 text-[13px] leading-5 text-white/90')&&styles.includes('-webkit-line-clamp: 4;')&&styles.includes('min-height: 5rem;')&&showcase.includes('h-[280px]')&&showcase.includes('sm:h-[304px]')&&!showcase.includes('min-h-[')&&!showcase.includes('max-h-['),'Keep featured tiles fixed-height and clamp longer review text');
  assert(showcase.includes('href="/#reviews"')&&showcase.includes('data-testid="review-eye-glyph"')&&styles.includes('@keyframes review-eye-look'),'Make the featured review tile link to all reviews with its animated eye glyph');
+ assert(fs.readFileSync('src/components/DeliveryProtectionTile.tsx','utf8').includes('}, 5000);'),'Rotate delivery and protection headlines every five seconds');
  assert.match(reviewsRoute,/redirect\("\/#reviews"\)/,'Make the direct /reviews path land on the homepage review section');
  assert.match(home,/ratingValue: 4\.73, reviewCount: 1300, reviewCountLabel: "1,300\+"/,'Use the full profile-wide rating and review-count floor');
  assert.match(hero,/rating\.reviewCountLabel\} reviews/,'Show the full review-count label in the hero');

@@ -67,7 +67,7 @@ export function DeliveryProtectionTile() {
       window.clearInterval(timer);
       if (!focused && !motion.matches) timer = window.setInterval(() => {
         if (!card.current?.contains(document.activeElement)) transitionTo(!activeSlide.current);
-      }, 7000);
+      }, 5000);
     };
     updateTimer();
     motion.addEventListener("change", updateTimer);
