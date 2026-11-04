@@ -76,7 +76,7 @@ crons.interval("sweep-rate-limits", { hours: 24 }, internal.rateLimit.sweep, {})
 crons.interval("waitlist-check", { minutes: 15 }, internal.waitlist.checkAndNotify, {});
 
 // Keep "quiet deals" only on genuinely-owned, idle stock (re-checks ownership + demand).
-crons.interval("refresh-quiet-deals", { hours: 12 }, api.catalog.refreshQuietDeals, {});
+crons.interval("refresh-quiet-deals", { hours: 12 }, internal.catalog.refreshQuietDeals, {});
 
 crons.interval("automatic-basket-followups", { minutes: 1 }, internal.checkoutRecoveryMail.processDue, {});
 crons.interval("consented-film-fund-opening", { minutes: 15 }, internal.filmFundNotifications.processOpeningAnnouncements, {});

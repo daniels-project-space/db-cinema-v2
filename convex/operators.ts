@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { assertAdmin } from "./adminAuth";
 
 /** Public roster — active crew, ordered. First name only (we stay the middleman). */
 export const list = query({
@@ -57,8 +58,9 @@ const SEED = [
 
 /** Idempotent seed — inserts missing crew and backfills new profile fields on existing rows. */
 export const seed = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await assertAdmin(ctx, token, "operators.seed");
     const existing = await ctx.db.query("operators").collect();
     const byKey = new Map(existing.map((o) => [`${o.role}|${o.firstName}`, o]));
     let added = 0, patched = 0;

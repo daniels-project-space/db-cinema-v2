@@ -1,6 +1,6 @@
 import { effectiveLensSpecs } from "../shared/opticalFacts";
 import { verifiedKitEvidence } from "./lib/compatibilityEvidence";
-import { query, mutation, internalQuery } from "./_generated/server";
+import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
@@ -321,7 +321,7 @@ function quietTokens(title: string): string[] {
       .filter((w) => w.length >= 2 && !QUIET_STOP.has(w) && !/^\d{1,4}(gb|tb)?$/.test(w)),
   )];
 }
-export const refreshQuietDeals = mutation({
+export const refreshQuietDeals = internalMutation({
   args: {},
   handler: async (ctx) => {
     const QUIET_PCT = 10, MAX_QUIET = 10, POPULAR = 4, LOW_OWN = 1;

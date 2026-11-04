@@ -91,8 +91,9 @@ export const validate = query({
 });
 
 export const seed = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await assertAdmin(ctx, token, "promo.seed");
     const existing = await ctx.db
       .query("promo_codes")
       .withIndex("by_code", (q) => q.eq("code", "db15off"))
