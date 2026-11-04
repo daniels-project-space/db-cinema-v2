@@ -1,4 +1,9 @@
 const assert = require("node:assert/strict");
+const RealDate = Date;
+global.Date = class extends RealDate {
+  constructor(...args) { super(...(args.length ? args : ["2026-11-01T12:00:00Z"])); }
+  static now() { return new RealDate("2026-11-01T12:00:00Z").getTime(); }
+};
 const { load, setMock, db, put } = require("./lib/rentalTestHarness.cjs");
 const { LIVE_FX3_BODY_KIT, LIVE_REMUS_45 } = require("./lib/gafferLiveCatalogueFixtures.cjs");
 const { explicitlyAllowsAlternatives, explicitlyRequestsOptionalAddOns, shouldSuggestOptionalAddOns, minimumRentalBasketLines } = load("shared/gafferEmailQuote.ts");
