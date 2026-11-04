@@ -84,7 +84,7 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  assert(stepsStyles.includes('.copy { padding-bottom: 4rem; }'),'Keep mobile step copy clear of the floating contact button');
  assert(header.includes('{ href: "/#reviews", label: "Reviews" }'),'Give visitors a direct navigation link to the reviews');
  assert(header.includes('inert={Boolean(hover)}') && !header.includes('inert={Boolean(hover || intro)}'),'The automatic FORM / SEVEN introduction must not hide or disable navigation');
- assert(showcase.includes('h-[5.6875rem] line-clamp-4 text-sm leading-relaxed'),'Reserve four lines so the featured review tile does not resize as reviews change');
+ assert(showcase.includes('hygglo-trust-review-fade mt-3 text-sm leading-relaxed text-white/90')&&!showcase.includes('line-clamp-4')&&!showcase.includes('h-[5.6875rem]'),'Let featured quotes expand the tile so longer reviews stay visible');
  assert.match(reviewsRoute,/redirect\("\/#reviews"\)/,'Make the direct /reviews path land on the homepage review section');
  assert.match(home,/ratingValue: 4\.73, reviewCount: 1300, reviewCountLabel: "1,300\+"/,'Use the full profile-wide rating and review-count floor');
  assert.match(hero,/rating\.reviewCountLabel\} reviews/,'Show the full review-count label in the hero');
