@@ -21,9 +21,9 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
         await delay(3200);
       }
       assert(new Set(samples.map(sample => sample.text)).size > 1, `The featured review rotates at ${width}px`);
-      assert(samples.every(sample => Math.abs(sample.height - samples[0].height) < 1), `The featured review height stays fixed at ${width}px`);
       const extremes = await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=hygglo-trust-card]'), quote = tile.querySelector('blockquote'); quote.textContent = 'Excellent.'; const short = tile.getBoundingClientRect().height; quote.textContent = 'A long review with many words. '.repeat(100); return {short, long:tile.getBoundingClientRect().height}; })()`);
-      assert(Math.abs(extremes.short - extremes.long) < 1, `Short and long review text retain the same tile height at ${width}px`);
+      assert(extremes.long > extremes.short + 32, `The featured tile grows to fit longer reviews at ${width}px`);
+      assert(await client.evaluate(`(() => { const quote = document.querySelector('[data-testid=hygglo-trust-card] blockquote'); return quote.scrollHeight <= quote.clientHeight + 1; })()`), `The longer featured review is not clipped at ${width}px`);
       assert(await client.evaluate('document.documentElement.scrollWidth <= innerWidth'), `No horizontal overflow at ${width}px`);
     }
     await client.evaluate('document.documentElement.style.scrollBehavior="auto";document.getElementById("home-closing-title").scrollIntoView({block:"center",behavior:"instant"})');
