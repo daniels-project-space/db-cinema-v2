@@ -18,7 +18,7 @@ function Stars({ n }: { n: number }) {
 }
 
 export function ReviewCarousel() {
-  const reviews = useQuery(api.reviews.listNativePublished, { limit: 50 }) ?? [];
+  const reviews = useQuery(api.reviews.listNativePublished, { limit: 100 }) ?? [];
   const [perPage, setPerPage] = useState(3);
   const [page, setPage] = useState(0);
   const [fade, setFade] = useState(true);
@@ -96,7 +96,7 @@ export function ReviewCarousel() {
           >
             <IconChevronLeft className="h-4 w-4" />
           </button>
-          <div className="flex gap-1.5">
+          {pages > 7 ? <span className="text-xs text-white/60" aria-label={`Review page ${visiblePage + 1} of ${pages}`}>{visiblePage + 1} / {pages}</span> : <div className="flex gap-1.5">
             {Array.from({ length: pages }).map((_, i) => (
               <button
                 key={i}
@@ -107,7 +107,7 @@ export function ReviewCarousel() {
                 }`}
               />
             ))}
-          </div>
+          </div>}
           <button
             onClick={() => change((p) => (p + 1) % pages)}
             className="glass glass-hover flex h-11 w-11 items-center justify-center rounded-full text-white/60 transition-colors hover:text-white"
