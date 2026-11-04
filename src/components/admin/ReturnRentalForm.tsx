@@ -94,7 +94,7 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
       if (!alive.current) return;
       alert(refundablePolicy ? `Return recorded. Deposit retained ${formatGbp(result.kept)}; ${result.released>0?`${result.refundState==="pending"?"refund processing":"refund processed by Stripe"} to the original payment method ${formatGbp(result.released)}. Bank display can take 5–10 business days.`:"no deposit refund is due."} Damage assessed ${formatGbp(damageAmount)}. An itemised completion statement will be emailed.` : `Return recorded. Damage/loss ${formatGbp(result.kept)}; refundable security payment returned ${formatGbp(result.released)}; separate late charge assessed ${formatGbp(result.lateAmount)}. A return statement will be emailed.`);
       onClose();
-    } catch (e: any) { if (alive.current) setError(e?.message ?? "Return could not be recorded."); }
+    } catch (e: any) { if (alive.current) setError(e?.data?.code === "DEPOSIT_REFUND_REVIEW" ? "The return is saved, but the deposit refund needs Stripe review. Use the refund status panel to open the existing approval; do not create another refund." : e?.message ?? "Return could not be recorded."); }
     finally { if (alive.current) setWorking(false); }
   }
 

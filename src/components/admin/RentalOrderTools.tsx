@@ -4,6 +4,7 @@ import { useRef, useState, useEffect } from "react";
 import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { ReturnRentalForm } from "./ReturnRentalForm";
+import { DepositRefundStatus } from "./DepositRefundStatus";
 import { ReturnInspectionHistory } from "./ReturnInspectionHistory";
 import { RentalManagerDelivery } from "./RentalManagerDelivery";
 import { SmartImage } from "@/components/SmartImage";
@@ -16,6 +17,7 @@ import { SavedCardCharges } from "@/components/rentals/SavedCardCharges";
 import {OperatorCancellationStatus} from "./OperatorCancellationStatus";
 import { CompactRentalImages } from "./CompactRentalImages";
 import { RENTAL_TIME_SLOTS } from "../../../shared/rentalWindow";
+import { hasCashDepositPolicy } from "../../../shared/rentalSecurity";
 
 export function RentalOrderTools({
   token,
@@ -321,6 +323,7 @@ export function RentalOrderTools({
           )}
       </div>
       {showReturn && returnOpen && <ReturnRentalForm booking={b} token={token} onClose={() => setReturnOpen(false)} />}
+      {showReturn && !returnOpen && b.status === "returned" && !!b.returnDecision && hasCashDepositPolicy(b.securityPolicyVersion) && <DepositRefundStatus token={token} bookingId={bookingId} />}
       {showReturn && (b.returnDecision || b.status === "returned") && <ReturnInspectionHistory token={token} bookingId={bookingId} />}
       <RentalManagerDelivery token={token} bookingId={bookingId} />
       {additions
