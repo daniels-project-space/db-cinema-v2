@@ -41,7 +41,7 @@ export const recordCheck = internalMutation({
     const ready = claim && !!recipient && now >= due;
     await ctx.db.patch(bookingId, {
       reviewFollowUpStatus: ready ? "sending" : "waiting",
-      reviewFollowUpReason: ready ? undefined : "post_refund_wait",
+      reviewFollowUpReason: ready ? undefined : !recipient ? "recipient_unavailable" : "post_refund_wait",
       reviewFollowUpCheckedAt: now, reviewRefundConfirmedAt: b.reviewRefundConfirmedAt ?? now,
       reviewFollowUpDueAt: due,
     });

@@ -32,6 +32,7 @@ async function send(b){const row=h.tables.get('rental_email_deliveries').find(r=
  assert.equal(await actions.providerReviewGate(proposed,provider),'addition_refund_pending_or_failed');
  provider.refunds.list=()=>({async *[Symbol.asyncIterator](){yield {amount:12000,currency:'gbp',status:'succeeded'};}});
  assert.equal(await actions.providerReviewGate(proposed,provider),null);
+ const noRecipient=put({accountId:undefined,guestEmail:undefined,reviewFollowUpDueAt:now-1});await actions.processDue.handler(ctx,{});assert.equal(noRecipient.reviewFollowUpStatus,'waiting');assert.equal(noRecipient.reviewFollowUpReason,'recipient_unavailable');assert.equal((h.tables.get('rental_email_deliveries')??[]).length,0,'No invitation is queued without a recipient');
  const b=put();assert.equal((await actions.processDue.handler(ctx,{})).queued,0);assert.equal(b.reviewFollowUpReason,'post_refund_wait');assert.equal(mails.length,0);
  now+=2*86400000;refunds=[{amount:10000,currency:'gbp',status:'pending'}];await actions.processDue.handler(ctx,{});assert.equal((h.tables.get('rental_email_deliveries')??[]).length,0);
  refunds=[{amount:10000,currency:'gbp',status:'succeeded'}];await Promise.all([actions.processDue.handler(ctx,{}),actions.processDue.handler(ctx,{})]);assert.equal(h.tables.get('rental_email_deliveries').length,1,'Concurrent provider checks queue one event');assert.equal(b.reviewFollowUpStatus,'sending');assert.equal(mails.length,0,'Settlement cron does not send directly');
