@@ -370,6 +370,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       const startedAt = Date.now();
       const continuity = memory.current.context();
       const firstMessage = continuity ? "I'm back — let's carry on where we left off." : opening;
+      setState("connecting");
       agentTalking.current = false;
       setSpeaking(false);
       endedDeliberately.current = false;

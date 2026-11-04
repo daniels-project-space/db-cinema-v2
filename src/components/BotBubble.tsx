@@ -296,8 +296,7 @@ export function BotBubble() {
         </span>
         {onCall && (
           <span className="pointer-events-none absolute right-full mr-3 hidden whitespace-nowrap rounded-full border border-rose-400/30 bg-rose-950/95 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-rose-200/90 sm:block">
-            On call · {Math.floor(secs / 60)}:
-            {String(secs % 60).padStart(2, "0")}
+            {callState === "connecting" ? "Connecting…" : `On call · ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`}
           </span>
         )}
       </button>

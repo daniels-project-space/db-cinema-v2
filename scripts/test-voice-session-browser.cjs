@@ -26,7 +26,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
           super();
           if (!String(url).startsWith('wss://api.elevenlabs.io/')) return new NativeSocket(url, protocols);
           this.readyState = 0; this.sent = []; window.__voiceSockets.push(this);
-          setTimeout(() => { this.readyState = 1; this.dispatchEvent(new Event('open')); }, 10);
+          setTimeout(() => { this.readyState = 1; this.dispatchEvent(new Event('open')); }, ${process.env.DBC_TEST_RECONNECT === '1' ? 'window.__voiceSockets.length === 2 ? 3000 : 10' : '10'});
         }
         send(value) {
           this.sent.push(value);
@@ -60,10 +60,22 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     const started = await client.evaluate(`({live:!!document.querySelector('button[data-state=live]'), sockets:window.__voiceSockets.length, labels:[...document.querySelectorAll('button[aria-label*="voice call"]')].map(button=>button.getAttribute('aria-label')), alerts:[...document.querySelectorAll('[role=alert],[role=dialog]')].map(item=>item.textContent.slice(0,250))})`);
     assert(started.live, `The actual voice control starts with a synthetic provider and microphone: ${JSON.stringify({target,position,started,errors})}`);
     assert.equal(await client.evaluate('window.__voiceSockets.length'),1,'One synthetic connection is established');
+    if (process.env.DBC_TEST_RECONNECT === '1') {
+      await client.evaluate('window.__voiceSockets[0].close()');
+      for (let attempt=0;attempt<50&&!(await client.evaluate('window.__voiceSockets.length === 2'));attempt++) await delay(100);
+      assert.equal(await client.evaluate('window.__voiceSockets.length'),2,'A dropped call starts one replacement connection');
+      assert(await client.evaluate('!!document.querySelector("button[data-state=connecting]")'),'The call does not claim to be live while reconnecting');
+      assert.equal(await client.evaluate('document.querySelector("button[data-state=connecting]")?.getAttribute("aria-label")'),'Cancel connection to Gaffer','The reconnecting control has an accessible cancel label');
+      assert.equal(await client.evaluate('[...document.querySelectorAll("span")].some(span => /^On call ·/.test(span.textContent.trim()))'),false,'The chat launcher does not claim the reconnecting call is live');
+      const reconnectScreenshot = await client.cmd('Page.captureScreenshot', {format:'png'});
+      fs.writeFileSync(`/tmp/dbc-voice-reconnect-${process.env.DBC_TEST_MOBILE === '1' ? 'mobile' : 'desktop'}.png`, Buffer.from(reconnectScreenshot.data, 'base64'));
+      for (let attempt=0;attempt<80&&!(await client.evaluate('!!document.querySelector("button[data-state=live]")'));attempt++) await delay(100);
+      assert(await client.evaluate('!!document.querySelector("button[data-state=live]")'),'The replacement connection becomes live');
+    }
     await client.evaluate('document.querySelector("button[data-state=live]").click()');
     for(let attempt=0;attempt<100&&!(await client.evaluate('!!document.querySelector("button[data-state=idle]")'));attempt++) await delay(100);
     assert(await client.evaluate('!!document.querySelector("button[data-state=idle]")'),'Ending the call returns to idle');
-    assert.equal(await client.evaluate('window.__voiceSockets[0].readyState'),3,'Ending closes the synthetic connection');
+    assert.equal(await client.evaluate('window.__voiceSockets.at(-1).readyState'),3,'Ending closes the synthetic connection');
     console.log('PASS actual Gaffer button and SDK with real browser audio worklets, a synthetic microphone and mocked provider; no paid call.');
   } finally {
     client.close();
