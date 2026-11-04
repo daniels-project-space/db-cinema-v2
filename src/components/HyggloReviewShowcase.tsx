@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 import Image from "next/image";
+import Link from "next/link";
 
 export type VerifiedHyggloHighlight = {
   _id: string;
@@ -53,17 +54,16 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
 
   const review = reviews[currentIndex % reviews.length];
   return (
-    <article
+    <Link
+      href="/#reviews"
       data-testid="hygglo-trust-card"
-      role="group"
       aria-roledescription="featured review"
-      aria-label={`Review ${currentIndex + 1} of ${reviews.length}. Focus or hover to pause rotation.`}
-      tabIndex={0}
+      aria-label={`Featured renter review ${currentIndex + 1} of ${reviews.length}. Read all renter reviews.`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
-      className="spot trust-card relative isolate h-full min-h-[280px] max-h-[360px] overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(ellipse_at_top_right,rgba(212,172,107,.14),transparent_58%),#101013] p-5 shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:min-h-[304px] sm:p-6"
+      className="spot trust-card relative isolate block h-[280px] overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(ellipse_at_top_right,rgba(212,172,107,.14),transparent_58%),#101013] p-5 shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:h-[304px] sm:p-6"
     >
       <Image
         src="/images/home/maintained-cinema-gear-20261028.webp"
@@ -73,16 +73,17 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
         className="trust-card-image object-cover"
       />
       <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-br from-black/55 via-black/55 to-black/80" />
-      <div className="relative z-10 flex h-full min-h-[240px] flex-col justify-between sm:min-h-[256px]">
+      <div className="relative z-10 flex h-full flex-col justify-between">
       <div className="flex items-start justify-between gap-3">
-        <span className="inline-flex rounded-full border border-white/20 bg-black/35 px-3 py-1 font-mono text-[9px] uppercase tracking-[0.17em] text-white/75">
+        <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/35 px-3 py-1 font-mono text-[9px] uppercase tracking-[0.17em] text-white/75">
           Trust that is earned
+          <span data-testid="review-eye-glyph" className="review-eye" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d="M2.25 10s2.7-4.75 7.75-4.75S17.75 10 17.75 10s-2.7 4.75-7.75 4.75S2.25 10 2.25 10Z"/><circle className="review-eye-iris" cx="10" cy="10" r="3.25"/><circle cx="10" cy="10" r="1.2"/></svg></span>
         </span>
       </div>
       <div className="hygglo-trust-review-panel rounded-2xl border border-white/15 p-4 sm:p-5">
         <div aria-live="off">
           <Rating />
-          <blockquote key={review._id} className="hygglo-trust-review-fade hygglo-trust-review-quote mt-3 text-sm leading-relaxed text-white/90">
+          <blockquote key={review._id} className="hygglo-trust-review-fade hygglo-trust-review-quote mt-3 text-[13px] leading-5 text-white/90">
             “{review.text}”
           </blockquote>
         </div>
@@ -91,7 +92,7 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
         </div>
       </div>
       </div>
-    </article>
+    </Link>
   );
 }
 

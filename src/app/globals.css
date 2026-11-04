@@ -632,14 +632,24 @@ body {
 .cancel-policy-quick-guide.cancel-policy-quick-guide article p { margin-top: .5rem; font-size: 12px; line-height: 1.6; color: rgba(255,255,255,.65); }
 .cancel-policy-quick-guide.cancel-policy-quick-guide > p:last-child { margin-top: 1rem; font-size: 11px; line-height: 1.5; color: rgba(255,255,255,.45); }
 .hygglo-trust-review-quote {
+  min-height: 5rem;
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 6;
+  -webkit-line-clamp: 4;
 }
-.hygglo-trust-review-fade { animation: hygglo-trust-review-fade 1s cubic-bezier(.22,.61,.36,1) both; }
+.review-eye { display:inline-flex; width:18px; height:18px; flex:none; color:var(--color-accent-300); filter:drop-shadow(0 0 5px color-mix(in srgb,var(--color-accent-300) 55%,transparent)); animation:review-eye-pulse 3.4s ease-in-out infinite; }
+.review-eye svg { width:100%; height:100%; overflow:visible; }
+.review-eye path,.review-eye circle:first-of-type { stroke:currentColor; stroke-width:1.35; }
+.review-eye circle:first-of-type { fill:color-mix(in srgb,var(--color-accent-300) 12%,transparent); }
+.review-eye-iris { transform-box:fill-box; transform-origin:center; animation:review-eye-look 4.8s ease-in-out infinite; }
+.review-eye circle:last-of-type { fill:currentColor; stroke:none; }
+@keyframes review-eye-pulse { 0%,100% { filter:drop-shadow(0 0 3px color-mix(in srgb,var(--color-accent-300) 38%,transparent)); } 50% { filter:drop-shadow(0 0 8px color-mix(in srgb,var(--color-accent-300) 82%,transparent)); } }
+@keyframes review-eye-look { 0%,43%,100% { transform:translateX(0); } 53%,64% { transform:translateX(1.5px); } 76% { transform:translateX(-.8px); } }
+@media(prefers-reduced-motion:reduce) { .review-eye,.review-eye-iris { animation:none; } }
+.hygglo-trust-review-fade { animation: hygglo-trust-review-fade 1.3s cubic-bezier(.22,.61,.36,1) both; }
 @keyframes hygglo-trust-review-fade {
-  from { opacity: 0; transform: translateY(6px); filter: blur(1.5px); }
+  from { opacity: 0; transform: translateY(4px); filter: blur(2px); }
   to { opacity: 1; transform: translateY(0); filter: blur(0); }
 }
 .hygglo-review-marquee:focus-within .hygglo-review-track { animation-play-state: paused; }
