@@ -2,7 +2,7 @@
   transition: opacity 1.15s cubic-bezier(.2,.75,.25,1), transform 1.35s cubic-bezier(.2,.75,.25,1), filter 1.15s cubic-bezier(.2,.75,.25,1);
   will-change: opacity, transform, filter;
 }
-.visible { opacity: 1; transform: scale(1); filter: blur(0); }
+.visible { opacity: 1; transform: scale(1); filter: none; }
 .entering { opacity: 0; transform: scale(1.025); filter: blur(2px); }
 .exiting { opacity: 0; transform: scale(1.015); filter: blur(1.5px); pointer-events: none; }
 .glyph { animation: glyph-in .95s cubic-bezier(.2,.75,.25,1) both; }

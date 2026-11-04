@@ -53,7 +53,9 @@ export function DeliveryProtectionTile() {
     }
     const id = ++transitionId.current;
     setTransition({ from, to: next, id, entered: false });
-    transitionFrame.current = window.requestAnimationFrame(() => setTransition(current => current?.id === id ? { ...current, entered: true } : current));
+    transitionFrame.current = window.requestAnimationFrame(() => {
+      transitionFrame.current = window.requestAnimationFrame(() => setTransition(current => current?.id === id ? { ...current, entered: true } : current));
+    });
     transitionTimer.current = window.setTimeout(() => setTransition(current => current?.id === id ? null : current), 1400);
   }, []);
 

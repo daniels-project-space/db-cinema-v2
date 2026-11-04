@@ -10,18 +10,28 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   try {
     await client.cmd('Page.enable');
     for (const width of [390, 768, 1280]) {
+      await client.cmd('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
       await client.cmd('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
       await client.cmd('Page.navigate', { url: process.env.DBC_TEST_URL || 'http://127.0.0.1:41901/' });
       for (let attempt = 0; attempt < 100 && !(await client.evaluate('!!document.querySelector("[data-testid=hygglo-trust-card]")')); attempt++) await delay(100);
       assert(await client.evaluate('!!document.querySelector("[data-testid=hygglo-trust-card]")'), 'Published reviews are required for this browser check');
       await client.cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x: width - 2, y: 700 });
-      await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=delivery-protection-tile]'), button = tile?.querySelector('button'); button?.focus(); button?.click(); })()`);
+      await client.evaluate(`(() => document.querySelector('[data-testid=delivery-protection-tile] button')?.focus())()`);
+      for (let attempt = 0; attempt < 20 && await client.evaluate(`!!document.querySelector('[data-testid=delivery-slide-incoming]')`); attempt++) await delay(100);
+      if (await client.evaluate(`document.querySelector('[data-testid=delivery-protection-tile] h2').textContent`) === 'Cancellation protection for free') {
+        await client.evaluate(`document.querySelector('[data-testid=delivery-protection-tile] button').click()`);
+        await delay(1500);
+      }
+      await client.evaluate(`document.querySelector('[data-testid=delivery-protection-tile] button').click()`);
       await delay(100);
-      const delivery = await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=delivery-protection-tile]'); if (!tile) return null; const outgoing = tile.querySelector('[data-testid=delivery-slide]'), incoming = tile.querySelector('[data-testid=delivery-slide-incoming]'); return {titles:[...tile.querySelectorAll('h2')].map(title=>title.textContent), duration:getComputedStyle(incoming).transitionDuration, outgoingOpacity:getComputedStyle(outgoing).opacity}; })()`);
+      const delivery = await client.evaluate(`(() => { const tile = document.querySelector('[data-testid=delivery-protection-tile]'); if (!tile) return null; const outgoing = tile.querySelector('[data-testid=delivery-slide]'), incoming = tile.querySelector('[data-testid=delivery-slide-incoming]'); return {titles:[...tile.querySelectorAll('h2')].map(title=>title.textContent), duration:incoming&&getComputedStyle(incoming).transitionDuration, outgoingOpacity:outgoing&&getComputedStyle(outgoing).opacity}; })()`);
       assert(delivery, `The rotating delivery and protection tile exists at ${width}px`);
       assert(delivery.titles.includes('Delivered across London') && delivery.titles.includes('Cancellation protection for free'), `Both tile images and messages overlap during the crossfade at ${width}px`);
       assert(delivery.duration.includes('1.15s'), `The tile crossfade uses an unhurried transition at ${width}px`);
-      await delay(1500);
+      await delay(500);
+      const crossfade = await client.evaluate(`(() => {const tile=document.querySelector('[data-testid=delivery-protection-tile]');return {incoming:Number(getComputedStyle(tile.querySelector('[data-testid=delivery-slide-incoming]')).opacity),outgoing:Number(getComputedStyle(tile.querySelector('[data-testid=delivery-slide]')).opacity)}})()`);
+      assert(crossfade.incoming > 0 && crossfade.incoming < 1 && crossfade.outgoing > 0 && crossfade.outgoing < 1, `Both slides visibly crossfade instead of switching abruptly at ${width}px`);
+      await delay(1000);
       assert.equal(await client.evaluate(`document.querySelector('[data-testid=delivery-protection-tile] h2').textContent`), 'Cancellation protection for free', `The incoming protection slide settles cleanly at ${width}px`);
       const samples = [];
       for (let index = 0; index < 4; index++) {

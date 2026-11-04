@@ -13,6 +13,7 @@ const card = `Array.from(document.querySelectorAll('article')).find(element => e
     await client.cmd('Network.enable');
     await client.cmd('Network.setBlockedURLs', {urls:['*convex.cloud*','*convex.site*']});
     for (const width of [390, 1440]) {
+      await client.cmd('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
       await client.cmd('Emulation.setDeviceMetricsOverride', {width,height:900,deviceScaleFactor:1,mobile:false});
       await client.cmd('Page.navigate', {url:process.env.DBC_TEST_URL || 'http://127.0.0.1:41901/'});
       for (let attempt=0;attempt<100&&!(await client.evaluate(`!!(${card})`));attempt++) await delay(100);
