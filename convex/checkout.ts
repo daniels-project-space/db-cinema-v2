@@ -499,7 +499,7 @@ export const start = action({
       catch { console.error("Could not record checkout session failure", bookingId); }
     };
     let session:Stripe.Checkout.Session;
-    try{session=await sb.checkout.sessions.create(sessionParams,membershipCheckout ? {idempotencyKey:`dbc-member-checkout-${membershipCheckout._id}`} : undefined);}
+    try{session=await sb.checkout.sessions.create(sessionParams,{idempotencyKey:membershipCheckout?`dbc-member-checkout-${membershipCheckout._id}`:`dbc-rental-checkout-${bookingId}`});}
     catch(error){
       await flagCheckoutFailure();
       if(error instanceof Stripe.errors.StripeInvalidRequestError)await ctx.runMutation(internal.bookings.checkoutCreationRejected,{bookingId});
