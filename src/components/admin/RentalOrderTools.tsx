@@ -14,6 +14,7 @@ import { rentalDate } from "@/lib/rentalPresentation";
 import { RentalRequestHistory } from "@/components/rentals/RentalRequestHistory";
 import { SavedCardCharges } from "@/components/rentals/SavedCardCharges";
 import {OperatorCancellationStatus} from "./OperatorCancellationStatus";
+import { CompactRentalImages } from "./CompactRentalImages";
 import { RENTAL_TIME_SLOTS } from "../../../shared/rentalWindow";
 
 export function RentalOrderTools({
@@ -222,7 +223,8 @@ export function RentalOrderTools({
       <RentalRequestHistory token={token} bookingId={bookingId} admin />
       <OperatorCancellationStatus key={bookingId} token={token} bookingId={bookingId}/>
       <section className={chatStyles.bookingFacts} aria-label="Booked equipment and handover">
-        <div className={chatStyles.factsIdentity}><SmartImage fit="contain" src={b.lineItems[0]?.heroImage} fallbackSources={b.lineItems[0]?.imageSources} alt={b.lineItems[0]?.title ?? "Rental kit"} className={chatStyles.factsPhoto} /><div><h5>{rentalTitle(b.lineItems[0]?.title ?? "Rental kit")}</h5><p>DBC-{bookingId.slice(-8).toUpperCase()} · {b.lineItems.length} listings</p></div></div>
+        <div className={chatStyles.factsIdentity}><div className="min-w-0"><h5>{rentalTitle(b.lineItems[0]?.title ?? "Rental kit")}</h5><p>DBC-{bookingId.slice(-8).toUpperCase()} · {b.lineItems.length} listings</p></div></div>
+        <CompactRentalImages items={b.lineItems} />
         <dl><div><dt>Rental dates</dt><dd>{b.lineItems.length ? rentalDate(Math.min(...b.lineItems.map(l => l.start)), Math.max(...b.lineItems.map(l => l.end))) : "Dates need review"}</dd></div><div><dt>{b.fulfilment === "delivery" ? "Delivery" : "Collection"}</dt><dd>{rentalHandoverLabel(b,"pickup")}</dd></div><div><dt>Return</dt><dd>{rentalHandoverLabel(b,"return")}</dd></div><div><dt>Customer</dt><dd>{b.guestName || b.guestEmail}</dd></div><div><dt>Verification</dt><dd data-verified={b.idVerifyStatus === "verified"}>{b.idVerifyStatus === "verified" ? "✓ Verified" : (b.idVerifyStatus ?? "Required").replaceAll("_", " ")}</dd></div></dl>
       </section>
       <dl className={chatStyles.paymentSummary} aria-label="Booking financial summary">

@@ -1,6 +1,7 @@
 "use client";
 import { formatGbp } from "@/lib/pricing";
 import { RentalKit } from "@/components/rentals/RentalKit";
+import { CompactRentalImages } from "./CompactRentalImages";
 import { RentalOrderTools } from "./RentalOrderTools";
 import { AccountDocuments } from "./AccountDocuments";
 import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
@@ -9,7 +10,6 @@ import { useQuery, usePaginatedQuery, useMutation, useAction } from "convex/reac
 import { api } from "@cvx/_generated/api";
 import chatStyles from "@/components/rentals/RentalConversation.module.css";
 import { RentalConversation } from "@/components/rentals/RentalConversation";
-import { SmartImage } from "@/components/SmartImage";
 import { ownerConversationUrl } from "../../../shared/ownerConversationRoute";
 import { ADMIN_NOTIFICATION_CATEGORIES, adminNotificationCategory } from "../../../shared/adminNotificationPresentation";
 import { rentalStageLabel } from "../../../shared/rentalReadiness";
@@ -393,21 +393,13 @@ export function RentalInbox({
               </button>
             ))}
             {!isEmailStage && visible.map((r) => (
+              <div key={r._id} className={`min-w-0 rounded-2xl border p-3 ${focus?._id === r._id ? "border-accent-400/25 bg-accent-500/[0.06]" : "border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.04]"}`}>
               <button
-                key={r._id}
                 aria-current={focus?._id === r._id}
                 onClick={() => setSelected(r._id)}
-                className={`rounded-2xl border p-3 text-left ${focus?._id === r._id ? "border-accent-400/25 bg-accent-500/[0.06]" : "border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.04]"}`}
+                className="block w-full min-w-0 text-left"
               >
                 <div className="flex gap-3">
-                  <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/[0.04]">
-                    <SmartImage fit="contain"
-                      src={r.items[0]?.heroImage}
-                      fallbackSources={r.items[0]?.imageSources}
-                      alt=""
-                      className="h-full w-full"
-                    />
-                  </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-white/85">
                       {r.name || r.guestEmail || "Guest renter"}
@@ -435,6 +427,8 @@ export function RentalInbox({
                       : "Renter account not created yet")}
                 </p>
               </button>
+              {!!r.items.length && <div className="mt-2"><CompactRentalImages items={r.items} /></div>}
+              </div>
             ))}
             {!isEmailStage && status === "CanLoadMore" && (
               <button
