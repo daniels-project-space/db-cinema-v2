@@ -101,7 +101,7 @@ export function MicPermission() {
           ) : (
             <>
               It&apos;s a real conversation — Gaffer listens and talks back, and can pull gear up on
-              screen while you speak. Nothing is recorded when the call ends.
+              screen while you speak. You can end the call at any time.
             </>
           )}
         </p>

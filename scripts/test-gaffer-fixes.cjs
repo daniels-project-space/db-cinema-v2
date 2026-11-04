@@ -241,6 +241,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     useCallback:f=>f,useMemo:f=>f(),useEffect:()=>{},
   };
   let priceAllowed=false,alignments=0;const usageEvents=[];
+  let getMicrophone=async()=>({getTracks:()=>[{stop(){}}]});
   const {GafferSessionProvider}=load('src/components/gaffer/GafferSession.tsx',{
     react:React,'react/jsx-runtime':{jsx:(_type,props)=>props},
     'convex/react':{useMutation:()=>async args=>{usageEvents.push(args)}},'@cvx/_generated/api':{api:refs},'@/lib/session':{getSessionId:()=> 'fixture-browser'},
@@ -250,7 +251,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     '@/components/gaffer/hintTiming':{createHintController:()=>({reset(){},noteTalking(){}})},
     '@/components/gaffer/micPermission':{micState:async()=> 'granted',requestMic:async()=>({ok:true})},
     '@elevenlabs/client':{Conversation:{startSession:async cfg=>{const session={cfg,updates:[],ended:false,sendContextualUpdate(text){this.updates.push(text);},async endSession(){this.ended=true;cfg.onDisconnect();}};sessions.push(session);cfg.onConnect();return session;}}},
-  },{Date:{now:()=>now},navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})}},localStorage:{getItem:()=>null,removeItem(){},setItem(){}},setTimeout:()=>1,clearTimeout:()=>{},console:{warn(){},error(){}}});
+  },{Date:{now:()=>now},navigator:{mediaDevices:{getUserMedia:()=>getMicrophone()}},localStorage:{getItem:()=>null,removeItem(){},setItem(){}},setTimeout:()=>1,clearTimeout:()=>{},console:{warn(){},error(){}}});
   const render=()=>{cursor=0;return GafferSessionProvider({children:null}).value;};
   await render().toggle();assert.equal(render().state,'live');
   const first=sessions[0];assert.equal(first.cfg.connectionType,"websocket");assert.deepEqual(first.cfg.workletPaths,{rawAudioProcessor:'/voice-worklets/rawAudioProcessor.js?v=1.12.0',audioConcatProcessor:'/voice-worklets/audioConcatProcessor.js?v=1.12.0'});first.cfg.onAudioAlignment({chars:["F"],char_start_times_ms:[0],char_durations_ms:[100]});assert.equal(alignments,1,"Current audio alignment reaches the catalog tracker");
@@ -272,5 +273,12 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   assert.doesNotMatch(sessions[2].updates.join(' '),/Alex/,'new call does not inherit private history');
   sessions[2].cfg.onMessage({source:'user',message:'goodbye'});now+=10_000;sessions[2].cfg.onDisconnect();
   assert.equal(sessions.length,3,'intentional sign-off never reconnects');
+  getMicrophone=async()=>{throw Object.assign(Error('denied'),{name:'NotAllowedError'})};
+  await render().toggle();assert.match(render().error,/Microphone blocked/);assert.equal(render().state,'idle');
+  let rejectMic;getMicrophone=()=>new Promise((resolve,reject)=>{rejectMic=reject});
+  const pending=render().toggle();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(render().state,'connecting');await render().end();
+  rejectMic(Object.assign(Error('denied'),{name:'NotAllowedError'}));await pending;
+  assert.equal(render().state,'idle');assert.equal(render().error,null,'Cancelling preflight must not show a stale error');
   console.log('PASS: discount boundaries, retired offer compatibility, explicit requests, authoritative checkout repricing, deposit/delivery exclusion, changed baskets, reconnect history, fresh basket, stale callbacks, deliberate reset and sign-off.');
 })().catch(e=>{console.error(e);process.exitCode=1});

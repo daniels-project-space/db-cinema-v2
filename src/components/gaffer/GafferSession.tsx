@@ -335,12 +335,13 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((track) => track.stop());
     } catch (err: any) {
+      if (generation.current !== preflightGeneration) return;
       // Never swallow: a blocked mic, a denied prompt and an SDK fault all land
       // here and otherwise look identical to a dead button.
       console.error("[Gaffer] failed to start session", err);
       const name = String(err?.name ?? "");
       setError(
-        name === "NotAllowedError"
+        name === "NotAllowedError" || name === "SecurityError"
           ? "Microphone blocked — allow mic access to talk to Gaffer."
           : name === "NotFoundError"
             ? "No microphone found on this device."

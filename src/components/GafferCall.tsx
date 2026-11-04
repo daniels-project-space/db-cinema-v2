@@ -134,7 +134,7 @@ export function GafferCall({
     </button>
     {error && !live && !connecting && (
       <span role="alert" className="ml-2 inline-flex flex-wrap items-center gap-1 text-xs text-rose-200/85">
-        Voice call unavailable. <Link href="/contact" className="underline underline-offset-2">Contact us</Link>
+        {error} <Link href="/contact" className="underline underline-offset-2">Contact us</Link>
       </span>
     )}
     </>
