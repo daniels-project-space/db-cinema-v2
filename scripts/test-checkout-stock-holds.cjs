@@ -24,8 +24,9 @@ const reserve = (booking,ttlMs=60000) => bookings.placeHolds.handler(ctx,{bookin
  first.lineItems.reverse();
  assert.deepEqual(await reserve(first),{created:0,alreadyReserved:true},'Equivalent reordered lines keep the same physical reservation');
  const other = put('bookings',{status:'pending_payment',lineItems:[line(body)]});
- await assert.rejects(()=>reserve(other),/already reserved/);
- assert.equal(holds(other).length,0,'A competing checkout cannot consume the already reserved bodies');
+ assert.deepEqual(await reserve(other),{created:1,alreadyReserved:false},'A second renter may check out items that exist only in another unpaid basket');
+ assert.equal(holds(other).length,1,'The checkout marker does not reserve stock against other renters');
+ await assertRentalInventory(ctx,[line(body)]);
  camera.quantityOwned=5;battery.quantityOwned=5;first.lineItems[0].qty=2;
  await assert.rejects(()=>reserve(first),/reservation has changed/);
  assert.equal(JSON.stringify(holds(first)),original,'A changed request cannot replace an unresolved checkout inventory decision');
@@ -65,9 +66,11 @@ const reserve = (booking,ttlMs=60000) => bookings.placeHolds.handler(ctx,{bookin
  const invalidQuantity=put('bookings',{status:'pending_payment',lineItems:[line(availableListing,0)]});await assert.rejects(()=>reserve(invalidQuantity),/Invalid rental/);
  await assertRentalInventory(ctx,[line(availableListing)]);
  const final=put('bookings',{status:'pending_payment',lineItems:[line(availableListing)]});await reserve(final);
- assert.equal((await availability.forCart.handler(ctx,{items:[{listingId:availableListing._id,start,end}]}))[availableListing._id].ok,false);
- final.status='cancelled';assert.equal((await availability.forCart.handler(ctx,{items:[{listingId:availableListing._id,start,end}]}))[availableListing._id].ok,false,'An unexpired hold remains protected until explicit cleanup');
- clock+=60001;assert.equal((await availability.forCart.handler(ctx,{items:[{listingId:availableListing._id,start,end}]}))[availableListing._id].ok,true);
+ assert.equal((await availability.forCart.handler(ctx,{items:[{listingId:availableListing._id,start,end}]}))[availableListing._id].ok,true,'An unpaid checkout marker does not reserve inventory');
+ const finalReservations=holds(final);final.status='confirmed';for(const hold of finalReservations)hold.status='confirmed';
+ assert.equal((await availability.forCart.handler(ctx,{items:[{listingId:availableListing._id,start,end}]}))[availableListing._id].ok,false,'Only after confirmation does the booked item consume stock');
+ final.status='cancelled';for(const hold of finalReservations)hold.status='cancelled';
+ assert.equal((await availability.forCart.handler(ctx,{items:[{listingId:availableListing._id,start,end}]}))[availableListing._id].ok,true,'Cancelled bookings no longer consume stock');
  const rejected=put('bookings',{status:'pending_payment',lineItems:[line(availableListing)],creditApplied:10});
  const membership=put('membership_checkouts',{state:'creating',bookingId:rejected._id});rejected.membershipCheckoutId=membership._id;
  await reserve(rejected);
@@ -76,5 +79,5 @@ const reserve = (booking,ttlMs=60000) => bookings.placeHolds.handler(ctx,{bookin
   const guarded=put('bookings',{status:'pending_payment',lineItems:[line(availableListing)],...binding});
   assert.equal(await bookings.expireUnpaidPending.handler(ctx,{bookingId:guarded._id}),false);assert.equal(guarded.status,'pending_payment','A no-session cleanup cannot undo a known provider binding/payment');
  }
- console.log('PASS actual checkout hold transaction: replay/expiry/order independence, competing stock, changed/partial reservation rejection, terminal booking/duration guards, complete-basket validation, missing/inactive/malformed stock and live date/component/quantity checks. Synthetic database; no provider writes.');
+ console.log('PASS checkout allocation markers never reserve basket stock; confirmed bookings block inventory; replay/expiry, changed/partial markers, whole-basket validation and live date/component/quantity checks. Synthetic database; no provider writes.');
 }finally{Date.now=realNow}})().catch(e=>{console.error(e);process.exitCode=1});
