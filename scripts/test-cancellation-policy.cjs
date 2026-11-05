@@ -42,6 +42,20 @@ const seven={...booking,agreementDocs:[{kind:'cancellation',version:'2026-10-v16
 assert.equal(cancellationDaysForBooking(seven),7);
 const currentSeven={...booking,agreementDocs:[{kind:'cancellation',version:'2026-11-v18'}]};
 assert.equal(cancellationDaysForBooking(currentSeven),7);
+const v20Legal=fs.readFileSync(path.join(__dirname,'../shared/legal-history/2026-11-v20.ts'),'utf8');
+const v19Legal=fs.readFileSync(path.join(__dirname,'../shared/legal-history/2026-11-v19.ts'),'utf8');
+const v18Legal=fs.readFileSync(path.join(__dirname,'../shared/legal-history/2026-11-v18.ts'),'utf8');
+const v16Legal=fs.readFileSync(path.join(__dirname,'../shared/legal-history/2026-10-v16.ts'),'utf8');
+assert(v19Legal.includes('from "./2026-11-v18"')&&v18Legal.includes('from "./2026-10-v16"'));
+assert(v16Legal.includes('cancelling more than seven London calendar days')&&v16Legal.includes('Cancelling seven or fewer London calendar days'));
+assert(v20Legal.includes('cancelling more than seven London calendar days')&&v20Legal.includes('Cancelling seven or fewer London calendar days'));
+for(const version of ['2026-11-v19','2026-11-v20']){
+ const signed={...booking,lineItems:[{start:at(2026,10,25)}],agreementDocs:[{kind:'cancellation',version}]};
+ assert.equal(cancellationDaysForBooking(signed),7,`${version} retains its signed seven-day rule`);
+ assert.equal(bookingCancelKind(signed,at(2026,10,17)),'full_refund',`${version} refunds more than seven London calendar days before pickup`);
+ assert.equal(bookingCancelKind(signed,at(2026,10,18)),'store_credit',`${version} issues credit exactly seven London calendar days before pickup`);
+ assert.equal(bookingCancelKind(signed,at(2026,10,19)),'store_credit',`${version} issues credit within seven London calendar days of pickup`);
+}
 for(const [now,start]of [[at(2026,3,22),at(2026,3,29)],[at(2026,10,18),at(2026,10,25)]]){
  assert.equal(bookingCancelKind({...seven,lineItems:[{start}]},now),'store_credit','Exactly seven London calendar days is the new credit boundary across DST');
  assert.equal(bookingCancelKind({...seven,lineItems:[{start}]},now-86400000),'full_refund');
@@ -90,4 +104,4 @@ assert(homeProtection.includes('all accounts can get a full refund')&&checkoutPr
 assert(guide.includes('statutory refund rights take priority'));
 assert(legalPage.includes('["cancellation", "terms"].includes(slug) && ["2026-10-v16",CANCELLATION_PROTECTION_LEGAL_VERSION].includes(version)'));
 assert(checkoutProtection.includes('{showV16RenterPolicy&&<CancellationPolicyQuickGuide includeCompanyCancellation={false}/>}'));
-console.log('PASS: London cancellation windows, DST, settlement limits, and concise v16 policy wording stays aligned across terms and checkout.');
+console.log('PASS: London cancellation windows, DST, settlement limits, and v16-v20 signed wording stays aligned across terms and checkout.');

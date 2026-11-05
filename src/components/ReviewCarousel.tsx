@@ -61,7 +61,7 @@ export function ReviewCarousel() {
     <div data-testid="review-carousel">
       <h3 className="mb-4 text-center font-display text-xl font-semibold text-white">Reviews from our renters</h3>
       <div
-        className={`grid min-h-[252px] gap-4 transition-[opacity,transform] duration-300 md:min-h-[240px] md:grid-cols-3 ${
+        className={`grid min-h-[232px] gap-3 transition-[opacity,transform] duration-300 md:min-h-[240px] md:grid-cols-3 md:gap-4 ${
           fade ? "translate-y-0 opacity-100" : "translate-y-1.5 opacity-0"
         }`}
       >
@@ -70,7 +70,7 @@ export function ReviewCarousel() {
             key={r._id}
             data-testid="review-card"
             data-review-source={r.source}
-            className="spot gradient-border relative flex h-[252px] min-h-0 flex-col gap-3 overflow-hidden rounded-2xl p-5 md:h-[240px]"
+            className="spot gradient-border relative flex h-[232px] min-h-0 flex-col gap-3 overflow-hidden rounded-2xl p-4 md:h-[240px] md:p-5"
           >
             <span className="serif-accent pointer-events-none absolute right-4 top-1 text-6xl leading-none text-accent-400/15" aria-hidden>
               &rdquo;
@@ -94,7 +94,7 @@ export function ReviewCarousel() {
       </div>
 
       {pages > 1 && (
-        <div className="mt-6 flex items-center justify-center gap-4">
+        <div className="mt-6 flex items-center justify-center gap-3 sm:gap-4">
           <button
             onClick={() => change((p) => (p - 1 + pages) % pages)}
             className="glass glass-hover flex h-11 w-11 items-center justify-center rounded-full text-white/60 transition-colors hover:text-white"

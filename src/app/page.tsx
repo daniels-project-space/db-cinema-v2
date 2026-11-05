@@ -141,12 +141,12 @@ export default async function Home() {
             <Reveal key={tile.title} delay={i * 70} className="h-full">
               {tile.title === "Pro kit, meticulously maintained" && hyggloReviews[0] ? (
                 <HyggloTrustTile reviews={hyggloReviews} />
-              ) : tile.title === "Delivered across London" ? <DeliveryProtectionTile /> : <article className="trust-card group relative isolate h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] max-[359px]:h-[140px] sm:h-[304px]">
+              ) : tile.title === "Delivered across London" ? <DeliveryProtectionTile /> : <article className="trust-card group relative isolate h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] max-[359px]:h-[140px] min-[420px]:h-[188px] sm:h-[304px]">
                 <Image
                   src={tile.image}
                   alt={tile.alt}
                   fill
-                  sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                  sizes="(min-width: 1024px) 25vw, 50vw"
                   className="trust-card-image object-cover transition-transform duration-700 ease-out group-hover:scale-[1.045]"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#070709] via-[#070709]/55 to-black/5" aria-hidden />
@@ -241,7 +241,7 @@ export default async function Home() {
         </section>
       )}
 
-      <section id="reviews" className="section-glass scroll-mt-24 px-6 py-20">
+      <section id="reviews" className="section-glass scroll-mt-24 px-4 py-12 sm:px-6 sm:py-20">
         <Reveal className="mx-auto max-w-6xl">
           <div className="text-center">
             <div className="hud-label !text-accent-400/90">What crews say</div>

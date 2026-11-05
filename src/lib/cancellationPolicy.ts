@@ -2,7 +2,7 @@
 export const CANCELLATION_FULL_REFUND_DAYS = 14;
 export const CANCELLATION_CREDIT_DAYS = 365;
 export const SEVEN_DAY_CANCELLATION_VERSION = "2026-11-v18";
-export const SEVEN_DAY_CANCELLATION_VERSIONS = ["2026-10-v16", SEVEN_DAY_CANCELLATION_VERSION];
+export const SEVEN_DAY_CANCELLATION_VERSIONS = ["2026-10-v16", SEVEN_DAY_CANCELLATION_VERSION, "2026-11-v19", "2026-11-v20"];
 
 export function londonStartOfDay(ms: number): number {
   const parts = new Intl.DateTimeFormat("en-CA", {

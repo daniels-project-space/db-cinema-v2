@@ -57,13 +57,13 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
       data-testid="hygglo-trust-card"
       aria-roledescription="featured review"
       aria-label={`Featured renter review ${currentIndex + 1} of ${reviews.length}. Read all renter reviews.`}
-      className="spot trust-card relative isolate block h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(ellipse_at_top_right,rgba(212,172,107,.14),transparent_58%),#101013] p-1 shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] max-[359px]:h-[140px] max-[359px]:p-2 sm:h-[304px] sm:p-6"
+      className="spot trust-card relative isolate block h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(ellipse_at_top_right,rgba(212,172,107,.14),transparent_58%),#101013] p-2 shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] max-[359px]:h-[140px] min-[420px]:h-[188px] sm:h-[304px] sm:p-6"
     >
       <Image
         src="/images/home/maintained-cinema-gear-20261028.webp"
         alt=""
         fill
-        sizes="(max-width: 640px) 100vw, 420px"
+        sizes="(max-width: 640px) 50vw, 420px"
         className="trust-card-image object-cover"
       />
       <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-br from-black/55 via-black/55 to-black/80" />

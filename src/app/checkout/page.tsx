@@ -429,7 +429,7 @@ export default function CheckoutPage() {
               done={fulfilmentDone}
               delay={70}
             >
-              <div className="flex gap-3">
+              <div className="flex flex-col gap-2 min-[480px]:flex-row min-[480px]:gap-3">
                 {(
                   [
                     ["pickup", IconPin, "Pickup", "Trafalgar Square · outside Waterstones"],
@@ -439,14 +439,14 @@ export default function CheckoutPage() {
                   <button
                     key={f}
                     onClick={() => setFulfilment(f)}
-                    className={`flex flex-1 items-center gap-3 rounded-xl border p-3.5 text-left transition-all ${
+                    className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl border p-3.5 text-left transition-all ${
                       fulfilment === f
                         ? "border-accent-400 bg-accent-400/10 accent-glow"
                         : "border-white/10 hover:border-white/25"
                     }`}
                   >
                     <Icon className={`h-5 w-5 shrink-0 ${fulfilment === f ? "text-accent-400" : "text-white/40"}`} />
-                    <span>
+                    <span className="min-w-0">
                       <span className="block text-sm font-medium text-white/85">{t}</span>
                       <span className="block text-xs text-white/40">{d}</span>
                     </span>
@@ -500,7 +500,7 @@ export default function CheckoutPage() {
                 </nav>
                 <label className="mt-4 flex items-start gap-2.5 text-sm leading-6 text-white/80">
                   <input data-testid="rental-agreement-checkbox" type="checkbox" checked={agreed} disabled={!currentQuote} onChange={e=>{setAgreed(e.target.checked);agreementRequest.current=null;}} className="mt-1 accent-accent-500 disabled:opacity-40"/>
-                  <span data-testid="saved-card-consent-text">{setupIntentPolicy?`I agree to the linked terms and permit itemised, evidenced post-return claims up to ${formatGbp(futureChargeLimit)} combined. No funds are held; insurance is separate.`:"I agree to all the linked terms and authorise my card for future damage, loss and late-fee payments."}</span>
+                  <span data-testid="saved-card-consent-text">{setupIntentPolicy?`I agree to the linked terms and permit itemised, evidenced post-return claims up to ${formatGbp(futureChargeLimit)} combined. No funds are held; insurance is separate.`:cardHoldPolicy?"I agree to the linked terms for the temporary card authorisation hold and return process. This checkbox does not authorise later off-session charges.":"I agree to all the linked terms and authorise my card for future damage, loss and late-fee payments."}</span>
                 </label>
               </div>
               <div className="mt-4">

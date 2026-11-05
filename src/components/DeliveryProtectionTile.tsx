@@ -69,7 +69,7 @@ export function DeliveryProtectionTile() {
     };
   }, [focused, transitionTo]);
 
-  return <article data-testid="delivery-protection-tile" ref={card} className="trust-card group relative isolate h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] max-[359px]:h-[140px] sm:h-[304px]" onFocus={() => setFocused(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
+  return <article data-testid="delivery-protection-tile" ref={card} className="trust-card group relative isolate h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] max-[359px]:h-[140px] min-[420px]:h-[188px] sm:h-[304px]" onFocus={() => setFocused(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
     {([false, true] as const).map(slideProtection => {
       const isActive = protection === slideProtection;
       const isIncoming = transition?.to === slideProtection;

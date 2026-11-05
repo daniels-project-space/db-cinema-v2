@@ -159,7 +159,7 @@ function GearPageInner() {
       <SiteHeader />
       <GearLoopBanner motion compact />
       <main data-gaffer-route={route} data-gaffer-ready={listings !== undefined && cat === (urlCat || "All") && search === (urlQ ?? "")} className="section-window mx-auto flex min-h-screen min-w-0 max-w-7xl flex-col px-4 pb-12 pt-6 sm:px-6 sm:pt-8">
-        <div className="order-4 relative left-1/2 w-screen -translate-x-1/2 px-2 sm:order-1 sm:px-4 xl:px-6">
+        <div className="order-2 px-2 sm:order-1 sm:px-4 xl:px-6">
           <AssemblyShowcase
             listings={[...best, ...(filteredListings ?? [])]}
             loading={bestResults === undefined || filteredListings === undefined}
@@ -272,7 +272,7 @@ function GearPageInner() {
 
         {/* best sellers (data-driven) — only on All, no search */}
         {cat === "All" && !search && !hasRefinements && best.length > 0 && (
-          <section className="order-2 mt-10 sm:order-4">
+          <section className="order-3 mt-10 sm:order-4">
             <h2 className="flex items-center gap-3 font-display text-lg font-semibold text-white/85">
               <span className="hud-label !text-accent-400/90">Best sellers</span>
               <span className="h-px flex-1 bg-white/[0.07]" aria-hidden />
@@ -289,7 +289,7 @@ function GearPageInner() {
         )}
 
         {/* grid */}
-        <div className="order-3 sm:order-5">
+        <div className="order-4 sm:order-5">
         {listings === undefined ? (
           <div className="mt-8 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
             {Array.from({ length: 8 }).map((_, i) => (
