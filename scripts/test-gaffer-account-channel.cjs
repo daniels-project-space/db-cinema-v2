@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const { load, db, put, tables } = require("./lib/rentalTestHarness.cjs");
 
 const chat = load("convex/chat.ts");
+const { GAFFER_AUTO_RESUME_MS } = load("convex/lib/rentalChat.ts");
 const scheduled = [];
 const ctx = { db, scheduler: { runAfter: async (...args) => scheduled.push(args) } };
 const originalNow = Date.now;
@@ -53,7 +54,7 @@ put("sessions", { token: "other", accountId: otherAccount._id, expiresAt: now + 
     const supportMessages = tables.get("messages").filter((message) => message.accountId === account._id && message.bookingId == null);
     assert.equal(supportMessages.length, 7);
     assert.equal(supportMessages.at(-1).text, "I still need the team.");
-    assert(scheduled.some((entry) => entry[2]?.expectedUpdatedAt), "human handoff retains its 3-hour return timer");
+    assert(scheduled.some((entry) => entry[0] === GAFFER_AUTO_RESUME_MS && entry[2]?.expectedUpdatedAt), "human handoff retains its three-hour return timer");
     await assert.rejects(() => chat.recordGafferReply.handler(ctx, {
       token: "other",
       renterMessageId: first.messageId,
