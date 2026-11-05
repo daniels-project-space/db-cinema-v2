@@ -2,7 +2,7 @@ const assert=require('node:assert/strict');
 const {load,db,put,tables,setMock}=require('./lib/rentalTestHarness.cjs');
 const claims=load('convex/accountClaims.ts');
 (async()=>{
- const ctx={db};await assert.rejects(load('convex/rateLimit.ts').hit.handler(ctx,{key:'account-signin:owner@example.invalid',limit:999,windowMs:1}),/Reserved/);const account=put('accounts',{email:'owner@example.invalid',createdAt:Date.now()});
+ const recoveryJobs=[];const ctx={db,scheduler:{runAfter:async(...args)=>recoveryJobs.push(args)}};await assert.rejects(load('convex/rateLimit.ts').hit.handler(ctx,{key:'account-signin:owner@example.invalid',limit:999,windowMs:1}),/Reserved/);const account=put('accounts',{email:'owner@example.invalid',createdAt:Date.now()});
  assert.equal(await claims.prepareSignIn.handler(ctx,{email:'missing@example.invalid',secretHash:'unknown'}),null);
  assert.equal(tables.get('account_access_links'),undefined,'unknown email never creates an account or link');
  await claims.prepareSignIn.handler(ctx,{email:' OWNER@example.invalid ',secretHash:'first'});
@@ -12,6 +12,7 @@ const claims=load('convex/accountClaims.ts');
  await assert.rejects(claims.exchange.handler(ctx,{secretHash:'first',sessionToken:'wrong'}),/expired/);
  const session=await claims.exchange.handler(ctx,{secretHash:'second',sessionToken:'authenticated'});
  assert.equal(session.token,'authenticated');assert.equal(session.bookingId,undefined);
+ assert.equal(recoveryJobs.length,1,'email ownership completion schedules the verified-rental badge recovery');assert.equal(recoveryJobs[0][0],0);assert.equal(recoveryJobs[0][2].accountId,account._id);
  assert.equal(tables.get('sessions')[0].accountId,account._id);
  await assert.rejects(claims.exchange.handler(ctx,{secretHash:'second',sessionToken:'replay'}),/already been used/);
  await claims.prepareSignIn.handler(ctx,{email:account.email,secretHash:'third'});

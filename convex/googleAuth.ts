@@ -108,6 +108,7 @@ export const _upsertGoogle = internalMutation({
       });
       await ensureReferralCode(ctx,id);
       await _applyPendingCollectiveGrant(ctx, id, a.email);
+      await ctx.scheduler.runAfter(0,internal.verificationArchive.linkVerifiedAccount,{accountId:id,cursor:null});
       await ctx.db.insert("sessions", {
         token: a.token,
         accountId: id,
@@ -116,6 +117,7 @@ export const _upsertGoogle = internalMutation({
       });
       return;
     }
+    const needsVerificationRecovery=!acct.emailVerifiedAt||acct.emailVerificationRequired;
     const patch: Record<string, unknown> = {emailVerifiedAt:now,emailVerificationRequired:false};
     if(acct.emailVerificationRequired&&!acct.emailVerifiedAt){
       patch.hash=undefined;patch.salt=undefined;
@@ -125,6 +127,7 @@ export const _upsertGoogle = internalMutation({
     if (!acct.name && a.name) patch.name = a.name;
     if (!acct.googleAvatarUrl && a.picture) patch.googleAvatarUrl = a.picture;
     if (Object.keys(patch).length) await ctx.db.patch(acct._id, patch);
+    if(needsVerificationRecovery)await ctx.scheduler.runAfter(0,internal.verificationArchive.linkVerifiedAccount,{accountId:acct._id,cursor:null});
     await ctx.db.insert("sessions", {
       token: a.token,
       accountId: acct._id,

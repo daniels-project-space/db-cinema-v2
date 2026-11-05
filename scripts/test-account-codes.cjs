@@ -2,7 +2,7 @@ const assert=require('node:assert/strict');
 const {load,db,put,tables,setMock}=require('./lib/rentalTestHarness.cjs');
 const outbox=[];setMock('./lib/mailer',{sendMail:async m=>{outbox.push(m);return true;}});
 const claims=load('convex/accountCodeClaims.ts'),cartData=load('convex/checkoutCartData.ts'),codes=load('convex/accountCodes.ts'),carts=load('convex/checkoutCarts.ts'),accounts=load('convex/accounts.ts');
-const ctx={db,runMutation:async(ref,a)=>(ref.startsWith('accountCodeClaims.')?claims:ref.startsWith('checkoutCartData.')?cartData:accounts)[ref.split('.')[1]].handler(ctx,a),runQuery:async(ref,a)=>accounts[ref.split('.')[1]].handler(ctx,a)};
+const scheduled=[];const ctx={db,scheduler:{runAfter:async(...args)=>scheduled.push(args)},runMutation:async(ref,a)=>(ref.startsWith('accountCodeClaims.')?claims:ref.startsWith('checkoutCartData.')?cartData:accounts)[ref.split('.')[1]].handler(ctx,a),runQuery:async(ref,a)=>accounts[ref.split('.')[1]].handler(ctx,a)};
 const codeFromMail=()=>outbox.at(-1).html.match(/<strong>(\d{6})<\/strong>/)[1];
 (async()=>{
  const unit=put('inventory_units',{quantityOwned:1,name:'QA kit'}),listing=put('listings',{active:true,title:'QA camera',slug:'qa-camera',category:'Cameras',itemType:'camera-body',components:[{inventoryUnitId:unit._id,qty:1}],pricing:{daily:50},depositAmount:1000});
@@ -18,6 +18,7 @@ const codeFromMail=()=>outbox.at(-1).html.match(/<strong>(\d{6})<\/strong>/)[1];
  await assert.rejects(codes.verify.handler(ctx,{challenge:request.challenge,code}),/Invalid/);
  const result=await codes.complete.handler(ctx,{setupToken:verified.setupToken,password:'SecretPassword123'}),account=(await db.query('accounts').collect())[0];
  assert.equal(account.name,'Booking Person');assert.equal(account.phone,'07700123456');assert(account.emailVerifiedAt);assert.equal(result.cartKey,cart.shareKey);
+ assert(scheduled.some(args=>args[0]===0&&args[2]?.accountId===account._id),'finishing email ownership schedules verified-rental recovery');
  assert.equal((await db.query('checkout_carts').collect())[0].accountId,account._id);
  assert((await accounts.signIn.handler(ctx,{email:account.email,password:'SecretPassword123'})).token,'Chosen password works through real password sign-in');
  await assert.rejects(codes.complete.handler(ctx,{setupToken:verified.setupToken,password:'OtherPassword123'}),/expired|used/);

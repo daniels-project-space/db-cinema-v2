@@ -386,10 +386,27 @@ async function backfillPage(ctx: any, accountId: any, legacy: boolean, cursor: s
     });
   }
 }
+async function linkVerifiedAccountPage(ctx: any, accountId: any, cursor: string | null) {
+  const account = await ctx.db.get(accountId);
+  if (!account || account.blockedAt != null || !account.emailVerifiedAt || account.emailVerificationRequired) return;
+  const page = await ctx.db.query("bookings").withIndex("by_account", (q: any) => q.eq("accountId", accountId)).order("desc").paginate({ numItems: 25, cursor });
+  for (const booking of page.page) {
+    if (booking.idVerifyStatus !== "verified" || booking.idVerificationSource !== "didit" || !booking.idVerifiedAt) continue;
+    try {
+      await assertVerificationArchive(ctx, booking);
+      await saveAccountDiditVerification(ctx, booking, booking.idVerifiedAt, booking.documentExpiresAt, booking.verificationChecks, booking.renterPersonKey);
+    } catch {}
+  }
+  if (!page.isDone) await ctx.scheduler.runAfter(0, internal.verificationArchive.linkVerifiedAccount, { accountId, cursor: page.continueCursor });
+}
+export const linkVerifiedAccount = internalMutation({ args: { accountId: v.id("accounts"), cursor: v.union(v.string(), v.null()) }, handler: async (ctx, args) => linkVerifiedAccountPage(ctx, args.accountId, args.cursor) });
 export const backfillAccount = mutation({ args: { token: v.string(), accountId: v.id("accounts") }, handler: async (ctx, args) => {
   await assertAdmin(ctx, args.token, "verificationArchive.backfillAccount");
-  if (!await ctx.db.get(args.accountId)) throw Error("Account not found");
+  const account = await ctx.db.get(args.accountId);
+  if (!account) throw Error("Account not found");
   await backfillPage(ctx, args.accountId, false, null);
+  if (account.emailVerifiedAt && !account.emailVerificationRequired)
+    await ctx.scheduler.runAfter(0, internal.verificationArchive.linkVerifiedAccount, { accountId: args.accountId, cursor: null });
 } });
 export const backfillNext = internalMutation({
   args: { accountId: v.id("accounts"), legacy: v.boolean(), cursor: v.union(v.string(), v.null()) },
