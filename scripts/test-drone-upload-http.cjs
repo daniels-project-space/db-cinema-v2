@@ -16,7 +16,7 @@ const req=(body=pdf,headers={})=>new Request('https://fixture.convex.site/renter
   assert.equal(preflight.status,204);assert.equal(preflight.headers.get('access-control-allow-origin'),origin);
  }
  assert.equal((await documentOptions({},new Request('https://fixture.convex.site/admin-verification-document',{headers:{Origin:'https://db-cinema-v2.vercel.app.evil.invalid'}}))).status,403);
- const readCtx={runMutation:async(_ref,args)=>{if(args.token!=='admin')throw Error('unauthorized');return {storageId:'private',kind:'address-0',contentType:'application/pdf'};},storage:{get:async()=>new Blob([pdf],{type:'application/pdf'})}};
+ const readCtx={runMutation:async(_ref,args)=>{if(args.token!=='admin')throw Error('unauthorized');return {storageId:'private',kind:'address-0',contentType:'application/pdf',size:pdf.length,sha256:createHash('sha256').update(pdf).digest('hex')};},storage:{get:async()=>new Blob([pdf],{type:'application/pdf'})}};
  const readRequest=token=>new Request('https://fixture.convex.site/admin-verification-document',{method:'POST',headers:{Origin:'https://db-cinema-v2.vercel.app',Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({documentId:'fixture'})});
  assert.equal((await documentRead(readCtx,readRequest('foreign'))).status,403,'the Vercel alias does not bypass admin authorization');
  const documentResponse=await documentRead(readCtx,readRequest('admin'));assert.equal(documentResponse.status,200);assert.equal(documentResponse.headers.get('cache-control'),'no-store');assert.deepEqual(Buffer.from(await documentResponse.arrayBuffer()),pdf);

@@ -2,15 +2,21 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import {
+  CHECKOUT_HOLD_POLICY,
+  CHECKOUT_CARD_HOLD_POLICY,
   PICKUP_HOLD_POLICY,
+  isCheckoutHoldPolicy,
   pickupHoldAt,
+  pickupHoldDueAt,
   pickupHoldEligible,
+  pickupHoldRenewalAt,
+  pickupHoldScheduleMatches,
 } from "../shared/pickupSecurity";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 
 /** Transactional job identity; old pickup jobs never authorise a rescheduled rental. */
 export async function schedulePickupHold(ctx: any, b: any, force=false) {
-  if (pickupHoldEligible(b) && b.stripeDepositIntentId && b.securityHoldDueAt !== pickupHoldAt(b))
+  if (pickupHoldEligible(b) && b.stripeDepositIntentId && !pickupHoldScheduleMatches(b))
     throw Error("Resolve the existing security authorisation before moving collection. Your rental dates have not changed.");
   if (
     !pickupHoldEligible(b) ||
@@ -18,8 +24,11 @@ export async function schedulePickupHold(ctx: any, b: any, force=false) {
     !b.securityHoldPaymentMethodId
   )
     return;
-  const dueAt = pickupHoldAt(b);
-  if (!force && b.securityHoldDueAt === dueAt && b.securityHoldJobId) return;
+  const now = Date.now();
+  const pickupAt = pickupHoldAt(b);
+  const dueAt = pickupHoldDueAt(b, now);
+  if (!force && b.securityHoldDueAt === dueAt && b.securityHoldJobId &&
+    (!isCheckoutHoldPolicy(b) || b.securityHoldPickupAt === pickupAt)) return;
   // Previous jobs are generation-gated; even a job already executing cannot authorise stale dates.
   const generation = (b.securityHoldGeneration ?? 0) + 1;
   const jobId = await ctx.scheduler.runAt(
@@ -27,8 +36,17 @@ export async function schedulePickupHold(ctx: any, b: any, force=false) {
     internal.holdRenewal.authorizePickup,
     { bookingId: b._id, generation },
   );
+  const renewalAt = isCheckoutHoldPolicy(b) ? pickupHoldRenewalAt(b) : null;
+  const renewalJobId = renewalAt !== null && renewalAt > now
+    ? await ctx.scheduler.runAt(renewalAt, internal.holdRenewal.renewPickup, { bookingId: b._id, pickupAt })
+    : undefined;
   await ctx.db.patch(b._id, {
     securityHoldDueAt: dueAt,
+    ...(isCheckoutHoldPolicy(b) ? {
+      securityHoldPickupAt: pickupAt,
+      securityHoldPickupRenewedForAt: undefined,
+      securityHoldPickupRenewalJobId: renewalJobId,
+    } : {}),
     securityHoldGeneration: generation,
     securityHoldJobId: jobId,
     securityHoldRetryAt: Math.max(Date.now(), dueAt),
@@ -81,7 +99,7 @@ export const claim = internalMutation({
     if (
       !pickupHoldEligible(b) ||
       b!.securityHoldGeneration !== a.generation ||
-      pickupHoldAt(b!) !== b!.securityHoldDueAt ||
+      !pickupHoldScheduleMatches(b!) ||
       b!.securityHoldDueAt! > now ||
       b!.securityHoldLeaseUntil! > now ||
       ["held", "released", "captured"].includes(b!.depositHoldStatus ?? "") ||
@@ -125,7 +143,7 @@ export const result = internalMutation({
     if (
       !pickupHoldEligible(b) ||
       b!.securityHoldGeneration !== a.generation ||
-      pickupHoldAt(b!) !== b!.securityHoldDueAt
+      !pickupHoldScheduleMatches(b!)
     )
       return false;
     if (
@@ -164,20 +182,24 @@ export const result = internalMutation({
 export const due = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const rows = await ctx.db
-      .query("bookings")
-      .withIndex("by_security_hold_due", (q) =>
-        q
-          .eq("securityHoldPolicyVersion", PICKUP_HOLD_POLICY)
-          .gte("securityHoldRetryAt", 0)
-          .lte("securityHoldRetryAt", Date.now()),
-      )
-      .take(50);
+    const now = Date.now();
+    const rows = (await Promise.all([PICKUP_HOLD_POLICY, CHECKOUT_HOLD_POLICY, CHECKOUT_CARD_HOLD_POLICY].map((policy) =>
+      ctx.db
+        .query("bookings")
+        .withIndex("by_security_hold_due", (q) =>
+          q
+            .eq("securityHoldPolicyVersion", policy)
+            .gte("securityHoldRetryAt", 0)
+            .lte("securityHoldRetryAt", now),
+        )
+        .take(50),
+    ))).flat();
     return rows
       .filter(
         (b) =>
           typeof b.securityHoldRetryAt === "number" &&
           pickupHoldEligible(b) &&
+          pickupHoldScheduleMatches(b) &&
           !(b.securityHoldLeaseUntil! > Date.now()) &&
           ["scheduled", "processing"].includes(b.depositHoldStatus ?? ""),
       )

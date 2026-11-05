@@ -16,6 +16,7 @@ import { RentalRequestHistory } from "@/components/rentals/RentalRequestHistory"
 import { SavedCardCharges } from "@/components/rentals/SavedCardCharges";
 import {OperatorCancellationStatus} from "./OperatorCancellationStatus";
 import { CompactRentalImages } from "./CompactRentalImages";
+import { RentalDeliveryQuotePanel } from "./RentalDeliveryQuotePanel";
 import { RENTAL_TIME_SLOTS } from "../../../shared/rentalWindow";
 import { hasCashDepositPolicy } from "../../../shared/rentalSecurity";
 
@@ -229,33 +230,35 @@ export function RentalOrderTools({
         <CompactRentalImages items={b.lineItems} />
         <dl><div><dt>Rental dates</dt><dd>{b.lineItems.length ? rentalDate(Math.min(...b.lineItems.map(l => l.start)), Math.max(...b.lineItems.map(l => l.end))) : "Dates need review"}</dd></div><div><dt>{b.fulfilment === "delivery" ? "Delivery" : "Collection"}</dt><dd>{rentalHandoverLabel(b,"pickup")}</dd></div><div><dt>Return</dt><dd>{rentalHandoverLabel(b,"return")}</dd></div><div><dt>Customer</dt><dd>{b.guestName || b.guestEmail}</dd></div><div><dt>Verification</dt><dd data-verified={b.idVerifyStatus === "verified"}>{b.idVerifyStatus === "verified" ? "✓ Verified" : (b.idVerifyStatus ?? "Required").replaceAll("_", " ")}</dd></div></dl>
       </section>
+      {b.fulfilment === "delivery" && b.deliveryLegs === "one_way" && <p className="mt-2 rounded-lg border border-sky-200/10 bg-sky-300/[0.04] px-3 py-2 text-xs text-sky-100/70">One-way delivery · renter returns the kit to the Trafalgar Square collection point.</p>}
       <dl className={chatStyles.paymentSummary} aria-label="Booking financial summary">
         <div><dt>Booking total</dt><dd>{formatGbp(b.total)}</dd></div>
         <div><dt>Refundable deposit</dt><dd>{formatGbp(b.depositAmount ?? 0)}</dd></div>
         <div><dt>Card authorisation</dt><dd>{formatGbp(b.depositHoldAmount ?? 0)}</dd></div>
       </dl>
+      <RentalDeliveryQuotePanel token={token} booking={b} />
       <p className="mb-2 text-[10px] uppercase tracking-[.16em] text-white/35">Manage rental · owner only</p>
       {cancellation && cancellation.status !== "succeeded" && <div role="status" className="mb-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-xs text-amber-100">
         <p>{cancellation.status === "attention" ? "Cancellation needs payment review. The existing refund was not completed." : "Cancellation settlement is processing. The rental remains reserved until refunds and security release are confirmed."}</p>
         {cancellation.refunds.map((r, i) => <p key={i} className="mt-2">{formatGbp(r.amount)} · {r.status.replaceAll("_", " ")}{r.approvalUrl && r.status === "awaiting_approval" && <a className="ml-2 underline" href={r.approvalUrl} target="_blank" rel="noopener noreferrer">Review in Stripe</a>}</p>)}
       </div>}
       <div className="flex flex-wrap items-center gap-2 text-xs" aria-label="Owner rental controls">
-        {b.status === "confirmed" && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeExtensionId) || !!b.cancellationDecision || !!b.returnDecision} onClick={async () => {
+        {b.status === "confirmed" && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId) || !!b.cancellationDecision || !!b.returnDecision} onClick={async () => {
           setBusy(true); setError(""); setResult("");
           try { await setStatus({ token, bookingId: bookingId as any, status: "active" }); setResult("Pickup recorded. Rental is now out."); }
           catch (e: any) { setError(e.message ?? "Pickup could not be recorded."); }
           finally { setBusy(false); }
         }} className="rounded-full border border-accent-300/30 bg-accent-300/10 px-3 py-2 text-accent-200 disabled:opacity-35">Mark picked up</button>}
-        {showReturn && (b.status === "active" || !!b.returnDecision && b.status !== "returned") && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeExtensionId) || !!b.cancellationDecision} onClick={() => setReturnOpen(v => !v)} className="rounded-full border border-accent-300/30 bg-accent-300/10 px-3 py-2 text-accent-200 disabled:opacity-35">{b.returnDecision ? "Resume return settlement" : "Record return"}</button>}
+        {showReturn && (b.status === "active" || !!b.returnDecision && b.status !== "returned") && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId) || !!b.cancellationDecision} onClick={() => setReturnOpen(v => !v)} className="rounded-full border border-accent-300/30 bg-accent-300/10 px-3 py-2 text-accent-200 disabled:opacity-35">{b.returnDecision ? "Resume return settlement" : "Record return"}</button>}
 
-        {b.status === "confirmed" && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeExtensionId) || !!b.cancellationDecision} onClick={() => { setMode("remove"); setRemoveIndex(null); removeSelection.current = null; request.current = null; setError(""); }} className="rounded-full border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35">Remove items</button>}
+        {b.status === "confirmed" && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId) || !!b.cancellationDecision} onClick={() => { setMode("remove"); setRemoveIndex(null); removeSelection.current = null; request.current = null; setError(""); }} className="rounded-full border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35">Remove items</button>}
         {["pending_payment", "confirmed", "active"].includes(b.status) && (
           <button
             disabled={
               busy ||
               !!b.returnDecision ||
               !!processing ||
-              !!(b.activeAdditionId || b.activeExtensionId) ||
+              !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId) ||
               !!b.cancellationDecision
             }
             onClick={() => {
@@ -275,7 +278,7 @@ export function RentalOrderTools({
               !!b.returnDecision ||
               !!processing ||
               !!b.cancellationDecision ||
-              !!(b.activeAdditionId || b.activeExtensionId)
+              !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId)
             }
             onClick={() => {
               setDate(new Date(Math.min(...b.lineItems.map(l => l.start))).toISOString().slice(0, 10));
@@ -289,10 +292,10 @@ export function RentalOrderTools({
             Change dates / reschedule
           </button>
         )}
-        {(["pickup-time","return-time"] as const).filter(kind=>b.status === "confirmed" || b.status === "active" && kind === "return-time").map(kind=><button key={kind} type="button" disabled={busy || !!b.returnDecision || !!processing || !!b.cancellationDecision || !!(b.activeAdditionId || b.activeExtensionId || b.activePriceAdjustmentId)} onClick={()=>{setHandoverLines(b.lineItems.map((_,index)=>index));setHandoverTime("");setHandoverSnapshot(b.controlsSnapshot);request.current=null;setMode(kind);setError("");}} className="rounded-full border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35">Change {kind === "pickup-time" ? "pickup" : "return"} time</button>)}
+        {(["pickup-time","return-time"] as const).filter(kind=>b.status === "confirmed" || b.status === "active" && kind === "return-time").map(kind=><button key={kind} type="button" disabled={busy || !!b.returnDecision || !!processing || !!b.cancellationDecision || !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId || b.activePriceAdjustmentId)} onClick={()=>{setHandoverLines(b.lineItems.map((_,index)=>index));setHandoverTime("");setHandoverSnapshot(b.controlsSnapshot);request.current=null;setMode(kind);setError("");}} className="rounded-full border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35">Change {kind === "pickup-time" ? "pickup" : "return"} time</button>)}
         {["confirmed", "pending_payment"].includes(b.status) && (
           <button
-            disabled={busy || !!b.returnDecision || !!processing || !!(b.activeAdditionId || b.activeExtensionId)}
+            disabled={busy || !!b.returnDecision || !!processing || !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId)}
             onClick={() => {
               setMode("cancel");
               setError("");
@@ -310,7 +313,7 @@ export function RentalOrderTools({
                 busy ||
                 !!processing ||
                 !!b.cancellationDecision ||
-                !!(b.activeAdditionId || b.activeExtensionId)
+                !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId)
               }
               onClick={() => {
                 setMode("refund");

@@ -137,6 +137,10 @@ export const adminSummary = query({
       .query("bookings")
       .withIndex("by_status", (q) => q.eq("status", "active"))
       .collect();
+    const paidPendingVerificationRows = await ctx.db
+      .query("bookings")
+      .withIndex("by_status", (q) => q.eq("status", "pending_verification"))
+      .take(100);
     const byDate = (rows: typeof active, key: "start" | "end") => [...rows].sort((a, b) => {
       const date = (row: typeof a) => {
         const values = row.lineItems.map(line => line[key]).filter(Number.isFinite);
@@ -163,7 +167,7 @@ export const adminSummary = query({
         return { title: line.title, qty: line.qty ?? 1, start: line.start, end: line.end, heroImage: images[0] ?? null, imageSources: images };
       })) : [];
       return { _id: b._id, guestEmail: b.guestEmail, customerName: b.guestName ?? b.agreementName ?? null,
-        status: b.status, verification: b.idVerifyStatus ?? "required", requiresDroneLicence: await requiresDroneLicence(ctx, b), droneVerification: b.droneLicenceStatus ?? null, start: starts.length ? Math.min(...starts) : null, end: ends.length ? Math.max(...ends) : null,
+        status: b.status, verification: b.idVerifyStatus ?? "required", verificationConfirmationIssue: b.verificationConfirmationIssue ?? null, requiresDroneLicence: await requiresDroneLicence(ctx, b), droneVerification: b.droneLicenceStatus ?? null, start: starts.length ? Math.min(...starts) : null, end: ends.length ? Math.max(...ends) : null,
         pickupTime: b.pickupTime ?? null, returnTime, total: b.total,
         items: b.lineItems.map(line => line.title).join(", "), kit, fulfilment: b.fulfilment,
         calendarLines: b.lineItems.map(line => ({title:line.title,qty:line.qty ?? 1,start:line.start,end:line.end,returnTime:line.returnTime})),
@@ -171,6 +175,7 @@ export const adminSummary = query({
     };
     const ongoing = await Promise.all(byDate(active, "end").map(project));
     const awaitingCollection = await Promise.all(byDate(confirmed, "start").map(project));
+    const paidPendingVerification = await Promise.all(byDate(paidPendingVerificationRows, "start").map(project));
 
     return {
       authorized: true as const,
@@ -185,6 +190,8 @@ export const adminSummary = query({
       topMisses,
       ongoing,
       awaitingCollection,
+      paidPendingVerification,
+      paidPendingVerificationTruncated: paidPendingVerificationRows.length === 100,
       overdueCount: ongoing.filter(rental => rental.overdue).length,
       itemsOut: active.reduce((total,booking)=>total+booking.lineItems.reduce((count,line)=>count+(Number.isSafeInteger(line.qty ?? 1) && (line.qty ?? 1)>0 ? line.qty ?? 1 : 0),0),0),
     };

@@ -1,7 +1,7 @@
 import { rentalsForAccount } from "./lib/rentalAccount";
 import {availableCreditRows} from "./lib/checkoutCredit";
 import {operatorCancellationOptions} from "../shared/operatorCancellationCredit";
-import { accountForToken, ownedBooking, rentalThread, postRentalMessage } from "./lib/rentalChat";
+import { accountForToken, ownedBooking, rentalThread, postRentalMessage, scheduleGafferAutoResume, GAFFER_AUTO_RESUME_MS } from "./lib/rentalChat";
 import { accountForRental } from "./lib/rentalAccount";
 import { bookingCancelKind, cancellationDaysForBooking } from "../src/lib/cancellationPolicy";
 import { contentsText } from "../shared/rentalContents";
@@ -34,6 +34,58 @@ export const myThread = query({
     return msgs
       .sort((x, y) => x.at - y.at)
       .map((m) => ({ _id: m._id, sender: m.sender, text: m.text, meta: m.meta ?? null, at: m.at }));
+  },
+});
+
+/** Persist a storefront Gaffer question in the renter's one account-support thread. */
+export const recordGafferUserMessage = mutation({
+  args: { token: v.string(), text: v.string() },
+  handler: async (ctx, { token, text }) => {
+    const account: any = await acctByToken(ctx, token);
+    if (!account) throw new Error("unauthorized");
+    const message = text.trim();
+    if (!message) throw new Error("Write a message first.");
+    if (message.length > 2000) throw new Error("That message is too long — please shorten it.");
+    const recent = (
+      await ctx.db.query("messages")
+        .withIndex("by_account_at", (q) => q.eq("accountId", account._id).gte("at", Date.now() - 30_000))
+        .take(30)
+    ).filter((item: any) => item.sender === "renter" && item.bookingId == null && item.at > Date.now() - 30_000);
+    if (recent.length >= 6)
+      throw new Error("You're sending messages a little too fast — give us a moment to catch up.");
+
+    const messageId = await postRentalMessage(ctx, { accountId: account._id, sender: "renter", text: message });
+    const thread = await rentalThread(ctx, account._id);
+    if (thread?.escalated) {
+      if (!(process.env.RMV2_WEBHOOK_URL && process.env.RMV2_WEBHOOK_SECRET))
+        await ctx.scheduler.runAfter(0, internal.notify.renterChat, { email: account.email, text: message });
+      return { messageId, handledByHuman: true };
+    }
+    return { messageId, handledByHuman: false };
+  },
+});
+
+/** Save Gaffer's answer only if the same account-support question is still current. */
+export const recordGafferReply = mutation({
+  args: { token: v.string(), renterMessageId: v.id("messages"), text: v.string() },
+  handler: async (ctx, { token, renterMessageId, text }) => {
+    const account: any = await acctByToken(ctx, token);
+    if (!account) throw new Error("unauthorized");
+    const answer = text.trim();
+    if (!answer || answer.length > 8000) throw new Error("The reply could not be saved.");
+    const renterMessage = await ctx.db.get(renterMessageId);
+    if (!renterMessage || renterMessage.accountId !== account._id || renterMessage.bookingId != null || renterMessage.sender !== "renter")
+      throw new Error("That message is not part of your account-support thread.");
+    const thread = await rentalThread(ctx, account._id);
+    if (thread?.escalated) return { saved: false, handledByHuman: true };
+    const latest = await ctx.db.query("messages")
+      .withIndex("by_account_at", (q) => q.eq("accountId", account._id))
+      .filter((q) => q.eq(q.field("bookingId"), undefined))
+      .order("desc")
+      .take(1);
+    if (latest[0]?._id !== renterMessageId) return { saved: false, handledByHuman: false };
+    const messageId = await postRentalMessage(ctx, { accountId: account._id, sender: "bot", text: answer });
+    return { saved: true, handledByHuman: false, messageId };
   },
 });
 
@@ -181,8 +233,9 @@ export const _setEscalated = internalMutation({
     const t = await rentalThread(ctx,accountId,bookingId);
     if(expectedGeneration !== undefined && expectedGeneration !== (t?.gafferGeneration ?? 0)) return false;
     const wasEscalated = !!t?.escalated;
-    if (t) await ctx.db.patch(t._id, { escalated, gafferGeneration: (t.gafferGeneration ?? 0) + 1, ...(tgMessageId != null ? { tgMessageId } : {}), updatedAt: Date.now() });
+    if (t) await ctx.db.patch(t._id, { escalated, gafferGeneration: (t.gafferGeneration ?? 0) + 1, ...(tgMessageId != null ? { tgMessageId } : {}), updatedAt: Math.max(Date.now(), (t.updatedAt ?? 0) + 1) });
     else await ctx.db.insert("chat_threads", { accountId, bookingId, escalated, gafferGeneration: 1, tgMessageId, updatedAt: Date.now() });
+    if (escalated) await scheduleGafferAutoResume(ctx, accountId, bookingId);
     if (escalated && !wasEscalated) await queueOwnerNotification(ctx, {
       eventKey: `human-handoff:${accountId}:${bookingId ?? "general"}:${Date.now()}`, kind: "human_request", accountId, bookingId,
       title: "Gaffer needs your help", body: "A rental conversation has been passed to your team.",
@@ -225,6 +278,30 @@ export const resumeGaffer = mutation({
   },
 });
 
+export const autoResumeGaffer = internalMutation({
+  args: {
+    accountId: v.id("accounts"),
+    bookingId: v.optional(v.id("bookings")),
+    expectedUpdatedAt: v.number(),
+    expectedGeneration: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const thread = await rentalThread(ctx, args.accountId, args.bookingId);
+    if (!thread?.escalated || thread.updatedAt !== args.expectedUpdatedAt ||
+        (thread.gafferGeneration ?? 0) !== args.expectedGeneration) return { resumed: false };
+    const remaining = args.expectedUpdatedAt + GAFFER_AUTO_RESUME_MS - Date.now();
+    if (remaining > 0) {
+      await ctx.scheduler.runAfter(remaining, internal.chat.autoResumeGaffer, args);
+      return { resumed: false, rescheduled: true };
+    }
+    await ctx.db.patch(thread._id, {
+      escalated: false,
+      gafferGeneration: (thread.gafferGeneration ?? 0) + 1,
+    });
+    return { resumed: true };
+  },
+});
+
 /** Telegram alert to the team; stores the message id so an admin REPLY routes back to the thread. */
 export const _escalationAlert = internalAction({
   args: { accountId: v.id("accounts"), bookingId:v.optional(v.id("bookings")) },
@@ -262,10 +339,15 @@ export const _adminReply = internalMutation({
     const t = await ctx.db.query("chat_threads").withIndex("by_tgMessageId", (q) => q.eq("tgMessageId", tgMessageId)).first();
     if (!t) return { ok: false };
     if (text.trim().toLowerCase() === "/gaffer") {
-      await ctx.db.patch(t._id, { escalated: false, updatedAt: Date.now() });
+      await ctx.db.patch(t._id, { escalated: false, gafferGeneration: (t.gafferGeneration ?? 0) + 1 });
       await postRentalMessage(ctx,{accountId:t.accountId,bookingId:t.bookingId,sender:"system",text:"Gaffer is back to help with this rental."});
       return { ok: true };
     }
+    await ctx.db.patch(t._id, {
+      escalated: true,
+      gafferGeneration: (t.gafferGeneration ?? 0) + 1,
+      updatedAt: Math.max(Date.now(), (t.updatedAt ?? 0) + 1),
+    });
     await postRentalMessage(ctx,{accountId:t.accountId,bookingId:t.bookingId,sender:"owner",text});
     return { ok: true };
   },

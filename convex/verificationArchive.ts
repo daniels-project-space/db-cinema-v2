@@ -36,16 +36,20 @@ export async function archiveRetention(ctx: any, archive: any) {
   const rentals = [booking, ...reused].filter(Boolean);
   const activeRentals = rentals.filter((b: any) => !["returned", "cancelled"].includes(b.status)).length;
   let openCases = 0;
+  const caseRetentionExpiries: number[] = [];
   for (const id of [archive.bookingId, ...reused.map((b: any) => b._id)]) {
     const cases = await ctx.db.query("rental_damage_cases").withIndex("by_booking", (q: any) => q.eq("bookingId", id)).collect();
-    openCases += cases.filter((c: any) => c.status === "open").length;
+    for (const rentalCase of cases) {
+      if (rentalCase.status === "open" || !Number.isFinite(rentalCase.closedAt)) openCases++;
+      else caseRetentionExpiries.push(rentalCase.closedAt + DOCUMENT_RETENTION_MS);
+    }
   }
   const base = { expiresAt: null as number | null, activeRentals, openCases, viewable: true };
   if (activeRentals) return { ...base, status: "active-rental" as const };
   if (openCases) return { ...base, status: "insurance-case" as const };
   if (archive.retentionHoldReason) return { ...base, status: "manual-hold" as const };
   if (!booking || rentals.some((b: any) => !rentalClosedAt(b))) return { ...base, status: "unknown-closure" as const };
-  const expiresAt = Math.max(...rentals.map((b: any) => rentalClosedAt(b)!)) + DOCUMENT_RETENTION_MS;
+  const expiresAt = Math.max(...rentals.map((b: any) => rentalClosedAt(b)! + DOCUMENT_RETENTION_MS), ...caseRetentionExpiries);
   return { ...base, status: "expires" as const, expiresAt, viewable: expiresAt > Date.now() };
 }
 
@@ -178,6 +182,13 @@ export const scheduleReadProofs=internalMutation({args:{},handler:async ctx=>{
     await ctx.db.patch(archive._id,{readProofVersion:archive.readProofVersion??1,readProofGeneration:proofGeneration,readProofDueAt:now+CAPTURE_LEASE_MS,...(legacySupplemental?{supplementalCheckVersion:1,supplementalStatus:"pending",supplementalAttempts:0,supplementalDueAt:now,supplementalGeneration:(archive.supplementalGeneration??0)+1,supplementalLeaseUntil:undefined}: {})});
     await ctx.scheduler.runAfter(0,internal.verificationArchiveWorker.checkReadability,{archiveId:archive._id,proofGeneration});
   }
+  const displayFailures=await ctx.db.query("verification_archives").withIndex("by_status_due",query=>query.eq("status","attention").lte("dueAt",now)).take(10);
+  for(const archive of displayFailures){
+    if(archive.source==="drone"||archive.error!=="An administrator could not open a saved document. Review document access and retry the archive."||!(await archiveRetention(ctx,archive)).viewable||!(await archiveCopies(ctx,archive)).ready)continue;
+    const proofGeneration=(archive.readProofGeneration??0)+1;
+    await ctx.db.patch(archive._id,{status:"complete",readVerifiedAt:undefined,readProofGeneration:proofGeneration,readProofDueAt:now+CAPTURE_LEASE_MS,error:undefined});
+    await ctx.scheduler.runAfter(0,internal.verificationArchiveWorker.checkReadability,{archiveId:archive._id,proofGeneration});
+  }
 }});
 export const recordReadProof=internalMutation({args:{archiveId:v.id("verification_archives"),generation:v.number(),proofGeneration:v.number(),snapshot:v.string()},handler:async(ctx,args)=>{
   const archive=await ctx.db.get(args.archiveId);
@@ -189,7 +200,7 @@ export const recordReadProof=internalMutation({args:{archiveId:v.id("verificatio
   const wasFresh=hasFreshReadProof(archive);
   await ctx.db.patch(archive._id,{readProofVersion:2,readVerifiedAt:Date.now(),readProofDueAt:Date.now()+READ_PROOF_INTERVAL_MS,readProofFailures:0,error:undefined});
   const booking=await ctx.db.get(archive.bookingId);
-  if(process.env.VERIFICATION_ARCHIVE_REUSE_ENABLED==="true" && booking && booking.accountAccessRequired===false && booking.accountId===archive.accountId && booking.diditSessionId===archive.sessionId && booking.idVerifyStatus==="verified" && booking.idVerificationSource==="didit" && booking.idVerifiedAt)
+  if(booking && booking.accountId===archive.accountId && booking.diditSessionId===archive.sessionId && booking.idVerifyStatus==="verified" && booking.idVerificationSource==="didit" && booking.idVerifiedAt)
     await saveAccountDiditVerification(ctx,booking,booking.idVerifiedAt,booking.documentExpiresAt,booking.verificationChecks,booking.renterPersonKey);
   if(!wasFresh&&archive.accountId)await ctx.scheduler.runAfter(0,internal.verificationArchive.resumeReuses,{accountId:archive.accountId,sourceBookingId:archive.bookingId,cursor:null});
   return true;
@@ -197,12 +208,22 @@ export const recordReadProof=internalMutation({args:{archiveId:v.id("verificatio
 export const resumeReuses=internalMutation({args:{accountId:v.id("accounts"),sourceBookingId:v.id("bookings"),cursor:v.union(v.string(),v.null())},handler:async(ctx,args)=>{
   const account=await ctx.db.get(args.accountId);
   if(!account||account.rentalVerification?.sourceBookingId!==args.sourceBookingId)return;
-  const page=await ctx.db.query("bookings").withIndex("by_account_status",query=>query.eq("accountId",args.accountId).eq("status","confirmed")).paginate({numItems:20,cursor:args.cursor});
+  const statuses=["confirmed","pending_verification","active"] as const;
+  const separator=args.cursor?.indexOf("|")??-1;
+  const statusIndex=separator<0?0:Number(args.cursor!.slice(0,separator));
+  const pageCursor=separator<0?args.cursor:args.cursor!.slice(separator+1)||null;
+  if(!Number.isInteger(statusIndex)||statusIndex<0||statusIndex>=statuses.length)return;
+  const status=statuses[statusIndex];
+  const page=await ctx.db.query("bookings").withIndex("by_account_status",query=>query.eq("accountId",args.accountId).eq("status",status)).paginate({numItems:20,cursor:pageCursor});
   let scheduled=0;
-  for(const booking of page.page)if(booking.accountAccessRequired===false&&booking.verificationProvider==="didit"&&booking.idVerifyStatus==="required"&&!booking.diditSessionId){
+  for(const booking of page.page)if(booking.accountAccessRequired===false&&booking.verificationProvider==="didit"&&
+    ((["required","processing"].includes(booking.idVerifyStatus??"required")&&!booking.diditSessionId)||
+      ["requires_input","manual_review","rejected"].includes(booking.idVerifyStatus??"required"))&&
+    booking.idVerificationSource!=="manual"&&!booking.diditManualDecisionAt&&!booking.identityRiskNotice){
     await ctx.scheduler.runAfter(scheduled++*250,internal.didit.reuseVerification,{bookingId:booking._id});
   }
-  if(!page.isDone)await ctx.scheduler.runAfter(5000,internal.verificationArchive.resumeReuses,{...args,cursor:page.continueCursor});
+  if(!page.isDone)await ctx.scheduler.runAfter(5000,internal.verificationArchive.resumeReuses,{...args,cursor:`${statusIndex}|${page.continueCursor}`});
+  else if(statusIndex+1<statuses.length)await ctx.scheduler.runAfter(0,internal.verificationArchive.resumeReuses,{...args,cursor:`${statusIndex+1}|`});
 }});
 export const claim=internalMutation({args:{archiveId:v.id("verification_archives")},handler:async(ctx,{archiveId})=>{
  const archive=await ctx.db.get(archiveId),now=Date.now();
@@ -334,7 +355,7 @@ export const downloadAccess = internalMutation({ args: { token: v.string(), docu
   const archive = await ctx.db.get(document.archiveId);
   if (!archive || !(await archiveRetention(ctx, archive)).viewable) throw Error("Document retention period ended");
   if (!(await documentCopyAvailable(ctx, archive, document))) throw Error("Saved document is missing or invalid. Retry the archive from account documents.");
-  return { storageId: document.storageId, kind: document.kind, contentType: document.contentType };
+  return { storageId: document.storageId, kind: document.kind, contentType: document.contentType, size: document.size, sha256: document.sha256 };
 } });
 
 /** Walk both ownership indexes without truncating an account's rental history. */
@@ -381,7 +402,7 @@ export const retentionHold = mutation({ args: { token: v.string(), archiveId: v.
   if (args.reason && args.reason.trim().length < 10) throw Error("Record the open case or insurance claim reason.");
   await ctx.db.patch(archive._id, { retentionHoldReason: args.reason.trim().slice(0, 500) || undefined });
 } });
-/** Retain during rental/claim; remove bytes 90 days after actual return or cancellation. */
+/** Retain through rentals and open claims; keep bytes 90 days after closure or case resolution. */
 export const purgeExpired = internalMutation({ args: {}, handler: async ctx => {
   const archives = await ctx.db.query("verification_archives").collect();
   let removed = 0;

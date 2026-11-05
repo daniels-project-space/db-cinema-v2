@@ -1,6 +1,6 @@
 "use node";
 
-import { verificationChecks, verificationCanStart, verificationExpired } from "../shared/verificationProgress";
+import { verificationChecks, verificationCanStart, verificationBookingOpen, verificationExpired } from "../shared/verificationProgress";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import Stripe from "stripe";
@@ -54,8 +54,13 @@ export const bookingSession = action({
   },
   handler: async (ctx, a): Promise<{ url: string | null; reused?: boolean; updated?: boolean }> => {
     let booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
-    if (!booking || booking.verificationProvider !== "didit" || !["confirmed", "active"].includes(booking.status) ||
-        (!["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required") && !(booking.idVerifyStatus === "verified" && verificationExpired(booking))))
+    const savedReuseEligible = booking && booking.accountAccessRequired === false &&
+      ["required", "processing", "requires_input", "manual_review", "rejected"].includes(booking.idVerifyStatus ?? "required") &&
+      booking.idVerificationSource !== "manual" && !booking.diditManualDecisionAt && !booking.identityRiskNotice;
+    if (!booking || booking.verificationProvider !== "didit" || !verificationBookingOpen(booking.status) ||
+        (!["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required") &&
+          !(booking.idVerifyStatus === "verified" && verificationExpired(booking)) &&
+          !(savedReuseEligible && ["manual_review", "rejected"].includes(booking.idVerifyStatus))))
       throw new Error("This booking is not ready for verification.");
     if (!verificationCanStart(booking)) throw Error("Complete the rental payment and required card hold before verification.");
     let authorized = false;
@@ -73,16 +78,17 @@ export const bookingSession = action({
 
     const originalSessionId = booking.diditSessionId;
     try {
-    if (!booking.diditSessionId && booking.idVerifyStatus === "required") {
+    if (savedReuseEligible) {
       if(await ctx.runQuery(internal.bookings.reuseVerificationPotential,{bookingId:a.bookingId}) === true &&
          !(await ctx.runQuery(internal.bookings.reuseVerificationCandidate,{bookingId:a.bookingId})))
         throw new VerificationReusePending("Your saved verification is being checked. Please try again shortly or contact the team in your rental conversation.");
-      // Finish the eligible previous-check revalidation before starting a fresh upload workflow.
-      await ctx.runAction(internal.didit.reuseVerification, { bookingId: a.bookingId });
-      booking = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
-      if (booking?.idVerifyStatus === "verified" && verificationCanStart(booking)) return { url: null, reused: true };
+      if(await ctx.runQuery(internal.bookings.reuseVerificationPotential,{bookingId:a.bookingId}) === true) {
+        await ctx.runAction(internal.didit.reuseVerification, { bookingId: a.bookingId });
+        booking = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
+        if (booking?.idVerifyStatus === "verified" && verificationCanStart(booking)) return { url: null, reused: true };
+      }
       if (!booking || !verificationCanStart(booking) || !["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required")) throw Error("The rental changed. Refresh its verification progress.");
-      if(!booking.diditSessionId && await ctx.runQuery(internal.bookings.reuseVerificationPotential,{bookingId:a.bookingId}) === true)
+      if(await ctx.runQuery(internal.bookings.reuseVerificationPotential,{bookingId:a.bookingId}) === true)
         throw new VerificationReusePending("Your saved verification is being checked. Please try again shortly or contact the team in your rental conversation.");
     }
     const cfg = config();
@@ -185,13 +191,12 @@ export const reuseVerification = internalAction({
     if (report.workflow_id !== cfg.workflowId) return;
     const mapped = mapDecision(report.status, report);
     if (!mapped) return;
-    if (mapped.status !== "verified" || (mapped.documentExpiresAt !== undefined && mapped.documentExpiresAt <= Date.now())) {
+    if (mapped.status !== "verified") {
       await ctx.runMutation(internal.bookings.revokeVerificationReuse, { sourceBookingId: candidate.source._id,
         sessionId:candidate.source.diditSessionId,expectedEventId:candidate.source.diditEventId??null,
         expectedEventAt:candidate.source.diditEventAt??null,expectedManualDecisionAt:candidate.source.diditManualDecisionAt??null }); return;
     }
-    if (!mapped.documentExpiresAt) return;
-    await ctx.runMutation(internal.bookings.applyVerificationReuse, { bookingId, sourceBookingId: candidate.source._id, documentExpiresAt: mapped.documentExpiresAt, personKey: mapped.personKey });
+    await ctx.runMutation(internal.bookings.applyVerificationReuse, { bookingId, sourceBookingId: candidate.source._id, ...(mapped.documentExpiresAt != null ? { documentExpiresAt: mapped.documentExpiresAt } : {}), personKey: mapped.personKey });
   } catch (error) {
     if (!(error instanceof DiditDecisionUnavailable)) return;
     try { await ctx.runMutation(internal.bookings.flagDiditProcessingFailure, { bookingId:candidate.source._id,sessionId:candidate.source.diditSessionId }); }
@@ -208,7 +213,7 @@ export const reuseVerification = internalAction({
       return;
     }
     await ctx.runMutation(internal.bookings.applyVerificationReuse, { bookingId, sourceBookingId:candidate.source._id,
-      documentExpiresAt:candidate.source.documentExpiresAt,personKey:candidate.source.renterPersonKey });
+      ...(candidate.source.documentExpiresAt != null ? { documentExpiresAt:candidate.source.documentExpiresAt } : {}),personKey:candidate.source.renterPersonKey });
   }
  }
 });
@@ -227,7 +232,7 @@ export const adminReview = action({
     if (reason.length < 5 || reason.length > 400) throw new Error("Record a 5–400 character review reason.");
     const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId });
     if (!booking || booking.verificationProvider !== "didit" || !booking.diditSessionId ||
-        !["confirmed", "active"].includes(booking.status) ||
+        !verificationBookingOpen(booking.status) ||
         !["manual_review", "rejected"].includes(booking.idVerifyStatus))
       throw new Error("Only a paid rental with a completed Didit case can be reviewed here.");
     if (decision === "approve" && booking.idVerifyStatus !== "manual_review")
@@ -280,14 +285,14 @@ export const refreshProgress = action({
     }
     // The completed session is an existing bearer capability on the success
     // page; it must be the exact session already bound by Stripe fulfilment.
-    if (!authorized && a.checkoutSessionId && booking?.stripeCheckoutSessionId === a.checkoutSessionId && ["confirmed", "active"].includes(booking.status)) authorized = true;
+    if (!authorized && a.checkoutSessionId && booking?.stripeCheckoutSessionId === a.checkoutSessionId && verificationBookingOpen(booking.status)) authorized = true;
     if (!authorized || !booking) throw Error("Sign in to view this rental's verification.");
     return await refreshBoundProgress(ctx, a.bookingId, booking);
   },
 });
 
 async function refreshBoundProgress(ctx: any, bookingId: any, booking: any): Promise<{status:string}> {
-    if (!["confirmed", "active"].includes(booking.status)) return {status: "closed"};
+    if (!verificationBookingOpen(booking.status)) return {status: "closed"};
     if (booking.verificationProvider !== "didit" || !booking.diditSessionId) return {status: "not_started"};
     const claimed = await ctx.runMutation(internal.bookings.claimDiditProgressRefresh, {bookingId, sessionId:booking.diditSessionId});
     if (!claimed) return {status: "unchanged"};
@@ -302,7 +307,8 @@ async function refreshBoundProgress(ctx: any, bookingId: any, booking: any): Pro
     // tick. Signed data.updated webhooks and full reconciliation still capture
     // document changes; identical progress must not reset a completed archive.
     const advisoryCannotChange = booking.identityRiskNotice === "Didit approved the identity, but cross-account identity matching is unavailable." && !mapped.personKey;
-    if ((!booking.identityRiskNotice || advisoryCannotChange) && booking.idVerifyStatus === mapped.status && (["identity", "selfie", "address"] as const).every(key => booking.verificationChecks?.[key] === mapped.checks[key]) &&
+    const needsConfirmationRepair = booking.status === "confirmed" && mapped.status !== "verified";
+    if (!needsConfirmationRepair && (!booking.identityRiskNotice || advisoryCannotChange) && booking.idVerifyStatus === mapped.status && (["identity", "selfie", "address"] as const).every(key => booking.verificationChecks?.[key] === mapped.checks[key]) &&
         (booking.verificationNote ?? null) === (mapped.note ?? null) && (booking.documentExpiresAt ?? null) === (mapped.documentExpiresAt ?? null) &&
         (!mapped.personKey || booking.renterPersonKey === mapped.personKey)) return {status: "unchanged"};
     const saved = await ctx.runMutation(internal.bookings.setDiditResult, {

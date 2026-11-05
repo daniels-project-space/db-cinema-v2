@@ -176,7 +176,7 @@ function signed(event) {
       return new Response(JSON.stringify({session_id:'new-session', workflow_id:'workflow-1',url:'https://verify.didit.me/session/new-session'}),{status:200});
     };
     const createCtx = {runAction:async()=>{},runQuery:async ref=>ref==='accounts:_byToken'
-      ? {email:'renter@example.invalid'} : {status:'confirmed',verificationProvider:'didit',idVerifyStatus:'required',guestEmail:'renter@example.invalid',renterName:'Test Rental Customer',billingAddress:'25 Whitcomb Street, London WC2H 7ER'},
+      ? {email:'renter@example.invalid'} : {status:'confirmed',accountAccessRequired:false,verificationProvider:'didit',idVerifyStatus:'required',guestEmail:'renter@example.invalid',renterName:'Test Rental Customer',billingAddress:'25 Whitcomb Street, London WC2H 7ER'},
       runMutation:async()=>true};
     let pendingProviderCall=false,pendingMutation=false;
     const pendingCtx={...createCtx,runAction:async()=>{pendingProviderCall=true;},runMutation:async()=>{pendingMutation=true;},runQuery:async ref=>
@@ -189,7 +189,7 @@ function signed(event) {
     try {
       delete process.env.DIDIT_API_KEY;
       const reuseCtx={...createCtx,runAction:async()=>{reused=true;},runQuery:async ref=>ref==='accounts:_byToken'
-        ? {email:'renter@example.invalid'} : {status:'confirmed',verificationProvider:'didit',idVerifyStatus:reused?'verified':'required',guestEmail:'renter@example.invalid'}};
+        ? {email:'renter@example.invalid'} : ref==='bookings:reuseVerificationPotential'?true:ref==='bookings:reuseVerificationCandidate'?{source:{}}:{status:'confirmed',accountAccessRequired:false,verificationProvider:'didit',idVerifyStatus:reused?'verified':'required',guestEmail:'renter@example.invalid'}};
       assert.deepEqual(await bookingSession.handler(reuseCtx,{bookingId:'booking-1',accountToken:'account-token'}),{url:null,reused:true},'retained eligible verification does not require a live Didit API key');
     } finally { process.env.DIDIT_API_KEY=savedApiKey; }
     await bookingSession.handler(createCtx,{bookingId:'booking-1',accountToken:'account-token'});

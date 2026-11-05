@@ -12,7 +12,7 @@ export function ReferralPanel({token}:{token:string}){
   <p className="mt-2 text-xs leading-6 text-white/50">Give a friend £10 off their first rental. After they complete and return it, earn 40% off your next rental.</p>
   <button onClick={copy} disabled={!data.code} className="mt-4 flex w-full items-center justify-between rounded-xl border border-sky-200/20 bg-sky-100/[.04] p-3 text-xs"><span className="font-mono text-sky-100">{data.code??"Creating your code…"}</span><span className="text-white/50">{copied?"Copied ✓":"Copy"}</span></button>
   {data.reward?<p className="mt-3 text-xs text-amber-100">40% reward ready · expires {new Date(data.reward.expiresAt).toLocaleDateString("en-GB")}. Applied automatically when it is your best saving.</p>:<p className="mt-3 text-xs text-white/40">{data.rewardUsed?"Your one-time reward has been used.":data.rewardGranted?"Your reward has expired.":data.waiting?"Waiting for your friend’s rental to be completed and returned.":"One reward per account · one use · valid three months."}</p>}
-  <p className="mt-3 text-[10px] leading-5 text-white/35">Rental charges only. One price benefit per checkout. Normal upfront security and card hold apply to referral offers. No self-referrals.</p>
+  <p className="mt-3 text-[10px] leading-5 text-white/35">Rental charges only. One price benefit per checkout. Referral offers do not change the rental-security terms shown in your quote. No self-referrals.</p>
   <a href="/legal/referrals" className="mt-2 inline-block text-[10px] text-sky-100/55 underline">Referral terms</a>
  </section>;
 }

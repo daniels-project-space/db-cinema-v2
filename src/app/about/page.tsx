@@ -71,7 +71,7 @@ export default async function AboutPage() {
           <Reveal delay={180}>
             <p>
               We offer pickup from central London or local delivery, with a simple,
-              secure booking process and a refundable deposit. Thousands of happy
+              secure booking process and clear rental-security terms before checkout. Thousands of happy
               renters later, our mission is the same: keep great gear working on
               great projects.
             </p>

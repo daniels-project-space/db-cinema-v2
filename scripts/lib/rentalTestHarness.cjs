@@ -136,12 +136,30 @@ const db = {
           )
           .slice(0, n),
       paginate: async ({ numItems, cursor }) => {
-        const start = Number(cursor ?? 0);
-        rows.sort((a, b) => (descending ? -1 : 1) * ((a.at ?? a._creationTime) - (b.at ?? b._creationTime)));
+        let boundary = null;
+        if (cursor != null) {
+          try {
+            const parsed = JSON.parse(cursor);
+            if (Array.isArray(parsed) && parsed.length === 2) boundary = parsed;
+          } catch {}
+        }
+        const compare = (left, right) => (descending ? -1 : 1) *
+          (((left.at ?? left._creationTime) - (right.at ?? right._creationTime)) || String(left._id).localeCompare(String(right._id)));
+        rows.sort(compare);
+        const candidates = boundary
+          ? rows.filter(row => compare(row, { at: boundary[0], _creationTime: boundary[0], _id: boundary[1] }) > 0)
+          : rows;
+        if (!boundary && cursor != null && !Number.isNaN(Number(cursor))) {
+          const start = Number(cursor);
+          const page = candidates.slice(start, start + numItems);
+          return { page, isDone: start + numItems >= candidates.length, continueCursor: String(start + numItems) };
+        }
+        const page = candidates.slice(0, numItems);
+        const last = page.at(-1);
         return {
-          page: rows.slice(start, start + numItems),
-          isDone: start + numItems >= rows.length,
-          continueCursor: String(start + numItems),
+          page,
+          isDone: candidates.length <= numItems,
+          continueCursor: last ? JSON.stringify([last.at ?? last._creationTime, last._id]) : cursor ?? "",
         };
       },
       async *[Symbol.asyncIterator]() {

@@ -14,6 +14,7 @@ type Origin = { x: number; y: number; size: number };
 const TransitionContext = createContext<TransitionContextValue | null>(null);
 const CHARGE_MS = 2500;
 const REVEAL_MS = 2600;
+const REVEAL_EDGE_GAP_PX = 48;
 
 export function HomeApertureTransitionProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -79,12 +80,13 @@ export function HomeApertureTransitionProvider({ children }: { children: React.R
     const horizon = document.querySelector<HTMLElement>("[data-testid='home-aperture-horizon']")?.getBoundingClientRect();
     const initialRadius = Math.max(4, (horizon?.width ?? 16) * .28);
     const finalRadius = Math.hypot(Math.max(origin.x, window.innerWidth - origin.x), Math.max(origin.y, window.innerHeight - origin.y)) + 8;
+    const pageRevealStartRadius = Math.max(4, initialRadius - REVEAL_EDGE_GAP_PX);
     document.body.style.setProperty("--aperture-main-x", `${origin.x - (rect?.left ?? 0)}px`);
     document.body.style.setProperty("--aperture-main-y", `${origin.y - (rect?.top ?? 0)}px`);
-    document.body.style.setProperty("--aperture-reveal-start", `${initialRadius}px`);
+    document.body.style.setProperty("--aperture-reveal-start", `${pageRevealStartRadius}px`);
     document.body.style.setProperty("--aperture-reveal-end", `${Math.max(initialRadius, finalRadius)}px`);
-    document.body.style.setProperty("--aperture-hole-start-scale", String((horizon?.width ?? origin.size * .2) / origin.size));
-    document.body.style.setProperty("--aperture-hole-end-scale", String(Math.max(initialRadius, finalRadius) / (origin.size * .28)));
+    document.body.style.setProperty("--aperture-hole-start-scale", String(initialRadius / (origin.size * .28)));
+    document.body.style.setProperty("--aperture-hole-end-scale", String((Math.max(initialRadius, finalRadius) + REVEAL_EDGE_GAP_PX) / (origin.size * .28)));
     setCurrentPhase("revealing");
     timers.current.push(window.setTimeout(() => setCurrentPhase("idle"), REVEAL_MS));
   }, [clearTimers, origin, pathname, phase, setCurrentPhase]);

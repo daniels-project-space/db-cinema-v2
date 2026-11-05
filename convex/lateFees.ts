@@ -163,7 +163,7 @@ export const collectOne = internalAction({
           paidFromHold = Math.min(b.lateFeeAmount, hold.amount_received / 100);
         } else if (hold.status === "requires_capture") {
           paidFromHold = Math.min(b.lateFeeAmount, b.depositHoldAmount);
-          await stripe.paymentIntents.capture(hold.id, { amount_to_capture: Math.round(paidFromHold * 100) },
+          await stripe.paymentIntents.capture(hold.id, { amount_to_capture: Math.round(paidFromHold * 100), final_capture: true },
             { idempotencyKey: `dbc-late-hold-capture-${bookingId}` });
           await ctx.runMutation(internal.bookings.setHold, { bookingId, intentId: hold.id, status: "captured" });
         }

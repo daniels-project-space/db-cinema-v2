@@ -97,8 +97,21 @@ http.route({ path: "/admin-verification-document", method: "POST", handler: http
     const document = await ctx.runMutation(internal.verificationArchive.downloadAccess, { token, documentId });
     const blob = await ctx.storage.get(document.storageId);
     if (!blob) return new Response("Document unavailable", { status: 404, headers });
-    return new Response(blob, { headers: { ...headers, "Content-Type": document.contentType, "Content-Disposition": `inline; filename="${document.kind}.${document.contentType === "application/pdf" ? "pdf" : "image"}"` } });
-  } catch { return new Response("Access denied or document unavailable", { status: 403, headers }); }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(byte => byte.toString(16).padStart(2, "0")).join("");
+    if (bytes.byteLength !== document.size || digest !== document.sha256)
+      return new Response("Document integrity check failed", { status: 409, headers });
+    const extension = document.contentType === "application/pdf" ? "pdf" : document.contentType === "image/png" ? "png" : document.contentType === "image/webp" ? "webp" : "jpg";
+    return new Response(bytes, { headers: { ...headers, "Content-Type": document.contentType, "Content-Disposition": `inline; filename="verification-document.${extension}"` } });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const status = /unauthorized|administrator token/i.test(message) ? 403
+      : /document not found/i.test(message) ? 404
+      : /retention period ended/i.test(message) ? 410
+      : /saved document is missing or invalid/i.test(message) ? 409
+      : 503;
+    return new Response(status === 409 ? "Document integrity check failed" : status === 404 ? "Document unavailable" : "Document access is temporarily unavailable", { status, headers });
+  }
 }) });
 
 // Stripe webhook → server-side booking confirmation (see checkout.stripeWebhook for the

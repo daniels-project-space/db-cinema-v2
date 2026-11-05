@@ -41,8 +41,8 @@ StripeFixture.prototype.customers={create:async()=>({id:'cus_fixture'}),retrieve
   assert.equal(params.line_items.reduce((sum,l)=>sum+l.price_data.unit_amount*l.quantity,0),Math.round(quote.totalDue*100));
   assert(params.custom_text.submit.message.includes('refundable £50.00 deposit'));assert(!params.custom_text.submit.message.includes('No security money'));assert(params.custom_text.submit.message.length<=500);
   assert.equal(b.depositAmount,50);assert.equal(JSON.parse(b.agreementSnapshot).version,'2026-10-v14');
-  await bookings.confirm.handler(ctx,{bookingId:b._id,paymentIntentId:'pi-'+kind});
-  assert.equal(b.status,'confirmed');assert(h.tables.get('reservations').some(r=>r.bookingId===b._id&&r.status==='confirmed'));
+  const confirmation=await bookings.confirm.handler(ctx,{bookingId:b._id,paymentIntentId:'pi-'+kind});
+  assert.equal(confirmation.awaitingVerification,true);assert.equal(b.status,'pending_verification');assert(h.tables.get('reservations').some(r=>r.bookingId===b._id&&r.status==='hold'));
   if(kind==='credit')assert.equal(quote.totalDue,50,'Refund credit cannot pay cash security');
   if(kind==='referral')assert.equal(quote.benefitKind,'referral_friend');
   if(kind==='voucher'){
@@ -54,5 +54,5 @@ StripeFixture.prototype.customers={create:async()=>({id:'cus_fixture'}),retrieve
     assert.equal((await promo.validate.handler(ctx,{code:'db10off',token,eligibleSubtotal:100})).valid,false,'Refund/cancellation cannot restore the first-order voucher');
   }
  }
- console.log('PASS actual new-policy quote → checkout → paid stock confirmation: plain, refund credit, paid member and referral; exact v14 acceptance, £50 cash always protected, saved-card reuse, truthful Stripe text and physical allocation. Synthetic transport/data only.');
+ console.log('PASS actual new-policy quote → checkout → paid pending-verification state: plain, refund credit, paid member and referral; exact v14 acceptance, £50 cash always protected, saved-card reuse, truthful Stripe text and physical allocation. Synthetic transport/data only.');
 }finally{global.fetch=realFetch}})().catch(e=>{console.error(e);process.exitCode=1});

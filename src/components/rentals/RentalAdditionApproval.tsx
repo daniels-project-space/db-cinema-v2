@@ -1,5 +1,5 @@
 "use client";
-import {ASSESSMENT_SECURITY_POLICY_VERSION} from "../../../shared/rentalSecurity";
+import {ASSESSMENT_SECURITY_POLICY_VERSION,SETUP_INTENT_SECURITY_POLICY_VERSION} from "../../../shared/rentalSecurity";
 
 import {securityAmendmentConsentText} from "../../../shared/savedCardSecurity";
 import { useEffect,useState } from "react";
@@ -56,7 +56,7 @@ export function RentalAdditionApproval({
             ? "Items added to your order."
             : result.status === "awaiting_payment"
               ? "Review and pay for the proposed items using the link above."
-              : "Please contact the team to resolve the card hold.",
+              : "Please contact the team to resolve the payment or security update.",
         );
     } catch (e: any) {
       setMessage(e.message ?? "Bank approval could not complete.");
@@ -76,9 +76,8 @@ export function RentalAdditionApproval({
         Proposed addition · {r.qty}× {rentalTitle(r.title)}
       </p>
       <p className="mt-1 text-xs leading-relaxed text-white/50">
-        {formatGbp(r.amount)} due · includes {formatGbp(r.securityCharge)} extra
-        refundable security. {r.savedCardLimit===undefined?`Updated hold ${formatGbp(r.holdTotal)}.`:"No card hold."} Items join
-        your order after payment and bank approval.
+        {formatGbp(r.amount)} due · {r.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION?"No deposit or card hold is added; your existing saved-card terms remain in place.":`includes ${formatGbp(r.securityCharge)} extra refundable security. ${r.savedCardLimit===undefined?`Updated hold ${formatGbp(r.holdTotal)}.`:"No card hold."}`} Items join
+        your order after payment and any required bank approval.
       </p>
       {r.requiresAcceptance&&<div className="mt-3 space-y-3 rounded-xl border border-sky-300/20 p-3">
         <p className="text-sm">Refundable deposit {formatGbp(r.priorDeposit??0)} → {formatGbp(r.depositAmount)}{r.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION&&<><br/>Combined damage / late-fee limit {formatGbp(r.priorSavedCardLimit??0)} → {formatGbp(r.savedCardLimit??0)}</>}</p>
@@ -106,7 +105,7 @@ export function RentalAdditionApproval({
               {busy
                 ? "Checking your bank…"
                 : r.status === "requires_action"
-                  ? "Approve card hold"
+                  ? r.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION?"Approve payment":"Approve card hold"
                   : "Check payment status"}
             </button>
           )}

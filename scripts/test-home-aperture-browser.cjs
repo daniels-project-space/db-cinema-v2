@@ -14,7 +14,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       if (message.method === 'Runtime.exceptionThrown') console.error('PAGE_EXCEPTION', message.params.exceptionDetails.exception?.description || message.params.exceptionDetails.text);
       if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') console.error('PAGE_CONSOLE_ERROR', message.params.args?.map(argument => argument.value || argument.description).join(' '));
     });
-    for (const width of [390, 1280]) {
+    for (const width of [320, 360, 390, 430, 1280]) {
       await client.cmd('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
       await client.cmd('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
       await client.cmd('Page.navigate', { url: process.env.DBC_TEST_URL || 'http://127.0.0.1:41902/' });
@@ -103,7 +103,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       assert.equal(await client.evaluate(`!!document.querySelector('[data-testid="home-aperture-portal"]')`), false, 'The full gear page settles after the reveal');
       assert.equal(await client.evaluate('document.querySelectorAll("#main-content").length'), 1, 'Only one site page tree remains after navigation');
       assert.equal(await client.evaluate('document.body.dataset.apertureTransition'), undefined, 'The contact chip returns after the transition');
-      await client.cmd('Page.navigate', { url: process.env.DBC_TEST_URL || 'https://dbcinemarentals.com/' });
+      await client.cmd('Page.navigate', { url: process.env.DBC_TEST_URL || 'http://127.0.0.1:41902/' });
       await delay(2500);
       await client.evaluate(`document.querySelector('[data-testid="home-aperture-button"]').scrollIntoView({block:'center',behavior:'instant'})`);
       await delay(300);

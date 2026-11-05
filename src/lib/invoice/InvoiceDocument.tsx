@@ -2,6 +2,7 @@ import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import { CONTACT_EMAIL } from "../site";
 import type { AgreementSnapshot } from "../../../shared/rentalAgreement";
 import type { InspectionInput, InspectionItem } from "../../../shared/returnInspection";
+import { SETUP_INTENT_SECURITY_POLICY_VERSION } from "../../../shared/rentalSecurity";
 
 export type InvoiceData = {
   number: string;
@@ -163,6 +164,7 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
 const sStyle=StyleSheet.create({page:{padding:40,fontSize:9,lineHeight:1.5,fontFamily:"Helvetica"},heading:{fontSize:16,marginBottom:15},space:{marginTop:10},strong:{fontFamily:"Helvetica-Bold"}});
 
 export function ReturnStatementDocument({ data, draft = false }: { data: ReturnStatementData; draft?: boolean }) {
+  const setupIntentPolicy = data.securityPolicyVersion === SETUP_INTENT_SECURITY_POLICY_VERSION;
   const rentalGross = data.subtotal - data.discount + data.deliveryFee;
   const damageFromPayment = Math.max(0, data.damageTotal - data.damageFromHold);
   const netCardPaid = data.checkoutPaid - (draft?data.securityRefunded:data.depositRefundState?data.securityRefundedConfirmed??0:data.securityRefunded) - (data.rentalRefunded??0) + data.damageFromHold;
@@ -198,16 +200,16 @@ export function ReturnStatementDocument({ data, draft = false }: { data: ReturnS
         {data.deliveryFee > 0 ? <View style={s.totRow}><Text style={s.totLabel}>Delivery</Text><Text style={s.totValue}>{gbp(data.deliveryFee)}</Text></View> : null}
         <View style={s.grand}><Text style={[s.grandTxt,{maxWidth:"75%",flexShrink:1}]}>Rental charges</Text><Text style={s.grandTxt}>{gbp(rentalGross)}</Text></View>
         {data.creditApplied > 0 ? <View style={s.totRow}><Text style={s.totLabel}>Store credit used</Text><Text style={s.totValue}>−{gbp(data.creditApplied)}</Text></View> : null}
-        <View style={s.totRow}><Text style={s.totLabel}>Refundable security payment taken</Text><Text style={s.totValue}>{gbp(data.securityPaid)}</Text></View>
-        {data.savedCardLimit!==undefined&&<><View style={s.totRow}><Text style={s.totLabel}>Saved-card collection limit · not charged or held</Text><Text style={s.totValue}>{gbp(data.savedCardLimit)}</Text></View><View style={s.totRow}><Text style={s.totLabel}>{data.securityPaid>0?"Damage/loss assessed · cash retained below":"Damage/loss assessed · not collected by this return"}</Text><Text style={s.totValue}>{gbp(data.damageAssessed??0)}</Text></View></>}
+        {!setupIntentPolicy&&<View style={s.totRow}><Text style={s.totLabel}>Refundable security payment taken</Text><Text style={s.totValue}>{gbp(data.securityPaid)}</Text></View>}
+        {data.savedCardLimit!==undefined&&<><View style={s.totRow}><Text style={s.totLabel}>{setupIntentPolicy?"Saved-card future-claim ceiling · not charged or held":"Saved-card collection limit · not charged or held"}</Text><Text style={s.totValue}>{gbp(data.savedCardLimit)}</Text></View><View style={s.totRow}><Text style={s.totLabel}>{data.securityPaid>0?"Damage/loss assessed · cash retained below":"Damage/loss assessed · not collected by this return"}</Text><Text style={s.totValue}>{gbp(data.damageAssessed??0)}</Text></View></>}
         <View style={s.totRow}><Text style={s.totLabel}>Card charged at checkout</Text><Text style={s.totValue}>{gbp(data.checkoutPaid)}</Text></View>
         {(data.rentalRefunded??0)>0&&<View style={s.totRow}><Text style={s.totLabel}>Rental payment already refunded</Text><Text style={s.totValue}>−{gbp(data.rentalRefunded!)}</Text></View>}
-        <View style={s.totRow}><Text style={s.totLabel}>{draft?"Expected security refund at return":data.depositRefundState?"Refund processed by Stripe":"Security payment refunded at return"}</Text><Text style={s.totValue}>−{gbp(draft?data.securityRefunded:data.depositRefundState?data.securityRefundedConfirmed??0:data.securityRefunded)}</Text></View>
-        {!draft&&data.depositRefundState&&data.securityRefunded>(data.securityRefundedConfirmed??0)&&<View style={s.totRow}><Text style={s.totLabel}>{data.depositRefundState==="pending"?"Refund processing":"Refund awaiting resolution"}</Text><Text style={s.totValue}>{gbp(data.securityRefunded-(data.securityRefundedConfirmed??0))}</Text></View>}
-        {data.damageTotal > 0 ? <View style={s.totRow}><Text style={s.totLabel}>{draft ? "Documented damage/loss to retain" : "Documented damage/loss retained"}</Text><Text style={s.totValue}>{gbp(data.damageTotal)}</Text></View> : null}
-        {data.damageTotal > 0 ? <Text style={s.note}>{draft ? "Expected damage from authorised hold" : "Damage paid from authorised hold"}: {gbp(data.damageFromHold)}. From refundable security payment: {gbp(damageFromPayment)}. These are parts of the same deduction.</Text> : null}
+        {!setupIntentPolicy&&<View style={s.totRow}><Text style={s.totLabel}>{draft?"Expected security refund at return":data.depositRefundState?"Refund processed by Stripe":"Security payment refunded at return"}</Text><Text style={s.totValue}>−{gbp(draft?data.securityRefunded:data.depositRefundState?data.securityRefundedConfirmed??0:data.securityRefunded)}</Text></View>}
+        {!setupIntentPolicy&&!draft&&data.depositRefundState&&data.securityRefunded>(data.securityRefundedConfirmed??0)&&<View style={s.totRow}><Text style={s.totLabel}>{data.depositRefundState==="pending"?"Refund processing":"Refund awaiting resolution"}</Text><Text style={s.totValue}>{gbp(data.securityRefunded-(data.securityRefundedConfirmed??0))}</Text></View>}
+        {!setupIntentPolicy&&data.damageTotal > 0 ? <View style={s.totRow}><Text style={s.totLabel}>{draft ? "Documented damage/loss to retain" : "Documented damage/loss retained"}</Text><Text style={s.totValue}>{gbp(data.damageTotal)}</Text></View> : null}
+        {!setupIntentPolicy&&data.damageTotal > 0 ? <Text style={s.note}>{draft ? "Expected damage from authorised hold" : "Damage paid from authorised hold"}: {gbp(data.damageFromHold)}. From refundable security payment: {gbp(damageFromPayment)}. These are parts of the same deduction.</Text> : null}
         <View style={s.grand}><Text style={[s.grandTxt,{maxWidth:"75%",flexShrink:1}]}>{draft ? "Expected net card payment" : "Net card paid after return"}</Text><Text style={[s.grandTxt,{flexShrink:0,textAlign:"right"}]}>{gbp(netCardPaid)}</Text></View>
-        <Text style={s.note}>All rental card charges, less confirmed rental and security refunds, plus any hold captured for damage. Store credit used: {gbp(data.creditApplied)}. Separate late time is excluded and may be collected later.</Text>
+        <Text style={s.note}>{setupIntentPolicy?"All rental card charges less confirmed rental refunds. This statement does not collect any saved-card security claim; any permitted claim follows the separately accepted agreement.":"All rental card charges, less confirmed rental and security refunds, plus any hold captured for damage."} Store credit used: {gbp(data.creditApplied)}. Separate late time is excluded and may be collected later.</Text>
         {data.damageNote ? <Text style={s.note}>Damage/loss detail: {data.damageNote}</Text> : null}
         {data.lateAssessed > 0 ? <Text style={s.note}>Separate late rental time assessed: {gbp(data.lateAssessed)}. Pending itemised notice, seven-day dispute period and later collection; it is not included in the checkout payment or damage deduction.</Text> : null}
         {data.agreedReturnTime ? <Text style={s.note}>Agreed return slots are shown against each item above (legacy default: {data.agreedReturnTime} London time). Actual return: {dateTime(data.actualReturnedAt)} London time.</Text> : null}

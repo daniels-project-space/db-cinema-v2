@@ -114,6 +114,7 @@ async function qualifyReschedule(
   if (
     b.cancellationDecision ||
     b.activeAdditionId ||
+    b.activeDeliveryQuoteId ||
     b.activeExtensionId ||
       b.activePriceAdjustmentId ||
     b.returnDecision
@@ -456,6 +457,7 @@ export const removeItem = mutation({
     if (
       b.cancellationDecision ||
       b.activeAdditionId ||
+      b.activeDeliveryQuoteId ||
       b.activeExtensionId ||
       b.activePriceAdjustmentId ||
       b.returnDecision
@@ -583,6 +585,7 @@ export const prepareRefund = internalMutation({
     if (
       b.cancellationDecision ||
       b.activeAdditionId ||
+      b.activeDeliveryQuoteId ||
       b.activeExtensionId ||
       b.activePriceAdjustmentId ||
       b.returnDecision

@@ -1,7 +1,11 @@
 "use node";
 
 import Stripe from "stripe";
-import { pickupHoldEligible } from "../shared/pickupSecurity";
+import {
+  PICKUP_HOLD_RENEWAL_LEAD_MS,
+  isCheckoutHoldPolicy,
+  pickupHoldEligible,
+} from "../shared/pickupSecurity";
 import { action, internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -53,9 +57,11 @@ async function releasePrevious(ctx: any, bookingId: any, ids: string[], sb: Stri
 function stripeId(value: any): string | undefined { return typeof value === "string" ? value : value?.id; }
 async function renewalIntentMatches(ctx: any, bookingId: any, oldId: string, intent: Stripe.PaymentIntent, sb: Stripe) {
   const b: any = await ctx.runQuery(internal.bookings.renewalContext, { bookingId });
+  const pickupAt = intent.metadata?.pickupAt === undefined ? undefined : Number(intent.metadata.pickupAt);
   if (!b || intent.metadata?.bookingId !== String(bookingId) || intent.metadata?.purpose !== "security_hold_renewal" ||
     intent.metadata.replaces !== oldId || intent.id === oldId || intent.capture_method !== "manual" ||
-    intent.currency !== "gbp" || intent.amount !== Math.round(b.amount * 100)) return false;
+    intent.currency !== "gbp" || intent.amount !== Math.round(b.amount * 100) ||
+    (pickupAt !== undefined && (!Number.isSafeInteger(pickupAt) || !isCheckoutHoldPolicy({securityHoldPolicyVersion:b.securityHoldPolicyVersion}) || b.pickupAt !== pickupAt))) return false;
   const old = await sb.paymentIntents.retrieve(oldId);
   const customer = stripeId(old.customer), method = stripeId(old.payment_method);
   return old.metadata?.bookingId === String(bookingId) && !!customer && customer === stripeId(intent.customer) && !!method &&
@@ -76,11 +82,14 @@ async function reconcile(ctx: any, bookingId: any, oldId: string, newId: string,
       });
       return "failed";
     }
+    const pickupAt = intent.metadata?.pickupAt === undefined ? undefined : Number(intent.metadata.pickupAt);
     const replaced: boolean = await ctx.runMutation(internal.bookings.replaceHold, {
       bookingId, oldIntentId: oldId, newIntentId: newId, expiresAt,
+      ...(pickupAt === undefined ? {} : { pickupAt }),
     });
     if (replaced) await releasePrevious(ctx, bookingId, [oldId], sb);
-    else if ((await ctx.runQuery(internal.bookings.renewalContext, { bookingId }))?.oldIntentId !== newId) {
+    else if ((await ctx.runQuery(internal.bookings.renewalContext, { bookingId }))?.oldIntentId === newId) return "renewed";
+    else {
       // Booking ended or another worker won the race: never leave a new hold orphaned.
       await sb.paymentIntents.cancel(newId).catch(console.error);
     }
@@ -94,13 +103,13 @@ async function reconcile(ctx: any, bookingId: any, oldId: string, newId: string,
 }
 
 export const renewOne = internalAction({
-  args: { bookingId: v.id("bookings") },
-  handler: async (ctx, { bookingId }) => {
+  args: { bookingId: v.id("bookings"), force: v.optional(v.boolean()), pickupAt: v.optional(v.number()) },
+  handler: async (ctx, { bookingId, force, pickupAt }) => {
     const sb = stripe();
     const before: any = await ctx.runQuery(internal.bookings.renewalContext, { bookingId });
     if (!before) return;
     await releasePrevious(ctx, bookingId, before.previousIntentIds, sb);
-    if (!(await ctx.runMutation(internal.bookings.claimRenewal, { bookingId }))) return;
+    if (!(await ctx.runMutation(internal.bookings.claimRenewal, { bookingId, force, pickupAt }))) return;
     const b: any = await ctx.runQuery(internal.bookings.renewalContext, { bookingId });
     if (!b?.oldIntentId) return;
     let nextId: string | undefined;
@@ -118,9 +127,16 @@ export const renewOne = internalAction({
           ...(process.env.STRIPE_EXTENDED_AUTH_ENABLED === "true"
             ? { payment_method_options: { card: { request_extended_authorization: "if_available" as const } } }
             : {}),
-          metadata: { bookingId, purpose: "security_hold_renewal", replaces: b.oldIntentId },
+          metadata: {
+            bookingId,
+            purpose: "security_hold_renewal",
+            replaces: b.oldIntentId,
+            ...(pickupAt === undefined ? {} : { pickupAt: String(pickupAt) }),
+          },
           expand: ["latest_charge"],
-        }, { idempotencyKey: `dbc-hold-renew-${bookingId}-${b.oldIntentId}` });
+        }, { idempotencyKey: pickupAt === undefined
+          ? `dbc-hold-renew-${bookingId}-${b.oldIntentId}`
+          : `dbc-hold-renew-${bookingId}-pickup-${pickupAt}` });
       } catch (e: any) {
         const id = e?.raw?.payment_intent?.id ?? e?.payment_intent?.id;
         if (!id) throw e;
@@ -131,9 +147,12 @@ export const renewOne = internalAction({
         bookingId, oldIntentId: b.oldIntentId, intentId: nextId, status: "processing",
       });
       const status = await reconcile(ctx, bookingId, b.oldIntentId, next.id, sb);
+      if (pickupAt !== undefined && status === "renewed") await notify(b.guestEmail,
+        "Your rental card hold was renewed before pickup",
+        `<p>Your £${b.amount} security hold has been refreshed before collection. This is a temporary card authorisation, not a payment, and no extra rental charge has been taken. The earlier authorisation is released only after its replacement is confirmed. If your bank asks you to approve the hold, please complete that in your rental account before pickup.</p><p><a href="${process.env.APP_URL ?? "https://dbcinemarentals.com"}/account">Open your rental account</a></p>`).catch(console.error);
       if (status === "requires_action") await notify(b.guestEmail,
         "Action needed to keep your rental security hold active",
-        `<p>Your bank needs you to approve a replacement security hold of £${b.amount}. The earlier hold will be released after the new one is authorised. Please sign in at <a href="${process.env.APP_URL ?? "https://dbcinemarentals.com"}/account">your rental account</a> to approve it before the current hold expires. This is a hold, not a new payment.</p>`).catch(console.error);
+        `<p>Your bank needs you to approve a replacement security hold of £${b.amount}. The earlier hold will be released after the new one is authorised. Please sign in at <a href="${process.env.APP_URL ?? "https://dbcinemarentals.com"}/account">your rental account</a> to approve it before pickup. This is a hold, not a new payment.</p>`).catch(console.error);
       if (status === "failed") await notify(b.guestEmail,
         "Your rental security hold needs attention",
         `<p>We could not renew your £${b.amount} security hold. Please contact us before the existing hold expires. Your bank may require a new card or direct authentication.</p>`).catch(console.error);
@@ -146,6 +165,19 @@ export const renewOne = internalAction({
         `<p>We could not renew your £${b.amount} security hold. Please contact us before the existing hold expires.</p>`).catch(console.error);
       console.error("Security hold renewal failed", bookingId, e);
     }
+  },
+});
+
+export const renewPickup = internalAction({
+  args: { bookingId: v.id("bookings"), pickupAt: v.number() },
+  handler: async (ctx, { bookingId, pickupAt }) => {
+    const b: any = await ctx.runQuery(internal.bookings.renewalContext, { bookingId });
+    const now = Date.now();
+    if (!b || !isCheckoutHoldPolicy({ securityHoldPolicyVersion: b.securityHoldPolicyVersion }) ||
+      b.pickupAt !== pickupAt || b.pickupRenewedForAt === pickupAt || b.cancellationPending || b.returnPending ||
+      !["confirmed", "active"].includes(b.status) || now < pickupAt - PICKUP_HOLD_RENEWAL_LEAD_MS || now >= pickupAt ||
+      !b.oldIntentId || b.depositHoldStatus !== "held") return;
+    await ctx.runAction(internal.holdRenewal.renewOne, { bookingId, force: true, pickupAt });
   },
 });
 

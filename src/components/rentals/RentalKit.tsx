@@ -11,7 +11,7 @@ export function RentalKit({ items, compact = false, prices = false, showcase = f
   const grouped = groupRentalKit(items);
   const units = grouped.reduce((n, item) => n + (item.qty ?? 1), 0);
   const photos = uniqueKitPhotos(grouped);
-  const visible = allPhotos ? grouped : photos.slice(0, compact || showcase ? 1 : 3);
+  const visible = allPhotos ? photos : photos.slice(0, compact || showcase ? 1 : 3);
   return <div className="min-w-0">
     <div className={allPhotos ? "flex gap-2 overflow-x-auto pb-2" : compact ? "flex items-center gap-4" : "flex gap-2"} aria-label={allPhotos ? "Equipment in this rental" : undefined}>
       {visible.map((item, i) => <div key={i} title={item.title} className={`management-kit-image relative overflow-hidden rounded-2xl ${allPhotos ? "h-24 w-28 shrink-0" : compact ? "h-24 w-28 shrink-0" : "min-w-0 flex-1"}`}>

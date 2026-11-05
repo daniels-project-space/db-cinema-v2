@@ -22,7 +22,7 @@ function rental(overrides={}) {
 }
 const state=load('convex/securityChargeState.ts');
 const cards=load('convex/savedCardState.ts');
-async function prepare(b, kind, amount, suffix) {return state.prepare.handler(ctx,{token:owner,bookingId:b._id,requestId:'assessment-request-'+suffix,kind,amount,reason:'Documented inspected issue or late time; evidenced actual cost.'});}
+async function prepare(b, kind, amount, suffix, claimBasis) {return state.prepare.handler(ctx,{token:owner,bookingId:b._id,requestId:'assessment-request-'+suffix,kind,...(claimBasis?{claimBasis}:{}),amount,reason:'Documented inspected issue or late time; evidenced actual cost.'});}
 async function notified(id) {await state.noticeResult.handler(ctx,{id,sent:true,recipient:account.email,subject:'Evidence',html:'Retained delivered evidence'});}
 let createCalls=0, refundCalls=0, bankMode='paid';
 const provider = new Map();
@@ -55,12 +55,23 @@ const actionCtx={runQuery:async(ref,args)=>{
  assert.deepEqual(policy.securityForPolicy(policy.LEGACY_TEN_PERCENT_HOLD_POLICY,'deposit',2500),{deposit:1250,hold:2500});
  assert.throws(()=>policy.savedCardChargeLimit(NaN));assert.throws(()=>policy.savedCardChargeLimit(-1));
  const b=rental();assert.equal(consent.assertSavedCardConsent(b),250);assert.equal(consent.savedCardRentalValue(b),2500);consent.assertSavedCardCollection(b);
+ assert.deepEqual(policy.securityForPolicy(policy.SETUP_INTENT_SECURITY_POLICY_VERSION,'verify',4000),{deposit:0,hold:0});
+ assert.deepEqual([999.99,1000,3999.99,4000].map(policy.setupIntentSecurityLimit),[50,100,100,200]);
  const listing=put('listings',{title:'Canonical camera',active:true,depositAmount:2500,pricing:{daily:100}});
  const bookings=load('convex/bookings.ts');
  const createArgs={customerEmail:account.email,customerName:'Card Owner',billingAddress:'London fixture',fulfilment:'pickup',pickupTime:'10:00',returnTime:'18:00',lineItems:[{...line,listingId:listing._id}],subtotal:100,deliveryFee:0,depositAmount:0,depositHoldAmount:0,total:100,expectedTotalDue:100,currency:'GBP',securityPolicyVersion:policy.SECURITY_POLICY_VERSION,savedCardLimit:250,agreementName:'Card Owner',agreementDocs:AGREEMENTS,securityHoldConsent:true,laterChargeConsent:true,agreementRequestId:'canonical-saved-card-attempt-001'};
  await assert.rejects(bookings.createPending.handler(ctx,{...createArgs,savedCardLimit:251}),/limit/);
  const created=await bookings.createPending.handler(ctx,createArgs),canonical=await db.get(created.bookingId);
  assert.equal(canonical.depositAmount,0);assert.equal(canonical.depositHoldAmount,0);assert.equal(canonical.savedCardLimit,250);assert.equal(JSON.parse(canonical.agreementSnapshot).particulars.savedCardConsent,consent.savedCardConsentText(250));
+ const setup=rental(),setupLegal=load('src/lib/legal.ts'),setupPolicy=policy.SETUP_INTENT_SECURITY_POLICY_VERSION,setupLimit=50,setupConsent=consent.setupIntentConsentText(setupLimit),setupDocs=setupLegal.agreementsForSecurityPolicy(setupPolicy),setupSigned=Date.now()-10*86400000;
+ const setupAcceptance={...setup,securityPolicyVersion:setupPolicy,savedCardLimit:setupLimit,savedCardConsentText:setupConsent,agreementDocs:setupDocs,securityHoldConsent:true,laterChargeConsent:true};
+ await db.patch(setup._id,{securityPolicyVersion:setupPolicy,savedCardLimit:setupLimit,savedCardConsentText:setupConsent,agreementDocs:setupDocs,agreementSignedAt:setupSigned,laterChargeConsentAt:setupSigned,agreementSnapshot:agreement.snapshotAgreement(setupAcceptance,setupSigned,100,0),depositAmount:0,depositHoldAmount:0});
+ assert.equal(consent.assertSavedCardConsent(setup),setupLimit);consent.assertSavedCardCollection(setup);
+ await assert.rejects(state.prepare.handler(ctx,{token:owner,bookingId:setup._id,requestId:'setup-claim-no-basis-0001',kind:'damage',amount:20,reason:'Permanent damage with repair evidence.'}),/Choose the recorded loss or severe cosmetic-damage basis/);
+ const setupDamage=await prepare(setup,'damage',20,'setup-damage-0001','severe_cosmetic_damage'),setupLate=await prepare(setup,'late',30,'setup-late-0001');
+ assert.equal((await db.get(setupDamage)).claimBasis,'severe_cosmetic_damage');assert.equal(setup.savedCardChargeReservedPence,5000);
+ await assert.rejects(prepare(setup,'late',0.01,'setup-late-over-cap'),/combined damage and late-fee card limit/);
+ const setupList=await state.list.handler(ctx,{token:'saved-card-renter',bookingId:setup._id});assert.equal(setupList.securityPolicyVersion,setupPolicy);assert.equal(setupList.rows.find(row=>row.id===setupDamage).claimBasis,'severe_cosmetic_damage');
  for(const patch of [{savedCardLimit:251},{depositAmount:1},{savedCardConsentText:'forged'},{agreementSignedAt:1}])assert.throws(()=>consent.assertSavedCardConsent({...b,...patch}));
  for(const patch of [{status:'active'},{pickedUpAt:undefined},{actualReturnedAt:Date.now()-31*86400000},{cancellationDecision:{}},{savedCardStatus:'needs_setup'}])assert.throws(()=>consent.assertSavedCardCollection({...b,...patch}));
  const ready={...b,status:'confirmed',savedCardStatus:'needs_setup',idVerifyStatus:'verified',verificationExpiresAt:Date.now()+86400000,verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},verificationArchiveReady:true};
@@ -118,6 +129,7 @@ const actionCtx={runQuery:async(ref,args)=>{
  await state.record.handler(ctx,{id:orphanId,intentId:'pi_removedaccount',state:'paid',paidPence:1000});const archivedRefund=await state.beginRefund.handler(ctx,{id:orphanId,amountPence:1000,reason:'Refund after account removal'});await state.recordRefund.handler(ctx,{id:orphanId,receipt:{...archivedRefund.receipt,stripeRefundId:'re_removedaccount',status:'succeeded'},refundedPence:1000});assert.equal((await db.get(orphanId)).refundedPence,1000,'Account removal cannot prevent recording an original-method refund');
  const legal=load('shared/legalDocuments.ts');assert.equal(legal.RENTAL_DRAFT_RELEASE_READY,false);const terms=JSON.stringify(legal.LEGAL_DOCS.terms);
  assert.match(terms,/£100 per rental/);assert.match(terms,/actually incurred and evidenced/);assert.match(terms,/age, condition and depreciation/);assert.match(terms,/separate payment approval/);
+ bankMode='paid';await notified(setupDamage);await db.patch(setupDamage,{collectAfter:Date.now()-1});const beforeSetupCharge=createCalls;assert.equal((await actions.collect.handler(actionCtx,{token:owner,id:setupDamage})).status,'paid');assert.equal(createCalls,beforeSetupCharge+1);assert.equal(setup.savedCardChargePaidPence,2000,'The SetupIntent-policy consent can support the later off-session claim after the notice window.');
  assert(!consent.savedCardConsentText(250).includes('administration'));assert(!fs.readFileSync('src/app/checkout/page.tsx','utf8').includes('£100 damage'));
  assert.deepEqual(legal.LEGAL_ARCHIVE['2026-10-v12'],load('shared/legal-history/2026-10-v12.ts').default);
  console.log('PASS saved-card security: no upfront security, canonical 10%, historic holds, exact consent, ownership, seven-day delivery grace, combined cap/replay, dispute acceptance, bank receipts, refund/reversal without allowance reuse, unknown outcome safety, no background refund and terms-only fair £100 administration.');

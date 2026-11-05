@@ -1,8 +1,8 @@
 "use node";
-import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
+import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
 import {isSavedCardRental} from "../shared/savedCardSecurity";
 import {REFUNDABLE_DEPOSIT_POLICY_VERSION} from "../shared/rentalSecurity";
-import {canDeferAdditionSecurity,PICKUP_HOLD_POLICY,pickupHoldAt} from "../shared/pickupSecurity";
+import {canDeferAdditionSecurity,isPickupHoldPolicyVersion,pickupHoldAt} from "../shared/pickupSecurity";
 import Stripe from "stripe";
 import { checkoutPaymentIntent, syncStripeMembership } from "./checkout";
 import { createHash } from "node:crypto";
@@ -88,7 +88,7 @@ async function ensureSession(ctx: any, id: any) {
       integration_identifier: `db-rental-update-${Array.from(createHash("sha256").update(r.requestId).digest().subarray(0, 8), (n) => String.fromCharCode(97 + (n % 26))).join("")}`,
       custom_text: {
         submit: {
-          message: r.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?`You accepted an equipment update with a refundable deposit of £${((r.baseSecurity??0)+r.securityCharge).toFixed(2)} and saved-card permission for evidenced future damage, loss and late-fee payments. Retained deposit reduces the same assessment. Notice and dispute rights remain under your rental agreement.`:hasCashDepositPolicy(r.securityPolicyVersion)?`You accepted an equipment update with refundable deposit £${((r.baseSecurity??0)+r.securityCharge).toFixed(2)} and a combined damage/late-fee card-payment limit of £${r.proposedSavedCardLimit.toFixed(2)}. Retained cash reduces that limit and the same loss. Existing notice and dispute rights remain under your rental agreement.`:`By paying you accept the updated rental under our [terms](${origin}/legal/terms), including the stated refundable security charge and updated card authorisation. For pickup-scheduled security, the updated hold is requested at pickup on your saved card. Documented late fees and damage are handled under your rental agreement.`,
+          message: r.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?`You accepted an equipment update with a refundable deposit of £${((r.baseSecurity??0)+r.securityCharge).toFixed(2)} and saved-card permission for evidenced future damage, loss and late-fee payments. Retained deposit reduces the same assessment. Notice and dispute rights remain under your rental agreement.`:hasCashDepositPolicy(r.securityPolicyVersion)?`You accepted an equipment update with refundable deposit £${((r.baseSecurity??0)+r.securityCharge).toFixed(2)} and a combined damage/late-fee card-payment limit of £${r.proposedSavedCardLimit.toFixed(2)}. Retained cash reduces that limit and the same loss. Existing notice and dispute rights remain under your rental agreement.`:r.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION?"No deposit or card hold is added for this equipment update. By paying, you accept the updated rental payment only; any future security claim remains governed by the separately accepted saved-card agreement.":`By paying you accept the updated rental under our [terms](${origin}/legal/terms), including the stated refundable security charge and updated card authorisation. For pickup-scheduled security, the updated hold is requested at pickup on your saved card. Documented late fees and damage are handled under your rental agreement.`,
         },
       },
       mode: "payment",
@@ -108,7 +108,7 @@ async function ensureSession(ctx: any, id: any) {
                 ? "Updated DB Cinema rental"
                 : "DB Cinema rental item addition",
               description:
-                `${r.qty}× ${r.title}. Rental £${r.lineTotal.toFixed(2)}; additional refundable security £${r.securityCharge.toFixed(2)}. Updated card hold £${r.holdTotal.toFixed(2)}.${r.draftReplacement ? ` Includes existing rental checkout £${(r.baseTotal ?? 0).toFixed(2)}.` : ""}`.slice(
+                `${r.qty}× ${r.title}. Rental £${r.lineTotal.toFixed(2)}; ${r.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION?"no deposit or card hold is added under the accepted saved-card terms.":`additional refundable security £${r.securityCharge.toFixed(2)}. Updated card hold £${r.holdTotal.toFixed(2)}.`}${r.draftReplacement ? ` Includes existing rental checkout £${(r.baseTotal ?? 0).toFixed(2)}.` : ""}`.slice(
                   0,
                   500,
                 ),
@@ -361,7 +361,7 @@ async function finish(
     return { bookingId: r.bookingId, status: "draft_applied" };
   }
   if(!payment)throw Error("An item addition requires a saved rental payment.");
-  if(!isSavedCardRental(b)&&b.securityHoldPolicyVersion===PICKUP_HOLD_POLICY&&pickupHoldAt(b)>Date.now()){
+  if(!isSavedCardRental(b)&&isPickupHoldPolicyVersion(b.securityHoldPolicyVersion)&&pickupHoldAt(b)>Date.now()){
     if(!canDeferAdditionSecurity(b)||r.holdIntentId||r.securityCreationPending)throw Error("Resolve the existing security authorisation before updating the pickup hold.");
     const result=await ctx.runMutation(internal.rentalAdditionState.apply,{id});
     if(result.closed){const result=await withdraw(ctx,id);return {bookingId:r.bookingId,status:result?.pending?"refund_pending":"refunded",closed:!result?.pending};}

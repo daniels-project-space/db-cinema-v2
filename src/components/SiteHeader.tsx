@@ -467,6 +467,20 @@ export function SiteHeader() {
           })}
         </nav>
 
+        <button
+          type="button"
+          onClick={() => {
+            setMobile(false);
+            window.dispatchEvent(new CustomEvent("dbc:open-gaffer-chat"));
+          }}
+          className="group flex items-center justify-between border-b border-white/[0.06] py-4 text-left"
+        >
+          <span className="font-display text-2xl font-semibold text-accent-200/90 transition-colors group-hover:text-accent-100">
+            Chat with Gaffer
+          </span>
+          <IconArrowRight className="h-5 w-5 text-accent-300/50 transition-transform group-hover:translate-x-1 group-hover:text-accent-200" />
+        </button>
+
         <FormSevenMobileTrigger
           spinning={spinning}
           shining={shining}

@@ -16,7 +16,9 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  agreementName:'Original Renter',agreementDocs:AGREEMENTS.map(({kind,version})=>({kind,version})),
  agreementRequestId:'agreement-fixture-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,pickupTime:'10:00',returnTime:'18:00'};
 (async()=>{
- assert.match(CURRENT_PRIVACY_NOTICE.sections.find(s=>s.h==='5. Retention').p,/90 days/);
+ assert.match(CURRENT_PRIVACY_NOTICE.sections.find(s=>s.h==='5. Retention').p,/at least 90 days after the last related rental/i);
+ assert.match(CURRENT_PRIVACY_NOTICE.sections.find(s=>s.h==='5. Retention').p,/at least 90 days afterwards/i);
+ assert.match(CURRENT_PRIVACY_NOTICE.sections.find(s=>s.h==='5. Retention').p,/regardless of the provider's document-expiry date/i);
  assert.match(CURRENT_PRIVACY_NOTICE.sections.find(s=>s.h==='1. What we collect').p,/private copies/i);
  assert.doesNotMatch(LEGAL_ARCHIVE['2026-10-v16'].privacy.sections.find(s=>s.h==='5. Retention').p,/90 days/,'A current privacy notice must not rewrite archived agreements');
  const count=()=>tables.get('bookings')?.length??0;

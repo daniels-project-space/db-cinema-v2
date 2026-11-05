@@ -12,7 +12,7 @@ import {internal} from "./_generated/api";
 
 async function state(ctx:any,bookingId:any,ownRequest?:any){
  const b=await ctx.db.get(bookingId);
- if(!b||!["confirmed","active"].includes(b.status)||b.returnDecision||b.cancellationDecision||b.activeAdditionId||b.activeExtensionId||(b.activePriceAdjustmentId&&b.activePriceAdjustmentId!==ownRequest))throw Error("Finish the current rental operation before changing its price.");
+ if(!b||!["confirmed","active"].includes(b.status)||b.returnDecision||b.cancellationDecision||b.activeAdditionId||b.activeDeliveryQuoteId||b.activeExtensionId||(b.activePriceAdjustmentId&&b.activePriceAdjustmentId!==ownRequest))throw Error("Finish the current rental operation before changing its price.");
  const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",(q:any)=>q.eq("bookingId",bookingId)).take(101);
  if(refunds.length>100||refunds.some((r:any)=>["prepared","pending"].includes(r.status)))throw Error("Wait for the rental refund to settle before changing the price.");
  return {b,refunds,snapshot:rentalControlsSnapshot(b,refunds),refundedPence:confirmedRentalRefundPence(refunds)};

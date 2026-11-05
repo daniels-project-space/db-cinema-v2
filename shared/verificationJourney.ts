@@ -1,4 +1,4 @@
-import { securityReady, verificationExpired } from "./verificationProgress";
+import { securityReady, verificationExpired, verificationValidUntil } from "./verificationProgress";
 import type { VerificationBooking } from "./rentalReadiness";
 import {isSavedCardRental} from './savedCardSecurity';
 
@@ -28,14 +28,15 @@ export function verificationJourney(
     ["cancelled", "returned"].includes(booking.status) ||
     !!booking.cancellationPending ||
     !!booking.returnPending;
-  const paid = ["confirmed", "active", "returned"].includes(booking.status);
+  const paid = ["pending_verification", "confirmed", "active", "returned"].includes(booking.status);
   const unexpired = !verificationExpired(booking, now);
   const checksPassed = ["identity", "selfie", "address"].every(
     (key) => booking.verificationChecks?.[key] === "approved",
   );
+  const verifiedUntil = verificationValidUntil(booking);
   const verified =
     booking.idVerifyStatus === "verified" &&
-    booking.verificationExpiresAt != null &&
+    verifiedUntil != null &&
     unexpired &&
     (booking.idVerificationSource === "manual" ||
       !booking.verificationChecks ||
@@ -49,7 +50,7 @@ export function verificationJourney(
     (!booking.depositHoldAmount ||
       (booking.depositHoldExpiresAt != null &&
         booking.depositHoldExpiresAt > now));
-  const ready = !closed && paid && reviewed && drone && security;
+  const ready = !closed && booking.status !== "pending_verification" && paid && reviewed && drone && security;
   const steps = [
     {
       label: "Payment",
@@ -91,6 +92,8 @@ export function verificationJourney(
       label: booking.fulfilment === "delivery" ? "Ready for delivery" : "Ready for pickup",
       detail: ready
         ? "All set"
+        : booking.status === "pending_verification"
+          ? "Booking confirmation pending"
         : reviewed && drone
           ? isSavedCardRental(booking) ? "Complete saved-card setup" : "Card hold required"
           : "Awaiting checks",

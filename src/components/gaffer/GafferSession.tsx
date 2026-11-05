@@ -139,6 +139,10 @@ const OVERRIDE_PROBE_MS = 5_000;
 let overridesAllowed: boolean | null = null;
 const GafferCtx = createContext<Ctx | null>(null);
 
+export function formatLiveCallContext(pathname: string | null | undefined, variables: Record<string, unknown>) {
+  return `[Voice turn guidance — not caller speech] Gather required tool results before conclusions; deliver one settled, concise answer and never revise or restart it mid-speech. [Current page and basket — not caller speech] Page: ${pathname ?? "/"}. ${JSON.stringify(variables)}. At cart/checkout, explain any unavailable item and offer only its actual same-date alternatives. Use check_basket before promising availability. Mention Show more replacements if the first two do not suit. Ask before switching. For emailed carts use email_checkout_cart; for account setup collect name, phone and email then setup_account. Never ask for a code or password.`;
+}
+
 export function GafferSessionProvider({ children }: { children: ReactNode }) {
   const trackUsage=useMutation(api.analytics.track);
   const [state, setState] = useState<CallState>("idle");
@@ -152,10 +156,6 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   const variablesRef = useRef(dynamicVariables);
   variablesRef.current = dynamicVariables;
   const pathname = usePathname();
-  useEffect(()=>{
-    if(state!=="live")return;
-    try{conv.current?.sendContextualUpdate?.(`[Current page and basket — not caller speech] Page: ${pathname}. ${JSON.stringify(dynamicVariables)}. At cart/checkout, explain any unavailable item and offer only its actual same-date alternatives. Use check_basket before promising availability. Mention Show more replacements if the first two do not suit. Ask before switching. For emailed carts use email_checkout_cart; for account setup collect name, phone and email then setup_account. Never ask for a code or password.`);}catch{/* Refresh on the next basket update. */}
-  },[state,dynamicVariables,pathname]);
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
 
@@ -489,7 +489,11 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         onMessage: ({ message, source }: { message: string; source: "user" | "ai" }) => {
           if (!mine()) return;
           memory.current.add(source, message);
-          if (source === "user") { noteCustomerMessage(message); resetSpokenFocus(); }
+          if (source === "user") {
+            try { conv.current?.sendContextualUpdate?.(formatLiveCallContext(pathnameRef.current, variablesRef.current)); } catch { /* non-fatal */ }
+            noteCustomerMessage(message);
+            resetSpokenFocus();
+          }
           // Gaffer has answered, so the caller owns the silence again from here.
           if (source === "ai") {
             noteAgentMessage(message);
@@ -602,7 +606,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         try {
           const currentBrief = continuity ? pageBrief(pathnameRef.current ?? "/").brief : brief;
           session.sendContextualUpdate?.(currentBrief);
-          session.sendContextualUpdate?.((continuity ? memory.current.context() + "\n" : "") + "Current customer and basket: " + JSON.stringify(variablesRef.current));
+          session.sendContextualUpdate?.((continuity ? memory.current.context() + "\n" : "") + formatLiveCallContext(pathnameRef.current, variablesRef.current));
         } catch { /* non-fatal */ }
       } catch (err: any) {
         if (!mine()) return;

@@ -25,6 +25,9 @@ function load(file, mocks = {}, globals = {}) {
 }
 const registered = { query: x => x, mutation: x => x, internalQuery: x => x, internalMutation: x => x, action: x => x, internalAction: x => x };
 const refs = new Proxy({}, { get: (_, group) => new Proxy({}, { get: (_, name) => `${String(group)}:${String(name)}` }) });
+const { PROMPT: GAFFER_VOICE_AGENT_PROMPT } = require('./gaffer-system-prompt');
+assert.match(GAFFER_VOICE_AGENT_PROMPT, /# DECIDE, THEN SPEAK[\s\S]*one concise, complete answer/i);
+assert.match(GAFFER_VOICE_AGENT_PROMPT, /Never begin one answer and replace it halfway through/i);
 // These values satisfy the checkout activation boundary; no provider call is made.
 Object.assign(process.env, {
   RENTAL_CHECKOUT_ENABLED: 'true', DIDIT_API_KEY: 'test', DIDIT_WORKFLOW_ID: 'test', DIDIT_WEBHOOK_SECRET: 'test', DIDIT_APPLICATION_ID: 'test', DIDIT_ENVIRONMENT: 'sandbox',
@@ -242,7 +245,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   };
   let priceAllowed=false,alignments=0;const usageEvents=[];
   let getMicrophone=async()=>({getTracks:()=>[{stop(){}}]});
-  const {GafferSessionProvider}=load('src/components/gaffer/GafferSession.tsx',{
+  const {GafferSessionProvider,formatLiveCallContext}=load('src/components/gaffer/GafferSession.tsx',{
     react:React,'react/jsx-runtime':{jsx:(_type,props)=>props},
     'convex/react':{useMutation:()=>async args=>{usageEvents.push(args)}},'@cvx/_generated/api':{api:refs},'@/lib/session':{getSessionId:()=> 'fixture-browser'},
     'next/navigation':{usePathname:()=>'/gear'},
@@ -252,13 +255,19 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     '@/components/gaffer/micPermission':{micState:async()=> 'granted',requestMic:async()=>({ok:true})},
     '@elevenlabs/client':{Conversation:{startSession:async cfg=>{const session={cfg,updates:[],ended:false,sendContextualUpdate(text){this.updates.push(text);},async endSession(){this.ended=true;cfg.onDisconnect();}};sessions.push(session);cfg.onConnect();return session;}}},
   },{Date:{now:()=>now},navigator:{mediaDevices:{getUserMedia:()=>getMicrophone()}},localStorage:{getItem:()=>null,removeItem(){},setItem(){}},setTimeout:()=>1,clearTimeout:()=>{},console:{warn(){},error(){}}});
+  assert.match(formatLiveCallContext('/gear',{basket_count:'1'}),/one settled, concise answer/i);
   const render=()=>{cursor=0;return GafferSessionProvider({children:null}).value;};
   await render().toggle();assert.equal(render().state,'live');
   const first=sessions[0];assert.equal(first.cfg.connectionType,"websocket");assert.deepEqual(first.cfg.workletPaths,{rawAudioProcessor:'/voice-worklets/rawAudioProcessor.js?v=1.12.0',audioConcatProcessor:'/voice-worklets/audioConcatProcessor.js?v=1.12.0'});first.cfg.onAudioAlignment({chars:["F"],char_start_times_ms:[0],char_durations_ms:[100]});assert.equal(alignments,1,"Current audio alignment reaches the catalog tracker");
+  const contextUpdatesBeforeCustomerTurn=first.updates.length;
   first.cfg.onMessage({source:'user',message:'My name is Alex; FX3 next Friday.'});
+  assert.equal(first.updates.length,contextUpdatesBeforeCustomerTurn+1,'Live page context is sent at a caller turn, not continuously while Gaffer speaks');
+  assert.match(first.updates.at(-1),/one settled, concise answer/i);
   await first.cfg.clientTools.add_to_basket({item:'FX3'});
+  variables={basket_count:'1',basket_items:'FX3 next Friday'};const contextUpdatesBeforeCartRender=first.updates.length;render();
+  assert.equal(first.updates.length,contextUpdatesBeforeCartRender,'Basket rerenders do not inject new competing context during Gaffer speech');
   first.cfg.onMessage({source:'user',message:'Could you do a better price?'});assert.equal(priceAllowed,true);
-  variables={basket_count:'1',basket_items:'FX3 next Friday'};render();
+  assert.match(first.updates.at(-1),/FX3 next Friday/,'The next customer turn receives the latest basket state');
   now+=600_000;first.cfg.onDisconnect();await new Promise(resolve=>setImmediate(resolve));
   assert.equal(sessions.length,2);assert.equal(render().state,'live');assert.deepEqual(usageEvents,[{type:'gaffer_connected',path:'/gear',sessionId:'fixture-browser'}],'Transport reconnection does not double count a conversation');
   const resumed=sessions[1];first.cfg.onAudioAlignment({chars:["X"],char_start_times_ms:[0],char_durations_ms:[100]});assert.equal(alignments,1,"Stale audio cannot refocus the new call");

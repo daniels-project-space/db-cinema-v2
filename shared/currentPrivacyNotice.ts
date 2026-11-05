@@ -1,6 +1,6 @@
 import { LEGAL_DOCS, type LegalDoc } from "./legalDocuments";
 
-export const CURRENT_PRIVACY_NOTICE_VERSION = "2026-11-02";
+export const CURRENT_PRIVACY_NOTICE_VERSION = "2026-11-05";
 
 export const CURRENT_PRIVACY_NOTICE: LegalDoc = {
   ...LEGAL_DOCS.privacy,
@@ -12,7 +12,7 @@ export const CURRENT_PRIVACY_NOTICE: LegalDoc = {
     };
     if (section.h === "5. Retention") return {
       ...section,
-      p: "We keep verification documents while a related rental is active and normally for 90 days after the last related rental is returned or cancelled. An open damage or insurance case, or a documented retention hold, may require relevant evidence to be kept longer. If a closure date has not been recorded, the documents remain available until it is clarified. Other booking records are kept only as long as necessary for their legal, accounting and operational purposes.",
+      p: "We keep verification documents while a related rental is active and for at least 90 days after the last related rental is returned or cancelled, regardless of the provider's document-expiry date. If a damage or insurance case is open, we keep the relevant documents until the case is closed and for at least 90 days afterwards. A documented legal or retention hold may keep them longer. If a closure date has not been recorded, the documents remain available until it is clarified. Other booking records are kept only as long as necessary for their legal, accounting and operational purposes.",
     };
     return { ...section };
   }),

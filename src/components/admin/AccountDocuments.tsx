@@ -220,6 +220,7 @@ export function AccountDocuments({
     archive: { generation?: number };
   }, download: boolean | "open" = false) {
     const currentScope = scope.current;
+    let reportArchiveFailure = false;
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
@@ -238,13 +239,16 @@ export function AccountDocuments({
         cache: "no-store",
         signal: controller.signal,
       });
-      if (!response.ok)
+      if (!response.ok) {
+        reportArchiveFailure = response.status === 404 || response.status === 409;
         throw Error(
           "Document could not be opened. Please retry or check admin access.",
         );
+      }
       const blob = await response.blob();
       if(document.contentType.startsWith("image/")&&typeof createImageBitmap==="function"){
-        const bitmap=await createImageBitmap(blob);bitmap.close();
+        try { const bitmap=await createImageBitmap(blob);bitmap.close(); }
+        catch (error) { reportArchiveFailure = true; throw error; }
       }
       if (controller.signal.aborted || currentScope !== scope.current) return;
       if (activeUrl.current) URL.revokeObjectURL(activeUrl.current);
@@ -260,7 +264,7 @@ export function AccountDocuments({
       setPreview({ url, type: document.contentType, title: documentTitle(document.kind),documentId:document.id,accountId,token });
     } catch (e) {
       if (!controller.signal.aborted && currentScope === scope.current) {
-        void reportDisplayFailure({token,documentId:document.id as any,generation:document.archive.generation??0}).catch(()=>{});
+        if(reportArchiveFailure)void reportDisplayFailure({token,documentId:document.id as any,generation:document.archive.generation??0}).catch(()=>{});
         setError(e instanceof Error ? e.message : "Could not open document.");
       }
     } finally {
@@ -278,8 +282,7 @@ export function AccountDocuments({
   }
   function failedPreview() {
     if (!selectedFile || preview?.documentId !== selectedFile.id) return;
-    void reportDisplayFailure({token,documentId:selectedFile.id as any,generation:selectedFile.archive.generation??0}).catch(()=>{});
-    setError("The saved document could not be displayed. Review document access and retry the archive.");
+    setError("The browser could not preview this file. Try opening or downloading the saved original; the archive has not been changed.");
   }
   return (
     <section className={`${styles.page} ${embedded ? styles.embedded : ""}`} aria-label="Account documents" data-testid="retained-documents-page">

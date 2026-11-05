@@ -34,7 +34,7 @@ import { groupDeliveryItems } from "../../../shared/deliveryGroups";
 
 import {useCreditBalance} from "@/components/account/useCreditBalance";
 import {CancellationProtection} from "@/components/cart/CancellationProtection";
-import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, savedCardChargeLimit, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../../../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, isCardHoldSecurityPolicy, savedCardChargeLimit, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION, setupIntentSecurityLimit } from "../../../shared/rentalSecurity";
 
 const PC_RE = /\b(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i;
 const DRAFT_TERMS = JSON.stringify({ documents: AGREEMENTS, delivery: DELIVERY_TERMS_VERSION });
@@ -56,7 +56,7 @@ function StepCard({
 }) {
   return (
     <section
-      className="spot gradient-border relative overflow-hidden rounded-2xl p-5 sm:p-6"
+      className="spot gradient-border relative min-w-0 overflow-hidden rounded-2xl p-4 sm:p-6"
       style={{ animation: `card-in 0.55s var(--ease-out-expo) ${delay}ms both` }}
     >
       <span className="font-poster pointer-events-none absolute -right-1 -top-3 text-7xl text-white/[0.04]" aria-hidden>
@@ -212,7 +212,7 @@ export default function CheckoutPage() {
   const reuseVerification=useQuery(api.accounts.checkoutVerification,account.token && account.me && signature.trim() && billingAddress.trim() && reuseStarts.length && reuseStarts.every(Number.isFinite)
     ? {token:account.token,name:signature,address:billingAddress,starts:reuseStarts} : "skip");
   const reuseVerificationFresh=useFreshVerification(reuseVerification?.proofExpiresAt);
-  const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: deliveryQuoteCurrent ? dq.fee : null, creditReservation:creditAvailability?.available??null, policy:{assessment:checkoutSettings?.assessmentSecurityEnabled,deposit:checkoutSettings?.refundableDepositEnabled,cancellation:checkoutSettings?.cancellationProtectionEnabled}, account: accountPricingContext(account.me) });
+  const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: deliveryQuoteCurrent ? dq.fee : null, creditReservation:creditAvailability?.available??null, policy:{setupIntent:checkoutSettings?.setupIntentSecurityEnabled,cardHold:checkoutSettings?.cardHoldSecurityEnabled,assessment:checkoutSettings?.assessmentSecurityEnabled,deposit:checkoutSettings?.refundableDepositEnabled,cancellation:checkoutSettings?.cancellationProtectionEnabled}, account: accountPricingContext(account.me) });
   const offerContext = membershipOfferContext({ ...priceArgs, quotedDeliveryFee: deliveryQuoteCurrent ? dq.fee : null, account: accountPricingContext(account.me) });
   const currentQuote = quoted?.key === quoteKey ? quoted.value : null;
   // Delivery details are not needed to quote the rental-only joining saving.
@@ -266,11 +266,13 @@ export default function CheckoutPage() {
     return () => window.removeEventListener("pageshow", restore);
   }, []);
 
-  const futureChargeLimit = currentQuote?.savedCardLimit ?? savedCardChargeLimit(equipmentValue);
+  const futureChargeLimit = currentQuote?.savedCardLimit ?? (checkoutSettings?.setupIntentSecurityEnabled ? setupIntentSecurityLimit(equipmentValue) : savedCardChargeLimit(equipmentValue));
   const refundablePolicy = hasCashDepositPolicy(currentQuote?.securityPolicyVersion);
   const assessmentPolicy=currentQuote?.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION;
+  const cardHoldPolicy=isCardHoldSecurityPolicy(currentQuote?.securityPolicyVersion);
+  const setupIntentPolicy=currentQuote?.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION;
   const rentalAgreements = agreementsForSecurityPolicy(currentQuote?.securityPolicyVersion,currentQuote?.cancellationProtectionEnabled);
-  const savedCardQuoteReady = !!currentQuote && (currentQuote.securityPolicyVersion === SECURITY_POLICY_VERSION || refundablePolicy) && Number.isFinite(currentQuote.savedCardLimit) && (refundablePolicy ? [0,20,50,100].includes(currentQuote.depositAmount) : currentQuote.depositAmount === 0) && currentQuote.depositHoldAmount === 0;
+  const savedCardQuoteReady = !!currentQuote && (currentQuote.securityPolicyVersion === SECURITY_POLICY_VERSION || refundablePolicy || cardHoldPolicy || setupIntentPolicy) && Number.isFinite(currentQuote.savedCardLimit) && (cardHoldPolicy ? currentQuote.depositAmount === 0 && currentQuote.savedCardLimit === 0 && [0,50,100,200].includes(currentQuote.depositHoldAmount) : setupIntentPolicy ? [50,100,200].includes(currentQuote.savedCardLimit) && currentQuote.depositAmount === 0 && currentQuote.depositHoldAmount === 0 : (refundablePolicy ? [0,20,50,100].includes(currentQuote.depositAmount) : currentQuote.depositAmount === 0) && currentQuote.depositHoldAmount === 0);
   useEffect(()=>{setAgreed(false);setSignature("");agreementRequest.current=null;},[futureChargeLimit,currentQuote?.depositAmount,currentQuote?.securityPolicyVersion,currentQuote?.cancellationProtectionEnabled]);
   const signDone = agreed && signature.trim().length > 2 && signatureLimit.current === futureChargeLimit && signedContext.current === signingContext;
 
@@ -346,7 +348,7 @@ export default function CheckoutPage() {
         protection,useAccountCredit,
         pickupTime:effectivePickupTime,
         returnTime:effectiveReturnTime,
-        agreement: { name: signature.trim(), requestId: acceptanceAttempt, securityHoldConsent: agreed, laterChargeConsent: agreed, documents: docs },
+        agreement: { name: signature.trim(), requestId: acceptanceAttempt, securityHoldConsent: agreed, laterChargeConsent: cardHoldPolicy ? false : agreed, documents: docs },
       });
       await Promise.race([track({type:"payment_redirect",sessionId:getSessionId()}).catch(()=>{}),new Promise(resolve=>setTimeout(resolve,400))]);
       window.location.href = url;
@@ -386,11 +388,11 @@ export default function CheckoutPage() {
     <>
       <SiteHeader />
       <CheckoutLoopBanner />
-      <main className="section-window mx-auto max-w-5xl px-6 pb-12 pt-8">
+      <main className="section-window mx-auto min-w-0 max-w-5xl px-4 pb-12 pt-6 sm:px-6 sm:pt-8">
         <CheckoutCode benefitKind={currentQuote?.benefitKind}/>
         {checkoutSettings?.cancellationProtectionEnabled&&<div className="mb-4"><CancellationProtection showV16RenterPolicy={Boolean(checkoutSettings.assessmentSecurityEnabled&&checkoutSettings.cancellationProtectionEnabled)}/></div>}
         <CheckoutMembership variant="checkout" loading={rentalPreview.loading && !quoteError} appliedSavings={membershipDisplayQuote ?? undefined} suggestions={displayedRecommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
-        <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_330px]">
+        <div className="mt-8 grid min-w-0 grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_330px]">
           <div className="flex flex-col gap-5">
             {/* 01 — details */}
             <StepCard n="01" title="Your details" done={detailsDone} delay={0}>
@@ -430,7 +432,7 @@ export default function CheckoutPage() {
               <div className="flex gap-3">
                 {(
                   [
-                    ["pickup", IconPin, "Pickup", "central London"],
+                    ["pickup", IconPin, "Pickup", "Trafalgar Square · outside Waterstones"],
                     ["delivery", IconTruck, "Delivery", "quoted by distance"],
                   ] as const
                 ).map(([f, Icon, t, d]) => (
@@ -498,7 +500,7 @@ export default function CheckoutPage() {
                 </nav>
                 <label className="mt-4 flex items-start gap-2.5 text-sm leading-6 text-white/80">
                   <input data-testid="rental-agreement-checkbox" type="checkbox" checked={agreed} disabled={!currentQuote} onChange={e=>{setAgreed(e.target.checked);agreementRequest.current=null;}} className="mt-1 accent-accent-500 disabled:opacity-40"/>
-                  <span data-testid="saved-card-consent-text">I agree to all the linked terms and authorise my card for future damage, loss and late-fee payments.</span>
+                  <span data-testid="saved-card-consent-text">{setupIntentPolicy?`I agree to the linked terms and permit itemised, evidenced post-return claims up to ${formatGbp(futureChargeLimit)} combined. No funds are held; insurance is separate.`:"I agree to all the linked terms and authorise my card for future damage, loss and late-fee payments."}</span>
                 </label>
               </div>
               <div className="mt-4">
@@ -517,7 +519,7 @@ export default function CheckoutPage() {
           </div>
 
           {/* summary */}
-          <aside data-testid="checkout-summary" className="ticket spot gradient-border h-fit rounded-2xl p-5 lg:sticky! lg:top-24">
+          <aside data-testid="checkout-summary" className="ticket spot gradient-border h-fit min-w-0 rounded-2xl p-5 lg:sticky! lg:top-24">
             <div className="hud-label !text-accent-400/90">Order summary</div>
             <div className="mt-4 flex flex-col gap-2 text-sm">
               {items.map((i, index) => (
@@ -540,7 +542,7 @@ export default function CheckoutPage() {
                 </div>
               )}
               {fulfilment === "delivery" && (currentQuote?.deliveryGroups ?? (deliveryQuoteCurrent ? dq.groups : [])).map((group: {start:number;end:number;fee:number}, index:number) => <Row key={`${group.start}-${group.end}-${index}`} label={`Delivery & collection · ${deliveryPeriodLabel(group.start,group.end)}`} value={group.fee} />)}
-              {(creditAvailability?.available??0)>0&&(currentQuote?.availableAccountCredit??0)>0&&<label className="mb-4 block rounded-xl border border-emerald-300/20 bg-emerald-300/[.04] p-3 text-xs leading-5 text-white/75"><span className="flex items-center gap-2"><input data-testid="checkout-use-credit" type="checkbox" checked={useAccountCredit} disabled={busy} onChange={e=>{setUseAccountCredit(e.target.checked);if(e.target.checked)window.dispatchEvent(new CustomEvent("dbc:credit:selected",{detail:{accountId:account.me?._id}}));}}/>Use account credit · {formatGbp(currentQuote!.availableAccountCredit)} available</span><span className="mt-1 block text-[10px] text-white/50">Selected credit is non-refundable and cannot be withdrawn as cash, subject to statutory rights. Existing expiry dates apply. Credit cannot pay the refundable deposit or membership fee. Earned credit does not stack with discounts.</span></label>}
+              {(creditAvailability?.available??0)>0&&(currentQuote?.availableAccountCredit??0)>0&&<label className="mb-4 block rounded-xl border border-emerald-300/20 bg-emerald-300/[.04] p-3 text-xs leading-5 text-white/75"><span className="flex items-center gap-2"><input data-testid="checkout-use-credit" type="checkbox" checked={useAccountCredit} disabled={busy} onChange={e=>{setUseAccountCredit(e.target.checked);if(e.target.checked)window.dispatchEvent(new CustomEvent("dbc:credit:selected",{detail:{accountId:account.me?._id}}));}}/>Use account credit · {formatGbp(currentQuote!.availableAccountCredit)} available</span><span className="mt-1 block text-[10px] text-white/50">Selected credit is non-refundable and cannot be withdrawn as cash, subject to statutory rights. Existing expiry dates apply. Credit cannot pay separately quoted security amounts or membership fees. Earned credit does not stack with discounts.</span></label>}
               {!!currentQuote?.membershipSignupOfferSaving && <Row label="One-time joining credit" value={-currentQuote.membershipSignupOfferSaving} saving />}
               {!!currentQuote?.membershipCreditApplied && <Row label="Subscription credit applied" value={-currentQuote.membershipCreditApplied} saving />}
               {!!currentQuote && currentQuote.creditApplied - currentQuote.membershipCreditApplied > 0 && (
@@ -553,8 +555,8 @@ export default function CheckoutPage() {
               <div data-testid="checkout-secondary-charges" className="space-y-2">
                 {!!membership && <Row label={membership.intro === "trial" ? "Subscription · first 7 days free" : "First subscription month"} value={currentQuote?.membershipFee ?? 0} muted />}
                 <section data-testid="refundable-security" className="mt-3 rounded-xl border border-white/10 bg-white/[.015] p-3">
-                  <h3 className="mb-3 text-[10px] font-medium uppercase tracking-[.12em] text-white/55">{savedCardQuoteReady?assessmentPolicy?'Refundable deposit':'Deposit & card limit':'Quote updating'}</h3>
-                  {savedCardQuoteReady?<>{refundablePolicy&&<Row label="Refundable deposit today" value={currentQuote?.depositAmount??0}/>}{!assessmentPolicy&&<Row label="Later card limit · not charged" value={futureChargeLimit} muted />}<p className="mt-3 text-[10px] leading-5 text-white/55">{refundablePolicy?"Unused deposit refunded to your card; retained amounts reduce later charges.":"No deposit or card hold. The limit is not charged today."}</p></>:<><Row label="Previous policy refundable deposit" value={currentQuote?.depositAmount??0} muted/><Row label="Previous policy card authorisation" value={currentQuote?.depositHoldAmount??0} muted/><p className="mt-3 text-[10px] leading-5 text-white/55">The updated quote must remove these security amounts before payment is available.</p></>}
+                  <h3 className="mb-3 text-[10px] font-medium uppercase tracking-[.12em] text-white/55">{savedCardQuoteReady?setupIntentPolicy?'Saved card & future claims':cardHoldPolicy?'Card authorisation hold':assessmentPolicy?'Refundable deposit':'Deposit & card limit':'Quote updating'}</h3>
+                  {savedCardQuoteReady?cardHoldPolicy?<><Row label={currentQuote?.depositHoldAmount?"Temporary card hold":"Card hold"} value={currentQuote?.depositHoldAmount??0} muted/><p className="mt-3 text-[10px] leading-5 text-white/55">{currentQuote?.depositHoldAmount?"Not a payment and not included in your total. It may reduce your available balance. If pickup is more than a week away, we request a replacement five hours before pickup and release the old hold only after the new one succeeds.":"No hold is due because this account meets the agreed exemption criteria."} An issue-free return releases the hold automatically; any claim needs a recorded reason.</p></>:setupIntentPolicy?<><Row label="Future-claim ceiling · not charged or held" value={futureChargeLimit} muted/><p className="mt-3 text-[10px] leading-5 text-white/55">Stripe saves your card for the specific post-return claims in the agreement; no deposit is charged and no funds are reserved. No automatic charge on an on-time return without a reported issue. Claims need a recorded reason, evidence and itemised notice. A later bank payment may be declined or require authentication; insurance is separate.</p></>:<>{refundablePolicy&&<Row label="Refundable deposit today" value={currentQuote?.depositAmount??0}/>}{!assessmentPolicy&&<Row label="Later card limit · not charged" value={futureChargeLimit} muted />}<p className="mt-3 text-[10px] leading-5 text-white/55">{refundablePolicy?"Unused deposit refunded to your card; retained amounts reduce later charges.":"No deposit or card hold. The limit is not charged today."}</p></>:<><Row label="Previous policy refundable deposit" value={currentQuote?.depositAmount??0} muted/><Row label="Previous policy card authorisation" value={currentQuote?.depositHoldAmount??0} muted/><p className="mt-3 text-[10px] leading-5 text-white/55">The updated quote must remove these security amounts before payment is available.</p></>}
                 </section>
               </div>
               <hr className="receipt-sep" />

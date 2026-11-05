@@ -17,6 +17,8 @@ const ctx={db,scheduler:{runAfter:async()=>{}},runMutation:async(ref,args)=>{con
  const a={token,bookingId:b._id,newTotal:125,requestId:'fixture-price-012345',expectedSnapshot:q.snapshot,confirmed:true};
  await assert.rejects(state.propose.handler(ctx,{...a,confirmed:false}),/Review/);
  await assert.rejects(state.propose.handler(ctx,{...a,expectedSnapshot:'stale'}),/changed/);
+ const deliveryLocked=put('bookings',{...b,_id:'fixture-delivery-locked',activePriceAdjustmentId:undefined,activeDeliveryQuoteId:'delivery_quote_active'});
+ await assert.rejects(state.preview.handler(ctx,{token,bookingId:deliveryLocked._id,newTotal:125}),/current rental operation/,'price changes cannot start while a delivery payment is active');
  const id=await state.propose.handler(ctx,a);assert.equal(await state.propose.handler(ctx,a),id);assert.equal(b.total,150,'proposal takes no money');
  await assert.rejects(state.accept.handler(ctx,{token:'outsider',id,expectedNewTotal:125,expectedDelta:25}),/not available/);
  const accepted=await state.accept.handler(ctx,{token:'fixture-renter',id,expectedNewTotal:125,expectedDelta:25});assert(accepted.acceptanceText);assert.equal(accepted.acceptedEmail,account.email);

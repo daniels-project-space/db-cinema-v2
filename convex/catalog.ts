@@ -58,6 +58,9 @@ export const repriceLines = internalQuery({
 const images = listingImages;
 const publicVisible = (listing: { title: string; active?: boolean; suppressed?: boolean; itemType?: string | null; marketingOnly?: boolean; marketingOnlySource?: "auto" | "admin" | "rental_manager" }) =>
   !!listing.active && !listing.suppressed && !isMarketingOnly(listing);
+const isPubliclyBookable = (listing: any) =>
+  !rentalUnavailable(listing) && Array.isArray(listing.components) && listing.components.length > 0 &&
+  listing.components.every((component: any) => typeof component.inventoryUnitId === "string" && component.inventoryUnitId.length > 0 && Number.isSafeInteger(component.qty) && component.qty > 0);
 
 export const publicRevision = query({ args: {}, handler: async ctx => `v2:${await catalogRevision(ctx)}` });
 
@@ -81,6 +84,7 @@ const card = (l: any) => ({
   minimumRentalDays: l.minimumRentalDays ?? 1,
   demandScore: l.demandScore ?? 0,
   marketingOnly: isMarketingOnly(l),
+  bookable: isPubliclyBookable(l),
   quietDeal: l.quietDeal ?? null,
   displayOnly: !!l.suppressed && !isMarketingOnly(l),
 });
@@ -437,7 +441,7 @@ export const getListingBySlug = query({
       unavailableDates: publicListing.unavailableDates ?? [],
       marketingOnly: isMarketingOnly(publicListing),
       displayOnly: !!publicListing.suppressed && !isMarketingOnly(publicListing),
-      bookable: !rentalUnavailable(publicListing),
+      bookable: isPubliclyBookable(publicListing),
       demandScore: publicListing.demandScore ?? 0,
     };
   },

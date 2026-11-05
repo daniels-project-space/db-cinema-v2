@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict');
 const {load,db,put,setMock}=require('./lib/rentalTestHarness.cjs');
-let outcome='requires_capture',expired=false,failRelease=false,events=[];
+let outcome='requires_capture',expired=false,failRelease=false,events=[],mails=[];
 const originals=new Map(),created=new Map();
 class StripeFixture {
  paymentIntents={
@@ -9,10 +9,10 @@ class StripeFixture {
   cancel:async id=>{events.push(['cancel',id]);if(failRelease&&id.startsWith('old'))throw Error('Isolated old-hold release failure');return {id,status:'canceled'};}
  };
 }
-setMock('stripe',{default:StripeFixture});setMock('./lib/mailer',{sendMail:async()=>true});process.env.STRIPE_SECRET_KEY='sk_test_fixture';
+setMock('stripe',{default:StripeFixture});setMock('./lib/mailer',{sendMail:async mail=>{mails.push(mail);return true;}});process.env.STRIPE_SECRET_KEY='sk_test_fixture';process.env.APP_URL='https://example.invalid';
 const renew=load('convex/holdRenewal.ts'),bookings=load('convex/bookings.ts');
 const mutationCtx={db,scheduler:{runAfter:async(delay,ref,args)=>events.push(['scheduled',ref,args])}};
-const ctx={db,runQuery:(ref,args)=>bookings[ref.split('.')[1]].handler({db},args),runMutation:async(ref,args)=>{events.push([ref,args]);return bookings[ref.split('.')[1]].handler(mutationCtx,args);}};
+const ctx={db,runQuery:(ref,args)=>bookings[ref.split('.')[1]].handler({db},args),runMutation:async(ref,args)=>{events.push([ref,args]);return bookings[ref.split('.')[1]].handler(mutationCtx,args);},runAction:async(ref,args)=>renew[ref.split('.')[1]].handler(ctx,args)};
 const make=(amount=250,status='confirmed',hours=2)=>{const b=put('bookings',{status,depositHoldAmount:amount,stripeDepositIntentId:'old-'+Math.random(),depositHoldStatus:'held',depositHoldExpiresAt:Date.now()+hours*3600000,lineItems:[]});originals.set(b.stripeDepositIntentId,b._id);return b;};
 (async()=>{
  let b=make();await renew.renewOne.handler(ctx,{bookingId:b._id});let create=events.find(x=>x[0]==='create');assert.equal(create[1].amount,25000);assert.equal(create[1].currency,'gbp');assert.equal(create[1].capture_method,'manual');assert.equal(create[1].off_session,true);assert.match(create[2].idempotencyKey,/dbc-hold-renew/);assert.equal(b.stripeDepositIntentId,'new-'+b._id);assert(events.findIndex(x=>x[0]==='bookings.replaceHold')<events.findIndex(x=>x[0]==='cancel'),'Old hold is released only after replacement is recorded');
@@ -36,5 +36,10 @@ const make=(amount=250,status='confirmed',hours=2)=>{const b=put('bookings',{sta
  events=[];b=make(250,'confirmed',25);await renew.renewOne.handler(ctx,{bookingId:b._id});assert(!events.some(x=>x[0]==='create'),'No renewal outside the 24-hour window');
  events=[];outcome='requires_action';b=make();const old=b.stripeDepositIntentId;await renew.renewOne.handler(ctx,{bookingId:b._id});assert.equal(b.stripeDepositIntentId,old);assert.equal(b.depositHoldRenewalStatus,'requires_action');assert(!events.some(x=>x[0]==='cancel'),'Authentication never releases the existing hold');
  events=[];outcome='requires_capture';expired=true;b=make();const before=b.stripeDepositIntentId;await renew.renewOne.handler(ctx,{bookingId:b._id});assert.equal(b.stripeDepositIntentId,before);assert.equal(b.depositHoldRenewalStatus,'failed');assert.deepEqual(events.filter(x=>x[0]==='cancel').map(x=>x[1]),['new-'+b._id]);
- console.log('PASS hold renewal: saved 10% and historical amounts, 24-hour eligibility, manual/off-session/idempotent request, manager revision before release, duplicate receipt denial, failed cleanup recovery, ended rentals, authentication and expired replacements. Controlled provider fixture; no real card requests.');
+ events=[];mails=[];expired=false;outcome='requires_capture';const pickupAt=Date.now()+4*3600000;b=make();b.guestEmail='renter@example.invalid';b.securityHoldPolicyVersion='2026-11-checkout-hold-v1';b.securityHoldPickupAt=pickupAt;
+ await renew.renewPickup.handler(ctx,{bookingId:b._id,pickupAt});
+ const pickupRenewal=events.find(x=>x[0]==='create');assert(pickupRenewal,'Scheduled pickup refresh renews a still-valid hold');assert.equal(pickupRenewal[1].metadata.pickupAt,String(pickupAt),'Refresh is bound to the agreed pickup timestamp');assert.equal(b.securityHoldPickupRenewedForAt,pickupAt,'Successful replacement records the single pickup refresh');assert.equal(b.stripeDepositIntentId,'new-'+b._id);assert(events.findIndex(x=>x[0]==='bookings.replaceHold')<events.findIndex(x=>x[0]==='cancel'),'Pickup refresh keeps the old hold until replacement is recorded');assert.match(mails[0].subject,/renewed before pickup/i);assert.match(mails[0].html,/not a payment/i);assert.match(mails[0].html,/no extra rental charge/i);
+ const pickupRenewCreates=events.filter(x=>x[0]==='create').length;await renew.renewPickup.handler(ctx,{bookingId:b._id,pickupAt});assert.equal(events.filter(x=>x[0]==='create').length,pickupRenewCreates,'A pickup refresh cannot be repeated for the same pickup');
+ events=[];mails=[];outcome='requires_action';b=make();b.guestEmail='renter@example.invalid';b.securityHoldPolicyVersion='2026-11-checkout-hold-v1';b.securityHoldPickupAt=pickupAt;const protectedOld=b.stripeDepositIntentId;await renew.renewPickup.handler(ctx,{bookingId:b._id,pickupAt});assert.equal(b.stripeDepositIntentId,protectedOld,'Authentication preserves the prior authorization');assert.equal(b.depositHoldRenewalStatus,'requires_action');assert(!events.some(x=>x[0]==='cancel'),'Pickup authentication never releases the prior hold');assert.match(mails[0].html,/approve/i);assert.match(mails[0].html,/not a new payment/i);
+ console.log('PASS hold renewal: saved 10% and historical amounts, 24-hour eligibility, manual/off-session/idempotent request, manager revision before release, duplicate receipt denial, failed cleanup recovery, ended rentals, authentication and expired replacements, one-time five-hour pickup refresh and renter notices. Controlled provider fixture; no real card requests.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

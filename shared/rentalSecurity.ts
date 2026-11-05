@@ -4,9 +4,13 @@ export const SECURITY_POLICY_VERSION = "2026-10-saved-card-v1";
 /** A separate immutable policy: never reinterpret an existing signed rental. */
 export const REFUNDABLE_DEPOSIT_POLICY_VERSION = "2026-10-refundable-deposit-v1";
 export const ASSESSMENT_SECURITY_POLICY_VERSION = "2026-10-refundable-assessment-v2";
+export const CARD_HOLD_SECURITY_POLICY_VERSION = "2026-11-card-hold-v1";
+export const SETUP_INTENT_SECURITY_POLICY_VERSION = "2026-11-setup-intent-v1";
 export function hasCashDepositPolicy(version?:string|null){return version===REFUNDABLE_DEPOSIT_POLICY_VERSION || version===ASSESSMENT_SECURITY_POLICY_VERSION;}
+export function isCardHoldSecurityPolicy(version?:string|null){return version===CARD_HOLD_SECURITY_POLICY_VERSION;}
+export function isSetupIntentSecurityPolicy(version?:string|null){return version===SETUP_INTENT_SECURITY_POLICY_VERSION;}
 export function assessmentDepositFor(value:number){return refundableDepositFor(value) || 20;}
-export function cardLimitForPolicy(version:string|undefined,value:number){return version===ASSESSMENT_SECURITY_POLICY_VERSION ? 0 : savedCardChargeLimit(value);}
+export function cardLimitForPolicy(version:string|undefined,value:number){return version===ASSESSMENT_SECURITY_POLICY_VERSION || isCardHoldSecurityPolicy(version) ? 0 : isSetupIntentSecurityPolicy(version) ? setupIntentSecurityLimit(value) : savedCardChargeLimit(value);}
 export function depositForBookingPolicy(b:any,value:number){
  if(b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION)return b.securityWaiverReason ? 0 : assessmentDepositFor(value);
  return refundableDepositFor(value);
@@ -16,6 +20,17 @@ export function refundableDepositFor(replacementSum: number) {
     throw Error("Invalid equipment replacement value.");
   const valuePence=Math.round(replacementSum*100);
   return valuePence < 100000 ? 0 : valuePence < 400000 ? 50 : 100;
+}
+
+export function cardHoldFor(replacementSum: number) {
+  if (!Number.isFinite(replacementSum) || replacementSum < 0 || !Number.isSafeInteger(Math.round(replacementSum * 100)))
+    throw Error("Invalid equipment replacement value.");
+  const valuePence = Math.round(replacementSum * 100);
+  return valuePence < 100000 ? 50 : valuePence < 400000 ? 100 : 200;
+}
+
+export function setupIntentSecurityLimit(replacementSum: number) {
+  return cardHoldFor(replacementSum);
 }
 
 export const LEGACY_TEN_PERCENT_HOLD_POLICY = "2026-10-ten-percent-hold-v2";
@@ -52,6 +67,8 @@ export function rentalSecurity(_protection: Protection, replacementSum: number) 
 }
 
 export function securityForPolicy(version: string | undefined, protection: Protection, value: number) {
+  if (isSetupIntentSecurityPolicy(version)) return { deposit: 0, hold: 0 };
+  if (version === CARD_HOLD_SECURITY_POLICY_VERSION) return { deposit: 0, hold: cardHoldFor(value) };
   if (version === ASSESSMENT_SECURITY_POLICY_VERSION) return { deposit:assessmentDepositFor(value),hold:0 };
   if (version === REFUNDABLE_DEPOSIT_POLICY_VERSION) return { deposit: refundableDepositFor(value), hold: 0 };
   if (version === SECURITY_POLICY_VERSION) return rentalSecurity(protection, value);

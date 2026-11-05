@@ -7,7 +7,7 @@ export async function firstOrderVoucherReason(ctx: any, account: any) {
   if (account.firstRentalPaidAt != null) return "DB10OFF is only available on your first order.";
   const rows = await rentalsForAccount(ctx,account,101);
   if (rows.length > 100) return "Your order history needs review before using this voucher.";
-  if (rows.some((b: any) => ["confirmed", "active", "returned"].includes(b.status) ||
+  if (rows.some((b: any) => ["pending_verification", "confirmed", "active", "returned"].includes(b.status) ||
     b.status === "cancelled" && (b.stripePaymentIntentId || b.rentalPaidPence !== undefined || b.accountCreatedAtCheckout)))
     return "DB10OFF is only available on your first order.";
   if (rows.some((b: any) => b.status === "pending_payment"))

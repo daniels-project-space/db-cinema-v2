@@ -1,4 +1,4 @@
-import { ASSESSMENT_SECURITY_POLICY_VERSION } from "../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION } from "../shared/rentalSecurity";
 import { query, mutation, internalMutation, internalQuery } from './_generated/server';
 import { v } from 'convex/values';
 import { assertAdmin, checkAdminToken } from './adminAuth';
@@ -14,15 +14,17 @@ export const list = query({args:{token:v.string(),bookingId:v.id('bookings'),adm
  const gross=b!.savedCardChargePaidPence??0,refunded=rows.reduce((n,r)=>n+(r.refundedPence??0),0);
  return {depositPaid:b!.depositAmount??0,depositRetained:retainedDepositPence(b)/100,depositRefunded:b!.depositRefundAmount??0,remaining:b!.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?null:Math.max(0,Math.round((b!.savedCardLimit??0)*100)-gross-(b!.savedCardChargeReservedPence??0)-retainedDepositPence(b))/100,limit:b!.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?null:b!.savedCardLimit??0,used:gross/100,paid:Math.max(0,gross-refunded)/100,reserved:(b!.savedCardChargeReservedPence??0)/100,cardStatus:b!.savedCardStatus??'awaiting_payment',
   damageAssessed:b!.savedCardDamageAssessed??b!.returnDecision?.damageKept??0,lateAssessed:b!.lateFeeAmount??0,returnedAt:b!.actualReturnedAt??null,
-  rows:rows.map(r=>({id:r._id,kind:r.kind,amount:r.amountPence/100,reason:r.reason,state:r.state,paid:(r.paidPence??0)/100,createdAt:r.createdAt,noticeAt:r.noticeAt??null,collectAfter:r.collectAfter??null,disputeReason:r.disputeReason??null,disputeResolution:r.disputeResolution??null,disputeResolvedAt:r.disputeResolvedAt??null,refunded:(r.refundedPence??0)/100,refundStatus:r.refundReceipt?.status??null,refundReason:r.refundReason??null,...(a.admin?{refundApprovalUrl:r.refundReceipt?.approvalUrl??null}:{}),error:r.error??null}))};
+  securityPolicyVersion:b!.securityPolicyVersion??null,rows:rows.map(r=>({id:r._id,kind:r.kind,claimBasis:r.claimBasis??null,amount:r.amountPence/100,reason:r.reason,state:r.state,paid:(r.paidPence??0)/100,createdAt:r.createdAt,noticeAt:r.noticeAt??null,collectAfter:r.collectAfter??null,disputeReason:r.disputeReason??null,disputeResolution:r.disputeResolution??null,disputeResolvedAt:r.disputeResolvedAt??null,refunded:(r.refundedPence??0)/100,refundStatus:r.refundReceipt?.status??null,refundReason:r.refundReason??null,...(a.admin?{refundApprovalUrl:r.refundReceipt?.approvalUrl??null}:{}),error:r.error??null}))};
 }});
-export const prepare = mutation({args:{token:v.string(),bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),amount:v.number(),reason:v.string()},handler:async(ctx,a)=>{
+export const prepare = mutation({args:{token:v.string(),bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),amount:v.number(),reason:v.string()},handler:async(ctx,a)=>{
  await assertAdmin(ctx,a.token,'securityCharges.prepare');
  if(!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId)||!Number.isFinite(a.amount)||a.amount<=0||Math.round(a.amount*100)/100!==a.amount||a.reason.trim().length<10||a.reason.length>4000)throw Error('Enter a positive penny-accurate amount and itemised evidence/reason.');
  const amountPence=Math.round(a.amount*100),reason=a.reason.trim();
  const previous=await ctx.db.query('rental_security_charges').withIndex('by_request',q=>q.eq('bookingId',a.bookingId).eq('requestId',a.requestId)).unique();
- if(previous){if(previous.kind!==a.kind||previous.amountPence!==amountPence||previous.reason!==reason)throw Error('This request belongs to a different assessment.');return previous._id;}
+ if(previous){if(previous.kind!==a.kind||previous.claimBasis!==a.claimBasis||previous.amountPence!==amountPence||previous.reason!==reason)throw Error('This request belongs to a different assessment.');return previous._id;}
  const b=await ctx.db.get(a.bookingId);assertSavedCardCollection(b);
+ if(b!.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION&&(a.kind==='damage'&&!a.claimBasis||a.kind==='late'&&a.claimBasis))throw Error('Choose the recorded loss or severe cosmetic-damage basis for this saved-card claim.');
+ if(b!.securityPolicyVersion!==SETUP_INTENT_SECURITY_POLICY_VERSION&&a.claimBasis)throw Error('A new-policy claim basis cannot be applied to this rental.');
  if(Date.now()+SECURITY_COLLECTION_NOTICE_HOURS*3600000>b!.actualReturnedAt!+SECURITY_COLLECTION_DAYS*86400000)throw Error('There is insufficient time for the notice period within the agreed collection window.');
  if(!b!.accountId)throw Error('A permanent rental account is required.');
  const account=await ctx.db.get(b!.accountId);if(!account||account.blockedAt!=null||!account.email)throw Error('The rental account is unavailable.');
@@ -37,9 +39,10 @@ export const prepare = mutation({args:{token:v.string(),bookingId:v.id('bookings
  const reserved=b!.savedCardChargeReservedPence??0,paid=b!.savedCardChargePaidPence??0,limit=Math.round(b!.savedCardLimit!*100);
  if(b!.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION && amountPence>limit-reserved-paid-retainedCashPence)throw Error('The combined damage and late-fee card limit would be exceeded. Request separate payment consent for any further amount.');
  if(firstPendingQuote)await ctx.db.patch(b!._id,{savedCardDamageAssessed:a.amount});
- const now=Date.now(),id=await ctx.db.insert('rental_security_charges',{bookingId:a.bookingId,accountId:b!.accountId,requestId:a.requestId,kind:a.kind,amountPence,reason,customerId:b!.savedCardCustomerId!,paymentMethodId:b!.savedCardPaymentMethodId!,consentSnapshot:b!.agreementSnapshot!,state:'notice_pending',createdAt:now,updatedAt:now});
+ const now=Date.now(),id=await ctx.db.insert('rental_security_charges',{bookingId:a.bookingId,accountId:b!.accountId,requestId:a.requestId,kind:a.kind,...(a.claimBasis?{claimBasis:a.claimBasis}:{}),amountPence,reason,customerId:b!.savedCardCustomerId!,paymentMethodId:b!.savedCardPaymentMethodId!,consentSnapshot:b!.agreementSnapshot!,state:'notice_pending',createdAt:now,updatedAt:now});
  await ctx.db.patch(b!._id,{savedCardChargeReservedPence:reserved+amountPence});
- await postRentalMessage(ctx,{accountId:b!.accountId,bookingId:b!._id,sender:'system',text:`An itemised ${a.kind==='late'?'late-return':'damage/loss'} assessment of £${a.amount.toFixed(2)} has been prepared. No payment has been taken. You will receive the evidence and proposed collection date before any card collection. ${reason}`});
+ const basisText=a.claimBasis==='loss'?' · lost or unreturned item':a.claimBasis==='severe_cosmetic_damage'?' · severe, permanent cosmetic damage':'';
+ await postRentalMessage(ctx,{accountId:b!.accountId,bookingId:b!._id,sender:'system',text:`An itemised ${a.kind==='late'?'late-return':'damage/loss'} assessment${basisText} of £${a.amount.toFixed(2)} has been prepared. No payment has been taken. You will receive the evidence and proposed collection date before any card collection. ${reason}`});
  await ctx.scheduler.runAfter(0,internal.securityCharges.sendNotice,{id});return id;
 }});
 export const context=internalQuery({args:idArgs,handler:async(ctx,{id})=>{const charge=await ctx.db.get(id);if(!charge)return null;const booking=await ctx.db.get(charge.bookingId),account=await ctx.db.get(charge.accountId);const rows=await ctx.db.query('rental_security_charges').withIndex('by_booking',q=>q.eq('bookingId',charge.bookingId)).take(100);return {charge,booking,account,collectionPaused:rows.some(r=>r.disputedAt&&!r.disputeResolvedAt)||!!booking?.cancellationDecision||!account||account.blockedAt!=null};}});
@@ -52,7 +55,8 @@ export const noticeResult=internalMutation({args:{...idArgs,sent:v.boolean(),rec
  const r=await ctx.db.get(id);if(!r)return;
  if(receipt){await ctx.db.patch(id,{receiptLeaseUntil:undefined,...(sent?{receiptNoticeAt:Date.now(),receiptEmail:recipient,receiptSubject:subject,receiptHtml:html}: {})});return;}
  if(r.state!=='notice_pending')return;
- await ctx.db.patch(id,{noticeLeaseUntil:undefined,updatedAt:Date.now(),...(sent?{state:'notice_sent',noticeAt:Date.now(),noticeEmail:recipient,noticeSubject:subject,noticeHtml:html,collectAfter:Date.now()+SECURITY_COLLECTION_NOTICE_HOURS*3600000,error:undefined}:{error:'Notice delivery failed; collection is blocked.'})});
+ const now=Date.now();
+ await ctx.db.patch(id,{noticeLeaseUntil:undefined,updatedAt:now,...(sent?{state:'notice_sent',noticeAt:now,noticeEmail:recipient,noticeSubject:subject,noticeHtml:html,collectAfter:now+SECURITY_COLLECTION_NOTICE_HOURS*3600000,error:undefined}:{error:'Notice delivery failed; collection is blocked.'})});
 }});
 export const claim=internalMutation({args:idArgs,handler:async(ctx,{id})=>{
  const r=await ctx.db.get(id);if(!r)throw Error('Charge not found.');

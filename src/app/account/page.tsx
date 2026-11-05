@@ -600,8 +600,8 @@ function Membership() {
       <section>
         <p className="mb-4 font-mono text-[10px] uppercase tracking-[.16em] text-accent-300">Your {tier.name} membership</p>
         <div className="max-w-md"><MembershipPlanCard tier={tier} compact onSelect={manage} disabled={busy || !!(account.me?.membershipAdminGranted && !account.me?.membershipBillingTier)} label={busy ? "Opening settings…" : account.me?.membershipAdminGranted && !account.me?.membershipBillingTier ? "Granted by DB Cinema" : "Membership settings / cancel"} /></div>
-        {account.me?.membershipAdminGranted && <p className="mt-3 max-w-md text-xs leading-5 text-white/50">DB Cinema has granted this plan’s access. Monthly credit is issued only for paid subscription invoices; the upfront security waiver requires a paid membership. {account.me.membershipBillingTier ? `Your paid ${tierByKey(account.me.membershipBillingTier)?.name ?? "membership"} subscription is managed separately.` : "This grant does not start a subscription or monthly charges."}</p>}
-        {account.me?.membershipStatus === "trialing" && <p className="mt-3 text-xs text-amber-200">Free week: upfront security payment applies until the first paid invoice.</p>}
+        {account.me?.membershipAdminGranted && <p className="mt-3 max-w-md text-xs leading-5 text-white/50">DB Cinema has granted this plan’s access. Monthly credit is issued only for paid subscription invoices; this access grant does not waive or authorise rental-security claims. {account.me.membershipBillingTier ? `Your paid ${tierByKey(account.me.membershipBillingTier)?.name ?? "membership"} subscription is managed separately.` : "This grant does not start a subscription or monthly charges."}</p>}
+        {account.me?.membershipStatus === "trialing" && <p className="mt-3 text-xs text-amber-200">Free week: membership billing only. Rental-security terms are set separately in each accepted rental agreement.</p>}
         {account.me?.membershipCancelAtPeriodEnd && <p className="mt-3 text-xs text-white/45">Cancellation scheduled. Your plan will not renew.</p>}
       </section>
     );
@@ -618,7 +618,7 @@ function Membership() {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-white/40">
-        <span>Monthly renewal · credits valid for one year · applicable card holds remain</span>
+        <span>Monthly renewal · credits valid for one year · rental-security terms still apply</span>
         <Link href="/membership" className="text-accent-300 hover:underline">
           Compare plans in detail →
         </Link>

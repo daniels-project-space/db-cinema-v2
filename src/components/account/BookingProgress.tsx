@@ -3,7 +3,7 @@
 import { Fragment } from "react";
 import { bookingSteps } from "@/lib/bookingDisplay";
 
-/** Rental progress bar, including a separate card hold for new bookings. */
+/** Rental progress bar; card holds appear only for bookings using that policy. */
 export function BookingProgress({ booking, detailed = false }: { booking: { status: string; idVerifyStatus: string; depositHoldAmount?: number; depositHoldStatus?: string | null; requiresDroneLicence?: boolean; droneLicenceStatus?: string }; detailed?: boolean }) {
   const { cancelled, steps } = bookingSteps(booking);
   if (cancelled) {

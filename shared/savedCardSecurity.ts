@@ -1,5 +1,6 @@
-import { ASSESSMENT_SECURITY_POLICY_VERSION, depositForBookingPolicy, hasCashDepositPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit } from "./rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, depositForBookingPolicy, hasCashDepositPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit, SETUP_INTENT_SECURITY_POLICY_VERSION } from "./rentalSecurity";
 import { readAgreementSnapshot } from "./rentalAgreement";
+import { ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION } from "../src/lib/legal";
 
 export const SECURITY_COLLECTION_NOTICE_HOURS = 7 * 24;
 export const SECURITY_COLLECTION_DAYS = 30;
@@ -9,7 +10,12 @@ export function savedCardConsentText(limit: number, refundableDeposit?: number) 
   const security = refundableDeposit === undefined ? "No security payment is charged and no funds are blocked at checkout or pickup." : `A refundable deposit of £${refundableDeposit.toFixed(2)} is included in today’s payment; no additional funds are blocked. Any retained deposit counts toward this combined limit and the same assessed loss, reducing later card collection. Unused deposit is refunded to the original payment card after the return decision, with retained amounts and reasons itemised.`;
   return `I authorise DB Cinema Rentals to save my card through Stripe and attempt later card payments for evidenced equipment damage or loss and properly assessed late-return fees, up to £${limit.toFixed(2)} in total for this rental. This is 10% of the quoted equipment replacement value (£100 per £1,000). ${security} Before collection I will receive an itemised notice and evidence with at least seven days to raise an error or dispute. Collection may be attempted within 30 days after the recorded return. My bank may decline a payment or require authentication. Fair wear, pre-existing defects and loss attributable to DB are excluded. Amounts above this card-payment limit require a separate payment agreement; statutory and bank dispute rights remain unchanged.`;
 }
-export function isSavedCardRental(b: any) { return [SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, ASSESSMENT_SECURITY_POLICY_VERSION].includes(b?.securityPolicyVersion); }
+
+export function setupIntentConsentText(limit: number) {
+  if (![50,100,200].includes(limit)) throw Error("Invalid future security payment limit.");
+  return `I authorise DB Cinema Rentals to save my card through Stripe for later off-session, one-time payments for itemised and evidenced late-return charges or material, permanent cosmetic damage or loss beyond fair wear, up to £${limit.toFixed(2)} combined for this rental. No security deposit is charged and no funds are reserved at checkout or pickup. A saved card is not a bank hold or a guarantee that a later payment will be approved; my bank may decline it or require authentication. No amount is automatically charged on an on-time return without a reported issue. An authorised team member must record the specific reason and evidence, send an itemised notice, allow at least seven days to query or dispute it, and make any permitted collection within 30 days after the recorded return. Fair wear, pre-existing defects, minor removable marks and damage attributable to DB are excluded. Insurance claims or excess are separate under the insurance terms and are not charged under this permission. Any amount above this limit requires a separate agreement; statutory and bank dispute rights remain unchanged.`;
+}
+export function isSavedCardRental(b: any) { return [SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, ASSESSMENT_SECURITY_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION].includes(b?.securityPolicyVersion); }
 export function savedCardRentalValue(b: any) {
   return b.lineItems.reduce((sum:number,line:any)=>{
     const value=b.replacementValues?.find((row:any)=>row.listingId===line.listingId)?.unitPence;
@@ -29,7 +35,8 @@ export function assessmentConsentText(deposit:number){
 function assertAssessmentConsent(b:any){
  const snapshot=readAgreementSnapshot(b.agreementSnapshot);
  const fail=()=>{throw Error("The retained future-payment consent is missing or inconsistent. No charge is permitted.")};
- if(!snapshot || snapshot.version!==(b.cancellationProtectionEnabled?"2026-10-v16":"2026-10-v15") || snapshot.acceptedAt!==b.agreementSignedAt || !b.laterChargeConsentAt || snapshot.signer!==b.agreementName || snapshot.particulars.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION || snapshot.particulars.savedCardLimit!==0 || b.savedCardLimit!==0 || (b.depositHoldAmount??0)!==0)return fail();
+ const acceptedVersions=b.cancellationProtectionEnabled?["2026-10-v16",CANCELLATION_PROTECTION_LEGAL_VERSION]:["2026-10-v15",ASSESSMENT_DEPOSIT_LEGAL_VERSION];
+ if(!snapshot || !acceptedVersions.includes(snapshot.version) || snapshot.acceptedAt!==b.agreementSignedAt || !b.laterChargeConsentAt || snapshot.signer!==b.agreementName || snapshot.particulars.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION || snapshot.particulars.savedCardLimit!==0 || b.savedCardLimit!==0 || (b.depositHoldAmount??0)!==0)return fail();
  if((snapshot.particulars.securityWaiverReason??null)!==(b.securityWaiverReason??null) || b.securityWaiverReason && !["active_membership","encore","membership_checkout"].includes(b.securityWaiverReason))return fail();
  let deposit=snapshot.particulars.securityPayment;
  if(snapshot.particulars.savedCardConsent!==assessmentConsentText(deposit))return fail();
@@ -46,6 +53,16 @@ function assertAssessmentConsent(b:any){
 
 export function assertSavedCardConsent(b:any) {
   if(b?.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION)return assertAssessmentConsent(b);
+  if(b?.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION){
+    const fail=()=>{throw Error("The retained SetupIntent saved-card consent is missing or inconsistent. No charge is permitted.")};
+    const snapshot=readAgreementSnapshot(b.agreementSnapshot);
+    if(!snapshot||!b.laterChargeConsentAt||!b.agreementSignedAt||snapshot.acceptedAt!==b.agreementSignedAt||snapshot.signer!==b.agreementName||snapshot.particulars.securityPolicyVersion!==SETUP_INTENT_SECURITY_POLICY_VERSION||(b.depositAmount??0)!==0||(b.depositHoldAmount??0)!==0||(b.securityAmendments??[]).length)return fail();
+    const limit=snapshot.particulars.savedCardLimit;
+    if(typeof limit!=="number"||![50,100,200].includes(limit))return fail();
+    const consent=setupIntentConsentText(limit);
+    if(snapshot.particulars.savedCardConsent!==consent||b.savedCardLimit!==limit||b.savedCardConsentText!==consent)return fail();
+    return limit;
+  }
   const fail=()=>{throw Error("The retained saved-card payment consent is missing or inconsistent. No charge is permitted.")};
   if(!isSavedCardRental(b)||!Number.isFinite(b.savedCardLimit)||b.savedCardLimit<0) return fail();
   const snapshot=readAgreementSnapshot(b.agreementSnapshot),cashPolicy=b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION;

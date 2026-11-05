@@ -32,7 +32,7 @@ assert.equal(cancellationDaysForBooking(booking),14);
 assert.equal(bookingCancelKind(booking,at(2026,10,11,22)),'full_refund');
 assert.equal(bookingCancelKind(booking,at(2026,10,11,23)),'store_credit','London midnight, rather than UTC midnight, closes the window');
 assert.equal(bookingCancelKind(booking,at(2026,10,12)),'store_credit');
-for(const version of ['2026-10-v13','2026-10-v14','2026-10-v15']){
+for(const version of ['2026-10-v13','2026-10-v14','2026-10-v15','2026-11-v17']){
  const signed={...booking,agreementDocs:[{kind:'cancellation',version}]};
  assert.equal(cancellationDaysForBooking(signed),14,'The archived signed text governs each historical version');
  assert.equal(bookingCancelKind(signed,at(2026,10,11)),'full_refund');
@@ -40,6 +40,8 @@ for(const version of ['2026-10-v13','2026-10-v14','2026-10-v15']){
 }
 const seven={...booking,agreementDocs:[{kind:'cancellation',version:'2026-10-v16'}]};
 assert.equal(cancellationDaysForBooking(seven),7);
+const currentSeven={...booking,agreementDocs:[{kind:'cancellation',version:'2026-11-v18'}]};
+assert.equal(cancellationDaysForBooking(currentSeven),7);
 for(const [now,start]of [[at(2026,3,22),at(2026,3,29)],[at(2026,10,18),at(2026,10,25)]]){
  assert.equal(bookingCancelKind({...seven,lineItems:[{start}]},now),'store_credit','Exactly seven London calendar days is the new credit boundary across DST');
  assert.equal(bookingCancelKind({...seven,lineItems:[{start}]},now-86400000),'full_refund');
@@ -86,6 +88,6 @@ assert(guide.includes('DB cancels · refund option')&&guide.includes('DB cancels
 for(const copy of [homeProtection,checkoutProtection,chatPolicy,gafferPolicy])assert(!copy.includes('eligible renters'));
 assert(homeProtection.includes('all accounts can get a full refund')&&checkoutProtection.includes('all accounts can receive a full refund')&&chatPolicy.includes('all accounts can receive a refund'));
 assert(guide.includes('statutory refund rights take priority'));
-assert(legalPage.includes('["cancellation", "terms"].includes(slug) && version === "2026-10-v16"'));
+assert(legalPage.includes('["cancellation", "terms"].includes(slug) && ["2026-10-v16",CANCELLATION_PROTECTION_LEGAL_VERSION].includes(version)'));
 assert(checkoutProtection.includes('{showV16RenterPolicy&&<CancellationPolicyQuickGuide includeCompanyCancellation={false}/>}'));
 console.log('PASS: London cancellation windows, DST, settlement limits, and concise v16 policy wording stays aligned across terms and checkout.');

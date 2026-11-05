@@ -3,9 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:chat-idle-handoff": "node scripts/test-chat-idle-handoff.cjs",
+    "test:rental-delivery-quotes": "node scripts/test-rental-delivery-quotes.cjs",
+    "test:gaffer-account-channel": "node scripts/test-gaffer-account-channel.cjs",
     "prebuild": "node scripts/generate-voice-worklets.cjs",
     "predev": "node scripts/generate-voice-worklets.cjs",
-    "pretest": "node scripts/test-deposit-return-recovery.cjs && node scripts/test-stripe-checkout-idempotency-sdk.cjs && node scripts/test-checkout-failure-alert.cjs && node scripts/test-swml-diagnostic-boundary.cjs && node scripts/test-identity-provider-boundary.cjs && node scripts/test-didit-embed.cjs && node scripts/test-verification-link-display.cjs && node scripts/test-didit-status-alerts.cjs && node scripts/test-rmv2-physical-ledger.cjs && node scripts/test-ios-notification-steps.cjs && node scripts/test-return-release-claim-policy.cjs",
+    "pretest": "node scripts/test-deposit-return-recovery.cjs && node scripts/test-stripe-checkout-idempotency-sdk.cjs && node scripts/test-checkout-failure-alert.cjs && node scripts/test-swml-diagnostic-boundary.cjs && node scripts/test-identity-provider-boundary.cjs && node scripts/test-didit-embed.cjs && node scripts/test-verification-link-display.cjs && node scripts/test-didit-status-alerts.cjs && node scripts/test-verification-confirmation-recovery.cjs && node scripts/test-rmv2-physical-ledger.cjs && node scripts/test-ios-notification-steps.cjs && node scripts/test-return-release-claim-policy.cjs && node scripts/test-gaffer-account-channel.cjs && node scripts/test-chat-idle-handoff.cjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

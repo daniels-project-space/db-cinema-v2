@@ -114,12 +114,12 @@ export default async function Home() {
       <SiteHeader />
 
       {/* ───────────────── hero — the viewfinder ───────────────── */}
-      <section className="section-window relative min-h-[54svh] overflow-hidden lg:min-h-[calc(100vh-93px)]">
+      <section className="section-window relative min-h-[clamp(17rem,72vw,24rem)] overflow-hidden sm:min-h-[54svh] lg:min-h-[calc(100vh-93px)]">
         {/* cinematic film (Veo 3.1) + timed gear callouts + catchphrase/CTA */}
         <HeroCinematic rating={rating} categories={categories} />
         <ViewfinderHUD />
 
-        <div className="absolute inset-x-0 bottom-0 z-10 pb-2">
+      <div className="absolute inset-x-0 bottom-0 z-10 hidden pb-2 sm:block">
           <Marquee
             items={BRANDS}
             speed={34}
@@ -129,15 +129,19 @@ export default async function Home() {
         </div>
       </section>
 
+      <section className="section-window px-4 py-5 sm:px-6 sm:py-8" aria-label="Find and book rental gear">
+        <div className="mx-auto max-w-7xl"><HomeGearSearch categories={categories} /></div>
+      </section>
+
       {/* ───────────────── London, on the label ───────────────── */}
-      <section className="section-window border-y border-white/5 px-6 py-12">
+      <section className="section-window border-y border-white/5 px-4 py-6 sm:px-6 sm:py-12">
         {/* Four visual proof cards make the London base and rental service clear at a glance. */}
-        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mx-auto grid max-w-7xl grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
           {trustTiles.map((tile, i) => (
             <Reveal key={tile.title} delay={i * 70} className="h-full">
               {tile.title === "Pro kit, meticulously maintained" && hyggloReviews[0] ? (
                 <HyggloTrustTile reviews={hyggloReviews} />
-              ) : tile.title === "Delivered across London" ? <DeliveryProtectionTile /> : <article className="trust-card group relative isolate h-[280px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:h-[304px]">
+              ) : tile.title === "Delivered across London" ? <DeliveryProtectionTile /> : <article className="trust-card group relative isolate h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] max-[359px]:h-[140px] sm:h-[304px]">
                 <Image
                   src={tile.image}
                   alt={tile.alt}
@@ -147,17 +151,17 @@ export default async function Home() {
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#070709] via-[#070709]/55 to-black/5" aria-hidden />
                 <div className="absolute inset-0 bg-gradient-to-r from-black/25 via-transparent to-transparent" aria-hidden />
-                <div className="absolute inset-x-0 top-0 flex items-center justify-between p-5 sm:p-6">
-                  <span className="inline-flex rounded-full border border-white/20 bg-black/65 px-3 py-1 font-mono text-[9px] uppercase tracking-[0.17em] text-white/85 shadow-lg backdrop-blur-sm">
+                <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-1 p-2 min-[360px]:p-3 sm:p-6">
+                  <span className="inline-flex min-w-0 rounded-full border border-white/20 bg-black/65 px-2 py-1 font-mono text-[8px] uppercase tracking-[0.12em] text-white/85 shadow-lg backdrop-blur-sm min-[360px]:px-3 min-[360px]:text-[9px] min-[360px]:tracking-[0.17em]">
                     {tile.eyebrow}
                   </span>
-                  <span className="trust-symbol ci-host rounded-xl border border-accent-300/25 bg-[#160d11]/85 p-2 text-accent-300"><tile.icon className="h-8 w-8" /></span>
+                  <span className="trust-symbol ci-host shrink-0 rounded-xl border border-accent-300/25 bg-[#160d11]/85 p-1 text-accent-300 min-[360px]:p-1.5 sm:p-2"><tile.icon className="h-5 w-5 min-[360px]:h-6 min-[360px]:w-6 sm:h-8 sm:w-8" /></span>
                 </div>
-                <div className="absolute inset-x-0 bottom-0 p-5 sm:p-6">
-                  <h2 className="mt-4 max-w-[17rem] font-display text-xl font-semibold leading-tight text-white sm:text-2xl">
+                <div className="absolute inset-x-0 bottom-0 p-2 min-[360px]:p-3 sm:p-6">
+                  <h2 className="mt-1 max-w-[17rem] font-display text-[12px] font-semibold leading-tight text-white min-[360px]:text-sm sm:mt-4 sm:text-2xl">
                     {tile.title}
                   </h2>
-                  <p className="mt-2 max-w-[18rem] text-sm leading-relaxed text-white/75">
+                  <p className="mt-1 line-clamp-2 max-w-[18rem] text-[9px] leading-[1.25] text-white/75 min-[360px]:text-[10px] sm:mt-2 sm:line-clamp-3 sm:text-sm sm:leading-relaxed">
                     {tile.copy}
                   </p>
                 </div>
@@ -165,10 +169,6 @@ export default async function Home() {
             </Reveal>
           ))}
         </div>
-      </section>
-
-      <section className="section-window px-6 py-8" aria-label="Find and book rental gear">
-        <div className="mx-auto max-w-7xl"><HomeGearSearch categories={categories} /></div>
       </section>
 
       {/* ──────────── the instrument — scroll-scrubbed deconstruction ──────────── */}

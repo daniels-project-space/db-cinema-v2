@@ -228,6 +228,7 @@ export default defineSchema({
     pickedUpAt: v.optional(v.number()),
     checkoutExpiredAt: v.optional(v.number()),
     activeAdditionId:v.optional(v.id("rental_additions")),
+    activeDeliveryQuoteId:v.optional(v.id("rental_delivery_quotes")),
     activeExtensionId:v.optional(v.id("booking_change_requests")),
     activePriceAdjustmentId:v.optional(v.id("rental_price_adjustments")),
     priceAdjustmentCharges:v.optional(v.array(v.object({id:v.id("rental_price_adjustments"),title:v.string(),start:v.number(),end:v.number(),qty:v.number(),lineTotal:v.number()}))),
@@ -245,6 +246,7 @@ export default defineSchema({
     guestEmail: v.optional(v.string()),
     status: v.union(
       v.literal("pending_payment"),
+      v.literal("pending_verification"),
       v.literal("confirmed"),
       v.literal("active"),
       v.literal("returned"),
@@ -268,6 +270,8 @@ export default defineSchema({
     stockHoldFingerprint:v.optional(v.string()),
     cancellationPolicyStart: v.optional(v.number()),
     fulfilment: v.union(v.literal("pickup"), v.literal("delivery")),
+    deliveryLegs: v.optional(v.union(v.literal("one_way"), v.literal("round_trip"))),
+    deliveryQuoteId: v.optional(v.id("rental_delivery_quotes")),
     address: v.optional(v.string()),
     billingAddress: v.optional(v.string()),
     deliveryFee: v.number(),
@@ -289,6 +293,9 @@ export default defineSchema({
     depositHoldStatus: v.optional(v.string()),
     securityHoldPolicyVersion: v.optional(v.string()),
     securityHoldDueAt: v.optional(v.number()),
+    securityHoldPickupAt: v.optional(v.number()),
+    securityHoldPickupRenewedForAt: v.optional(v.number()),
+    securityHoldPickupRenewalJobId: v.optional(v.id("_scheduled_functions")),
     securityHoldGeneration: v.optional(v.number()),
     securityHoldJobId: v.optional(v.id("_scheduled_functions")),
     securityHoldLeaseUntil: v.optional(v.number()),
@@ -332,6 +339,7 @@ export default defineSchema({
     identityRiskNotice: v.optional(v.string()),
     verificationUpdatedAt: v.optional(v.number()),
     idVerifyStatus: v.optional(v.string()),
+    verificationConfirmationIssue: v.optional(v.union(v.literal("inventory_unavailable"),v.literal("provider_confirmation_failed"))),
     droneLicenceStorageId: v.optional(v.id("_storage")),
     droneLicenceDocumentId: v.optional(v.id("verification_documents")),
     droneLicenceStatus: v.optional(v.union(v.literal("review"), v.literal("approved"), v.literal("requires_input"))),
@@ -867,6 +875,15 @@ export default defineSchema({
     holdIntentId:v.optional(v.string()),holdExpiresAt:v.optional(v.number()),
   }).index("by_booking",["bookingId"]).index("by_request",["requestId"]).index("by_session",["sessionId"]).index("by_status",["status"]).index("by_status_updated",["status","updatedAt"]),
 
+  rental_delivery_quotes: defineTable({
+    bookingId:v.id("bookings"),accountId:v.id("accounts"),requestId:v.string(),deliveryLegs:v.union(v.literal("one_way"),v.literal("round_trip")),
+    deliveryAddress:v.string(),postcode:v.string(),baseAmountPence:v.number(),discountPence:v.number(),amountPence:v.number(),membershipTier:v.optional(v.string()),benefitMonth:v.optional(v.string()),
+    bookingFingerprint:v.string(),checkoutParams:v.optional(v.string()),checkoutExpiresAt:v.optional(v.number()),
+    isStudioBenefit:v.boolean(),status:v.union(v.literal("awaiting_acceptance"),v.literal("creating_checkout"),v.literal("checkout_open"),v.literal("paid"),v.literal("failed"),v.literal("expired")),
+    termsVersion:v.string(),termsText:v.string(),createdAt:v.number(),updatedAt:v.number(),expiresAt:v.number(),acceptedAt:v.optional(v.number()),
+    checkoutSessionId:v.optional(v.string()),paymentUrl:v.optional(v.string()),paymentIntentId:v.optional(v.string()),paidAt:v.optional(v.number()),paymentMessageId:v.optional(v.id("messages")),
+  }).index("by_booking",["bookingId"]).index("by_request",["bookingId","requestId"]).index("by_status_updated",["status","updatedAt"]),
+
   rental_refunds: defineTable({
     bookingId:v.id("bookings"),requestId:v.string(),amountPence:v.number(),reason:v.string(),
     status:v.union(v.literal("prepared"),v.literal("pending"),v.literal("succeeded"),v.literal("failed")),
@@ -1121,11 +1138,11 @@ export default defineSchema({
     candidates: v.array(v.object({ bookingId: v.id("bookings"), sessionId: v.string(), email: v.string(), checkedAt: v.number(), createdAt: v.number(), status: v.string() })),
   }).index("by_key", ["key"]),
 
-  verification_reuse_claims: defineTable({ accountId:v.id("accounts"), bookingId:v.id("bookings"), recipientEmail:v.string(), sessionId:v.string(), eventId:v.optional(v.string()), eventAt:v.optional(v.number()), manualDecisionAt:v.optional(v.number()), verifiedAt:v.number(), documentExpiresAt:v.number(), personKey:v.string(), identityDigest:v.string(), secretHash:v.string(), state:v.string(), createdAt:v.number(), expiresAt:v.number(), usedAt:v.optional(v.number()) }).index("by_hash",["secretHash"]).index("by_account",["accountId"]).index("by_expiry",["expiresAt"]),
+  verification_reuse_claims: defineTable({ accountId:v.id("accounts"), bookingId:v.id("bookings"), recipientEmail:v.string(), sessionId:v.string(), eventId:v.optional(v.string()), eventAt:v.optional(v.number()), manualDecisionAt:v.optional(v.number()), verifiedAt:v.number(), documentExpiresAt:v.optional(v.number()), personKey:v.string(), identityDigest:v.string(), secretHash:v.string(), state:v.string(), createdAt:v.number(), expiresAt:v.number(), usedAt:v.optional(v.number()) }).index("by_hash",["secretHash"]).index("by_account",["accountId"]).index("by_expiry",["expiresAt"]),
 
   rental_security_charges: defineTable({
     bookingId:v.id("bookings"),accountId:v.id("accounts"),requestId:v.string(),
-    kind:v.union(v.literal("damage"),v.literal("late")),amountPence:v.number(),reason:v.string(),
+    kind:v.union(v.literal("damage"),v.literal("late")),claimBasis:v.optional(v.union(v.literal("loss"),v.literal("severe_cosmetic_damage"))),amountPence:v.number(),reason:v.string(),
     customerId:v.string(),paymentMethodId:v.string(),consentSnapshot:v.string(),
     state:v.string(),createdAt:v.number(),updatedAt:v.number(),noticeAt:v.optional(v.number()),
     collectAfter:v.optional(v.number()),noticeLeaseUntil:v.optional(v.number()),

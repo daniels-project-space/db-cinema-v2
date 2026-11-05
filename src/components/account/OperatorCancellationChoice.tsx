@@ -3,6 +3,7 @@ import {useAction} from "convex/react";
 import {api} from "@cvx/_generated/api";
 import {useEffect,useRef,useState} from "react";
 import {formatGbp} from "@/lib/pricing";
+import {CANCELLATION_PROTECTION_LEGAL_VERSION} from "@/lib/legal";
 import type {Id} from "@cvx/_generated/dataModel";
 import type {OperatorCancellationPreview} from "../../../shared/operatorCancellationCredit";
 type Choice="refund"|"credit";
@@ -24,6 +25,6 @@ export function OperatorCancellationChoice(){
  {canChoose&&<><p className="mt-5 text-xs leading-6 text-white/45">Respond by {new Date(data.choiceDeadline).toLocaleString("en-GB",{timeZone:"Europe/London",dateStyle:"medium",timeStyle:"short"})} London time. Without a choice, we return the remaining cash to the original card and restore previously used credit. Bank posting times vary.</p><label className="mt-5 flex gap-3 rounded-xl border border-white/10 p-4 text-sm leading-6"><input type="checkbox" className="mt-1 shrink-0 accent-emerald-400" checked={confirmed} disabled={busy} onChange={e=>setConfirmed(e.target.checked)}/><span>{choice==="credit"?"I choose account credit instead of the rental cash refund. Credit is non-refundable and cannot be withdrawn as cash, subject to statutory rights.":"I confirm the original-payment refund and restoration of previously used account credit."}</span></label><button type="button" disabled={!confirmed||busy} onClick={()=>void submit()} className="mt-4 w-full rounded-full bg-accent-500 px-6 py-4 text-sm font-medium text-black disabled:opacity-35">{busy?"Saving your choice…":choice==="credit"?"Confirm account credit +30%":"Confirm original-payment refund"}</button></>}
  {selected&&data.state!=="review"&&<p role="status" className="mt-6 rounded-2xl border border-emerald-300/20 bg-emerald-300/5 p-5 text-sm leading-6 text-emerald-100">{finished?"Settlement confirmed. Your account records the refund and any issued credit.":"Your choice is saved. Settlement is processing; we will confirm after the payment provider completes any refund."}</p>}
  {data.state==="review"&&<p role="status" className="mt-6 text-sm text-amber-200">The team is reviewing this settlement. No further choice is needed.</p>}
- <p className="mt-6 text-xs text-white/40">Membership fees are separate. Statutory and bank dispute rights remain unchanged. <a href="/legal/cancellation?version=2026-10-v16" className="underline">Read the cancellation terms</a>.</p></>}
+ <p className="mt-6 text-xs text-white/40">Membership fees are separate. Statutory and bank dispute rights remain unchanged. <a href={`/legal/cancellation?version=${CANCELLATION_PROTECTION_LEGAL_VERSION}`} className="underline">Read the cancellation terms</a>.</p></>}
  <a href="/account" className="mt-8 inline-block text-sm text-accent-400">Open your account →</a></section>;
 }

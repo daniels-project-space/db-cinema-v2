@@ -117,7 +117,14 @@ export const checkReadability=internalAction({args:{archiveId:v.id("verification
   try{
     for(const document of candidate.documents){
       const blob=await ctx.storage.get(document.storageId);
-      if(!blob||blob.size!==document.size||blob.type!==document.contentType||createHash("sha256").update(Buffer.from(await blob.arrayBuffer())).digest("hex")!==document.sha256)throw Error("Required verification copy unavailable");
+      if(!blob||blob.size!==document.size||blob.type!==document.contentType)throw Error("Required verification copy unavailable");
+      const bytes=Buffer.from(await blob.arrayBuffer());
+      const signatureValid=document.contentType==="application/pdf"?bytes.subarray(0,5).toString()==="%PDF-"
+        :document.contentType==="image/jpeg"?bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff&&bytes[bytes.length-2]===0xff&&bytes[bytes.length-1]===0xd9
+        :document.contentType==="image/png"?bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
+        :document.contentType==="image/webp"?bytes.subarray(0,4).toString()==="RIFF"&&bytes.subarray(8,12).toString()==="WEBP"
+        :false;
+      if(!signatureValid||createHash("sha256").update(bytes).digest("hex")!==document.sha256)throw Error("Required verification copy unavailable");
     }
   }catch{
     await ctx.runMutation(internal.verificationArchive.reuseReadFailure,{archiveId:args.archiveId,generation:candidate.generation,proofGeneration:args.proofGeneration});return;

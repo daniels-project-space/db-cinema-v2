@@ -14,6 +14,7 @@ import { ChatAvatar, GafferIcon } from "./ChatIdentity";
 import { RentalCreditOffer } from "./RentalCreditOffer";
 import { BookingReview } from "@/components/account/BookingReview";
 import { RentalVerificationSummary } from "./RentalVerificationSummary";
+import { RentalDeliveryQuoteApproval } from "./RentalDeliveryQuoteApproval";
 
 export function RentalConversation({
   token,
@@ -321,6 +322,7 @@ export function RentalConversation({
                   {m.sender === "system" && m.meta?.kind === "verification_update" && m.meta?.status === "verified" && m.meta?.pickupMap === true && <a href={WATERSTONES_MAP_URL} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block rounded-full border border-current/20 px-3 py-1 text-xs">Open Waterstones, Trafalgar Square in Google Maps ↗</a>}
                   {m.meta?.kind === "full_credit_offer" && !admin && <RentalCreditOffer token={token} offerId={m.meta.offerId} />}
                   {m.meta?.kind === "review_invitation" && !admin && bookingId && <BookingReview key={bookingId} bookingId={bookingId} token={token} inline />}
+                  {m.meta?.kind === "delivery_quote" && !admin && m.meta.quoteId && <RentalDeliveryQuoteApproval token={token} quoteId={m.meta.quoteId} />}
                   {m.meta?.kind === "paylink" && (
                     <a
                       href={m.meta.url}

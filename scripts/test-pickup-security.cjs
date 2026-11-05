@@ -166,6 +166,30 @@ async function due(b) {
     /clocks change/,
   );
   assert.equal(shared.pickupHoldAt({lineItems:[{start:Date.parse("2026-10-10"),pickupTime:"18:00"},{start:Date.parse("2026-10-11"),pickupTime:"09:00"},{start:Date.parse("2026-10-10"),pickupTime:"10:00"}],pickupTime:"22:00"}),Date.parse("2026-10-10T09:00:00Z"),"Hold follows earliest actual per-item collection, with London BST, rather than the global clock or smallest clock on another day");
+  let checkoutPolicyBooking = make({ securityHoldPolicyVersion: shared.CHECKOUT_HOLD_POLICY });
+  await save(checkoutPolicyBooking);
+  const checkoutPickupAt = shared.pickupHoldAt(checkoutPolicyBooking);
+  assert.equal(checkoutPolicyBooking.securityHoldDueAt, clock, "New policy starts the zero-charge authorization immediately after verified checkout");
+  assert.equal(scheduled.find((job) => job.ref === "holdRenewal.renewPickup" && job.args.bookingId === checkoutPolicyBooking._id)?.at,
+    checkoutPickupAt - shared.PICKUP_HOLD_RENEWAL_LEAD_MS, "New policy prepares the pickup refresh five hours before collection");
+  await holds.authorizePickup.handler(ctx, { bookingId: checkoutPolicyBooking._id, generation: checkoutPolicyBooking.securityHoldGeneration });
+  const checkoutHold = intents.get(checkoutPolicyBooking.stripeDepositIntentId);
+  assert.equal(checkoutPolicyBooking.depositHoldStatus, "held");
+  assert.equal(checkoutHold.amount_received, 0, "Checkout hold is an authorization, not a charge");
+  assert.equal(checkoutHold.amount_capturable, 25000, "Full hold amount is reserved without capture");
+  let pendingVerificationCardHold=make({status:"pending_verification",securityHoldPolicyVersion:shared.CHECKOUT_CARD_HOLD_POLICY,securityPolicyVersion:"2026-11-card-hold-v1",depositHoldAmount:50});
+  await save(pendingVerificationCardHold);
+  assert.equal(pendingVerificationCardHold.depositHoldStatus,"scheduled","The new policy schedules the hold immediately after payment, before Didit finishes");
+  assert.equal(pendingVerificationCardHold.securityHoldDueAt,clock);
+  await holds.authorizePickup.handler(ctx,{bookingId:pendingVerificationCardHold._id,generation:pendingVerificationCardHold.securityHoldGeneration});
+  const pendingVerificationIntent=intents.get(pendingVerificationCardHold.stripeDepositIntentId);
+  assert.equal(pendingVerificationCardHold.depositHoldStatus,"held","Pending-verification bookings can secure the checkout authorization");
+  assert.equal(pendingVerificationIntent.amount,5000);
+  assert.equal(pendingVerificationIntent.amount_received,0,"The pending-verification authorization does not collect money");
+  pendingVerificationCardHold.status="cancelled";
+  assert.equal(shared.pickupHoldEligible(pendingVerificationCardHold),false,"A cancelled verification cannot keep an active hold eligible");
+  events = [];
+  scheduled = [];
   let b = make();
   await save(b);
   assert.equal(b.depositHoldStatus, "scheduled");

@@ -49,7 +49,7 @@ export const invoiceEmail = internalAction({
     rows.push(["Rental subtotal",amount(b.subtotal)]);
     if(b.discount>0)rows.push(["Discount",`−${amount(b.discount)}`]);
     if(b.creditApplied>0)rows.push(["Account credit applied",`−${amount(b.creditApplied)}`]);
-    if(b.deliveryFee>0)rows.push(["Delivery",amount(b.deliveryFee)]);
+    if(b.deliveryFee>0)rows.push([b.deliveryLegs === "one_way" ? "One-way delivery" : "Delivery and collection",amount(b.deliveryFee)]);
     rows.push(...rentalSecurityEmailRows(b),["Total paid",amount(b.total)]);
     const url=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
     const payload={

@@ -6,15 +6,17 @@ export function GearLoopBanner({
   accent = "cinema gear",
   sub = "Professional cameras, lenses, lighting, audio and more. Delivered across London.",
   motion = false,
+  compact = false,
 }: {
   eyebrow?: string;
   lead?: string;
   accent?: string;
   sub?: string;
   motion?: boolean;
+  compact?: boolean;
 } = {}) {
   return (
-    <section className="section-window relative h-[46vh] min-h-[320px] w-full overflow-hidden">
+    <section className={`section-window relative w-full overflow-hidden ${compact ? "h-[36svh] min-h-[240px] sm:h-[46vh] sm:min-h-[320px]" : "h-[46vh] min-h-[320px]"}`}>
       {motion ? <LoopingBannerVideo src="/gear-loop.mp4" poster="/gear-loop-poster.jpg" /> : <img
         className="absolute inset-0 h-full w-full object-cover object-center"
         src="/gear-loop-poster.jpg"

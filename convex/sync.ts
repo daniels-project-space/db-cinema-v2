@@ -6,7 +6,7 @@ import { deriveItemType, deriveSpecs, DELIVERY_BY_TYPE, categoryFor, isGenuineBu
 import { assertAdmin } from "./adminAuth";
 import { automaticMarketingFields } from "./lib/marketingInventory";
 import { inventoryCapacity } from "./lib/inventoryCapacity";
-import { CART_STOCK_SYNC_MAX_AGE_MS, isSharedStockSyncFresh } from "./lib/shared_stock_sync";
+import { CART_STOCK_SYNC_MAX_AGE_MS, isSharedStockSnapshotFresh, isSharedStockSyncFresh } from "./lib/shared_stock_sync";
 import { bumpCatalogRevision } from "./lib/catalogRevision";
 
 /**
@@ -565,6 +565,9 @@ export const sharedStockSyncFreshness = internalQuery({
       .withIndex("by_key", (q) => q.eq("key", "shared-stock-v1"))
       .first();
     if (!state || state.status !== "ok" || !Number.isSafeInteger(state.lastSyncedAt)) return null;
+    let sourceCheckedAt: number | undefined;
+    try { sourceCheckedAt = JSON.parse(state.cursor ?? "null")?.checkedAt; } catch { return null; }
+    if (!isSharedStockSnapshotFresh(sourceCheckedAt, Date.now(), maxAgeMs)) return null;
     return isSharedStockSyncFresh(state.lastSyncedAt, Date.now(), maxAgeMs)
       ? { checkedAt: state.lastSyncedAt }
       : null;
@@ -572,7 +575,7 @@ export const sharedStockSyncFreshness = internalQuery({
 });
 
 export const syncHyggloReservations = internalAction({
-  // Foreground cart/calendar checks can reuse a recent mirror for at most 90s.
+  // Foreground cart/calendar checks can reuse a recent mirror for at most five minutes.
   // Checkout and the reliability cron explicitly force a current source read.
   args: { force: v.optional(v.boolean()) },
   handler: async (ctx, { force }): Promise<{ mirrored: number; rows: number; checkedAt: number; cached?: boolean }> => {
@@ -585,6 +588,8 @@ export const syncHyggloReservations = internalAction({
     const value:any[] = await rmv2Query("items:sharedStockForStorefront", {});
     if(value.length!==1 || ![1,2].includes(value[0]?.version) || !Number.isSafeInteger(value[0].checkedAt) || !Array.isArray(value[0].units))
       throw Error("Invalid Rental Manager shared stock snapshot");
+    if (!isSharedStockSnapshotFresh(value[0].checkedAt, Date.now(), CART_STOCK_SYNC_MAX_AGE_MS))
+      throw Error("Rental Manager shared stock snapshot is stale");
     const applied = await ctx.runMutation(internal.sync.applySharedStock, {snapshot:value[0]});
     return { ...applied, checkedAt: value[0].checkedAt, cached: false };
   },
@@ -637,7 +642,7 @@ export const applySharedStock = internalMutation({
   args:{snapshot:v.object({version:v.number(),turnaroundBufferMinutes:v.optional(v.number()),checkedAt:v.number(),units:v.array(v.object({masterItemId:v.string(),active:v.boolean(),quantityOwned:v.number(),windows:v.array(v.object({start:v.number(),end:v.number(),qty:v.number()}))}))})},
   handler:async(ctx,{snapshot})=>{
     const key="shared-stock-v1", seen=new Set<string>();
-    if((snapshot.version===2&&snapshot.turnaroundBufferMinutes!==60)||![1,2].includes(snapshot.version) || !Number.isSafeInteger(snapshot.checkedAt) || snapshot.checkedAt<1 || snapshot.checkedAt>Date.now()+60000)
+    if((snapshot.version===2&&snapshot.turnaroundBufferMinutes!==60)||![1,2].includes(snapshot.version) || !isSharedStockSnapshotFresh(snapshot.checkedAt, Date.now(), CART_STOCK_SYNC_MAX_AGE_MS))
       throw Error("Invalid shared stock snapshot time");
     for(const unit of snapshot.units) {
       if(!unit.masterItemId.trim() || seen.has(unit.masterItemId) || !Number.isSafeInteger(unit.quantityOwned) || unit.quantityOwned<0 || (!unit.active&&unit.quantityOwned!==0))

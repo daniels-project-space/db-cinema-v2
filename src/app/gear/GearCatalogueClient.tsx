@@ -157,9 +157,9 @@ function GearPageInner() {
   return (
     <>
       <SiteHeader />
-      <GearLoopBanner motion />
-      <main data-gaffer-route={route} data-gaffer-ready={listings !== undefined && cat === (urlCat || "All") && search === (urlQ ?? "")} className="section-window mx-auto min-h-screen max-w-7xl px-6 pb-12 pt-8">
-        <div className="relative left-1/2 w-screen -translate-x-1/2 px-3 sm:px-4 xl:px-6">
+      <GearLoopBanner motion compact />
+      <main data-gaffer-route={route} data-gaffer-ready={listings !== undefined && cat === (urlCat || "All") && search === (urlQ ?? "")} className="section-window mx-auto flex min-h-screen min-w-0 max-w-7xl flex-col px-4 pb-12 pt-6 sm:px-6 sm:pt-8">
+        <div className="order-4 relative left-1/2 w-screen -translate-x-1/2 px-2 sm:order-1 sm:px-4 xl:px-6">
           <AssemblyShowcase
             listings={[...best, ...(filteredListings ?? [])]}
             loading={bestResults === undefined || filteredListings === undefined}
@@ -169,10 +169,12 @@ function GearPageInner() {
         {/* hire professionals — crew for hire, booked through us (shows on every
             category so it's there when a category is clicked from the home page; hidden only on search) */}
         {!search && (
+          <div className="order-5 sm:order-2">
           <>
             <HireProfessionals />
             <div className="mt-12 border-t border-white/5" />
           </>
+          </div>
         )}
 
         {/* sticky toolbar: search + category tabs.
@@ -181,7 +183,7 @@ function GearPageInner() {
             it, filtering to a category and finding several matches left the
             customer still looking at the hero/assembly card up top, with the
             actual results a full screen below the fold. */}
-        <div id="gear-toolbar" className="scroll-mt-24 -mx-6 mt-8 border-b border-white/[0.06] rounded-2xl border border-white/10 bg-white/[0.035] px-6 py-4 backdrop-blur-xl">
+        <div id="gear-toolbar" className="order-1 scroll-mt-24 -mx-4 mt-6 rounded-2xl border border-white/10 border-b border-white/[0.06] bg-white/[0.035] px-4 py-4 backdrop-blur-xl sm:order-3 sm:-mx-6 sm:mt-8 sm:px-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="relative w-full max-w-md">
               <IconSearch className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
@@ -270,12 +272,12 @@ function GearPageInner() {
 
         {/* best sellers (data-driven) — only on All, no search */}
         {cat === "All" && !search && !hasRefinements && best.length > 0 && (
-          <section className="mt-10">
+          <section className="order-2 mt-10 sm:order-4">
             <h2 className="flex items-center gap-3 font-display text-lg font-semibold text-white/85">
               <span className="hud-label !text-accent-400/90">Best sellers</span>
               <span className="h-px flex-1 bg-white/[0.07]" aria-hidden />
             </h2>
-            <div className="dim-grid mt-4 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+            <div className="dim-grid mt-4 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-6">
               {best.map((l, i) => (
                 <Reveal key={l._id} delay={i * 40}>
                   <GearCard listing={l} />
@@ -287,8 +289,9 @@ function GearPageInner() {
         )}
 
         {/* grid */}
+        <div className="order-3 sm:order-5">
         {listings === undefined ? (
-          <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+          <div className="mt-8 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
             {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="glass overflow-hidden rounded-2xl">
                 <div className="aspect-[4/3] animate-pulse bg-charcoal-800" />
@@ -312,7 +315,7 @@ function GearPageInner() {
             </button>
           </div>
         ) : (
-          <div className="dim-grid mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+          <div className="dim-grid mt-8 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
             {visibleListings.map((l, i) => (
               <Reveal key={l._id} delay={Math.min(i, 8) * 50}>
                 <GearCard listing={l} />
@@ -320,6 +323,7 @@ function GearPageInner() {
             ))}
           </div>
         )}
+        </div>
       </main>
     </>
   );
