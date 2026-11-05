@@ -3,7 +3,7 @@ import { queueOwnerNotification } from "./adminPush";
 import { belongsToRentalAccount } from "./rentalAccount";
 import { internal } from "../_generated/api";
 
-export const GAFFER_AUTO_RESUME_MS = 4 * 60 * 60 * 1000;
+export const GAFFER_AUTO_RESUME_MS = 3 * 60 * 60 * 1000;
 /** Shared boundaries for customer and owner rental conversations. */
 export async function accountForToken(ctx: any, token: string, requireExpiry = false) {
   const s = await ctx.db

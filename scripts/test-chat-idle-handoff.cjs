@@ -10,6 +10,7 @@ const originalNow = Date.now;
 let now = originalNow();
 Date.now = () => now;
 process.env.ADMIN_TOKEN = "fixture-admin";
+assert.equal(GAFFER_AUTO_RESUME_MS, 3 * 60 * 60 * 1000, "Gaffer returns after three idle hours");
 
 const account = put("accounts", { email: "chat-idle@test.invalid" });
 const booking = put("bookings", { accountId: account._id, guestEmail: account.email, status: "confirmed" });
@@ -35,6 +36,17 @@ function gafferReplyForLatestRenter() {
     assert.equal(threads.length, 2, "account enquiries share one thread while each rental remains separate");
     assert.equal(threads.filter((thread) => thread.bookingId == null).length, 1);
     assert.equal(threads.filter((thread) => thread.bookingId === booking._id).length, 1);
+
+    await chat.requestHuman.handler(ctx, { token: "renter" });
+    const accountTimer = latestTimer()[2];
+    assert.equal(latestTimer()[0], 3 * 60 * 60 * 1000, "account support uses a three-hour idle handoff");
+    const accountMessagesAtHandoff = tables.get("messages").length;
+    now = accountTimer.expectedUpdatedAt + GAFFER_AUTO_RESUME_MS;
+    assert.deepEqual(await chat.autoResumeGaffer.handler(ctx, accountTimer), { resumed: true });
+    assert.equal(tables.get("messages").length, accountMessagesAtHandoff, "account support timer never sends an unsolicited message");
+    assert.equal(threads.find((thread) => thread.bookingId == null).escalated, false);
+    await chat.send.handler(ctx, { token: "renter", text: "I still need account help." });
+    gafferReplyForLatestRenter();
 
     await chat.requestHuman.handler(ctx, { token: "renter", bookingId: booking._id });
     const initialTimer = latestTimer()[2];
@@ -87,9 +99,9 @@ function gafferReplyForLatestRenter() {
     const requestTimer = latestTimer()[2];
     assert.equal(thread.escalated, true, "rental change requests hand off to the team");
     now = requestTimer.expectedUpdatedAt + GAFFER_AUTO_RESUME_MS;
-    assert.deepEqual(await chat.autoResumeGaffer.handler(ctx, requestTimer), { resumed: true }, "rental change requests receive the same four-hour idle timer");
+    assert.deepEqual(await chat.autoResumeGaffer.handler(ctx, requestTimer), { resumed: true }, "rental change requests receive the same three-hour idle timer");
     assert.equal(thread.escalated, false);
-    console.log("PASS account-wide support thread, separate rental thread, four-hour idle handoff, stale-timer protection, and no proactive Gaffer reply.");
+    console.log("PASS account-wide support thread, separate rental thread, three-hour idle handoff, stale-timer protection, and no proactive Gaffer reply.");
   } finally {
     Date.now = originalNow;
     delete process.env.ADMIN_TOKEN;
