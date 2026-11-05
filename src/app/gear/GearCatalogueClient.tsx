@@ -157,9 +157,9 @@ function GearPageInner() {
   return (
     <>
       <SiteHeader />
-      <GearLoopBanner motion compact />
+      <GearLoopBanner motion compact mobileTight />
       <main data-gaffer-route={route} data-gaffer-ready={listings !== undefined && cat === (urlCat || "All") && search === (urlQ ?? "")} className="section-window mx-auto flex min-h-screen min-w-0 max-w-7xl flex-col px-4 pb-12 pt-6 sm:px-6 sm:pt-8">
-        <div className="order-2 px-2 sm:order-1 sm:px-4 xl:px-6">
+        <div className="order-5 px-2 lg:order-1 sm:px-4 xl:px-6">
           <AssemblyShowcase
             listings={[...best, ...(filteredListings ?? [])]}
             loading={bestResults === undefined || filteredListings === undefined}
@@ -169,7 +169,7 @@ function GearPageInner() {
         {/* hire professionals — crew for hire, booked through us (shows on every
             category so it's there when a category is clicked from the home page; hidden only on search) */}
         {!search && (
-          <div className="order-5 sm:order-2">
+          <div className="order-6 lg:order-2">
           <>
             <HireProfessionals />
             <div className="mt-12 border-t border-white/5" />
@@ -183,8 +183,8 @@ function GearPageInner() {
             it, filtering to a category and finding several matches left the
             customer still looking at the hero/assembly card up top, with the
             actual results a full screen below the fold. */}
-        <div id="gear-toolbar" className="order-1 scroll-mt-24 -mx-4 mt-6 rounded-2xl border border-white/10 border-b border-white/[0.06] bg-white/[0.035] px-4 py-4 backdrop-blur-xl sm:order-3 sm:-mx-6 sm:mt-8 sm:px-6">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div id="gear-toolbar" className="order-1 scroll-mt-24 -mx-4 mt-4 rounded-2xl border border-white/10 border-b border-white/[0.06] bg-white/[0.035] px-4 py-3 backdrop-blur-xl lg:order-3 sm:-mx-6 sm:mt-8 sm:px-6 sm:py-4">
+          <div className="flex min-w-0 flex-col gap-2.5 lg:flex-row lg:items-center lg:gap-3">
             <div className="relative w-full max-w-md">
               <IconSearch className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
               <input
@@ -216,26 +216,26 @@ function GearPageInner() {
               ))}
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap items-end gap-3">
-            <label className="grid gap-1.5 text-[10px] uppercase tracking-[0.12em] text-white/40">
+          <div className="mt-3 grid min-w-0 grid-cols-2 items-end gap-x-3 gap-y-2 sm:mt-4 sm:flex sm:flex-wrap sm:gap-3">
+            <label className="grid min-w-0 gap-1.5 text-[10px] uppercase tracking-[0.12em] text-white/40">
               Brand
               <select
                 value={brandFilter}
                 onChange={(e) => setBrandFilter(e.target.value)}
                 aria-label="Filter gear by brand"
-                className="input h-10 min-w-[145px] rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80"
+                className="input h-10 w-full min-w-0 rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80 sm:w-auto sm:min-w-[145px]"
               >
                 <option value="all">All brands</option>
                 {brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
               </select>
             </label>
-            <label className="grid gap-1.5 text-[10px] uppercase tracking-[0.12em] text-white/40">
+            <label className="grid min-w-0 gap-1.5 text-[10px] uppercase tracking-[0.12em] text-white/40">
               Daily budget
               <select
                 value={maxDailyPrice}
                 onChange={(e) => setMaxDailyPrice(e.target.value)}
                 aria-label="Filter by maximum daily rental price"
-                className="input h-10 min-w-[155px] rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80"
+                className="input h-10 w-full min-w-0 rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80 sm:w-auto sm:min-w-[155px]"
               >
                 <option value="">Any daily rate</option>
                 <option value="25">Up to £25/day</option>
@@ -244,26 +244,26 @@ function GearPageInner() {
                 <option value="250">Up to £250/day</option>
               </select>
             </label>
-            <label className="grid gap-1.5 text-[10px] uppercase tracking-[0.12em] text-white/40">
+            <label className="grid min-w-0 gap-1.5 text-[10px] uppercase tracking-[0.12em] text-white/40">
               Kit type
               <select
                 value={packageFilter}
                 onChange={(e) => setPackageFilter(e.target.value)}
                 aria-label="Filter by kit type"
-                className="input h-10 min-w-[155px] rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80"
+                className="input h-10 w-full min-w-0 rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80 sm:w-auto sm:min-w-[155px]"
               >
                 <option value="all">All gear</option>
                 <option value="packages">Complete kits</option>
                 <option value="individual">Individual items</option>
               </select>
             </label>
-            <div role="status" aria-live="polite" className="ml-auto pb-2 text-xs text-white/45">
+            <div role="status" aria-live="polite" className="min-w-0 pb-2 text-right text-[10px] text-white/45 sm:ml-auto sm:text-xs">
               {listings === undefined
                 ? "Loading gear…"
                 : `${visibleListings.length} ${visibleListings.length === 1 ? "item" : "items"} ${hasRefinements ? "match these filters" : search || cat !== "All" ? "match your search" : "in the catalogue"}`}
             </div>
             {hasRefinements && (
-              <button type="button" onClick={clearFilters} className="pb-2 text-xs text-accent-300 underline underline-offset-4">
+              <button type="button" onClick={clearFilters} className="col-span-2 justify-self-start pb-1 text-xs text-accent-300 underline underline-offset-4 sm:col-span-1 sm:pb-2">
                 Clear filters
               </button>
             )}
@@ -272,7 +272,7 @@ function GearPageInner() {
 
         {/* best sellers (data-driven) — only on All, no search */}
         {cat === "All" && !search && !hasRefinements && best.length > 0 && (
-          <section className="order-3 mt-10 sm:order-4">
+        <section className="order-3 mt-10 lg:order-4">
             <h2 className="flex items-center gap-3 font-display text-lg font-semibold text-white/85">
               <span className="hud-label !text-accent-400/90">Best sellers</span>
               <span className="h-px flex-1 bg-white/[0.07]" aria-hidden />
@@ -289,7 +289,7 @@ function GearPageInner() {
         )}
 
         {/* grid */}
-        <div className="order-4 sm:order-5">
+        <div className="order-4 lg:order-5">
         {listings === undefined ? (
           <div className="mt-8 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
             {Array.from({ length: 8 }).map((_, i) => (

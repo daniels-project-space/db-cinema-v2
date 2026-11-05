@@ -342,7 +342,7 @@ export function BotBubble() {
         data-speaking={onCall && gafferSpeaking ? "true" : undefined}
         // colours live in globals.css keyed on data-on-call, so amber→red is a
         // slow crossfade rather than a class swap that snaps
-        className="group launcher fixed bottom-5 right-5 z-50 hidden h-14 w-14 items-center justify-center gap-0 rounded-full border p-0 hover:scale-105 active:scale-95 sm:flex sm:w-auto sm:justify-start sm:gap-2.5 sm:px-4"
+        className="group launcher fixed bottom-5 right-5 z-50 hidden h-14 w-14 items-center justify-center gap-0 rounded-full border p-0 hover:scale-105 active:scale-95 sm:flex lg:w-auto lg:justify-start lg:gap-2.5 lg:px-4"
       >
         {(!open || onCall) && <span className="launcher-ring" aria-hidden />}
         {onCall ? (
@@ -363,11 +363,11 @@ export function BotBubble() {
         ) : (
           <BotAvatar mood="idle" className="h-9 w-9" />
         )}
-        <span className="relative z-[1] hidden whitespace-nowrap font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-white/90 sm:block">
+        <span className="relative z-[1] hidden whitespace-nowrap font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-white/90 lg:block">
           Contact us
         </span>
         {onCall && (
-          <span className="pointer-events-none absolute right-full mr-3 hidden whitespace-nowrap rounded-full border border-rose-400/30 bg-rose-950/95 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-rose-200/90 sm:block">
+          <span className="pointer-events-none absolute right-full mr-3 hidden whitespace-nowrap rounded-full border border-rose-400/30 bg-rose-950/95 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-rose-200/90 lg:block">
             {callState === "connecting" ? "Connecting…" : `On call · ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`}
           </span>
         )}
