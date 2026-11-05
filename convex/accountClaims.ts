@@ -1,5 +1,6 @@
 import { ensureReferralCode } from "./lib/referrals";
 import { internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v,ConvexError } from "convex/values";
 import { bump } from "./rateLimit";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
@@ -81,6 +82,8 @@ export const exchange=internalMutation({args:{secretHash:v.string(),sessionToken
   if(link.purpose!=="signup")await ctx.db.patch(account._id,{hash:undefined,salt:undefined});
   const sessions=await ctx.db.query("sessions").withIndex("by_account",q=>q.eq("accountId",account._id)).collect();for(const session of sessions)await ctx.db.delete(session._id);
  }
+ const needsVerificationRecovery=!account.emailVerifiedAt||account.emailVerificationRequired;
  await ctx.db.patch(account._id,{emailVerifiedAt:Date.now(),emailVerificationRequired:false});
+ if(needsVerificationRecovery)await ctx.scheduler.runAfter(0,internal.verificationArchive.linkVerifiedAccount,{accountId:account._id,cursor:null});
  await ctx.db.patch(link._id,{usedAt:Date.now()});await ctx.db.insert("sessions",{accountId:account._id,token:a.sessionToken,createdAt:Date.now(),expiresAt:Date.now()+90*86400000});return{token:a.sessionToken,bookingId:link.bookingId};
 }});
