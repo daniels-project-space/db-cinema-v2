@@ -2,9 +2,32 @@ import {ConvexHttpClient} from "convex/browser";
 import {api} from "@cvx/_generated/api";
 import {LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,SETUP_INTENT_LEGAL_VERSION} from "./legal";
 
+type LegalPolicyFlags = {
+ setupIntentSecurityEnabled?: boolean;
+ cardHoldSecurityEnabled?: boolean;
+ assessmentSecurityEnabled?: boolean;
+ cancellationProtectionEnabled?: boolean;
+ refundableDepositEnabled?: boolean;
+};
+
+function legalVersionForPolicy(flags: LegalPolicyFlags) {
+ return flags.setupIntentSecurityEnabled?SETUP_INTENT_LEGAL_VERSION:flags.cardHoldSecurityEnabled?CARD_HOLD_LEGAL_VERSION:flags.assessmentSecurityEnabled?(flags.cancellationProtectionEnabled?CANCELLATION_PROTECTION_LEGAL_VERSION:ASSESSMENT_DEPOSIT_LEGAL_VERSION):flags.refundableDepositEnabled?REFUNDABLE_DEPOSIT_LEGAL_VERSION:LEGAL_VERSION;
+}
+
+function configuredPolicyFlags(): LegalPolicyFlags {
+ const assessmentSecurityEnabled=process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true";
+ return {
+  setupIntentSecurityEnabled:process.env.SETUP_INTENT_SECURITY_POLICY_ENABLED==="true",
+  cardHoldSecurityEnabled:process.env.CARD_HOLD_SECURITY_POLICY_ENABLED==="true",
+  assessmentSecurityEnabled,
+  cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true"&&assessmentSecurityEnabled,
+  refundableDepositEnabled:assessmentSecurityEnabled||process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true",
+ };
+}
+
 /** Public wording follows the source checkout gate; accepted versions stay archived. */
 export async function currentLegalVersion(){
- const setupIntentEnabled=process.env.SETUP_INTENT_SECURITY_POLICY_ENABLED==="true";
- const url=process.env.NEXT_PUBLIC_CONVEX_URL;if(!url)return setupIntentEnabled?SETUP_INTENT_LEGAL_VERSION:LEGAL_VERSION;
- try{const settings=await new ConvexHttpClient(url).query(api.settings.get,{});return settings.setupIntentSecurityEnabled?SETUP_INTENT_LEGAL_VERSION:settings.cardHoldSecurityEnabled?CARD_HOLD_LEGAL_VERSION:settings.assessmentSecurityEnabled?(settings.cancellationProtectionEnabled?CANCELLATION_PROTECTION_LEGAL_VERSION:ASSESSMENT_DEPOSIT_LEGAL_VERSION):settings.refundableDepositEnabled?REFUNDABLE_DEPOSIT_LEGAL_VERSION:LEGAL_VERSION}catch{return setupIntentEnabled?SETUP_INTENT_LEGAL_VERSION:LEGAL_VERSION}
+ const fallback=legalVersionForPolicy(configuredPolicyFlags());
+ const url=process.env.NEXT_PUBLIC_CONVEX_URL;if(!url)return fallback;
+ try{return legalVersionForPolicy(await new ConvexHttpClient(url).query(api.settings.get,{}))}catch{return fallback}
 }

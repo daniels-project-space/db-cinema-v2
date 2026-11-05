@@ -500,7 +500,7 @@ export default function CheckoutPage() {
                 </nav>
                 <label className="mt-4 flex items-start gap-2.5 text-sm leading-6 text-white/80">
                   <input data-testid="rental-agreement-checkbox" type="checkbox" checked={agreed} disabled={!currentQuote} onChange={e=>{setAgreed(e.target.checked);agreementRequest.current=null;}} className="mt-1 accent-accent-500 disabled:opacity-40"/>
-                  <span data-testid="saved-card-consent-text">{setupIntentPolicy?`I agree to the linked terms and permit itemised, evidenced post-return claims up to ${formatGbp(futureChargeLimit)} combined. No funds are held; insurance is separate.`:"I agree to all the linked terms and authorise my card for future damage, loss and late-fee payments."}</span>
+                  <span data-testid="saved-card-consent-text">{setupIntentPolicy?`I agree to the linked terms and permit itemised, evidenced post-return claims up to ${formatGbp(futureChargeLimit)} combined. No funds are held; insurance is separate.`:cardHoldPolicy?"I agree to the linked terms for the temporary card authorisation hold and return process. This checkbox does not authorise later off-session charges.":"I agree to all the linked terms and authorise my card for future damage, loss and late-fee payments."}</span>
                 </label>
               </div>
               <div className="mt-4">
