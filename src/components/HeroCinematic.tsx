@@ -109,7 +109,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
   }, []);
 
   const gearVisible = !reduce && phase === "c1" && t > 0.5 && t < 4.6;
-  const ctaVisible = reduce || phase !== "c1" || t > (mobile ? 0.4 : 2) || (mobile && mobileCtaReady);
+  const ctaVisible = reduce || phase !== "c1" || t > (mobile ? 0.4 : 0) || (mobile && mobileCtaReady);
   const ctaTransition = mobile
     ? "opacity .7s cubic-bezier(0.16,1,0.3,1), transform .7s cubic-bezier(0.16,1,0.3,1)"
     : "opacity 1s cubic-bezier(0.16,1,0.3,1), transform 1s cubic-bezier(0.16,1,0.3,1)";
@@ -189,6 +189,25 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         }}
         aria-hidden
       />
+
+      <nav
+        aria-label="Shop by gear category"
+        data-testid="hero-mobile-category-nav"
+        className="absolute inset-x-0 top-3 z-20 px-4 md:hidden"
+      >
+        <div className="mx-auto grid max-w-sm grid-cols-2 gap-2">
+          {CALLOUTS.map(({ cat }) => (
+            <Link
+              key={cat}
+              href={`/gear?cat=${encodeURIComponent(cat)}`}
+              className="flex min-h-10 min-w-0 items-center justify-between gap-2 rounded-xl border border-white/15 bg-black/35 px-3 py-2 text-left text-white/90 shadow-lg backdrop-blur-md transition-colors hover:border-accent-300/50 hover:bg-black/50"
+            >
+              <span className="truncate font-display text-xs font-semibold">{cat}</span>
+              <IconArrowRight className="h-3.5 w-3.5 shrink-0 text-accent-300" />
+            </Link>
+          ))}
+        </div>
+      </nav>
 
       {/* ── minimal gear callouts (desktop) ── */}
       <svg

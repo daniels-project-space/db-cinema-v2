@@ -429,7 +429,7 @@ export default function CheckoutPage() {
               done={fulfilmentDone}
               delay={70}
             >
-              <div className="flex gap-3">
+              <div className="flex flex-col gap-2 min-[480px]:flex-row min-[480px]:gap-3">
                 {(
                   [
                     ["pickup", IconPin, "Pickup", "Trafalgar Square · outside Waterstones"],
@@ -439,14 +439,14 @@ export default function CheckoutPage() {
                   <button
                     key={f}
                     onClick={() => setFulfilment(f)}
-                    className={`flex flex-1 items-center gap-3 rounded-xl border p-3.5 text-left transition-all ${
+                    className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl border p-3.5 text-left transition-all ${
                       fulfilment === f
                         ? "border-accent-400 bg-accent-400/10 accent-glow"
                         : "border-white/10 hover:border-white/25"
                     }`}
                   >
                     <Icon className={`h-5 w-5 shrink-0 ${fulfilment === f ? "text-accent-400" : "text-white/40"}`} />
-                    <span>
+                    <span className="min-w-0">
                       <span className="block text-sm font-medium text-white/85">{t}</span>
                       <span className="block text-xs text-white/40">{d}</span>
                     </span>
