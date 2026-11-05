@@ -26,6 +26,7 @@ export type GearListing = {
   minimumRentalDays: number;
   quietDeal?: number | null;
   displayOnly?: boolean | null;
+  bookable?: boolean;
 };
 
 const off = (n: number, pct: number) => Math.round(n * (1 - pct / 100));
@@ -77,7 +78,7 @@ export function GearCard({ listing }: { listing: GearListing }) {
       data-gaffer-focus={picked ? "true" : undefined}
       data-gaffer-suggested={suggested ? "true" : undefined}
       data-gaffer-dimmed={dimmed ? "true" : undefined}
-      className="gear-card group lift spot gradient-border relative flex h-full flex-col overflow-hidden rounded-2xl"
+      className="gear-card group lift spot gradient-border relative flex h-full min-w-0 flex-col overflow-hidden rounded-2xl"
     >
       <button
         onClick={toggleFav}
@@ -107,6 +108,10 @@ export function GearCard({ listing }: { listing: GearListing }) {
           <span className="absolute left-2.5 top-2.5 z-10 rounded-full bg-sky-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
             Display only
           </span>
+        ) : listing.bookable === false ? (
+          <span className="absolute left-2.5 top-2.5 z-10 rounded-full border border-amber-300/30 bg-black/70 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-100 shadow-lg backdrop-blur">
+            Request to confirm
+          </span>
         ) : quietDeal ? (
           <span className="absolute left-2.5 top-2.5 z-10 rounded-full bg-emerald-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
             −{quietDeal}% quiet deal
@@ -123,7 +128,7 @@ export function GearCard({ listing }: { listing: GearListing }) {
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/35 to-transparent" aria-hidden />
       </div>
 
-      <div className="flex flex-1 flex-col gap-2 p-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-2 p-3 sm:p-4">
         <span className="hud-label !text-accent-400/90">{category}</span>
         <h3 className="line-clamp-2 flex-1 text-sm leading-snug text-white/85 transition-colors group-hover:text-white">
           {title}
@@ -138,7 +143,7 @@ export function GearCard({ listing }: { listing: GearListing }) {
           </button>
         ) : (
           <div className="flex items-baseline gap-1">
-            <span className="font-display text-2xl font-bold text-accent-400">
+              <span className="font-display text-xl font-bold text-accent-400 sm:text-2xl">
               £{money(quietDeal ? off(pricing.daily, quietDeal) : pricing.daily)}
             </span>
             <span className="text-sm text-white/40">/day</span>

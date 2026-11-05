@@ -82,9 +82,15 @@ const workerContext={storage:{get:async id=>stored.get(id)??null},runQuery:async
  assert(!batch.some(task=>task.args.archiveId===future._id),'future archives are not read or scheduled');
  const account=put('accounts',{email:'proof-reuse@example.invalid',rentalVerification:{sourceBookingId:booking._id}});
  for(let index=0;index<25;index++)put('bookings',{accountId:account._id,status:'confirmed',accountAccessRequired:false,verificationProvider:'didit',idVerifyStatus:'required',...(index===0?{diditSessionId:'already-started'}:{})});
+ const failedRepeat=put('bookings',{accountId:account._id,status:'pending_verification',accountAccessRequired:false,verificationProvider:'didit',idVerifyStatus:'manual_review',diditSessionId:'repeat-session'});
  await archive.resumeReuses.handler(context,{accountId:account._id,sourceBookingId:booking._id,cursor:null});
  assert.equal(tasks.filter(task=>task.ref==='didit.reuseVerification').length,19,'proof recovery resumes eligible rentals in a bounded page without replacing an open session');
- const continuation=tasks.find(task=>task.ref==='verificationArchive.resumeReuses');assert.ok(continuation);
- await archive.resumeReuses.handler(context,continuation.args);assert.equal(tasks.filter(task=>task.ref==='didit.reuseVerification').length,24,'all eligible rentals eventually resume');
+ const continuation=tasks.filter(task=>task.ref==='verificationArchive.resumeReuses').at(-1);assert.ok(continuation);
+ let taskIndex=tasks.length;await archive.resumeReuses.handler(context,continuation.args);
+ const pendingContinuation=tasks.slice(taskIndex).find(task=>task.ref==='verificationArchive.resumeReuses');assert.ok(pendingContinuation);
+ taskIndex=tasks.length;await archive.resumeReuses.handler(context,pendingContinuation.args);
+ const activeContinuation=tasks.slice(taskIndex).find(task=>task.ref==='verificationArchive.resumeReuses');assert.ok(activeContinuation);
+ await archive.resumeReuses.handler(context,activeContinuation.args);
+ assert.equal(tasks.filter(task=>task.ref==='didit.reuseVerification').length,25,'all eligible rentals, including a failed repeat session, eventually resume');assert(tasks.some(task=>task.ref==='didit.reuseVerification'&&task.args.bookingId===failedRepeat._id),'a prior complete pass recovers a later provider-review state');
  console.log('PASS verification byte proof: freshness, bounded scheduled refresh, stale-worker fence and unreadable-byte invalidation.');
 })().catch(error=>{console.error(error);process.exitCode=1});

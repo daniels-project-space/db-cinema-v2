@@ -1,5 +1,5 @@
 import { assertVerificationArchive } from "./verificationArchive";
-import { renterVerificationNote } from "../shared/verificationProgress";
+import { renterVerificationNote, verificationValidUntil } from "../shared/verificationProgress";
 import { ensureReferralCode } from "./lib/referrals";
 import { belongsToRentalAccount, rentalsForAccount } from "./lib/rentalAccount";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
@@ -383,13 +383,15 @@ export const updateProfile = mutation({
       (patch.address != null && verificationDetail(patch.address) !== verificationDetail(a.address));
     await ctx.db.patch(a._id, { ...patch, ...(changed ? { rentalVerification: undefined, idVerified: false } : {}) });
     if (changed) {
-      const [linked, legacy] = await Promise.all([
+      const [linked, linkedPending, legacy, legacyPending] = await Promise.all([
         ctx.db.query("bookings").withIndex("by_account_status", q => q.eq("accountId", a._id).eq("status", "confirmed")).take(101),
+        ctx.db.query("bookings").withIndex("by_account_status", q => q.eq("accountId", a._id).eq("status", "pending_verification")).take(101),
         ctx.db.query("bookings").withIndex("by_guestEmail_status", q => q.eq("guestEmail", a.email).eq("status", "confirmed")).take(101),
+        ctx.db.query("bookings").withIndex("by_guestEmail_status", q => q.eq("guestEmail", a.email).eq("status", "pending_verification")).take(101),
       ]);
-      if (linked.length > 100 || legacy.length > 100) throw Error("Too many open rentals to update this profile automatically. Contact the team.");
-      const bookings = [...new Map([...linked, ...legacy].filter(b => belongsToRentalAccount(b, a)).map(b => [b._id, b])).values()];
-      for (const b of bookings) if (b.status === "confirmed" && b.verificationReusedFrom) { await ctx.db.patch(b._id, {
+      if ([linked, linkedPending, legacy, legacyPending].some(rows => rows.length > 100)) throw Error("Too many open rentals to update this profile automatically. Contact the team.");
+      const bookings = [...new Map([...linked, ...linkedPending, ...legacy, ...legacyPending].filter(b => belongsToRentalAccount(b, a)).map(b => [b._id, b])).values()];
+      for (const b of bookings) if (["confirmed", "pending_verification"].includes(b.status) && b.verificationReusedFrom) { await ctx.db.patch(b._id, {
         idVerifyStatus: "requires_input", verificationReusedFrom: undefined, verificationExpiresAt: undefined,
         verificationNote: "Your account details changed. Complete a new identity and address check before handover.",
       }); await verificationUpdateMessage(ctx, b._id, b.idVerifyStatus, "requires_input"); await queueRmv2Sync(ctx, b._id); }
@@ -537,7 +539,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
         idVerifyStatus: b.idVerifyStatus ?? "required",
         verificationNote: renterVerificationNote(b.verificationNote),
         verificationArchiveReady,
-        verificationExpiresAt: b.verificationExpiresAt ?? null,
+        verificationExpiresAt: verificationValidUntil(b),
         documentExpiresAt: b.documentExpiresAt ?? null,
         verificationChecks: b.verificationChecks ?? null,
         idVerificationSource: b.idVerificationSource ?? null,

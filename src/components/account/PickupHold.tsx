@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useAction } from "convex/react";
 import { loadStripe } from "@stripe/stripe-js";
 import { api } from "@cvx/_generated/api";
-import { PICKUP_HOLD_POLICY } from "../../../shared/pickupSecurity";
+import { CHECKOUT_HOLD_POLICY, isPickupHoldPolicyVersion } from "../../../shared/pickupSecurity";
 export function PickupHold({
   bookingId,
   token,
@@ -23,7 +23,7 @@ export function PickupHold({
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState<string | null>(null);
   if (
-    policy !== PICKUP_HOLD_POLICY ||
+    !isPickupHoldPolicyVersion(policy) ||
     !["scheduled", "processing", "requires_action", "failed"].includes(
       status ?? "",
     )
@@ -74,7 +74,9 @@ export function PickupHold({
       </p>
       <p className="mt-1 text-white/65">
         {status === "scheduled"
-          ? `Your saved card will be authorised automatically ${dueAt ? new Date(dueAt).toLocaleString("en-GB", { timeZone: "Europe/London", dateStyle: "medium", timeStyle: "short" }) + " London time" : "at your agreed pickup time"}. This is a hold, not a charge.`
+          ? policy === CHECKOUT_HOLD_POLICY
+            ? "Once verification is approved, your saved card will be authorised for the agreed amount. This is a temporary hold, not a charge."
+            : `Your saved card will be authorised automatically ${dueAt ? new Date(dueAt).toLocaleString("en-GB", { timeZone: "Europe/London", dateStyle: "medium", timeStyle: "short" }) + " London time" : "at your agreed pickup time"}. This is a hold, not a charge.`
           : "Equipment cannot be collected until the hold and document checks are complete."}
       </p>
       {status === "requires_action" && (

@@ -2,16 +2,23 @@
 const assert = require('node:assert/strict');
 const {load,db,put,setMock,tables}=require('./lib/rentalTestHarness.cjs');
 const {peakRentalValue,RENTAL_VALUE_CAP_PENCE}=load('shared/rentalExposure.ts');
-const {verificationChecks,securityReady,verificationCanStart}=load('shared/verificationProgress.ts');
+const {verificationChecks,securityReady,verificationCanStart,verificationExpired,verificationSessionCanOpen}=load('shared/verificationProgress.ts');
 const {verificationJourney}=load('shared/verificationJourney.ts');
+const {rentalStageLabel}=load('shared/rentalReadiness.ts');
 const journeyNow=Date.UTC(2026,9,8);
+const verificationDay=86400000;
+assert.equal(verificationExpired({idVerifiedAt:journeyNow-89*verificationDay,documentExpiresAt:journeyNow-1},journeyNow),false,'an ID expiry date does not shorten the 90-day approved verification window');
+assert.equal(verificationExpired({idVerifiedAt:journeyNow-89*verificationDay,verificationExpiresAt:journeyNow-1},journeyNow),false,'legacy stored ID-capped expiry is normalized to the successful approval date');
+assert.equal(verificationExpired({idVerifiedAt:journeyNow-90*verificationDay,documentExpiresAt:journeyNow+verificationDay},journeyNow),true,'a complete approval expires at 90 days');
+assert.equal(verificationSessionCanOpen({status:'confirmed',depositHoldAmount:0,idVerifyStatus:'verified',idVerifiedAt:journeyNow-89*verificationDay,documentExpiresAt:journeyNow-1},journeyNow),false,'a still-valid approval does not require reverification just because the ID expiry passed');
+assert.equal(verificationSessionCanOpen({status:'confirmed',depositHoldAmount:0,idVerifyStatus:'verified',idVerifiedAt:journeyNow-91*verificationDay},journeyNow),true,'a new verification can open after the full 90-day window');
 for(const [state,detail] of [['required','Awaiting checks'],['processing','Verification in progress'],['manual_review','Review needed'],['requires_input','Replacement needed'],['rejected','Needs attention']]) {
  const result=verificationJourney({status:'confirmed',idVerifyStatus:state},journeyNow);
  assert.equal(result.steps.find(step=>step.label==='Review').detail,detail);
  if(state==='processing')assert.equal(result.steps.find(step=>step.label==='Documents').detail,'Verification in progress');
  assert.equal(result.ready,false);
 }
-const journeyBooking={status:'confirmed',idVerifyStatus:'verified',verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},verificationArchiveReady:true,verificationExpiresAt:journeyNow+3600000,depositHoldAmount:100,depositHoldStatus:'scheduled',requiresDroneLicence:false};
+const journeyBooking={status:'confirmed',idVerifyStatus:'verified',idVerifiedAt:journeyNow-20*verificationDay,verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},verificationArchiveReady:true,verificationExpiresAt:journeyNow+3600000,depositHoldAmount:100,depositHoldStatus:'scheduled',requiresDroneLicence:false};
 for(const state of ['requires_input','rejected'])assert.equal(verificationJourney({...journeyBooking,idVerifyStatus:state},journeyNow).documents,false,'Stale per-check passes cannot hide a replacement or rejection');
 assert.equal(verificationJourney(journeyBooking,journeyNow).ready,false,'approved documents do not bypass scheduled card security');
 assert.equal(verificationJourney({...journeyBooking,depositHoldStatus:'held',depositHoldExpiresAt:journeyNow+3600000},journeyNow).ready,true);
@@ -21,10 +28,13 @@ const archivePending=verificationJourney({...journeyBooking,verificationArchiveR
 assert.equal(archivePending.reviewed,false,'An unconfirmed archive cannot enable the reusable approval');
 assert.equal(archivePending.steps.find(step=>step.label==='Review').detail,'Document storage unconfirmed');
 assert.equal(verificationJourney({...journeyBooking,depositHoldAmount:0,requiresDroneLicence:true,droneLicenceStatus:'review'},journeyNow).ready,false);
-assert.equal(verificationJourney({...journeyBooking,depositHoldAmount:0,verificationExpiresAt:journeyNow},journeyNow).ready,false);
+assert.equal(verificationJourney({...journeyBooking,depositHoldAmount:0,verificationExpiresAt:journeyNow},journeyNow).ready,true,'an old stored expiry does not hide a complete pass inside its original 90-day window');
+assert.equal(verificationJourney({...journeyBooking,depositHoldAmount:0,idVerifiedAt:journeyNow-91*verificationDay,verificationExpiresAt:journeyNow+verificationDay},journeyNow).ready,false,'the original verification date remains authoritative over a later stored expiry');
+assert.equal(rentalStageLabel({...journeyBooking,depositHoldAmount:0,verificationExpiresAt:journeyNow-1}),'Verification approved','rental-manager labels normalize a legacy short expiry');
+assert.equal(rentalStageLabel({...journeyBooking,depositHoldAmount:0,idVerifiedAt:journeyNow-91*verificationDay,verificationExpiresAt:journeyNow+verificationDay}),'Awaiting verification','rental-manager labels expire at the original 90-day boundary');
 assert.equal(verificationJourney({...journeyBooking,depositHoldAmount:0,cancellationPending:true},journeyNow).current,-1,'cancellation preparation closes the upload journey');
 assert.equal(verificationJourney({...journeyBooking,depositHoldAmount:0},journeyNow).steps.some(step=>step.label==='Drone licence'),false,'non-drone rentals never display drone progress');
-assert.equal(verificationJourney({...journeyBooking,verificationExpiresAt:undefined,depositHoldAmount:0},journeyNow).ready,false,'unknown verification approval lifetime cannot authorize pickup');
+assert.equal(verificationJourney({...journeyBooking,idVerifiedAt:undefined,verificationExpiresAt:undefined,depositHoldAmount:0},journeyNow).ready,false,'unknown verification approval lifetime cannot authorize pickup');
 const {assertRenterExposure,renterExposure,attachRenterPerson}=load('convex/lib/rentalExposure.ts');
 const day=Date.UTC(2030,0,1),D=86400000;
 assert.equal(RENTAL_VALUE_CAP_PENCE,1500000);

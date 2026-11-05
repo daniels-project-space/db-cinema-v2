@@ -29,7 +29,7 @@ const booking=put('bookings',{accountId:account._id,guestEmail:account.email,did
  const listed=await archive.accountDocuments.handler(ctx,{token:'archive-test',accountId:account._id});assert.equal(listed[0].documents[0].storageId,undefined,'No public storage URL/id exposed in listing');
  assert.equal(listed[0].retention.status,'active-rental');assert.equal(listed[0].retention.activeRentals,1);assert.equal(listed[0].retention.expiresAt,null);
  await assert.rejects(()=>archive.accountDocuments.handler(ctx,{token:'bad',accountId:account._id}),/unauthorized/);
- booking.status='returned';booking.returnedAt=Date.now()-31*86400000;
+ booking.status='returned';booking.returnedAt=Date.now()-31*86400000;booking.idVerifiedAt=booking.returnedAt-90*86400000;booking.verificationExpiresAt=booking.idVerifiedAt+90*86400000;
  const retainedView=await archive.accountDocuments.handler(ctx,{token:'archive-test',accountId:account._id});assert.equal(retainedView[0].retention.expiresAt,booking.returnedAt+90*86400000);assert.equal(retainedView[0].retention.viewable,true);
  booking.returnedAt=Date.now()-91*86400000;
  const expiredView=await archive.accountDocuments.handler(ctx,{token:'archive-test',accountId:account._id});assert.equal(expiredView[0].retention.expiresAt,booking.returnedAt+90*86400000);assert.equal(expiredView[0].retention.viewable,false);
@@ -37,7 +37,8 @@ const booking=put('bookings',{accountId:account._id,guestEmail:account.email,did
  await assert.rejects(()=>archive.assertVerificationArchive(ctx,booking),/fully archived/,'Readiness must reject expired complete copies before the purge runs');
  const damageCase=put('rental_damage_cases',{bookingId:booking._id,status:'open'});
  await archive.assertVerificationArchive(ctx,booking);
- const caseView=await archive.accountDocuments.handler(ctx,{token:'archive-test',accountId:account._id});assert.equal(caseView[0].retention.status,'insurance-case');assert.equal(caseView[0].retention.openCases,1);assert.equal(await archive.purgeExpired.handler(ctx,{}),0,'Displayed case preservation agrees with deletion gate');damageCase.status='closed';
+ const caseView=await archive.accountDocuments.handler(ctx,{token:'archive-test',accountId:account._id});assert.equal(caseView[0].retention.status,'insurance-case');assert.equal(caseView[0].retention.openCases,1);assert.equal(await archive.purgeExpired.handler(ctx,{}),0,'Displayed case preservation agrees with deletion gate');damageCase.status='closed';damageCase.closedAt=Date.now();
+ const closedCaseView=await archive.accountDocuments.handler(ctx,{token:'archive-test',accountId:account._id});assert.equal(closedCaseView[0].retention.expiresAt,damageCase.closedAt+90*86400000,'Case resolution extends retention for a further 90 days');damageCase.closedAt=booking.returnedAt;
  await archive.retentionHold.handler(ctx,{token:'archive-test',archiveId:job._id,reason:'Insurance damage claim still open'});
  assert.equal(await archive.purgeExpired.handler(ctx,{}),0);
  await archive.assertVerificationArchive(ctx,booking);
@@ -52,7 +53,7 @@ const booking=put('bookings',{accountId:account._id,guestEmail:account.email,did
  assert.equal(await archive.purgeExpired.handler(ctx,{}),0,'An unknown closure timestamp must preserve the copies');
  const unknownView=await archive.accountDocuments.handler(ctx,{token:'archive-test',accountId:account._id});assert.equal(unknownView[0].retention.status,'unknown-closure');
  reuse.status='returned';reuse.returnedAt=Date.now()-91*86400000;
- const now=Date.now(), originalNow=Date.now;Date.now=()=>now;
+ const now=Date.now(), originalNow=Date.now;Date.now=()=>now;damageCase.closedAt=now-91*86400000;
  booking.returnedAt=now-90*86400000+1;
  assert.equal(await archive.purgeExpired.handler(ctx,{}),0,'Retain through the full 90 days, even one millisecond before expiry');
  booking.returnedAt=now-90*86400000;

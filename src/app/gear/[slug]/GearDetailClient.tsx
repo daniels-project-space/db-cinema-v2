@@ -345,6 +345,25 @@ export default function GearDetailClient({ slug, initialListing }: { slug: strin
                   )}
                 </button>
               </div>
+            ) : (listing as any).bookable === false ? (
+              <div className="spot gradient-border rounded-2xl p-6">
+                <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-100">
+                  Inventory check
+                </span>
+                <h2 className="mt-3 font-display text-lg font-semibold text-white/90">
+                  Let’s check this kit for you
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-white/60">
+                  We can’t offer online dates until the live equipment record is confirmed. Ask us to check whether we can supply this kit and what it includes. No booking or payment is created here.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new CustomEvent("dbc:open-gaffer-chat"))}
+                  className="btn-primary mt-5 flex w-full items-center justify-center rounded-full py-3 text-sm font-semibold"
+                >
+                  Ask Gaffer to check
+                </button>
+              </div>
             ) : (
               <BookingPanel
                 listing={listing as any}

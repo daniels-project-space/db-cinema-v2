@@ -19,6 +19,8 @@ function configFrom(d: any) {
     openingHours: d?.openingHours ?? DEFAULTS.openingHours,
     acceptingOrders: d?.acceptingOrders ?? DEFAULTS.acceptingOrders,
     refundableDepositEnabled:process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true"||process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true",
+    cardHoldSecurityEnabled:process.env.CARD_HOLD_SECURITY_POLICY_ENABLED==="true",
+    setupIntentSecurityEnabled:process.env.SETUP_INTENT_SECURITY_POLICY_ENABLED==="true",
     cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true"&&process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true",
     assessmentSecurityEnabled:process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true",
     checkoutEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" && (d?.acceptingOrders ?? DEFAULTS.acceptingOrders),

@@ -1,4 +1,5 @@
-import { AGREEMENTS, LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, agreementsForSecurityPolicy } from "../src/lib/legal";
+import { AGREEMENTS, LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, CARD_HOLD_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, agreementsForSecurityPolicy } from "../src/lib/legal";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, CARD_HOLD_SECURITY_POLICY_VERSION, isCardHoldSecurityPolicy, isSetupIntentSecurityPolicy } from "./rentalSecurity";
 import { LEGAL_DOCS, LEGAL_ARCHIVE, RENTAL_DRAFT_RELEASE_READY, type LegalDoc } from "./legalDocuments";
 
 export const DELIVERY_TERMS_VERSION = "2026-10-delivery-v2";
@@ -27,8 +28,10 @@ export type AgreementSnapshot = {
 };
 
 export function assertCurrentAgreement(a: { name?: string; securityHoldConsent?: boolean; laterChargeConsent?: boolean; documents?: Accepted[]; securityPolicyVersion?: string; cancellationProtectionEnabled?:boolean } | undefined, fulfilment: string) {
-  if (!a?.name || a.name.trim().length < 3 || !a.securityHoldConsent || !a.laterChargeConsent)
+  if (!a?.name || a.name.trim().length < 3 || !a.securityHoldConsent || (!isCardHoldSecurityPolicy(a.securityPolicyVersion) && !a.laterChargeConsent))
     throw Error("Please sign the rental agreement to continue.");
+  if(isCardHoldSecurityPolicy(a.securityPolicyVersion)&&a.laterChargeConsent)
+    throw Error("This hold agreement does not authorise later off-session charges.");
   const expected: Accepted[] = [...agreementsForSecurityPolicy(a?.securityPolicyVersion,a?.cancellationProtectionEnabled)];
   if (fulfilment === "delivery") expected.push({kind:"delivery-disclaimer",version:DELIVERY_TERMS_VERSION});
   if (a.documents?.length !== expected.length || !expected.every(e => a.documents!.filter(d => d.kind === e.kind && d.version === e.version).length === 1))
@@ -73,11 +76,14 @@ export function assertAgreementBeforeRelease(b: any) {
   if (!b.agreementName?.trim() || !b.agreementSignedAt ||
       !b.agreementDocs?.some((d:Accepted)=>d.kind==="rental-agreement" && !!d.version))
     throw Error("Retained agreement acceptance is required before handover; do not backfill or infer consent.");
-  if (b.agreementDocs.some((d:Accepted)=>[LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,"2026-10-v15","2026-10-v16"].includes(d.version))) {
-    const legalVersion = agreementsForSecurityPolicy(b.securityPolicyVersion,b.cancellationProtectionEnabled).find(doc=>doc.kind==="rental-agreement")!.version;
+  const acceptedVersion=b.agreementDocs.find((d:Accepted)=>d.kind==="rental-agreement")?.version??"";
+  if ([LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,"2026-10-v15","2026-10-v16",ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,SETUP_INTENT_LEGAL_VERSION].includes(acceptedVersion)) {
     const s=readAgreementSnapshot(b.agreementSnapshot);
-    if (!s || s.version!==legalVersion || s.signer!==b.agreementName.trim() || s.acceptedAt!==b.agreementSignedAt ||
-      !b.securityHoldConsentAt || !b.laterChargeConsentAt ||
+    const allowedVersions=isSetupIntentSecurityPolicy(b.securityPolicyVersion)?[SETUP_INTENT_LEGAL_VERSION]:b.securityPolicyVersion===CARD_HOLD_SECURITY_POLICY_VERSION?[CARD_HOLD_LEGAL_VERSION]:b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION
+      ?b.cancellationProtectionEnabled?["2026-10-v16",CANCELLATION_PROTECTION_LEGAL_VERSION]:["2026-10-v15",ASSESSMENT_DEPOSIT_LEGAL_VERSION]
+      :b.securityPolicyVersion===REFUNDABLE_DEPOSIT_LEGAL_VERSION?[REFUNDABLE_DEPOSIT_LEGAL_VERSION]:[LEGAL_VERSION];
+    if (!s || !allowedVersions.includes(acceptedVersion) || s.version!==acceptedVersion || s.signer!==b.agreementName.trim() || s.acceptedAt!==b.agreementSignedAt ||
+      !b.securityHoldConsentAt || (!isCardHoldSecurityPolicy(b.securityPolicyVersion) && !b.laterChargeConsentAt) ||
       s.documents.length!==b.agreementDocs.length || !s.documents.every(d=>b.agreementDocs.some((e:Accepted)=>e.kind===d.kind && e.version===d.version)))
       throw Error("The accepted agreement copy is missing or inconsistent; release is blocked.");
   }

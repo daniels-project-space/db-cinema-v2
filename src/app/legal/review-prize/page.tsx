@@ -13,8 +13,8 @@ export default function PrizeTerms() {
       `DB Cinema Rentals, 25 Whitcomb Street, London WC2H 7ER, ${CONTACT_EMAIL}, promotes this skill-based set-story competition. Entrants must be UK residents aged 18 or over with an authenticated account and a genuine completed, returned website rental. Staff, judges and their immediate families cannot enter. No entry fee or additional purchase is required. One entry per rental; the same rental, review or social post cannot be entered in another round.`,
     ],
     [
-      "Refundable security condition",
-      "Entry is available only after all refundable deposits, including later equipment additions, have been refunded in full and every security authorisation has been released without capture or deduction. A deposit kept for damage, loss or late charges, a captured security hold, partial or pending refund, or unresolved settlement makes that rental ineligible. We verify settlement against the payment provider and recheck eligibility before judging. A fully waived deposit with no required hold may qualify after the rental is returned and settled.",
+      "Rental return and security settlement",
+      "Entry is available only after the rental is returned, the inspection is complete and the applicable security settlement is finished. A rental with a damage, loss or late-return claim, an unresolved balance, or a pending refund or card-authorisation release is ineligible. Any security payment or authorisation required by the signed rental agreement must be settled under that agreement; rentals using saved-card terms do not need a deposit refund or card hold release. We verify the return and settlement and recheck eligibility before judging.",
     ],
     [
       "Deadlines and prize",

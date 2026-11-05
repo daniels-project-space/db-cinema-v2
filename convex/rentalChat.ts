@@ -8,6 +8,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { verificationValidUntil } from "../shared/verificationProgress";
 import { paginationOptsValidator } from "convex/server";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { listingImages } from "./lib/catalogImages";
@@ -31,6 +32,7 @@ import {
   ownedBooking,
   postRentalMessage,
   rentalThread,
+  scheduleGafferAutoResume,
 } from "./lib/rentalChat";
 
 async function ownerAccount(ctx: any, bookingId?: any, accountId?: any) {
@@ -119,7 +121,7 @@ async function bookingView(
     idVerificationSource: b.idVerificationSource ?? null,
     verificationChecks: b.verificationChecks ?? null,
     verificationArchiveReady,
-    verificationExpiresAt: b.verificationExpiresAt ?? null,
+    verificationExpiresAt: verificationValidUntil(b),
     documentExpiresAt: b.documentExpiresAt ?? null,
     verificationUpdatedAt: b.verificationUpdatedAt ?? null,
     requiresDroneLicence: await requiresDroneLicence(ctx, b),
@@ -295,7 +297,10 @@ export const sendOwner = mutation({
       text: text.trim(),
     });
     const t = await rentalThread(ctx, a._id, bookingId);
-    if (t) await ctx.db.patch(t._id, { escalated: true });
+    if (t && !t.escalated) {
+      await ctx.db.patch(t._id, { escalated: true, gafferGeneration: (t.gafferGeneration ?? 0) + 1 });
+      await scheduleGafferAutoResume(ctx, a._id, bookingId);
+    }
     await acknowledgeOwnerNotifications(ctx, a._id, bookingId);
     return { ok: true };
   },
@@ -384,11 +389,6 @@ export const setHandler = mutation({
         ? "Gaffer is here to help with this rental."
         : "The team is handling this conversation.",
     });
-    if (gaffer)
-      await ctx.scheduler.runAfter(0, internal.gaffer.gafferReply, {
-        accountId: a._id,
-        bookingId,
-      });
   },
 });
 

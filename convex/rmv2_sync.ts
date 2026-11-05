@@ -19,8 +19,7 @@ import { paginationOptsValidator } from "convex/server";
 import { accountForRental } from "./lib/rentalAccount";
 import { assertVerificationArchive } from "./verificationArchive";
 import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
-import { securityReady } from "../shared/verificationProgress";
-import { VERIFICATION_REUSE_DAYS } from "./lib/verificationReuse";
+import { securityReady, verificationValidUntil } from "../shared/verificationProgress";
 import { stockWindow } from "./lib/stockWindows";
 import { bookingStockLines } from "../shared/rentalWindow";
 
@@ -87,7 +86,7 @@ export function mapBookingForSync(
   const ends = (b.lineItems ?? []).map((li) => li.end);
 
   const documentsApproved = !!verificationReadiness?.accountId && b.idVerifyStatus === "verified" &&
-    Math.min(b.verificationExpiresAt ?? ((b.idVerifiedAt ?? 0) + VERIFICATION_REUSE_DAYS * 86400000), b.documentExpiresAt ?? Infinity) > Date.now() &&
+    (verificationValidUntil(b) ?? 0) > Date.now() &&
     verificationReadiness.archiveReady === true &&
     (!verificationReadiness.requiresDroneLicence || verificationReadiness.droneLicenceStatus === "approved");
 

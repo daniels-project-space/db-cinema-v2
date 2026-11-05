@@ -1,5 +1,6 @@
 export const RENTAL_STAGES = [
   "pending_payment",
+  "pending_verification",
   "confirmed",
   "active",
   "returned",
@@ -7,6 +8,7 @@ export const RENTAL_STAGES = [
 ] as const;
 export const RENTAL_STAGE_LABELS: Record<string, string> = {
   pending_payment: "Awaiting payment",
+  pending_verification: "Verification pending",
   confirmed: "Upcoming",
   active: "On hire",
   returned: "Returned",

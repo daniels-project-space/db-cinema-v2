@@ -9,6 +9,7 @@ const refs = new Proxy({}, {get: (_, group) => new Proxy({}, {get: (_, name) => 
 const registered = {action: x => x, internalAction: x => x, query: x => x, internalQuery: x => x, mutation: x => x, internalMutation: x => x};
 const sessions = {
   paid: {id:'paid',status:'complete',payment_status:'paid',payment_intent:'pi_paid'},
+  verification: {id:'verification',status:'complete',payment_status:'paid',payment_intent:'pi_verification'},
   expired: {id:'expired',status:'expired',payment_status:'unpaid'},
   open: {id:'open',status:'open',payment_status:'unpaid'},
   processing: {id:'processing',status:'complete',payment_status:'unpaid'},
@@ -45,7 +46,7 @@ const {expire:expireCredits}=load('convex/credits.ts');
 
 (async()=>{
   const now=Date.now();
-  const pending=['paid','expired','open','processing','failed','unbound'].map(id=>({
+  const pending=['paid','verification','expired','open','processing','failed','unbound'].map(id=>({
     bookingId:id,sessionId:id==='unbound'?null:id,createdAt:now-60*60*1000,
   }));
   for(const name of Object.keys(sessions))sessions[name].metadata={bookingId:name};
@@ -53,12 +54,16 @@ const {expire:expireCredits}=load('convex/credits.ts');
   const ctx={
     runQuery: async ref=>{
       if(ref==='bookings:pendingCheckoutSessions')return pending;
-      if(ref==='bookings:holdContext')return null;
+      if(ref==='bookings:holdContext'||ref==='savedCardState:context')return null;
       throw Error(`Unexpected query ${ref}`);
+    },
+    runAction: async ref=>{
+      if(ref==='sync:syncHyggloReservations')return {checkedAt:now};
+      throw Error(`Unexpected action ${ref}`);
     },
     runMutation: async (ref,args)=>{
       mutations.push({ref,args});
-      if(ref==='bookings:confirm')return {already:false};
+      if(ref==='bookings:confirm')return args.bookingId==='verification'?{awaitingVerification:true}:{already:false};
       if(ref==='bookings:expireUnpaidPending')return true;
       throw Error(`Unexpected mutation ${ref}`);
     },
@@ -67,8 +72,9 @@ const {expire:expireCredits}=load('convex/credits.ts');
   console.error=()=>{}; // provider outage is expected in this fixture
   let result;
   try{result=await reconcilePendingPayments.handler(ctx,{});}finally{console.error=originalError;}
-  assert.deepEqual(result,{checked:6,confirmed:1,expired:3,failures:1});
-  assert.deepEqual(mutations.filter(m=>m.ref==='bookings:confirm').map(m=>m.args.bookingId),['paid']);
+  assert.deepEqual(result,{checked:7,confirmed:1,expired:3,failures:1});
+  assert.deepEqual(mutations.filter(m=>m.ref==='bookings:confirm').map(m=>m.args.bookingId),['paid','verification']);
+  assert.equal(result.confirmed,1,'paid rentals still waiting for Didit are not counted as confirmed');
   assert.deepEqual(mutations.filter(m=>m.ref==='bookings:expireUnpaidPending').map(m=>m.args.bookingId),['expired','open','unbound']);
   assert.ok(!mutations.some(m=>['processing','failed'].includes(m.args.bookingId)));
   await assert.rejects(createPending.handler({db:{get:async()=>({email:'owner@example.invalid'})}},

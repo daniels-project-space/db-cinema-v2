@@ -1,6 +1,9 @@
 import { queueRenterNotification } from "./renterPush";
 import { queueOwnerNotification } from "./adminPush";
 import { belongsToRentalAccount } from "./rentalAccount";
+import { internal } from "../_generated/api";
+
+export const GAFFER_AUTO_RESUME_MS = 4 * 60 * 60 * 1000;
 /** Shared boundaries for customer and owner rental conversations. */
 export async function accountForToken(ctx: any, token: string, requireExpiry = false) {
   const s = await ctx.db
@@ -25,6 +28,16 @@ export async function rentalThread(ctx: any, accountId: any, bookingId?: any) {
       q.eq("accountId", accountId).eq("bookingId", bookingId),
     )
     .first();
+}
+export async function scheduleGafferAutoResume(ctx: any, accountId: any, bookingId?: any) {
+  const thread = await rentalThread(ctx, accountId, bookingId);
+  if (!thread?.escalated || !Number.isSafeInteger(thread.updatedAt)) return;
+  await ctx.scheduler.runAfter(GAFFER_AUTO_RESUME_MS, internal.chat.autoResumeGaffer, {
+    accountId,
+    bookingId,
+    expectedUpdatedAt: thread.updatedAt,
+    expectedGeneration: thread.gafferGeneration ?? 0,
+  });
 }
 export async function postRentalMessage(
   ctx: any,
@@ -61,6 +74,7 @@ export async function postRentalMessage(
       escalated: false,
       ...patch,
     });
+  if (thread?.escalated) await scheduleGafferAutoResume(ctx, a.accountId, a.bookingId);
   if (a.bookingId)
     await ctx.db.patch(a.bookingId, {
       chatUpdatedAt: now,

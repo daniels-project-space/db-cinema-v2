@@ -14,7 +14,8 @@ import { AskGaffer } from "@/components/gaffer/AskGaffer";
 
 export default function ContactPage() {
   const submit = useMutation(api.contact.submit);
-  const { me, signUp, loading: accountLoading } = useAccount();
+  const sendToAccountChat = useMutation(api.chat.send);
+  const { token, me, signUp, loading: accountLoading } = useAccount();
   const [creating, setCreating] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmationSent, setConfirmationSent] = useState(false);
@@ -43,7 +44,8 @@ export default function ContactPage() {
     setBusy(true);
     setErr(null);
     try {
-      await submit({ name, email, message, hp });
+      if (me && token) await sendToAccountChat({ token, text: message });
+      else await submit({ name, email, message, hp });
       setSent(true);
     } catch (e: any) {
       const m = String(e?.message || "").match(/Uncaught Error:\s*(.+?)(?:\n|$)/);
@@ -72,8 +74,8 @@ export default function ContactPage() {
                   <IconCheck className="h-6 w-6" />
                 </span>
                 <p className="mt-4 font-display text-lg font-semibold text-white/90">Message sent</p>
-                <p className="mt-2 text-sm leading-relaxed text-white/60">Gaffer will read your enquiry and reply to {email} with answers and next steps.</p>
-                {me ? <Link href="/account?conversation=general#chat" className="btn-primary mt-6 py-3">Continue in your Gaffer chat →</Link> : !creating ? <button type="button" className="btn-primary mt-6 py-3" onClick={() => setCreating(true)}>Create your account &amp; follow this enquiry</button> : confirmationSent ? <div className="mt-6 rounded-xl border border-accent-300/20 bg-accent-500/10 p-4 text-sm text-white/75" role="status">Check {email} for your confirmation link. Confirm once to activate your password and open this conversation in your Gaffer chat.</div> : <form className="mt-6 space-y-3 text-left" onSubmit={async event => {
+                <p className="mt-2 text-sm leading-relaxed text-white/60">{me ? "Your enquiry is in your account support conversation. Gaffer will reply there." : `Gaffer will read your enquiry and reply to ${email} with answers and next steps.`}</p>
+                {me ? <Link href="/account?conversation=general#chat" className="btn-primary mt-6 py-3">Continue in your Gaffer chat →</Link> : !creating ? <button type="button" className="btn-primary mt-6 py-3" onClick={() => setCreating(true)}>Create an account &amp; start a Gaffer chat</button> : confirmationSent ? <div className="mt-6 rounded-xl border border-accent-300/20 bg-accent-500/10 p-4 text-sm text-white/75" role="status">Check {email} for your confirmation link. Confirm once to activate your password, then start a Gaffer chat from your account.</div> : <form className="mt-6 space-y-3 text-left" onSubmit={async event => {
                   event.preventDefault(); setBusy(true); setErr(null);
                   try { await signUp(email, password, name, "chat"); setConfirmationSent(true); }
                   catch { setErr("Couldn’t create the account. If you already have one, sign in below with this email."); }
@@ -100,7 +102,7 @@ export default function ContactPage() {
                 </div>
                 <div>
                   <label className="hud-label mb-1.5 block" htmlFor="c-msg">Message</label>
-                  <textarea id="c-msg" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="How can we help?" rows={5} className="input w-full" />
+                  <textarea id="c-msg" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="How can we help?" rows={5} maxLength={2000} className="input w-full" />
                 </div>
                 <input
                   type="text"

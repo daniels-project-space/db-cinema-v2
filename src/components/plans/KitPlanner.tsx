@@ -357,8 +357,8 @@ export function KitPlanner({
                   </button>
                 )}
                 <p className="mt-3 text-xs leading-5 text-white/35">
-                  Not reserved. Refundable security payment, card hold and
-                  delivery are separate.
+                  Not reserved. Rental-security terms and delivery are shown
+                  separately at checkout.
                 </p>
               </aside>
             </div>

@@ -150,6 +150,8 @@ import type * as rentalChat from "../rentalChat.js";
 import type * as rentalChatSearch from "../rentalChatSearch.js";
 import type * as rentalContents from "../rentalContents.js";
 import type * as rentalCreditOffers from "../rentalCreditOffers.js";
+import type * as rentalDelivery from "../rentalDelivery.js";
+import type * as rentalDeliveryState from "../rentalDeliveryState.js";
 import type * as rentalEmailDelivery from "../rentalEmailDelivery.js";
 import type * as rentalEmailMail from "../rentalEmailMail.js";
 import type * as rentalExtensionPayments from "../rentalExtensionPayments.js";
@@ -336,6 +338,8 @@ declare const fullApi: ApiFromModules<{
   rentalChatSearch: typeof rentalChatSearch;
   rentalContents: typeof rentalContents;
   rentalCreditOffers: typeof rentalCreditOffers;
+  rentalDelivery: typeof rentalDelivery;
+  rentalDeliveryState: typeof rentalDeliveryState;
   rentalEmailDelivery: typeof rentalEmailDelivery;
   rentalEmailMail: typeof rentalEmailMail;
   rentalExtensionPayments: typeof rentalExtensionPayments;

@@ -5,6 +5,8 @@ import { SmartImage } from "@/components/SmartImage";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "@cvx/_generated/api";
 import { liveWindow, stockLines, liveChatChoices } from "@/lib/liveRecommendations";
 import {
   IconSliders,
@@ -28,6 +30,8 @@ type Msg = {
   content: string;
   cards?: Card[];
   suggestions?: string[];
+  id?: string;
+  pending?: boolean;
 };
 const GREETING =
   "Hi! I'm **Gaffer**, the Db Cinema kit assistant. Tell me what you're shooting and your dates and I'll build your kit — or ask me anything about gear, prices and availability.";
@@ -67,6 +71,11 @@ export function BotBubble() {
   useEffect(() => {
     if (onCall) setOpen(false);
   }, [onCall]);
+  useEffect(() => {
+    const openGafferChat = () => setOpen(true);
+    window.addEventListener("dbc:open-gaffer-chat", openGafferChat);
+    return () => window.removeEventListener("dbc:open-gaffer-chat", openGafferChat);
+  }, []);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -84,6 +93,10 @@ export function BotBubble() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const account = useAccount();
   const cart = useCart();
+  const accountThread = useQuery(api.chat.myThread, account.token ? { token: account.token } : "skip");
+  const recordAccountQuestion = useMutation(api.chat.recordGafferUserMessage);
+  const recordAccountReply = useMutation(api.chat.recordGafferReply);
+  const hydratedAccountToken = useRef<string | null>(null);
   const addonBusy = null;
   function addToBooking(item: any) {
     if (!account.token || !item?.addonBookingId) return;
@@ -91,20 +104,43 @@ export function BotBubble() {
   }
 
   useEffect(() => {
+    if (account.token) {
+      if (accountThread === undefined) return;
+      const saved = (accountThread ?? []).map((message) => ({
+        id: String(message._id),
+        role: message.sender === "renter" ? "user" as const : "assistant" as const,
+        content: message.text,
+      }));
+      if (hydratedAccountToken.current !== account.token) {
+        hydratedAccountToken.current = account.token;
+        setMsgs(saved);
+        try { localStorage.removeItem("dbc_bot"); } catch {}
+        return;
+      }
+      setMsgs((current) => {
+        const byId = new Map(current.filter((message) => message.id).map((message) => [message.id!, message]));
+        const synced = saved.map((message) => {
+          const existing = byId.get(message.id!);
+          return existing ? { ...message, cards: existing.cards, suggestions: existing.suggestions } : message;
+        });
+        const pending = current.filter((message) => message.pending && !saved.some((savedMessage) => savedMessage.role === message.role && savedMessage.content === message.content));
+        return [...synced, ...pending];
+      });
+      return;
+    }
+    hydratedAccountToken.current = null;
     const raw = localStorage.getItem("dbc_bot");
     if (raw)
       try {
         const saved: Msg[] = JSON.parse(raw);
-        // Restore the transcript text only. Cards encode LIVE state (stock,
-        // member pricing, the dates the user asked about) that goes stale the
-        // moment the session ends — rehydrating them would present a previous
-        // session's "Recommended X" answer as if it were current. Strip cards
-        // on load so old recommendations can never masquerade as live; a fresh
-        // request rebuilds them from /api/bot.
         setMsgs(saved.map((m) => (m.cards?.length ? { ...m, cards: [] } : m)));
       } catch {}
-  }, []);
+  }, [account.token, accountThread]);
   useEffect(() => {
+    if (account.token) {
+      try { localStorage.removeItem("dbc_bot"); } catch {}
+      return;
+    }
     if (msgs.length) {
       try {
         localStorage.setItem("dbc_bot", JSON.stringify(msgs.slice(-24)));
@@ -114,7 +150,7 @@ export function BotBubble() {
     // document and yanks the fixed chat panel out of view (then back) when you send a message.
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [msgs, busy]);
+  }, [msgs, busy, account.token]);
 
   // mouth animates while the latest reply types itself out
   useEffect(() => {
@@ -128,6 +164,7 @@ export function BotBubble() {
   }, [talkingIdx, msgs]);
 
   function clearChat() {
+    if (account.token) return;
     setMsgs([]);
     setDone({});
     setOnb(0);
@@ -148,11 +185,26 @@ export function BotBubble() {
     const t = (override ?? text).trim();
     if (!t || busy) return;
     setOnb(4); // any message dismisses the onboarding prompts
-    const next: Msg[] = [...msgs, { role: "user", content: t }];
+    const next: Msg[] = [...msgs, { role: "user", content: t, pending: !!account.token }];
     setMsgs(next);
     setText("");
     setBusy(true);
+    let renterMessageId: string | null = null;
     try {
+      if (account.token) {
+        const recorded = await recordAccountQuestion({ token: account.token, text: t });
+        renterMessageId = String(recorded.messageId);
+        setMsgs((current) => current.map((message, index) => index === current.length - 1
+          ? { ...message, id: renterMessageId!, pending: false }
+          : message));
+        if (recorded.handledByHuman) {
+          setMsgs((current) => [...current, {
+            role: "assistant",
+            content: "Your team is handling this conversation. Your message is saved in Account → Messages, where their reply will appear.",
+          }]);
+          return;
+        }
+      }
       const r = await fetch("/api/bot", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -170,28 +222,48 @@ export function BotBubble() {
         }),
       });
       const d = await r.json();
-      setMsgs((m) => {
-        setTalkingIdx(m.length);
-        return [
-          ...m,
-          {
+      const reply = d.reply || "…";
+      let replyId: string | undefined;
+      if (account.token && renterMessageId) {
+        const recorded = await recordAccountReply({ token: account.token, renterMessageId: renterMessageId as any, text: reply });
+        if (!recorded.saved) {
+          setMsgs((current) => [...current, {
             role: "assistant",
-            content: d.reply || "…",
-            cards: (d.cards || []).map((card:any)=>{
-              const item=card.kind==="swap"?card.added:card.item;
-              const first=cart.items[0];
-              const followBasketWindow=!first||cart.items.every(i=>i.start===item?.start&&i.end===item?.end&&i.pickupTime===item?.pickupTime&&i.returnTime===item?.returnTime);
-              return card.kind==="swap"?{...card,added:{...item,followBasketWindow}}:{...card,item:{...item,followBasketWindow}};
-            }),
-            suggestions: d.suggestions || [],
-          },
-        ];
+            content: recorded.handledByHuman
+              ? "A team member has taken over. Your question is saved in Account → Messages, and their reply will appear there."
+              : "Your question is saved in Account → Messages, but this reply could not be added. Please try again there.",
+          }]);
+          return;
+        }
+        replyId = String(recorded.messageId);
+      }
+      const cards = (d.cards || []).map((card:any)=>{
+        const item=card.kind==="swap"?card.added:card.item;
+        const first=cart.items[0];
+        const followBasketWindow=!first||cart.items.every(i=>i.start===item?.start&&i.end===item?.end&&i.pickupTime===item?.pickupTime&&i.returnTime===item?.returnTime);
+        return card.kind==="swap"?{...card,added:{...item,followBasketWindow}}:{...card,item:{...item,followBasketWindow}};
+      });
+      setMsgs((current) => {
+        setTalkingIdx(current.length);
+        const existingIndex = replyId ? current.findIndex((message) => message.id === replyId) : -1;
+        const message = { id: replyId, role: "assistant" as const, content: reply, cards, suggestions: d.suggestions || [] };
+        if (existingIndex >= 0) return current.map((item, index) => index === existingIndex ? message : item);
+        return [...current, message];
       });
     } catch {
-      setMsgs((m) => [
-        ...m,
-        { role: "assistant", content: "Connection hiccup — please try again." },
-      ]);
+      setMsgs((current) => {
+        const withoutUnsentDraft = account.token && !renterMessageId && current.at(-1)?.pending
+          ? current.slice(0, -1)
+          : current;
+        return [...withoutUnsentDraft, {
+          role: "assistant",
+          content: account.token
+            ? renterMessageId
+              ? "Your message is saved in Account → Messages. Gaffer could not finish this reply, but you can continue in that same conversation."
+              : "I couldn’t confirm your question was saved. Check Account → Messages before trying again."
+            : "Connection hiccup — please try again.",
+        }];
+      });
     } finally {
       setBusy(false);
     }
@@ -270,7 +342,7 @@ export function BotBubble() {
         data-speaking={onCall && gafferSpeaking ? "true" : undefined}
         // colours live in globals.css keyed on data-on-call, so amber→red is a
         // slow crossfade rather than a class swap that snaps
-        className="group launcher fixed bottom-5 right-5 z-50 flex h-14 items-center gap-2.5 rounded-full border px-4 hover:scale-105 active:scale-95"
+        className="group launcher fixed bottom-5 right-5 z-50 hidden h-14 w-14 items-center justify-center gap-0 rounded-full border p-0 hover:scale-105 active:scale-95 sm:flex sm:w-auto sm:justify-start sm:gap-2.5 sm:px-4"
       >
         {(!open || onCall) && <span className="launcher-ring" aria-hidden />}
         {onCall ? (
@@ -291,7 +363,7 @@ export function BotBubble() {
         ) : (
           <BotAvatar mood="idle" className="h-9 w-9" />
         )}
-        <span className="relative z-[1] whitespace-nowrap font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-white/90">
+        <span className="relative z-[1] hidden whitespace-nowrap font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-white/90 sm:block">
           Contact us
         </span>
         {onCall && (
@@ -329,7 +401,7 @@ export function BotBubble() {
               label="Voice"
               compact
             />
-            {msgs.length > 0 && (
+            {msgs.length > 0 && !account.token && (
               <button
                 onClick={clearChat}
                 aria-label="Clear conversation"

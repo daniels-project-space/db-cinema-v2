@@ -2,7 +2,7 @@ import { postRentalMessage } from "./rentalChat";
 import { accountForRental } from "./rentalAccount";
 import { bookingStockLines } from "../../shared/rentalWindow";
 import { pickupMapAvailable } from "../../shared/pickupLocation";
-import { verificationExpired } from "../../shared/verificationProgress";
+import { verificationExpired, verificationValidUntil } from "../../shared/verificationProgress";
 
 /** Rental risk policy, separate from a Collective membership badge. */
 export const VERIFICATION_REUSE_DAYS = 90;
@@ -15,27 +15,29 @@ export async function verificationReuseIdentityDigest(booking:any,recipientEmail
 }
 export async function verificationReuseOwnerMatches(ctx:any,booking:any) {
   if(!booking?.accountId)return false;
-  if(booking.accountAccessRequired===false)return true;
-  if(booking.verificationReuseOwnershipAccountId!==booking.accountId || booking.verificationReuseOwnershipSessionId!==booking.diditSessionId || !booking.verificationReuseOwnershipDigest)return false;
   const account=await ctx.db.get(booking.accountId);
-  return !!account && verificationDetail(account.email)===verificationDetail(booking.guestEmail) && await verificationReuseIdentityDigest(booking,account.email)===booking.verificationReuseOwnershipDigest;
+  if(!account || account.blockedAt!=null)return false;
+  if(booking.accountAccessRequired===false)return true;
+  if(!account.emailVerifiedAt)return false;
+  return verificationDetail(account.email)===verificationDetail(booking.guestEmail) &&
+    !!verificationDetail(account.name) && verificationDetail(account.name)===verificationDetail(booking.agreementName);
 }
 export function validReuse(record: any, booking: any, now = Date.now()) {
+  const expiresAt = verificationValidUntil(record);
   return !!record && Array.isArray(booking.lineItems) && booking.lineItems.length > 0 &&
-    booking.lineItems.every((li: any) => Number.isFinite(li.start) && record.expiresAt > li.start) && record.expiresAt > now &&
-    !!verificationDetail(booking.agreementName) && !!verificationDetail(booking.billingAddress) &&
-    record.name === verificationDetail(booking.agreementName) && record.address === verificationDetail(booking.billingAddress);
+    expiresAt != null && booking.lineItems.every((li: any) => Number.isFinite(li.start) && expiresAt > li.start) && expiresAt > now &&
+    !!verificationDetail(booking.agreementName) && !!verificationDetail(booking.billingAddress) && !!verificationDetail(record.address) &&
+    record.name === verificationDetail(booking.agreementName);
 }
 export async function saveAccountDiditVerification(ctx: any, booking: any, verifiedAt: number, documentExpiresAt: number | undefined, checks: any, personKey: string | undefined) {
   if (booking.identityRiskNotice || !await verificationReuseOwnerMatches(ctx,booking) || !booking.diditSessionId || booking.verificationReuseBlockedSessionId === booking.diditSessionId ||
       !["identity", "selfie", "address"].every(key => checks?.[key] === "approved") ||
-      !personKey || !Number.isFinite(verifiedAt) || !Number.isFinite(documentExpiresAt)) return false;
+      !personKey || !Number.isFinite(verifiedAt) || (documentExpiresAt != null && !Number.isFinite(documentExpiresAt))) return false;
   const name = verificationDetail(booking.agreementName), address = verificationDetail(booking.billingAddress);
-  const expiresAt = Math.min(verifiedAt + VERIFICATION_REUSE_DAYS * 86400000, documentExpiresAt!);
+  const expiresAt = verifiedAt + VERIFICATION_REUSE_DAYS * 86400000;
   if (!name || !address || expiresAt <= Date.now()) return false;
   const account = await ctx.db.get(booking.accountId);
-  if (!account || account.blockedAt != null || account.emailVerificationRequired && !account.emailVerifiedAt) return false;
-  if (account.name && verificationDetail(account.name) !== name || account.address && verificationDetail(account.address) !== address) return false;
+  if (!account || account.blockedAt != null || !account.emailVerifiedAt || !account.name || verificationDetail(account.name) !== name) return false;
   if ((account.rentalVerification?.verifiedAt ?? 0) > verifiedAt) return false;
   const current=account.rentalVerification;
   if(current && current.verifiedAt===verifiedAt && current.sourceBookingId!==booking._id)return false;
@@ -46,7 +48,7 @@ export async function saveAccountDiditVerification(ctx: any, booking: any, verif
 export async function verificationUpdateMessage(ctx: any, bookingId: any, previous: string | undefined, status: string) {
   if (previous === status) return;
   const booking = await ctx.db.get(bookingId);
-  if (!booking || !["confirmed", "active"].includes(booking.status)) return;
+  if (!booking || !["pending_verification", "confirmed", "active"].includes(booking.status)) return;
   if (status === "verified" && verificationExpired(booking)) return;
   const account = await accountForRental(ctx, booking);
   if (!account) return;

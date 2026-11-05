@@ -16,13 +16,13 @@ export function HomeStats({
   ];
 
   return (
-    <div role="group" aria-label="Rental and review figures" className="mt-12 grid grid-cols-1 gap-3 border-t border-white/10 pt-8 sm:grid-cols-3">
+    <div role="group" aria-label="Rental and review figures" className="mt-8 grid grid-cols-3 gap-2 border-t border-white/10 pt-6 sm:mt-12 sm:gap-3 sm:pt-8">
       {stats.map((stat) => (
-        <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/[0.025] px-5 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,.04)]">
-          <div className="font-poster text-4xl text-white sm:text-5xl">
+        <div key={stat.label} className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.025] px-2 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,.04)] sm:px-5 sm:py-5">
+          <div className="whitespace-nowrap font-poster text-xl text-white min-[380px]:text-2xl sm:text-5xl">
             <CountUp value={stat.value} decimals={stat.decimals} suffix={stat.suffix} className="gradient-text" />
           </div>
-          <div className="hud-label mt-2">{stat.label}</div>
+          <div className="hud-label mt-1 text-[7px] min-[380px]:text-[8px] sm:mt-2 sm:text-xs">{stat.label}</div>
         </div>
       ))}
     </div>

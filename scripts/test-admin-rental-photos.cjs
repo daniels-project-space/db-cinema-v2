@@ -25,8 +25,10 @@ const items = Array.from({ length: 5 }, (_, index) => ({
   heroImage: `/equipment-${index}.jpg`,
   qty: index === 1 ? 2 : 1,
 }));
-const html = renderToStaticMarkup(React.createElement(component.exports.RentalKit, { items, allPhotos: true }));
+const duplicatedItems = [...items, { listingId: "same-photo", title: "Repeated listing image", heroImage: items[0].heroImage }];
+const html = renderToStaticMarkup(React.createElement(component.exports.RentalKit, { items: duplicatedItems, allPhotos: true }));
 for (const item of items) assert.match(html, new RegExp(`alt="${item.title}"`));
+assert.doesNotMatch(html, /alt="Repeated listing image"/, "All-item strips omit repeated listing photos");
 assert.match(html, /×2/);
 assert.match(html, /overflow-x-auto/);
 assert.doesNotMatch(html, /\+2 more/);
@@ -37,7 +39,7 @@ compactModule.paths = module.paths;
 compactModule._compile(compactBundle.outputFiles[0].text, compactModule.filename);
 const compact = renderToStaticMarkup(React.createElement(compactModule.exports.CompactRentalImages, { items: [...items, { listingId: "other", title: "Different item, shared photo", heroImage: items[0].heroImage }] }));
 for (const item of items) assert.match(compact, new RegExp(`alt="${item.title}"`));
-assert.match(compact, /alt="Different item, shared photo"/);
+assert.doesNotMatch(compact, /alt="Different item, shared photo"/, "Compact booking strips omit duplicate photo URLs");
 assert.match(compact, /aria-label="Booked equipment images"/);
 assert.match(compact, /tabindex="0"/);
 assert.match(compact, /×2/);

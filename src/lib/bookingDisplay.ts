@@ -65,10 +65,11 @@ export function groupOf(b: { status: string }): BookingGroup {
   switch (b.status) {
     case "pending_payment":
       return "pending";
-    case "active":
-      return "active";
+    case "pending_verification":
     case "confirmed":
       return "upcoming";
+    case "active":
+      return "active";
     default:
       return "past"; // returned | cancelled
   }

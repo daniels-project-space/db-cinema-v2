@@ -6,6 +6,7 @@ import { api } from "@cvx/_generated/api";
 import { formatGbp } from "@/lib/pricing";
 import styles from "./SavedCardCharges.module.css";
 import {isSavedCardRental} from '../../../shared/savedCardSecurity';
+import {SETUP_INTENT_SECURITY_POLICY_VERSION} from '../../../shared/rentalSecurity';
 const when=(at:number)=>new Date(at).toLocaleString("en-GB",{timeZone:"Europe/London",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
 export function SavedCardCharges({token,bookingId,admin=false}:{token:string;bookingId:string;admin?:boolean}) {
  return <ScopedCharges key={JSON.stringify([token,bookingId,admin])} token={token} bookingId={bookingId} admin={admin}/>;
@@ -19,11 +20,12 @@ function ScopedCharges({token,bookingId,admin}:{token:string;bookingId:string;ad
  const data=useQuery(api.securityChargeState.list,isSavedCardRental(booking)?{token,bookingId:bookingId as any,admin}:'skip');
  const prepare=useMutation(api.securityChargeState.prepare),retryCard=useAction(api.checkout.retrySavedCard);
  const request=useRef<string|null>(null);
- const [kind,setKind]=useState<"damage"|"late">("damage"),[amount,setAmount]=useState(""),[reason,setReason]=useState(""),[confirmed,setConfirmed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
+ const [kind,setKind]=useState<"damage"|"late">("damage"),[claimBasis,setClaimBasis]=useState<"loss"|"severe_cosmetic_damage">("severe_cosmetic_damage"),[amount,setAmount]=useState(""),[reason,setReason]=useState(""),[confirmed,setConfirmed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
  if(!data)return null;
+ const setupIntentPolicy=data.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION;
  const assessmentOnly=data.limit===null;
  const remaining=assessmentOnly?undefined:Math.max(0,data.cardStatus==="closed"?0:(data.remaining??(data.limit??0)-data.used-data.reserved-(data.depositRetained??0)));
- async function submit(e:React.FormEvent){e.preventDefault();if(busy||!confirmed)return;setBusy(true);setError("");request.current??=crypto.randomUUID();try{await prepare({token,bookingId:bookingId as any,requestId:request.current,kind,amount:Number(amount),reason});request.current=null;setAmount("");setReason("");setConfirmed(false);}catch(e:any){setError(e?.data?.message??e?.message??"The assessment could not be prepared. Check its history before retrying.");}finally{setBusy(false);}}
+ async function submit(e:React.FormEvent){e.preventDefault();if(busy||!confirmed)return;setBusy(true);setError("");request.current??=crypto.randomUUID();try{await prepare({token,bookingId:bookingId as any,requestId:request.current,kind,...(setupIntentPolicy&&kind==="damage"?{claimBasis}:{}),amount:Number(amount),reason});request.current=null;setAmount("");setReason("");setConfirmed(false);}catch(e:any){setError(e?.data?.message??e?.message??"The assessment could not be prepared. Check its history before retrying.");}finally{setBusy(false);}}
  return <section className={styles.panel} aria-label={admin?"Saved-card damage and late-fee controls":"Your damage and late-fee assessments"}>
   <header><div><p className={styles.eyebrow}>Saved-card security</p><h3>{admin?"Damage & late-fee collections":"Your card-payment permission"}</h3></div><span>{data.cardStatus==="saved"?"Card saved":data.cardStatus==="closed"?"Permission closed · no amount due":data.cardStatus==="awaiting_payment"?"Awaiting checkout payment":"Card setup needs attention"}</span></header>
   <div className={styles.metrics}>{!assessmentOnly&&<div><small>Agreed combined limit</small><strong>{formatGbp(data.limit??0)}</strong></div>}<div><small>Net collected</small><strong>{formatGbp(data.paid)}</strong></div>{!assessmentOnly&&<div><small>Available permission</small><strong>{formatGbp(remaining!)}</strong></div>}</div>
@@ -33,9 +35,10 @@ function ScopedCharges({token,bookingId,admin}:{token:string;bookingId:string;ad
    <p>Recorded damage/loss: {formatGbp(data.damageAssessed)} · assessed late time: {formatGbp(data.lateAssessed)}. Only the remaining evidenced assessment can be collected; retained deposit reduces the same loss.</p>
    {data.damageAssessed===0&&<p>For an inspected issue with a repair quote pending, the first itemised notice records the actual assessment. It requires evidence and the agreed notice period.</p>}
    <label>Assessment type<select disabled={busy} value={kind} onChange={e=>{setKind(e.target.value as "damage"|"late");request.current=null;setConfirmed(false);}}><option value="damage">Damage or loss</option><option value="late">Late-return fees</option></select></label>
+   {setupIntentPolicy&&kind==="damage"&&<label>Recorded claim basis<select disabled={busy} value={claimBasis} onChange={e=>{setClaimBasis(e.target.value as "loss"|"severe_cosmetic_damage");request.current=null;setConfirmed(false);}}><option value="loss">Item lost or not returned</option><option value="severe_cosmetic_damage">Severe, permanent cosmetic damage</option></select></label>}
    <label>Amount to request (£)<input disabled={busy} type="number" min="0.01" max={remaining} step="0.01" required value={amount} onChange={e=>{setAmount(e.target.value);request.current=null;setConfirmed(false);}}/></label>
    <label>Itemised evidence and calculation<textarea disabled={busy} required minLength={10} maxLength={4000} value={reason} onChange={e=>{setReason(e.target.value);request.current=null;setConfirmed(false);}} placeholder="Identify the item, condition evidence, repair/valuation or late-rate calculation, and deductions for avoided costs or other recoveries."/></label>
-   <label className={styles.check}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)} disabled={busy}/><span>I checked the evidence and fair calculation. This sends a notice; it does not take payment.</span></label>
+   <label className={styles.check}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)} disabled={busy}/><span>{setupIntentPolicy&&kind==="damage"?"I confirm this is a recorded loss or severe, permanent cosmetic damage beyond fair wear, supported by inspection evidence and a fair calculation. This sends a notice; it does not take payment.":"I checked the evidence and fair calculation. This sends a notice; it does not take payment."}</span></label>
    <button type="submit" disabled={busy||!confirmed||remaining!==undefined&&remaining<=0}>{busy?"Preparing…":"Send itemised notice · no payment"}</button>
   </form></details>}
   <div className={styles.history}>{data.rows.map(row=><ChargeRow key={row.id} row={row} token={token} admin={admin}/>)}</div>
@@ -52,7 +55,7 @@ function ChargeRow({row,token,admin}:{row:any;token:string;admin:boolean}) {
  async function evidence(){const proof=await convex.query(api.securityChargeState.evidence,{token,id:row.id});const url=URL.createObjectURL(new Blob([JSON.stringify(proof,null,2)],{type:"application/json"})),a=document.createElement("a");a.href=url;a.download="DB-Cinema-assessment-"+String(row.id).slice(-8)+".json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
  const unresolved=!!row.disputeReason&&!row.disputeResolvedAt;
  return <article className={styles.charge}>
-  <div className={styles.row}><strong>{row.kind==="late"?"Late-return fees":"Damage / loss"} · {formatGbp(row.amount)}</strong><span>{unresolved?"Disputed · collection paused":row.state.replaceAll("_"," ")}</span></div><p>{row.reason}</p>
+  <div className={styles.row}><strong>{row.kind==="late"?"Late-return fees":"Damage / loss"}{row.claimBasis==="loss"?" · lost item":row.claimBasis==="severe_cosmetic_damage"?" · severe cosmetic damage":""} · {formatGbp(row.amount)}</strong><span>{unresolved?"Disputed · collection paused":row.state.replaceAll("_"," ")}</span></div><p>{row.reason}</p>
   {row.noticeAt&&<small>Notice delivered {when(row.noticeAt)} · collection no earlier than {when(row.collectAfter)} London time</small>}
   {row.state==="paid"&&<p>Bank-confirmed payment: {formatGbp(row.paid)}.</p>}
   {row.refunded>0&&<p>Refunded to the original payment method: {formatGbp(row.refunded)}. This does not restore the used collection allowance.</p>}

@@ -10,6 +10,7 @@ import { formatGbp } from "@/lib/pricing";
 import {
   verificationCanStart,
   verificationExpired,
+  verificationValidUntil,
 } from "../../../shared/verificationProgress";
 import { verificationJourney, verificationLinkLabel } from "../../../shared/verificationJourney";
 import type { VerificationBooking } from "../../../shared/rentalReadiness";
@@ -26,16 +27,16 @@ import {isSavedCardRental} from '../../../shared/savedCardSecurity';
 function SavedCardSetup({token,booking}:{token?:string|null;booking:any}) {
   const retry=useAction(api.checkout.retrySavedCard);
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
-  return <section className={styles.hold} aria-label="Rental saved-card setup"><strong>{booking.savedCardStatus==='saved'?'Checkout card saved':'Saved-card setup needs attention'}</strong><p>{booking.depositAmount>0?<>Refundable deposit paid: {formatGbp(booking.depositAmount)}. Unused deposit returns to your original card after completion, and any retained deposit reduces later collections. </>:<>No security money is taken or blocked. </>}Your combined damage and late-fee permission is {formatGbp(booking.savedCardLimit??0)}.</p>{booking.savedCardStatus==='needs_setup'&&(token?<button disabled={busy} onClick={async()=>{setBusy(true);setError('');try{await retry({token,bookingId:booking._id});}catch{setError('The original checkout card could not be confirmed. Contact the team in your rental conversation.');}finally{setBusy(false);}}}>{busy?'Checking…':'Retry confirming checkout card'}</button>:<Link href={`/account?rental=${encodeURIComponent(booking._id)}`} className={styles.link}>Sign in to check saved-card setup</Link>)}{error&&<p role="alert">{error}</p>}</section>;
+  return <section className={styles.hold} aria-label="Rental saved-card setup"><strong>{booking.savedCardStatus==='saved'?'Checkout card saved':'Saved-card setup needs attention'}</strong><p>{booking.depositAmount>0?<>Refundable deposit paid: {formatGbp(booking.depositAmount)}. Unused deposit returns to your original card after completion, and any retained deposit reduces later collections. </>:<>No security money is taken or blocked. </>}Your combined post-return damage and late-fee claim ceiling is {formatGbp(booking.savedCardLimit??0)}; it is not held on your card.</p>{booking.savedCardStatus==='needs_setup'&&(token?<button disabled={busy} onClick={async()=>{setBusy(true);setError('');try{await retry({token,bookingId:booking._id});}catch{setError('The original checkout card could not be confirmed. Contact the team in your rental conversation.');}finally{setBusy(false);}}}>{busy?'Checking…':'Retry confirming checkout card'}</button>:<Link href={`/account?rental=${encodeURIComponent(booking._id)}`} className={styles.link}>Sign in to check saved-card setup</Link>)}{error&&<p role="alert">{error}</p>}</section>;
 }
 
 function useVerificationClock(booking?: VerificationBooking | null) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const refresh = () => setNow(Date.now());
+    const verificationExpiry = booking ? verificationValidUntil(booking) : null;
     const deadlines = [
-      booking?.verificationExpiresAt,
-      booking?.documentExpiresAt,
+      verificationExpiry,
       booking?.depositHoldExpiresAt,
     ].filter((at): at is number => typeof at === "number" && at > now);
     const timer = deadlines.length
@@ -55,8 +56,8 @@ function useVerificationClock(booking?: VerificationBooking | null) {
       document.removeEventListener("visibilitychange", refresh);
     };
   }, [
+    booking?.idVerifiedAt,
     booking?.verificationExpiresAt,
-    booking?.documentExpiresAt,
     booking?.depositHoldExpiresAt,
     now,
   ]);
@@ -243,7 +244,7 @@ export function VerificationProgress({
   const approved = journey.reviewed;
   const approvalUnknown =
     booking.idVerifyStatus === "verified" &&
-    booking.verificationExpiresAt == null;
+    verificationValidUntil(booking) == null;
   const expired = verificationExpired(booking, now);
   const providerApproved = booking.idVerifyStatus === "verified" && !expired && !approvalUnknown && journey.documents;
   const uploadStatus =
@@ -257,7 +258,9 @@ export function VerificationProgress({
     address: "A recent bill, bank statement or official address document.",
   };
   const stage =
-    approvalUnknown && !journey.closed
+    booking.status === "pending_verification" && booking.verificationConfirmationIssue
+      ? booking.verificationConfirmationIssue === "inventory_unavailable" ? "Booking availability needs review" : "Booking confirmation needs review"
+      : approvalUnknown && !journey.closed
       ? "Verification needs review"
       : booking.cancellationPending
         ? "Cancellation in progress"
@@ -297,6 +300,12 @@ export function VerificationProgress({
                   : booking.returnPending
                     ? "Return being settled"
                     : "Rental closed"
+                : booking.status === "pending_verification"
+                  ? booking.verificationConfirmationIssue
+                    ? "Payment received — booking not confirmed"
+                    : booking.idVerifyStatus === "verified"
+                    ? "Didit approved — booking finalizing"
+                    : "Payment received — booking not confirmed"
                 : approvalUnknown
                   ? "Verification needs a team check"
                   : approved
@@ -309,6 +318,20 @@ export function VerificationProgress({
             <p role="status" aria-live="polite" className={styles.intro}>
               {journey.closed
                 ? "This rental no longer accepts document uploads."
+                : booking.status === "pending_verification"
+                  ? booking.verificationConfirmationIssue === "inventory_unavailable"
+                    ? "Didit approved your verification, but equipment availability needs a team check. This rental is not confirmed yet. We will update you here; please do not pay again."
+                    : booking.verificationConfirmationIssue
+                      ? "Didit approved your verification, but the booking could not be finalized automatically. The team has been alerted. This rental is not confirmed yet; please do not pay again."
+                      : booking.idVerifyStatus === "verified"
+                    ? "Didit has approved your verification. We are finishing booking confirmation; this rental is not confirmed yet. Please do not pay again."
+                    : booking.idVerifyStatus === "manual_review"
+                      ? "Your payment is recorded, but Didit has paused verification for review. This rental is not confirmed yet; we will update you here."
+                      : booking.idVerifyStatus === "requires_input"
+                        ? "Your payment is recorded, but this rental is not confirmed yet. Didit needs a replacement document; follow its instructions below. Please do not pay again."
+                        : booking.idVerifyStatus === "rejected"
+                          ? "Didit has not approved verification, so this rental is not confirmed. Message the team here for help."
+                          : "Your payment is recorded, but this rental is not confirmed until Didit approves verification. Continue below; you do not need to pay again."
                 : !ready
                   ? booking.status === "pending_payment"
                     ? "Complete your rental payment before verification can begin."
@@ -540,6 +563,8 @@ export function VerificationProgress({
         title={
           journey.closed
             ? "Your rental"
+            : booking.status === "pending_verification"
+              ? "Rental not confirmed"
             : !journey.paid
               ? "Your payment is pending"
               : journey.ready
@@ -549,6 +574,10 @@ export function VerificationProgress({
         subtitle={
           journey.closed
             ? "View your rental details and conversation."
+            : booking.status === "pending_verification"
+              ? booking.idVerifyStatus === "verified"
+                ? "Didit approval is recorded. We will confirm the rental after final checks."
+                : "Payment is recorded. Complete verification; we will confirm the rental only after Didit approval."
             : approved
               ? isSavedCardRental(booking) ? `Your documents are approved. Check your ${booking.fulfilment === "delivery" ? "delivery" : "pickup"} and saved-card setup below.` : `Your documents are approved. Check your ${booking.fulfilment === "delivery" ? "delivery" : "pickup"} and card hold below.`
               : providerApproved

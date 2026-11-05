@@ -17,7 +17,7 @@ export function CountUp({
   className?: string;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
-  const [display, setDisplay] = useState(0);
+  const [display, setDisplay] = useState(value);
 
   useEffect(() => {
     const el = ref.current;
@@ -31,6 +31,7 @@ export function CountUp({
       ([e]) => {
         if (!e.isIntersecting) return;
         io.disconnect();
+        setDisplay(0);
         const t0 = performance.now();
         const tick = (now: number) => {
           const p = Math.min(1, (now - t0) / duration);

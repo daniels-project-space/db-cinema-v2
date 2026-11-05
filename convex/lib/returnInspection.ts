@@ -2,9 +2,9 @@ import { peak } from "../availability";
 import type { InspectionItem } from "../../shared/returnInspection";
 
 /** Use the rental's own reserved inventory, not today's editable kit contents. */
-export async function returnInspectionSchedule(ctx: any, booking: any): Promise<InspectionItem[]> {
+export async function returnInspectionSchedule(ctx: any, booking: any, reservationRows?: any[]): Promise<InspectionItem[]> {
   if (booking.returnDecision?.inspection) return booking.returnDecision.inspection.map(({ key, title, sku, inventoryUnitId }: any) => ({ key, title, ...(sku ? { sku } : {}), ...(inventoryUnitId ? { inventoryUnitId } : {}) }));
-  const reservations = (await ctx.db.query("reservations").withIndex("by_booking", (q: any) => q.eq("bookingId", booking._id)).collect()).filter((r: any) => ["confirmed", "active", "returned"].includes(r.status));
+  const reservations = (reservationRows ?? await ctx.db.query("reservations").withIndex("by_booking", (q: any) => q.eq("bookingId", booking._id)).collect()).filter((r: any) => ["confirmed", "active", "returned"].includes(r.status));
   const groups = new Map<string, any[]>();
   for (const row of reservations) groups.set(String(row.inventoryUnitId), [...(groups.get(String(row.inventoryUnitId)) ?? []), row]);
   const items: { key: string; title: string; sku?: string; inventoryUnitId?: any }[] = [];

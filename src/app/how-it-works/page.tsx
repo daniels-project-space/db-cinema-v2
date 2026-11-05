@@ -12,7 +12,7 @@ export const metadata = publicPageMetadata("/how-it-works",'How to hire equipmen
 const STEPS = [
   ["01", "Browse", "Find the gear you need by category — cameras, lenses, lighting, audio and more. Each listing shows live availability and multi-day rates.", BadgeBrowse],
   ["02", "Pick your dates", "Choose your start and end date on the calendar. The longer you rent, the better the per-day rate — applied automatically. Add suggested kit in one tap.", BadgeCalendar],
-  ["03", "Book & pay securely", "Checkout with card via Stripe. We take the rental plus a refundable deposit, released on safe return.", BadgeLock],
+  ["03", "Book & pay securely", "Checkout shows the rental total and the security terms that apply before you confirm. Your accepted agreement explains whether any refundable payment, card authorisation or saved-card permission applies.", BadgeLock],
   ["04", "Pickup or delivery", "Collect from central London or get it delivered locally. Shoot, then return it on your end date — that's it.", BadgeTruck],
 ] as const;
 

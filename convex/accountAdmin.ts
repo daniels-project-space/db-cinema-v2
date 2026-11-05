@@ -7,7 +7,9 @@ import { availableCreditRows } from "./lib/checkoutCredit";
 import { listingImages } from "./lib/catalogImages";
 import { paginationOptsValidator } from "convex/server";
 import { accountVerificationReady } from "./lib/accountVerificationReady";
+import { verificationValidUntil } from "../shared/verificationProgress";
 import { customerAdminVisual } from "../shared/customerAdminVisual";
+import { loyaltyProgress } from "./lib/loyalty";
 
 export const directoryAccess = query({
   args: { token: v.string() },
@@ -99,7 +101,7 @@ export const directoryMetrics = query({
     if (args.accountIds.length > 10) throw Error("Invalid customer metrics page.");
     return Promise.all([...new Set(args.accountIds)].map(async id => {
       const account = await ctx.db.get(id);
-      if (!account) return { id, activeRentals: 0, activeRentalsMore: false, credit: 0, unreadMessages: 0 };
+      if (!account) return { id, activeRentals: 0, activeRentalsMore: false, credit: 0, unreadMessages: 0, visualTier: "guest" as const };
       const active = (q: any) => q.or(q.eq(q.field("status"), "active"), q.eq(q.field("status"), "confirmed"));
       const [owned, legacy, credits, unreadThreads] = await Promise.all([
         ctx.db.query("bookings").withIndex("by_account", q => q.eq("accountId", id)).filter(active).take(101),
@@ -108,10 +110,14 @@ export const directoryMetrics = query({
         availableCreditRows(ctx, id),
         ctx.db.query("chat_threads").withIndex("by_account_unread_owner", q => q.eq("accountId", id).gt("unreadOwner", 0)).take(100),
       ]);
+      const earnedEncoreLevel = !account.adminEncoreLevel && customerAdminVisual(account) !== "subscriber"
+        ? (await loyaltyProgress(ctx, account)).completed
+        : 0;
       const count = owned.length + legacy.length;
       return { id, activeRentals: Math.min(count, 100), activeRentalsMore: count > 100,
         credit: credits.reduce((n: number, c: any) => n + c.availablePence, 0) / 100,
-        unreadMessages: Math.min(100, unreadThreads.reduce((n, thread) => n + (thread.unreadOwner ?? 0), 0)) };
+        unreadMessages: Math.min(100, unreadThreads.reduce((n, thread) => n + (thread.unreadOwner ?? 0), 0)),
+        visualTier: customerAdminVisual(account, earnedEncoreLevel) };
     }));
   },
 });
@@ -347,7 +353,7 @@ export const detail = query({
       membershipActive: membershipActiveNow(account),
       paidThrough: account.membershipPaidThrough ?? null,
       cancelAtPeriodEnd: !!account.membershipCancelAtPeriodEnd,
-      verificationExpiresAt: account.rentalVerification?.expiresAt ?? null,
+      verificationExpiresAt: account.rentalVerification ? verificationValidUntil(account.rentalVerification) : null,
       credit:
         credits.reduce((n: number, c: any) => n + c.availablePence, 0) / 100,
       refundCredit:

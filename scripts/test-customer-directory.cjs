@@ -1,7 +1,10 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const { load, db, put } = require("./lib/rentalTestHarness.cjs");
 const admin = load("convex/accountAdmin.ts");
 const { customerAdminVisual } = load("shared/customerAdminVisual.ts");
+const { reviewContext } = load("convex/lib/reviewContext.ts");
+const { reviewSettlementFingerprint } = load("convex/lib/reviewEligibility.ts");
 process.env.ADMIN_TOKEN = "fixture-admin";
 process.env.VERIFICATION_ARCHIVE_REUSE_ENABLED = "true";
 let scans = 0, avatarReads = 0;
@@ -29,6 +32,8 @@ async function find(search, filter = "all", tier = "all", verification = "all") 
  }
  assert.equal(customerAdminVisual({ loyaltyPolicyVersion: "review-earned-v1", loyaltyLevel: 3 }), "guest", "Cached earned levels can remain stale after an override is removed");
  assert.equal(customerAdminVisual({ loyaltyLevel: 3 }), "guest", "Legacy levels do not imply Encore");
+ assert.equal(customerAdminVisual({}, 3), "encore3", "The visible tier can use freshly computed earned progress");
+ assert.equal(customerAdminVisual({ adminEncoreLevel: 1 }, 3), "encore1", "A manual admin tier overrides earned progress");
  assert.equal(customerAdminVisual({ adminMembershipTier: "studio" }), "guest", "An administrative grant is not a subscription");
  const subscriber = { stripeSubscriptionId: "sub_fixture", membershipTier: "plus", membershipActive: true, membershipStatus: "active", membershipPaidThrough: Date.now() + 60000 };
  assert.equal(customerAdminVisual({ ...subscriber, adminEncoreLevel: 3 }), "subscriber");
@@ -81,11 +86,29 @@ async function find(search, filter = "all", tier = "all", verification = "all") 
  assert.deepEqual(await admin.directoryMetrics.handler(ctx, { token: "wrong", accountIds: [old._id] }), []);
  assert.equal(scans, beforeMetrics, "Unauthorized metrics must not query data");
  const [metric] = await admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: [old._id, old._id] });
- assert.deepEqual(metric, { id: old._id, activeRentals: 2, activeRentalsMore: false, credit: 20, unreadMessages: 5 }, "Count owned and unclaimed legacy rentals, credit, and this customer's unread messages only");
+ assert.deepEqual(metric, { id: old._id, activeRentals: 2, activeRentalsMore: false, credit: 20, unreadMessages: 5, visualTier: "guest" }, "Count owned and unclaimed legacy rentals, credit, unread messages and visual tier for this customer only");
  await assert.rejects(admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: Array(11).fill(old._id) }), /metrics page/);
  for (let i = 0; i < 105; i++) put("bookings", { accountId: old._id, status: "active" });
  const capped = (await admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: [old._id] }))[0];
  assert.equal(capped.activeRentals, 100); assert.equal(capped.activeRentalsMore, true, "A bounded count must disclose that more rentals exist");
  for (const size of [0, 101, 1.5]) await assert.rejects(admin.directory.handler(ctx, { token: "fixture-admin", search: "", filter: "all", tier: "all", paginationOpts: { numItems: size, cursor: null } }), /page size/);
+ const earned = put("accounts", { email: "earned@example.invalid", name: "Earned Encore", loyaltyLevel: 0, loyaltyPolicyVersion: "review-earned-v1" });
+ for (let index = 0; index < 3; index++) {
+  const start = index * 4 * 86400000;
+  const booking = put("bookings", { accountId: earned._id, guestEmail: earned.email, status: "returned", stripeCheckoutSessionId: `earned-session-${index}`, lineItems: [{ start, end: start + 86400000 }], depositAmount: 0, total: 0, actualReturnedAt: Date.now(), returnDecision: { inspection: [{ key: `camera-${index}`, condition: "good", details: "", openCase: false }] } });
+  booking.reviewEligibilityFingerprint = reviewSettlementFingerprint(await reviewContext(ctx, booking));
+  put("reviews", { verifiedBookingId: booking._id, source: "native", authorAccountId: earned._id, rating: 5, published: false });
+ }
+ let earnedMetric = (await admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: [earned._id] }))[0];
+ assert.equal(earnedMetric.visualTier, "encore3", "Three clean, paid, reviewed rentals drive the directory glow from live earned history");
+ earned.adminEncoreLevel = 1;
+ earnedMetric = (await admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: [earned._id] }))[0];
+ assert.equal(earnedMetric.visualTier, "encore1", "A manual admin Encore override remains visible over earned progress");
+ earned.adminEncoreLevel = undefined;
+ const cachedOnly = put("accounts", { email: "cached@example.invalid", loyaltyLevel: 3, loyaltyPolicyVersion: "review-earned-v1" });
+ assert.equal((await admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: [cachedOnly._id] }))[0].visualTier, "guest", "Cached earned values without qualifying source rentals cannot give the glow");
+ const customerUi = fs.readFileSync("src/components/admin/AccountAdmin.tsx", "utf8");
+ assert.equal((customerUi.match(/type="search"/g) ?? []).length, 1, "The customer page has one search control");
+ assert.match(customerUi, /<SmartImage src=\{selected\.avatarUrl\} alt="" className=\{styles\.avatarSmall\} \/>/, "Conversation rows use the customer profile photo");
  console.log("PASS full customer directory: bounded cursors, older name/email matches, sparse pages, live membership/verification filters, no duplicate accounts and admin-only safe projection.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -14,7 +14,7 @@ const steps = [
   [
     "01",
     "Return & settle",
-    "Your deposit is refunded in full. Every card hold is released, with no security deducted.",
+    "Your return inspection is complete and any security settlement under your signed rental terms is finished.",
   ],
   [
     "02",

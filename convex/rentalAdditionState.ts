@@ -1,4 +1,4 @@
-import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
+import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
 import {canDeferAdditionSecurity} from "../shared/pickupSecurity";
 import {schedulePickupHold} from "./pickupSecurity";
 import { tierByKey } from "../shared/membership";
@@ -77,7 +77,7 @@ async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
       b.returnDecision
     )
       throw Error("This rental cannot accept items");
-    if (b.activeAdditionId || b.activeExtensionId || b.activePriceAdjustmentId)
+    if (b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId || b.activePriceAdjustmentId)
       throw Error("Finish or withdraw the current item addition or approved extension first");
     if (
       ["starting", "requires_action", "failed"].includes(
@@ -287,7 +287,9 @@ export const bindSession = internalMutation({
       b,
       r.draftReplacement
         ? `The team proposed adding ${r.qty}× ${r.title}. Review the updated rental and complete its checkout.${r.membershipCheckoutId ? ` Your membership is preserved: £${(r.membershipFee??0).toFixed(2)} membership fee in this checkout${r.membershipFee===0?" (free-week trial)":""}; renewal remains as agreed.`:""}`
-        : `The team proposed adding ${r.qty}× ${r.title}: £${r.lineTotal.toFixed(2)} rental${r.securityCharge ? ` + £${r.securityCharge.toFixed(2)} refundable security` : ""}. The updated card hold is £${r.holdTotal.toFixed(2)}. Items are confirmed after payment and any bank approval.`,
+        : r.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION
+          ? `The team proposed adding ${r.qty}× ${r.title}: £${r.lineTotal.toFixed(2)} rental. No deposit or card hold is added; any future security claim remains governed by your accepted saved-card agreement. Items are confirmed after payment.`
+          : `The team proposed adding ${r.qty}× ${r.title}: £${r.lineTotal.toFixed(2)} rental${r.securityCharge ? ` + £${r.securityCharge.toFixed(2)} refundable security` : ""}. The updated card hold is £${r.holdTotal.toFixed(2)}. Items are confirmed after payment and any bank approval.`,
       {
         kind: "paylink",
         url,

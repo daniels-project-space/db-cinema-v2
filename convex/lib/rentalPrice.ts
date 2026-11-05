@@ -1,18 +1,16 @@
 "use node";
 
-import Stripe from "stripe";
 import { FIRST_ORDER_VOUCHER_CODE } from "./firstOrderVoucher";
 import { bestBenefit, SINGLE_BENEFIT_VERSION, type BenefitKind, loyaltyPercent } from "../../shared/rentalBenefits";
-import { providerRepeatGate } from "./repeatRentalProvider";
 import { membershipActiveNow, membershipTierFor } from "../../shared/membership";
 import { checkoutMembershipCredit, membershipSignupOffer } from "../../shared/checkoutMembershipCredit";
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { api, internal } from "../_generated/api";
 import { depositFor, depositChargeFor } from "./pricing";
-import { ASSESSMENT_SECURITY_POLICY_VERSION, assessmentDepositFor, cardLimitForPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit } from "../../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, assessmentDepositFor, cardHoldFor, cardLimitForPolicy, CARD_HOLD_SECURITY_POLICY_VERSION, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit, SETUP_INTENT_SECURITY_POLICY_VERSION } from "../../shared/rentalSecurity";
 import { londonMonth } from "./memberDelivery";
-import { tierByKey, paidDepositExempt } from "./membership";
+import { tierByKey } from "./membership";
 import { groupDeliveryItems } from "../../shared/deliveryGroups";
 
 export type RentalPriceInput = {
@@ -129,22 +127,23 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const protection = a.protection ?? "verify";
   const replacementSum = items.reduce((n, i) => n + Math.round(i.deposit*100), 0)/100;
   // Only enable after checkout, immutable terms and both admin surfaces qualify.
-  const assessmentPolicy=process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true";
-  const refundablePolicy = assessmentPolicy || process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED === "true";
-  const securityPolicyVersion = assessmentPolicy?ASSESSMENT_SECURITY_POLICY_VERSION:refundablePolicy ? REFUNDABLE_DEPOSIT_POLICY_VERSION : SECURITY_POLICY_VERSION;
-  const cashDeposit = assessmentPolicy?assessmentDepositFor(replacementSum):refundablePolicy ? refundableDepositFor(replacementSum) : depositChargeFor(protection, replacementSum);
-  const depositHoldAmount = refundablePolicy ? 0 : depositFor(protection, replacementSum);
+  const setupIntentPolicy=process.env.SETUP_INTENT_SECURITY_POLICY_ENABLED==="true";
+  const cardHoldPolicy=!setupIntentPolicy&&process.env.CARD_HOLD_SECURITY_POLICY_ENABLED==="true";
+  const assessmentPolicy=!setupIntentPolicy&&!cardHoldPolicy&&process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true";
+  const refundablePolicy = !setupIntentPolicy&&!cardHoldPolicy&&(assessmentPolicy || process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED === "true");
+  const securityPolicyVersion = setupIntentPolicy?SETUP_INTENT_SECURITY_POLICY_VERSION:cardHoldPolicy?CARD_HOLD_SECURITY_POLICY_VERSION:assessmentPolicy?ASSESSMENT_SECURITY_POLICY_VERSION:refundablePolicy ? REFUNDABLE_DEPOSIT_POLICY_VERSION : SECURITY_POLICY_VERSION;
+  const cashDeposit = setupIntentPolicy||cardHoldPolicy?0:assessmentPolicy?assessmentDepositFor(replacementSum):refundablePolicy ? refundableDepositFor(replacementSum) : depositChargeFor(protection, replacementSum);
+  let depositHoldAmount = setupIntentPolicy?0:cardHoldPolicy?cardHoldFor(replacementSum):refundablePolicy ? 0 : depositFor(protection, replacementSum);
   let repeatSourceBookingId: Id<"bookings"> | undefined;
   let repeatSourceFingerprint: string | undefined;
-  if (!refundablePolicy && cashDeposit>0 && acct && a.token && !selected && !paidDepositExempt(acct) && process.env.STRIPE_SECRET_KEY) {
-    const previous: any = await ctx.runQuery(internal.repeatRentals.candidate,{token:a.token,kit:a.items.map(i=>({listingId:i.listingId,qty:i.qty}))});
-    if (previous) {
-      try { if (await providerRepeatGate(previous.booking,new Stripe(process.env.STRIPE_SECRET_KEY))) {repeatSourceBookingId=previous.booking._id;repeatSourceFingerprint=previous.fingerprint;} }
-      catch { /* A provider outage retains the normal security payment, never an unproved waiver. */ }
-    }
+  let securityWaiverReason: string | undefined;
+  if (!selected && acct && (cardHoldPolicy || assessmentPolicy || (!refundablePolicy && cashDeposit > 0))) {
+    securityWaiverReason = (await ctx.runQuery(internal.bookings.depositWaiverEligibility, {
+      accountId: acct._id,
+      replacementValuePence: Math.round(replacementSum * 100),
+    })) ?? undefined;
   }
-  let securityWaiverReason = !refundablePolicy && !selected && paidDepositExempt(acct) ? "paid_membership" : repeatSourceBookingId ? "safe_repeat_kit" : undefined;
-  if(assessmentPolicy)securityWaiverReason=membershipActiveNow(acct)?"active_membership":acct?.loyaltyEligible && acct.loyaltyCompleted>0 && acct.loyaltyLevel>=3 ? "encore": undefined;
+  if(cardHoldPolicy&&securityWaiverReason)depositHoldAmount=0;
   let depositAmount = securityWaiverReason ? 0 : cashDeposit;
   const month = londonMonth();
   const freedCount = 0;

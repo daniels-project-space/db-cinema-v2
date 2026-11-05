@@ -176,7 +176,7 @@ export function BookingPanel({
         <TimeSlotPicker id={`gear-${listing._id}-pickup`} label="Pickup time" value={pickupTime} onChange={setPickupTime} allowedSlots={slots?.available ? slots.pickupSlots : undefined}/>
         <TimeSlotPicker id={`gear-${listing._id}-return`} label="Return time" value={returnTime} onChange={setReturnTime} allowedSlots={slots?.available ? slots.returnSlots : undefined}/>
       </div>}
-      {start&&end&&needsRequestReview&&<p role="status" className="rounded-xl border border-amber-300/20 bg-amber-300/[.05] p-3 text-xs leading-5 text-amber-100/80">This item is not confirmed available for these dates. Add it as a request to see matching alternatives in your kit; payment stays blocked until the full kit passes the stock check.</p>}
+      {start&&end&&needsRequestReview&&<p role="status" className="rounded-xl border border-amber-300/20 bg-amber-300/[.05] p-3 text-xs leading-5 text-amber-100/80">{listing.bookable === false ? "Stock matching for this item isn't confirmed yet. Add it as a request; checkout blocks payment until the live stock check passes." : "This item is not confirmed available for these dates. Add it as a request to see matching alternatives in your kit; payment stays blocked until the full kit passes the stock check."}</p>}
       <div className="spot gradient-border rounded-2xl p-5">
         {/* base rate row */}
         <div className="flex items-baseline justify-between">
@@ -224,13 +224,15 @@ export function BookingPanel({
               Gear rental only. Delivery and collection are priced separately by postcode in your kit.
             </p>
             <div className="mt-3 rounded-xl bg-white/[0.03] p-3 text-xs text-white/55">
-              <p className="font-medium text-white/75">Refundable deposit shown at checkout</p>
-              <p className="mt-1">{policy === undefined ? "Checking deposit policy…" : policy.assessmentSecurityEnabled
+              <p className="font-medium text-white/75">{policy?.setupIntentSecurityEnabled?"Saved-card future-claim ceiling":"Rental security shown at checkout"}</p>
+              <p className="mt-1">{policy === undefined ? "Checking deposit policy…" : policy.setupIntentSecurityEnabled
+                ? "No cash deposit or card hold. Stripe saves your card for itemised late-return charges and severe, permanent cosmetic damage or loss, with a £50, £100 or £200 combined ceiling based on equipment replacement value. No charge on an on-time return without a reported issue; insurance is separate."
+                : policy.assessmentSecurityEnabled
                 ? "£20, £50 or £100 per booking, based on the whole kit’s replacement value. Eligible members and Encore renters pay £0. No separate card hold."
                 : policy.refundableDepositEnabled
                   ? "£0, £50 or £100 per booking, based on the whole kit’s replacement value. No separate card hold."
                   : "No upfront deposit or card hold. Saved-card permission applies under your rental terms."}</p>
-              <p className="mt-1">Your deposit is separate from the rental price. Any unused deposit is refunded to your original card after the return assessment. Checkout confirms your exact amount and eligibility.</p>
+              <p className="mt-1">{policy?.setupIntentSecurityEnabled?"The saved-card ceiling is not charged or held. Stripe or your bank may decline a later payment or require authentication; checkout shows the exact amount and terms.":"Your deposit is separate from the rental price. Any unused deposit is refunded to your original card after the return assessment. Checkout confirms your exact amount and eligibility."}</p>
             </div>
           </div>
         ) : (
@@ -268,7 +270,7 @@ export function BookingPanel({
           </div>
         )}
 
-        {start && end && haveTimes && !listing.marketingOnly && cand && cand.available === 0 && (
+        {start && end && haveTimes && !listing.marketingOnly && listing.bookable !== false && cand && cand.available === 0 && (
           <WaitlistForm listingId={listing._id} start={startMs} end={endMs} />
         )}
 
@@ -282,7 +284,7 @@ export function BookingPanel({
 
         <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-white/40">
           <span>✓ Delivered across London</span>
-          <span>✓ Refundable deposit shown at checkout</span>
+              <span>✓ Security terms shown before payment</span>
           <span>✓ Pro-checked gear</span>
         </div>
       </div>

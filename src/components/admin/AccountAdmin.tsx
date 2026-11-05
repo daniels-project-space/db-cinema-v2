@@ -259,13 +259,9 @@ export function AccountAdmin({
           }
           disabled={!onConversation}
         >
-          <span className={styles.initials}>
-            {thread.lastSender === "owner"
-              ? "DB"
-              : (selected?.name || selected?.email || "")
-                  .slice(0, 1)
-                  .toUpperCase()}
-          </span>
+          {selected?.avatarUrl ? <SmartImage src={selected.avatarUrl} alt="" className={styles.avatarSmall} /> : <span className={styles.initials}>
+            {(selected?.name || selected?.email || "").slice(0, 1).toUpperCase()}
+          </span>}
           <span>
             <strong>
               {thread.bookingId
@@ -292,7 +288,7 @@ export function AccountAdmin({
   return (
     <section data-testid="admin-accounts" className={styles.root}>
       <div className={styles.pageTools}>
-        <label><span aria-hidden>⌕</span><span className={styles.srOnly}>Search customers and chat messages</span><input type="search" maxLength={254} placeholder="Search customers or chats…" value={input} onChange={e => { setInput(e.target.value); setSelectedId(null); setPanelClosed(false); }} /></label>
+        <label><span aria-hidden>⌕</span><span className={styles.srOnly}>Search customers and chat messages</span><input data-testid="account-email-search" type="search" maxLength={254} placeholder="Search customers or chats…" value={input} onChange={e => { setInput(e.target.value); setSelectedId(null); setPanelClosed(false); }} /></label>
         <button type="button" className={styles.filterButton} onClick={() => verificationRef.current?.focus()}>☷ <span>Filters</span></button>
         {authorized === true && <CustomerInvite />}
         {checked.length > 0 && <button type="button" className={styles.filterButton} onClick={() => {
@@ -321,21 +317,6 @@ export function AccountAdmin({
           ))}
         </nav>
         <div className={styles.filters}>
-          <label>
-            <span className={styles.srOnly}>Search customers by name, email or chat message</span>
-            <input
-              type="search"
-              maxLength={254}
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-                setSelectedId(null);
-                setPanelClosed(false);
-              }}
-              placeholder="Search name, email or chat…"
-              data-testid="account-email-search"
-            />
-          </label>
           <label>
             <span className={styles.srOnly}>Membership filter</span>
             <select
@@ -394,7 +375,7 @@ export function AccountAdmin({
                       type="button"
                       data-testid="admin-account-row"
                       onClick={() => selectAccount(account.id)}
-                      className={`${styles.customer} ${styles[account.visualTier]}`}
+                      className={`${styles.customer} ${styles[metrics?.find(metric => metric.id === account.id)?.visualTier ?? account.visualTier]}`}
                     >
                       {account.avatarUrl ? (
                         <SmartImage

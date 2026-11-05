@@ -25,6 +25,7 @@ const noTime=put('bookings',{status:'active',guestEmail:'unagreed@example.invali
 const empty=put('bookings',{status:'active',guestEmail:'needs-review@example.invalid',lineItems:[],total:20});
 const invalidTime=put('bookings',{status:'active',guestEmail:'invalid-slot@example.invalid',returnTime:'not agreed',lineItems:[{listingId:listing._id,start:now-DAY,end:now+DAY,title:'Legacy invalid slot',qty:1}],total:20});
 const futureBooking=put('bookings',{status:'confirmed',guestEmail:'future-collection@example.invalid',lineItems:[{start:now+60*DAY,end:now+62*DAY,title:'Future kit'}],total:25});
+const pendingVerificationBooking=put('bookings',{status:'pending_verification',verificationProvider:'didit',idVerifyStatus:'verified',verificationConfirmationIssue:'inventory_unavailable',guestEmail:'paid-pending@example.invalid',lineItems:[{start:now+10*DAY,end:now+11*DAY,title:'Paid pending kit'}],total:25});
 put('bookings',{status:'cancelled',guestEmail:'cancelled@example.invalid',lineItems:[{start:now-DAY,end:now+DAY,title:'Old'}],total:9});
 put('bookings',{status:'returned',guestEmail:'returned@example.invalid',lineItems:[{start:now-DAY,end:now+DAY,title:'Returned'}],total:9});
 let eventReads=0;
@@ -38,6 +39,7 @@ const ctx={db:{...db,normalizeId(table,id){return tables.get(table)?.some(row=>r
  assert.deepEqual(summary.topMisses,[['boundary miss',1]]);
  assert.equal(summary.ongoing.length,5,'All active rentals remain visible, including very overdue equipment and records needing date review');
  assert.deepEqual(summary.awaitingCollection.map(row=>row._id),[booking._id,futureBooking._id],'Confirmation does not claim the kit has been collected, including rentals far in the future');
+ assert.deepEqual(summary.paidPendingVerification.map(row=>row._id),[pendingVerificationBooking._id],'Paid but unconfirmed rentals appear separately in admin');assert.equal(summary.paidPendingVerification[0].verificationConfirmationIssue,'inventory_unavailable');assert.equal(summary.paidPendingVerificationTruncated,false);
  assert.equal(summary.overdueCount,1);assert.equal(summary.awaitingCollection[0].verification,'required','Legacy missing verification remains required rather than implied approved');
  assert.equal(summary.itemsOut,6,"Equipment units include actual quantities across active rentals only");
  assert.deepEqual(summary.ongoing.find(row=>row._id===onHire._id).calendarLines,[{title:onHire.lineItems[0].title,qty:3,start:onHire.lineItems[0].start,end:onHire.lineItems[0].end,returnTime:onHire.lineItems[0].returnTime}]);

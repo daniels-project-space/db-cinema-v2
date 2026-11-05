@@ -36,6 +36,24 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
   const [t, setT] = useState(0);
   const [phase, setPhase] = useState<"c1" | "c2" | "loop">("c1");
   const [reduce, setReduce] = useState(false);
+  const [mobile, setMobile] = useState(false);
+  const [mobileCtaReady, setMobileCtaReady] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const update = () => setMobile(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (!mobile) {
+      setMobileCtaReady(false);
+      return;
+    }
+    setMobileCtaReady(true);
+  }, [mobile]);
 
   useEffect(() => {
     const c1 = c1Ref.current;
@@ -91,8 +109,10 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
   }, []);
 
   const gearVisible = !reduce && phase === "c1" && t > 0.5 && t < 4.6;
-  // Overlay (headline + CTA) fades in 3 seconds into the hero, on every device.
-  const ctaVisible = reduce || phase !== "c1" || t > 2;
+  const ctaVisible = reduce || phase !== "c1" || t > (mobile ? 0.4 : 2) || (mobile && mobileCtaReady);
+  const ctaTransition = mobile
+    ? "opacity .7s cubic-bezier(0.16,1,0.3,1), transform .7s cubic-bezier(0.16,1,0.3,1)"
+    : "opacity 1s cubic-bezier(0.16,1,0.3,1), transform 1s cubic-bezier(0.16,1,0.3,1)";
   const countBy = new Map(categories.map((c) => [c.name, c.count]));
 
   return (
@@ -263,12 +283,11 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         style={{ pointerEvents: ctaVisible ? "auto" : "none" }}
       >
         <p
-          className="serif-accent text-2xl text-white/90 lg:text-5xl"
+          className="serif-accent text-2xl text-white/90 max-[359px]:hidden lg:text-5xl"
           style={{
             opacity: ctaVisible ? 1 : 0,
             transform: ctaVisible ? "translateY(0)" : "translateY(26px)",
-            transition:
-              "opacity 1s cubic-bezier(0.16,1,0.3,1), transform 1s cubic-bezier(0.16,1,0.3,1)",
+            transition: ctaTransition,
           }}
         >
           the gear that <span className="gradient-text">makes the shot.</span>
@@ -278,9 +297,8 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
           style={{
             opacity: ctaVisible ? 1 : 0,
             transform: ctaVisible ? "translateY(0)" : "translateY(26px)",
-            transition:
-              "opacity 1s cubic-bezier(0.16,1,0.3,1), transform 1s cubic-bezier(0.16,1,0.3,1)",
-            transitionDelay: "0.24s",
+            transition: ctaTransition,
+            transitionDelay: mobile ? "0.1s" : "0.24s",
           }}
         >
           {/* all three are the same frosted material, and none of them move:
@@ -301,10 +319,11 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         </div>
         {rating && (
           <div
+            className="max-[359px]:hidden"
             style={{
               opacity: ctaVisible ? 1 : 0,
-              transition: "opacity 1s cubic-bezier(0.16,1,0.3,1)",
-              transitionDelay: "0.48s",
+              transition: `opacity ${mobile ? ".7s" : "1s"} cubic-bezier(0.16,1,0.3,1)`,
+              transitionDelay: mobile ? "0.2s" : "0.48s",
             }}
           >
             {/* the rating is the proof — make it go to the proof. A plain hash

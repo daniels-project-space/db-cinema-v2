@@ -11,7 +11,7 @@ export function CancellationPolicyQuickGuide({ includeCompanyCancellation = true
     <section aria-labelledby="cancellation-quick-guide-title" className="cancel-policy-quick-guide my-8 rounded-3xl border border-accent-300/20 bg-white/[0.035] p-5 sm:p-6">
       <p className="text-[10px] font-medium uppercase tracking-[.2em] text-accent-300">In short · current rental terms</p>
       <h2 id="cancellation-quick-guide-title" className="mt-2 font-display text-xl font-semibold text-white">What happens if a rental is cancelled?</h2>
-      <div role="img" aria-label={`Rental payment comparison: ${outcomes.map(outcome => `${outcome.label}, ${outcome.value}`).join("; ")}. Bars exclude refundable deposits and membership fees.`} className="mt-5 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+      <div role="img" aria-label={`Rental payment comparison: ${outcomes.map(outcome => `${outcome.label}, ${outcome.value}`).join("; ")}. Bars exclude separately quoted security amounts and membership fees.`} className="mt-5 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
         <p className="text-[10px] uppercase tracking-[.12em] text-white/50">Value compared with your paid rental amount</p>
         {outcomes.map(outcome => <div key={outcome.label} className="grid grid-cols-[minmax(0,7.5rem)_minmax(3rem,1fr)_2.5rem] items-center gap-2 sm:grid-cols-[minmax(0,12rem)_minmax(4rem,1fr)_3rem] sm:gap-3">
           <span className="text-[10px] leading-4 text-white/70 sm:text-xs">{outcome.label}</span>

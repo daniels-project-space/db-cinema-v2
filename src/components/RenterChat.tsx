@@ -96,14 +96,14 @@ export function RenterChat({
           onClick={() => setSelected("general")}
           className={`min-w-[230px] rounded-2xl border p-4 text-left text-sm ${!focus ? "border-accent-400/25 bg-accent-500/[0.07] text-white" : "border-white/[0.05] text-white/60"}`}
         >
-          General support
+          Account support
           {(unread?.general ?? 0) > 0 && (
             <span className="ml-2 rounded-full bg-accent-500 px-2 py-0.5 text-[10px] text-white">
               {unread!.general}
             </span>
           )}
           <span className="mt-1 block text-xs text-white/35">
-            Account help &amp; call follow-ups
+            One thread for account questions and call follow-ups. Rental chats stay separate.
           </span>
         </button>
         {rows?.map((r) => (

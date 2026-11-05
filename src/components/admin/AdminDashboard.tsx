@@ -27,17 +27,20 @@ export function AdminDashboard({ token, unread, alerts, onRental, onRentals, onC
   if (!summary.authorized) return <p role="alert" className={styles.loading}>Unlock the admin panel to view rental operations.</p>;
   if (!Array.isArray(summary.awaitingCollection)) return <section className={styles.loading} role="status">The rental overview is temporarily unavailable. <button className={styles.more} onClick={onRentals}>Open Rentals →</button></section>;
 
+  const paidPendingVerification = summary.paidPendingVerification ?? [];
   const pendingVerification = summary.awaitingCollection.filter(row => row.verification !== "verified" || row.requiresDroneLicence && row.droneVerification !== "approved");
   const groups = [
+    { key: "unconfirmed", title: "Paid · not confirmed", description: "Payment is recorded, but Didit or stock checks still need to finish. These rentals are not confirmed.", rows: paidPendingVerification, empty: "No paid rentals are waiting on verification or availability." },
     { key: "active", title: "Current rentals", description: "Collected equipment stays here until its return is recorded.", rows: summary.ongoing, empty: "No equipment is currently marked on hire." },
-    { key: "verification", title: "Pending verification", description: "Confirmed rentals needing identity, address or drone document review.", rows: pendingVerification, empty: "No confirmed rentals are awaiting document verification." },
+    { key: "verification", title: "Verification follow-up", description: "Confirmed rentals needing identity, address or drone document review.", rows: pendingVerification, empty: "No confirmed rentals are awaiting document verification." },
   ];
   return <section className={styles.dashboard} aria-label="Rental operations">
     <div className={styles.metrics}>
       <button onClick={onRentals}><span>Active rentals</span><strong>{summary.ongoing.length}</strong><small>{summary.overdueCount ? `${summary.overdueCount} past an agreed return time` : "Recorded as on hire"}</small></button>
       <button onClick={onRentals}><span>Confirmed rentals</span><strong>{summary.awaitingCollection.length}</strong><small>Awaiting collection or delivery</small></button>
       <button onClick={onRentals}><span>Items out</span><strong>{summary.itemsOut ?? "—"}</strong><small>Units across equipment on hire</small></button>
-      <button onClick={onRentals}><span>Pending verification</span><strong>{pendingVerification.length}</strong><small>Required booking document checks</small></button>
+      <button onClick={onRentals}><span>Paid · not confirmed</span><strong>{paidPendingVerification.length}</strong><small>Verification or availability still pending</small></button>
+      <button onClick={onRentals}><span>Verification follow-up</span><strong>{pendingVerification.length}</strong><small>Confirmed rentals needing document checks</small></button>
       <button onClick={onRentals}><span>Overdue returns</span><strong>{summary.overdueCount}</strong><small>Against agreed London return times</small></button>
     </div>
     <div className={styles.columns}><div className={styles.primary}>
@@ -50,14 +53,15 @@ export function AdminDashboard({ token, unread, alerts, onRental, onRentals, onC
             </div>
             <div className={styles.rentalSummary}>
               <div className={styles.kitSummary}><h3 title={rental.kit[0]?.title ?? rental.items}>{rentalTitle(rental.kit[0]?.title ?? rental.items ?? "Rental kit")}</h3><span className={styles.source}>DB Cinema Web</span><p>{rental.start != null && rental.end != null ? rentalDate(rental.start, rental.end) : "Dates need review"}</p><small>{rental.kit.reduce((total,line)=>total+line.qty,0)} {rental.kit.reduce((total,line)=>total+line.qty,0)===1?"unit":"units"} · {rental.kit.length} {rental.kit.length===1?"listing":"listings"}</small></div>
-              <div className={styles.customer}><h4>{rental.customerName || rental.guestEmail}</h4><p>{rental.guestEmail}</p><span className={rental.overdue || rental.deadlineNeedsReview ? styles.warning : styles.status}>{rental.deadlineNeedsReview ? "Check return time" : rental.overdue ? "Return overdue" : group.key === "active" ? "On hire" : "Needs verification"}</span></div>
+              <div className={styles.customer}><h4>{rental.customerName || rental.guestEmail}</h4><p>{rental.guestEmail}</p><span className={rental.overdue || rental.deadlineNeedsReview || rental.verificationConfirmationIssue ? styles.warning : styles.status}>{rental.deadlineNeedsReview ? "Check return time" : rental.overdue ? "Return overdue" : group.key === "active" ? "On hire" : group.key === "unconfirmed" ? rental.verificationConfirmationIssue === "inventory_unavailable" ? "Stock review · not confirmed" : rental.verificationConfirmationIssue ? "Confirmation needs attention" : rental.verification === "verified" ? "Didit approved · finalizing" : "Verification pending · not confirmed" : "Needs verification"}</span></div>
             </div>
             <div className={styles.rentalActions}><details className={styles.kitDetails}><summary>Equipment & handover details <span>+</span></summary><RentalKit items={rental.kit} compact /><p>{rental.fulfilment === "delivery" ? "Delivery" : "Collection"}{rental.pickupTime ? ` · ${rental.pickupTime}` : " · time to confirm"}{rental.returnTime ? ` · latest return ${rental.returnTime}` : " · return time to confirm"}</p></details>
             <footer><span>{rental.fulfilment === "delivery" ? "Delivery" : "Collection"} · {rental.pickupTime ?? "Time to confirm"}</span><button onClick={() => onRental(rental._id)}>Manage rental →</button></footer></div>
           </article>)}
-          {group.rows.length > 4 && <button className={styles.more} onClick={onRentals}>View all {group.rows.length} {group.key === "active" ? "active" : "verification"} rentals →</button>}
+          {group.rows.length > 4 && <button className={styles.more} onClick={onRentals}>View all {group.rows.length} {group.key === "active" ? "active" : group.key === "unconfirmed" ? "paid unconfirmed" : "verification follow-up"} rentals →</button>}
         </div>}
       </section>)}
+      {summary.paidPendingVerificationTruncated && <p role="status" className={styles.panelNote}>Showing the 100 most recent paid rentals awaiting confirmation. Open Rentals to search earlier cases.</p>}
     </div><aside className={styles.secondary}>
       {[...summary.ongoing,...summary.awaitingCollection].every(row=>Array.isArray(row.calendarLines)) ? <OperationsCalendar rentals={[...summary.ongoing,...summary.awaitingCollection]} onRental={onRental} onCalendar={onCalendar}/> : <section className={styles.panel}><h2>Rental calendar</h2><p className={styles.empty}>The calendar data is temporarily unavailable.</p><button className={styles.more} onClick={onCalendar}>Open calendar →</button></section>}
       <section className={`${styles.panel} ${styles.revenue}`}><header><h2>Rental receipts</h2><span>Last 6 months</span></header>{panels?.authorized ? <><strong className={styles.receiptTotal}>{formatGbp(panels.totalPence / 100)}</strong><p className={styles.panelNote}>Receipts by rental creation month · security excluded · recorded refunds deducted{panels.partialReceipts ? " · partial records" : ""}</p><svg viewBox="0 0 500 130" role="img" aria-label="Monthly recorded rental receipts"><title>Recorded rental receipts over six months</title>{[20,60,100].map(y => <path key={y} d={`M20 ${y}H485`} stroke="#ffffff10" />)}<polyline fill="none" stroke="#bd8d6c" strokeWidth="2" points={panels.months.map((m,i) => `${25+i*90},${110-(m.rentalPence/Math.max(1,...panels.months.map(n=>n.rentalPence)))*90}`).join(" ")} />{panels.months.map((m,i) => <circle key={m.at} cx={25+i*90} cy={110-(m.rentalPence/Math.max(1,...panels.months.map(n=>n.rentalPence)))*90} r="3" fill="#bd8d6c" />)}</svg><div className={styles.receiptMonths}>{panels.months.map(m=><span key={m.at}>{new Date(m.at).toLocaleDateString("en-GB",{month:"short",timeZone:"UTC"})}</span>)}</div></> : <p className={styles.empty}>Loading receipt records…</p>}</section>
