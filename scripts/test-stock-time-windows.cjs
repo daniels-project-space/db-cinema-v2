@@ -46,7 +46,7 @@ const fit=items=>availability.forCart.handler(ctx,{items});
  assert.equal((await bookings.placeHolds.handler(ctx,{bookingId:booking._id,ttlMs:60000})).created,1);
  assert.equal((await bookings.placeHolds.handler(ctx,{bookingId:booking._id,ttlMs:60000})).alreadyReserved,true);
  assert.equal((await fit([line('13:00','18:00')]))[listing._id].ok,true,'Authoritative pending hold frees pool at its return plus one-hour turnaround');
- assert.equal((await fit([line('11:00','18:00')]))[listing._id].ok,false,'Authoritative pending hold prevents competing checkout');
+ assert.equal((await fit([line('11:00','18:00')]))[listing._id].ok,true,'An unpaid basket does not reserve the same dates from another renter');
  booking.lineItems[0].returnTime='13:00';await assert.rejects(bookings.placeHolds.handler(ctx,{bookingId:booking._id,ttlMs:60000}),/has changed/);
  occupied.status='confirmed';occupied.end=londonRentalInstant(date,'18:00');
  assert.equal((await fit([line('17:00','22:00')]))[listing._id].ok,false,'Actual 17:00 return retains one-hour turnaround');
