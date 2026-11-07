@@ -104,10 +104,11 @@ export const recordGafferReply = mutation({
       .order("desc")
       .take(1);
     if (latest[0]?._id !== renterMessageId) return { saved: false, handledByHuman: false };
-    const messageId = await postRentalMessage(ctx, { accountId: account._id, sender: "bot", text: answer, ...(offersHumanHelp(answer)?{meta:{offerHuman:true}}:{}) });
+    const offerHuman = offersHumanHelp(answer);
+    const messageId = await postRentalMessage(ctx, { accountId: account._id, sender: "bot", text: answer, ...(offerHuman ? { meta: { offerHuman: true } } : {}) });
     const secret=process.env.GAFFER_COMPLETION_PROOF_SECRET??"";
     if(completionProof&&await verifyGafferCompletion(secret,completionProof,String(renterMessageId),answer,Date.now()))await scheduleGafferInquiry(ctx,account._id,undefined,renterMessageId,messageId,thread?.gafferGeneration??0);
-    return { saved: true, handledByHuman: false, messageId };
+    return { saved: true, handledByHuman: false, messageId, offerHuman };
   },
 });
 

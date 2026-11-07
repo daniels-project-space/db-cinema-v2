@@ -23,6 +23,7 @@ import { ChatBubble, TypingIndicator, Chips } from "@/components/chat/ChatKit";
 import { GlowSlider } from "@/components/GlowSlider";
 import { GafferCall } from "@/components/GafferCall";
 import { useGafferSession } from "@/components/gaffer/GafferSession";
+import { HumanHandoffOffer } from "@/components/rentals/HumanHandoffOffer";
 
 type Card = any;
 type Msg = {
@@ -32,6 +33,7 @@ type Msg = {
   suggestions?: string[];
   id?: string;
   pending?: boolean;
+  meta?: { offerHuman?: boolean };
 };
 const GREETING =
   "Hi! I'm **Gaffer**, the Db Cinema kit assistant. Tell me what you're shooting and your dates and I'll build your kit — or ask me anything about gear, prices and availability.";
@@ -108,6 +110,7 @@ export function BotBubble() {
   }, [account.me?._id]);
   const recordAccountQuestion = useMutation(api.chat.recordGafferUserMessage);
   const recordAccountReply = useMutation(api.chat.recordGafferReply);
+  const requestAccountHuman = useMutation(api.chat.requestHuman);
   const hydratedAccountToken = useRef<string | null>(null);
   const addonBusy = null;
   function addToBooking(item: any) {
@@ -122,6 +125,7 @@ export function BotBubble() {
         id: String(message._id),
         role: message.sender === "renter" ? "user" as const : "assistant" as const,
         content: message.text,
+        meta: message.meta ?? undefined,
       }));
       if (hydratedAccountToken.current !== account.token) {
         hydratedAccountToken.current = account.token;
@@ -237,6 +241,7 @@ export function BotBubble() {
       const d = await r.json();
       const reply = d.reply || "…";
       let replyId: string | undefined;
+      let offerHuman = false;
       if (account.token && renterMessageId) {
         const recorded = await recordAccountReply({ token: account.token, renterMessageId: renterMessageId as any, text: reply, ...(typeof d.completionProof === "string" ? { completionProof:d.completionProof } : {}) });
         if (!recorded.saved) {
@@ -249,6 +254,7 @@ export function BotBubble() {
           return;
         }
         replyId = String(recorded.messageId);
+        offerHuman = !!recorded.offerHuman;
       }
       const cards = (d.cards || []).map((card:any)=>{
         const item=card.kind==="swap"?card.added:card.item;
@@ -259,7 +265,7 @@ export function BotBubble() {
       setMsgs((current) => {
         setTalkingIdx(current.length);
         const existingIndex = replyId ? current.findIndex((message) => message.id === replyId) : -1;
-        const message = { id: replyId, role: "assistant" as const, content: reply, cards, suggestions: d.suggestions || [] };
+        const message = { id: replyId, role: "assistant" as const, content: reply, cards, suggestions: d.suggestions || [], meta: offerHuman ? { offerHuman: true } : undefined };
         if (existingIndex >= 0) return current.map((item, index) => index === existingIndex ? message : item);
         return [...current, message];
       });
@@ -572,6 +578,8 @@ export function BotBubble() {
                   }
                   mood={talkingIdx === mi ? "talking" : "idle"}
                 />
+                {account.token && account.me?._id && !notificationOfferDismissed && m.id === String(firstAccountReply?._id) && <div className="ml-10 flex gap-3 rounded-2xl border border-white/15 bg-white/[0.07] p-3 text-xs text-white/80 shadow-[0_12px_32px_#0005] backdrop-blur-2xl" aria-label="Chat notifications"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-amber-100/20 bg-amber-100/[0.08] text-amber-100" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-4 w-4"><path d="M18 8a6 6 0 00-12 0v5l-2 3v1h16v-1l-2-3V8ZM9 20h6"/><path d="M18.5 3v3m-1.5-1.5h3"/></svg></span><div className="min-w-0 flex-1"><strong className="text-white">Stay in the loop</strong><p className="mt-1 leading-relaxed">Get an alert when the team replies. Tap to enable; iPhone and iPad setup includes the Home Screen steps.</p><div className="mt-3 flex items-center gap-4"><Link href="/account#chat" className="rounded-full border border-amber-100/30 bg-amber-100/[0.08] px-3 py-2 text-amber-100 transition hover:bg-amber-100/[0.14]" onClick={() => { try { localStorage.setItem("dbc_chat_notification_offer:" + account.me!._id, "dismissed"); sessionStorage.setItem("dbc_open_chat_notification_settings", "1"); } catch {} setNotificationOfferDismissed(true); }}>Turn on notifications</Link><button type="button" className="text-white/50 transition hover:text-white/80" onClick={() => { try { localStorage.setItem("dbc_chat_notification_offer:" + account.me!._id, "dismissed"); } catch {} setNotificationOfferDismissed(true); }}>Later</button></div></div></div>}
+                {account.token && m.role === "assistant" && m.id && m.meta?.offerHuman && <HumanHandoffOffer key={`support-${m.id}`} onRequest={async () => { await requestAccountHuman({ token: account.token! }); }} />}
                 {m.cards &&
                   m.cards.length > 0 &&
                   (() => {
@@ -648,7 +656,6 @@ export function BotBubble() {
                       </div>
                     );
                   })()}
-                {account.token && account.me?._id && !notificationOfferDismissed && m.id === String(firstAccountReply?._id) && <div className="ml-10 rounded-2xl border border-amber-100/20 bg-white/[0.06] p-3 text-xs text-white/80 backdrop-blur-xl" aria-label="Chat notifications"><strong className="text-white">Keep the conversation going</strong><p className="mt-1 leading-relaxed">Turn on chat alerts in your account to hear when the team replies.</p><div className="mt-3 flex items-center gap-4"><Link href="/account#chat" className="rounded-full border border-amber-100/30 px-3 py-2 text-amber-100" onClick={() => { try { localStorage.setItem("dbc_chat_notification_offer:" + account.me!._id, "dismissed"); sessionStorage.setItem("dbc_open_chat_notification_settings", "1"); } catch {} setNotificationOfferDismissed(true); }}>Set up alerts</Link><button type="button" onClick={() => { try { localStorage.setItem("dbc_chat_notification_offer:" + account.me!._id, "dismissed"); } catch {} setNotificationOfferDismissed(true); }}>Not now</button></div></div>}
               </div>
             ))}
             {liveSuggestions && (
