@@ -739,7 +739,9 @@ export function AccountAdmin({
                 )}
                 {section === "access" && (
                   <section className={`${styles.card} ${styles.accessPanel}`}>
-                    <button type="button" className={styles.accessClose} onClick={() => setSection("closed")} aria-label="Close membership and Encore controls">Close controls ×</button>
+                    <div className={styles.accessCloseHeader}>
+                      <button type="button" className={styles.accessClose} onClick={() => setSection("closed")} aria-label="Close membership and Encore controls">Close controls ×</button>
+                    </div>
                     {selected.blocked && (
                       <p className="mt-3 rounded-xl bg-rose-500/10 p-3 text-xs text-rose-200">
                         Blocked · {selected.blockedReason}

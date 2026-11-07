@@ -1101,7 +1101,8 @@
 .actionLabel { display:flex; align-items:center; gap:11px; }
 .actionIcon { width:18px; height:18px; flex:0 0 18px; color:#e3c49f; }
 .profileBody { flex:0 0 auto; min-width:0; padding:4px 12px 14px; }
-.accessClose { position:sticky; top:0; z-index:1; display:block; margin-left:auto; padding:5px 8px; border:1px solid #ffffff25; border-radius:6px; background:#191a1a; color:#d6b695; font-size:12px; }
+.accessCloseHeader { position:sticky; top:0; z-index:4; display:flex; justify-content:flex-end; margin:0 -1px 8px; padding:6px 1px; border-bottom:1px solid #ffffff18; background:#191a1a; }
+.accessClose { display:block; padding:5px 8px; border:1px solid #ffffff25; border-radius:6px; background:#222321; color:#d6b695; font-size:12px; }
 .rentalActions { margin-top:14px; min-width:0; }
 .rentalActions > summary { cursor:pointer; padding:10px; border:1px solid #ffffff25; border-radius:6px; color:#ead4bc; }
 .identityWarning { order:-1; flex:0 0 auto; margin:0 12px 14px; padding:12px; border:1px solid #d6a968; border-radius:7px; background:#4b342133; color:#f5d8ad; overflow-wrap:anywhere; }
