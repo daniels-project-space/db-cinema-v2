@@ -109,6 +109,7 @@ call src/components/AnalyticsTracker.tsx:analytics.track
 call src/components/BotBubble.tsx:chat.myThread
 call src/components/BotBubble.tsx:chat.recordGafferReply
 call src/components/BotBubble.tsx:chat.recordGafferUserMessage
+call src/components/BotBubble.tsx:chat.requestHuman
 call src/components/CheckoutAccountBenefits.tsx:settings.get
 call src/components/FilmFundApplication.tsx:filmFund.attachDocument
 call src/components/FilmFundApplication.tsx:filmFund.mine

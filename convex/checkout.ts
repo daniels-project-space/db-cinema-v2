@@ -911,6 +911,7 @@ async function membershipCreditNotesRefunded(invoice:Stripe.Invoice, sub:Stripe.
 }
 
 export async function reconcileFullyRefundedMembership(ctx:any, refund:Stripe.Refund, job?:{id:any,token:string,accountId:any,subscriptionId:string,invoiceId:string}) {
+  if(refund.metadata?.dbc_deposit_return_booking||refund.metadata?.rentalRefundId)return;
   if(refund.status!=="succeeded"||!refund.payment_intent){if(job)throw Error("Membership refund is no longer confirmed.");return;}
   const pi=await stripe().paymentIntents.retrieve(typeof refund.payment_intent==="string"?refund.payment_intent:refund.payment_intent.id);
   let refunded=0, refundCount=0;for await(const r of stripe().refunds.list({payment_intent:pi.id,limit:100})){if(++refundCount>100)throw Error("Membership refund history requires review.");if(r.status==="succeeded"){if(!Number.isSafeInteger(r.amount)||r.amount<0||r.currency!==pi.currency)throw Error("Membership refund amount requires review.");refunded+=r.amount;if(!Number.isSafeInteger(refunded))throw Error("Membership refund total requires review.");}}
