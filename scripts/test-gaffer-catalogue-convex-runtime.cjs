@@ -18,7 +18,10 @@ async function cleanup() { if (child?.pid) { try { process.kill(-child.pid, "SIG
   const client = new ConvexHttpClient(match[0]);
   await client.mutation(makeFunctionReference("gaffer_catalogue_qualify:seed"), {});
   const result = await client.action(makeFunctionReference("gaffer_catalogue_qualify:find"), { category: "Cameras", search: "fx3" });
-  assert.deepEqual(result, { listings: [{ title: "Sony FX3 camera", slug: "gaffer-fx3-ok", category: "Cameras", daily: 48 }], availability: "unchecked" });
+  assert.equal(result.availability, "unchecked");
+  assert.equal(result.listings.length, 1);
+  assert.equal(typeof result.listings[0].listingId, "string");
+  assert.deepEqual({ title: result.listings[0].title, slug: result.listings[0].slug, category: result.listings[0].category, daily: result.listings[0].daily, pricing: result.listings[0].pricing }, { title: "Sony FX3 camera", slug: "gaffer-fx3-ok", category: "Cameras", daily: 48, pricing: { daily: 48 } });
   const category = await client.action(makeFunctionReference("gaffer_catalogue_qualify:find"), { category: "Cameras" });
   assert.equal(category.listings.length, 1);
   const absent = await client.action(makeFunctionReference("gaffer_catalogue_qualify:find"), { search: "xyz123none" });
