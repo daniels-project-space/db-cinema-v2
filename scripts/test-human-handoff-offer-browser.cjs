@@ -27,10 +27,10 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     await client.evaluate(`document.querySelector('button').click();document.querySelector('button').click()`); await wait(80);
     assert.equal(await client.evaluate('window.calls'), 1, 'Repeated clicks cannot duplicate a pending request');
     await client.evaluate(`window.fail(Error('unknown'))`); await wait(80);
-    assert.match(await client.evaluate('document.querySelector("[role=alert]").textContent'), /could not be confirmed/);
+    assert.match(await client.evaluate('document.querySelector("[role=alert]").textContent'), /confirm that/);
     await client.evaluate(`document.querySelector('button').click()`); await wait(80);assert.equal(await client.evaluate('window.calls'), 2);
     await client.evaluate(`window.finish()`); await wait(80);
-    assert.match(await client.evaluate('document.querySelector("[role=status]").textContent'), /request was recorded/);
+    assert.match(await client.evaluate('document.querySelector("[role=status]").textContent'), /Your request is in this chat/);
     assert.equal(await client.evaluate('document.querySelector("button")'), null, 'An accepted request cannot be sent twice while state catches up');
     console.log("PASS human-handoff offer: explicit request, pending lock, failure retry, accepted state and 320px layout; synthetic data only.");
   } finally { if (client) client.close(); if (chrome.exitCode === null) { const done = new Promise(resolve => chrome.once("exit", resolve)); chrome.kill(); await done; } server.close(); await wait(200); await fs.promises.rm(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
