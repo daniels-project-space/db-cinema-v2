@@ -154,6 +154,12 @@
 .management .shell[data-management-role=admin] .content { padding:24px; max-width:1720px; }
 .management .shell[data-management-role=admin] .heading { position:static; inset:auto; max-width:none; padding:0; margin-bottom:22px; }
 .shell[data-management-screen=messages] .content { padding:0 0 30px; }
+@media(min-width:1151px) {
+  .shell[data-management-role=renter][data-management-screen=messages] { height:calc(100dvh - var(--management-site-header-height)); min-height:0; overflow:hidden; }
+  .shell[data-management-role=renter][data-management-screen=messages] .workspace { height:100%; min-height:0; overflow:hidden; }
+  .shell[data-management-role=renter][data-management-screen=messages] .content { display:flex; flex-direction:column; height:100%; min-height:0; padding:0; max-width:none; overflow:hidden; }
+  .shell[data-management-role=renter][data-management-screen=messages] .content > :global(#renter-chat) { flex:1; min-height:0; margin:0; }
+}
 .nav { padding-top:18px; }
 .sidebarBottom { padding-top:24px; }
 .sidebarImage { height:170px; }
