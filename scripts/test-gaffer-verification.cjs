@@ -100,8 +100,9 @@ const facts={escalated:false,latestRenterId:'message',gafferGeneration:0,message
  assert.equal(calls.find(call=>call.ref==='chat._postBot').args.offerHuman,true);assert(!calls.find(call=>call.ref==='chat._postBot').args.answerComplete);
  calls=[];delete process.env.OPENROUTER_API_KEY;
  await gafferReply.handler(ctx,{accountId:'owner',bookingId:'booking',messageId:'message'});
- assert.equal(calls.find(call=>call.ref==='chat._postBot').args.offerHuman,true,'an ordinary provider failure offers help without claiming handoff');
- assert(!calls.find(call=>call.ref==='chat._postBot').args.handoff);
+ assert.match(calls.find(call=>call.ref==='chat._postBot').args.text,/ask me again.*keep helping here/i,'an ordinary provider failure asks the renter to retry in chat');
+ assert.equal(calls.find(call=>call.ref==='chat._postBot').args.offerHuman,undefined,'a routine provider failure does not immediately offer a human');
+ assert.equal(calls.find(call=>call.ref==='chat._postBot').args.handoff,undefined,'a routine provider failure does not escalate');
  calls=[];facts.messages[0].text='Please connect me to a person';
  await gafferReply.handler(ctx,{accountId:'owner',bookingId:'booking',messageId:'message'});
  assert.equal(calls.find(call=>call.ref==='chat._postBot').args.handoff,true,'explicit requests still reach the team without the AI provider');
