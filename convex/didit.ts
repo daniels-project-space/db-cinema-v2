@@ -218,8 +218,6 @@ export const reuseVerification = internalAction({
  }
 });
 
-/** A human review changes the Didit case before updating the rental. The
- * provider records the review in its audit timeline and emits a signed webhook. */
 export const adminReview = action({
   args: {
     token: v.string(), bookingId: v.id("bookings"),
@@ -227,7 +225,9 @@ export const adminReview = action({
     note: v.string(),
   },
   handler: async (ctx, { token, bookingId, decision, note }): Promise<void> => {
-    await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "didit.adminReview" });
+    const scopedReview = process.env.ADMIN_SESSION_DIDIT_REVIEW_V2 === "enabled";
+    if (scopedReview) await ctx.runMutation(internal.adminAccountSessionV2.authorizeDiditReview, { token });
+    else await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "didit.adminReview" });
     const reason = note.trim();
     if (reason.length < 5 || reason.length > 400) throw new Error("Record a 5–400 character review reason.");
     const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId });
@@ -243,6 +243,19 @@ export const adminReview = action({
     if (session.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
     if (!["Approved", "Declined", "In Review", "Kyc Expired", "Abandoned", "Resubmitted"].includes(session.status))
       throw new Error("This verification is still in progress or expired; it cannot be manually decided.");
+    if (decision !== "approve" && session.status === (decision === "decline" ? "Declined" : "Resubmitted")) {
+      const mapped = mapDecision(session.status, session);
+      if (!mapped || mapped.status !== (decision === "decline" ? "rejected" : "requires_input"))
+        throw new Error("The Didit decision could not be reconciled.");
+      const saved: boolean = await ctx.runMutation(internal.bookings.setDiditResult, {
+        bookingId, sessionId:booking.diditSessionId, eventId:`manual-reconcile-${booking.diditSessionId}-${readStartedAt}`,
+        eventAt:readStartedAt, providerStatus:session.status, ...mapped, reconciliation:true, requireApplied:true,
+        expectedEventId:booking.diditEventId ?? null, expectedEventAt:booking.diditEventAt ?? null, expectedManualDecisionAt:booking.diditManualDecisionAt ?? null,
+        ...(scopedReview ? { adminReviewSessionToken: token } : {}),
+      });
+      if (!saved) throw new Error("The rental changed during review. Check its current status and the Didit case.");
+      return;
+    }
     if (decision === "approve") {
       if (!["Approved", "In Review"].includes(session.status))
         throw new Error("This Didit case cannot be approved; request resubmission for failed documents.");
@@ -257,6 +270,7 @@ export const adminReview = action({
           bookingId, sessionId:booking.diditSessionId, eventId:`manual-reconcile-${booking.diditSessionId}-${readStartedAt}`,
           eventAt:readStartedAt, providerStatus:session.status, ...mapped, reconciliation:true, requireApplied:true,
           expectedEventId:booking.diditEventId ?? null, expectedEventAt:booking.diditEventAt ?? null, expectedManualDecisionAt:booking.diditManualDecisionAt ?? null,
+          ...(scopedReview ? { adminReviewSessionToken: token } : {}),
         });
         if (!saved) throw new Error("The rental changed during review. Check its current status and the Didit case.");
         return;
@@ -431,7 +445,7 @@ function mapDecision(rawStatus: unknown, decision: any): {
   else if (rawStatus === "Not Started" || rawStatus === "In Progress") status = "processing";
   else return null;
   let note = status === "manual_review" && rawStatus === "Approved"
-    ? "A required identity, selfie or address check did not pass. We will review it."
+    ? "Didit has not confirmed every required identity, selfie and address check. We will review the missing or unresolved checks."
     : rawStatus === "Expired" ? "The verification link expired. Start a new check before handover."
     : rawStatus === "Abandoned" ? "The verification was not completed. Start a new check before handover."
     : status === "requires_input" ? "Please complete the requested document step." : undefined;

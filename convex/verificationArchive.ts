@@ -1,4 +1,4 @@
-import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
+import { query, mutation, internalQuery, internalMutation, type QueryCtx, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
@@ -9,6 +9,26 @@ import { queueOwnerNotification } from "./lib/adminPush";
 import { deletePrivateFile } from "./lib/privateStorage";
 import { verificationReadSnapshot } from "./lib/verificationReadProof";
 import { saveAccountDiditVerification } from "./lib/verificationReuse";
+import { retainVerificationArchiveLink } from "./lib/verificationArchiveLink";
+import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
+
+async function verificationAdminRead(ctx: QueryCtx, token: string): Promise<boolean> {
+  if (process.env.ADMIN_SESSION_VERIFICATION_V2 === "enabled") {
+    if (!adminSessionMigrationReady()) throw Error("Admin session migration is not ready.");
+    await assertAdminScopeSession(ctx, token, "verification:read");
+    return true;
+  }
+  return checkAdminToken(token);
+}
+async function verificationAdminMutation(ctx: MutationCtx, token: string, scope: "verification:read" | "verification:write", fn: string): Promise<void> {
+  if (process.env.ADMIN_SESSION_VERIFICATION_V2 === "enabled") {
+    if (!adminSessionMigrationReady()) throw Error("Admin session migration is not ready.");
+    await assertAdminScopeSession(ctx, token, scope);
+    await ctx.db.insert("admin_audit_log", { at: Date.now(), success: true, limited: false, fn });
+    return;
+  }
+  await assertAdmin(ctx, token, fn);
+}
 
 const DOCUMENT_RETENTION_MS = 90 * 86400000;
 const CAPTURE_LEASE_MS = 5 * 60000;
@@ -29,18 +49,29 @@ function rentalClosedAt(booking: any): number | undefined {
 }
 
 /** One retention decision shared by the admin screen and byte deletion. */
-export async function archiveRetention(ctx: any, archive: any) {
+export async function archiveRetention(ctx: any, archive: any, includeReviewDetails = false) {
   if (archive.status === "deleted") return { status: "deleted" as const, expiresAt: null, activeRentals: 0, openCases: 0, viewable: false };
   const booking = await ctx.db.get(archive.bookingId);
-  const reused = archive.source === "drone" ? [] : await ctx.db.query("bookings").withIndex("by_verification_reused", (q: any) => q.eq("verificationReusedFrom", archive.bookingId)).collect();
+  const review = { status: "unknown-closure" as const, expiresAt: null, activeRentals: 0, openCases: 0, viewable: false, needsReview: true };
+  const current = archive.source === "drone" ? [] : await ctx.db.query("bookings").withIndex("by_verification_reused", (q: any) => q.eq("verificationReusedFrom", archive.bookingId)).take(31);
+  const links = archive.source === "drone" ? [] : await ctx.db.query("verification_archive_links").withIndex("by_source_booking", (q: any) => q.eq("sourceBookingId", archive.bookingId)).take(31);
+  if (current.length > 30 || links.length > 30) return review;
+  const linked = await Promise.all(links.map((link:any)=>ctx.db.get(link.bookingId)));
+  const reused = [...new Map([...current,...linked].filter(Boolean).map((item:any)=>[String(item._id),item])).values()];
   const rentals = [booking, ...reused].filter(Boolean);
   const activeRentals = rentals.filter((b: any) => !["returned", "cancelled"].includes(b.status)).length;
+  for (const rental of rentals) {
+    const closedAt = rentalClosedAt(rental);
+    if (closedAt !== undefined && (!Number.isFinite(closedAt) || closedAt <= 0 || closedAt > Date.now())) return review;
+  }
   let openCases = 0;
   const caseRetentionExpiries: number[] = [];
   for (const id of [archive.bookingId, ...reused.map((b: any) => b._id)]) {
-    const cases = await ctx.db.query("rental_damage_cases").withIndex("by_booking", (q: any) => q.eq("bookingId", id)).collect();
+    const cases = await ctx.db.query("rental_damage_cases").withIndex("by_booking", (q: any) => q.eq("bookingId", id)).take(101);
+    if (cases.length > 100) return review;
     for (const rentalCase of cases) {
-      if (rentalCase.status === "open" || !Number.isFinite(rentalCase.closedAt)) openCases++;
+      if (rentalCase.status === "open") openCases++;
+      else if (!Number.isFinite(rentalCase.openedAt) || !Number.isFinite(rentalCase.closedAt) || rentalCase.openedAt <= 0 || rentalCase.closedAt < rentalCase.openedAt || rentalCase.closedAt > Date.now()) return includeReviewDetails ? { ...review, reviewDetails: { kind: "case-chronology" as const, bookingId: id, caseId: rentalCase._id, openedAt: Number.isFinite(rentalCase.openedAt) ? rentalCase.openedAt : null, closedAt: Number.isFinite(rentalCase.closedAt) ? rentalCase.closedAt : null } } : review;
       else caseRetentionExpiries.push(rentalCase.closedAt + DOCUMENT_RETENTION_MS);
     }
   }
@@ -48,7 +79,7 @@ export async function archiveRetention(ctx: any, archive: any) {
   if (activeRentals) return { ...base, status: "active-rental" as const };
   if (openCases) return { ...base, status: "insurance-case" as const };
   if (archive.retentionHoldReason) return { ...base, status: "manual-hold" as const };
-  if (!booking || rentals.some((b: any) => !rentalClosedAt(b))) return { ...base, status: "unknown-closure" as const };
+  if (!booking || linked.some((b:any)=>!b) || rentals.some((b: any) => !rentalClosedAt(b))) return { ...base, status: "unknown-closure" as const };
   const expiresAt = Math.max(...rentals.map((b: any) => rentalClosedAt(b)! + DOCUMENT_RETENTION_MS), ...caseRetentionExpiries);
   return { ...base, status: "expires" as const, expiresAt, viewable: expiresAt > Date.now() };
 }
@@ -114,7 +145,10 @@ function requiredReadDocuments(copies:any){
 }
 export async function assertVerificationArchive(ctx: any, booking: any) {
   const source = booking.verificationReusedFrom ? await ctx.db.get(booking.verificationReusedFrom) : booking;
-  if (!source?.diditSessionId) return;
+  if (!source?.diditSessionId) {
+    if (source && !booking.verificationReusedFrom && source.verificationProvider !== "didit" && !["didit", "reused_didit"].includes(source.idVerificationSource)) return;
+    throw Error("Verification document copies must be fully archived and within their retention period before handover. Check account documents or complete a new verification.");
+  }
   const archives = await ctx.db.query("verification_archives").withIndex("by_booking", (q: any) => q.eq("bookingId", source._id)).collect();
   // A completed copy can already be outside retention while the deletion job
   // is still pending. Do not reuse it and thereby revive expired documents.
@@ -286,7 +320,7 @@ async function queueSupplemental(ctx:any,archive:any){
  await ctx.scheduler.runAfter(0,internal.verificationArchiveWorker.capture,{archiveId:archive._id,supplemental:true});
 }
 export const retrySupplemental=mutation({args:{token:v.string(),archiveId:v.id("verification_archives")},handler:async(ctx,args)=>{
- await assertAdmin(ctx,args.token,"verificationArchive.retrySupplemental");const archive=await ctx.db.get(args.archiveId);
+ await verificationAdminMutation(ctx,args.token,"verification:write","verificationArchive.retrySupplemental");const archive=await ctx.db.get(args.archiveId);
  if(!archive||archive.status!=="complete"||archive.source==="drone"||!(await archiveRetention(ctx,archive)).viewable)throw Error("This archive is not available for image recovery.");
  await queueSupplemental(ctx,archive);
 }});
@@ -312,17 +346,17 @@ export const finish = internalMutation({ args: { archiveId: v.id("verification_a
 export const due = internalQuery({ args: {}, handler: async ctx => ctx.db.query("verification_archives").withIndex("by_status_due", q => q.eq("status", "pending").lte("dueAt", Date.now())).take(10) });
 export const supplementalDue=internalQuery({args:{},handler:async ctx=>ctx.db.query("verification_archives").withIndex("by_supplemental_due",q=>q.eq("supplementalStatus","pending").lte("supplementalDueAt",Date.now())).take(10)});
 export const accountDocuments = query({ args: { token: v.string(), accountId: v.id("accounts") }, handler: async (ctx, args) => {
-  if (!checkAdminToken(args.token)) throw Error("unauthorized");
+  if (!await verificationAdminRead(ctx, args.token)) throw Error("unauthorized");
   const jobs = await ctx.db.query("verification_archives").withIndex("by_account", q => q.eq("accountId", args.accountId)).collect();
   return Promise.all(jobs.map(async archive => {
-    const retention = await archiveRetention(ctx, archive);
+    const retention = await archiveRetention(ctx, archive, true);
     const { copies, ready } = await archiveCopies(ctx, archive, true);
     return { ...archive, email: undefined, retention, readProofExpiresAt: archive.source === "drone" || !Number.isFinite(archive.readVerifiedAt) ? null : archive.readVerifiedAt! + READ_PROOF_MAX_AGE_MS, copiesReady: archive.status==="complete" && retention.viewable && ready && (archive.source==="drone"||hasFreshReadProof(archive)),
       documents: copies.map(({ document: d, available }) => ({ id: d._id, kind: d.kind, size: d.size, sha256: d.sha256, savedAt: d.savedAt, contentType: d.contentType, available: retention.viewable && available })) };
   }));
 } });
 export const retry = mutation({ args: { token: v.string(), archiveId: v.id("verification_archives") }, handler: async (ctx, args) => {
-  await assertAdmin(ctx, args.token, "verificationArchive.retry");
+  await verificationAdminMutation(ctx, args.token, "verification:write", "verificationArchive.retry");
   const archive = await ctx.db.get(args.archiveId);
   if (!archive || archive.status === "deleted") throw Error("Document retention period ended. Expired archives cannot be reopened.");
   if(!(await archiveRetention(ctx,archive)).viewable)throw Error("Document retention period ended.");
@@ -339,7 +373,7 @@ export const retry = mutation({ args: { token: v.string(), archiveId: v.id("veri
   await ctx.scheduler.runAfter(0, internal.verificationArchiveWorker.capture, { archiveId: archive._id });
 } });
 export const reportDisplayFailure=mutation({args:{token:v.string(),documentId:v.id("verification_documents"),generation:v.number()},handler:async(ctx,args)=>{
-  await assertAdmin(ctx,args.token,"verificationArchive.reportDisplayFailure");
+  await verificationAdminMutation(ctx,args.token,"verification:write","verificationArchive.reportDisplayFailure");
   const document=await ctx.db.get(args.documentId);
   const archive=document?await ctx.db.get(document.archiveId):null;
   if(!archive||archive.status!=="complete"||(archive.generation??0)!==args.generation||!(await archiveRetention(ctx,archive)).viewable)return false;
@@ -349,7 +383,7 @@ export const reportDisplayFailure=mutation({args:{token:v.string(),documentId:v.
   return true;
 }});
 export const downloadAccess = internalMutation({ args: { token: v.string(), documentId: v.id("verification_documents") }, handler: async (ctx, args) => {
-  await assertAdmin(ctx, args.token, "verificationArchive.viewDocument");
+  await verificationAdminMutation(ctx, args.token, "verification:read", "verificationArchive.viewDocument");
   const document = await ctx.db.get(args.documentId);
   if (!document) throw Error("Document not found");
   const archive = await ctx.db.get(document.archiveId);
@@ -401,7 +435,7 @@ async function linkVerifiedAccountPage(ctx: any, accountId: any, cursor: string 
 }
 export const linkVerifiedAccount = internalMutation({ args: { accountId: v.id("accounts"), cursor: v.union(v.string(), v.null()) }, handler: async (ctx, args) => linkVerifiedAccountPage(ctx, args.accountId, args.cursor) });
 export const backfillAccount = mutation({ args: { token: v.string(), accountId: v.id("accounts") }, handler: async (ctx, args) => {
-  await assertAdmin(ctx, args.token, "verificationArchive.backfillAccount");
+  await verificationAdminMutation(ctx, args.token, "verification:write", "verificationArchive.backfillAccount");
   const account = await ctx.db.get(args.accountId);
   if (!account) throw Error("Account not found");
   await backfillPage(ctx, args.accountId, false, null);
@@ -412,25 +446,74 @@ export const backfillNext = internalMutation({
   args: { accountId: v.id("accounts"), legacy: v.boolean(), cursor: v.union(v.string(), v.null()) },
   handler: async (ctx, args) => backfillPage(ctx, args.accountId, args.legacy, args.cursor),
 });
-export const retentionHold = mutation({ args: { token: v.string(), archiveId: v.id("verification_archives"), reason: v.string() }, handler: async (ctx, args) => {
-  await assertAdmin(ctx, args.token, "verificationArchive.retentionHold");
+export const backfillRetentionLinks = internalMutation({args:{cursor:v.union(v.string(),v.null())},handler:async(ctx,{cursor})=>{
+  const page=await ctx.db.query("bookings").order("asc").paginate({cursor,numItems:50,maximumRowsRead:50});
+  let linked=0,skipped=0;
+  for(const booking of page.page){
+    if(!booking.verificationReusedFrom)continue;
+    const source=await ctx.db.get(booking.verificationReusedFrom);
+    if(!source||!booking.accountId||source.accountId!==booking.accountId||source._id===booking._id){skipped++;continue;}
+    const candidates=await ctx.db.query("verification_archives").withIndex("by_booking",q=>q.eq("bookingId",source._id)).take(31);
+    if(candidates.length>30||!candidates.some(row=>row.source!=="drone"&&row.status!=="deleted")){skipped++;continue;}
+    await retainVerificationArchiveLink(ctx,booking,source._id);linked++;
+  }
+  if(!page.isDone)await ctx.scheduler.runAfter(0,internal.verificationArchive.backfillRetentionLinks,{cursor:page.continueCursor});
+  return {linked,skipped,hasMore:!page.isDone};
+}});
+export const retentionHold = mutation({ args: { token: v.string(), archiveId: v.id("verification_archives"), reason: v.string(), expectedReason: v.string(), expectedRevision: v.number(), confirmed: v.boolean() }, handler: async (ctx, args) => {
+  await verificationAdminMutation(ctx, args.token, "verification:write", "verificationArchive.retentionHold");
   const archive = await ctx.db.get(args.archiveId);
   if (!archive || archive.status === "deleted") throw Error("Archive unavailable");
-  if (args.reason && args.reason.trim().length < 10) throw Error("Record the open case or insurance claim reason.");
-  await ctx.db.patch(archive._id, { retentionHoldReason: args.reason.trim().slice(0, 500) || undefined });
+  const reason = args.reason.trim();
+  if (!args.confirmed || reason.length > 500 || (reason && reason.length < 10)) throw Error("Review the insurance hold and record a reason of 10–500 characters.");
+  if ((archive.retentionHoldReason ?? "") !== args.expectedReason || (archive.retentionHoldRevision ?? 0) !== args.expectedRevision) throw Error("The insurance hold changed in another session. Review the current hold before continuing.");
+  const retention = await archiveRetention(ctx, archive);
+  const needsReview = "needsReview" in retention && retention.needsReview;
+  if (!reason && needsReview && archive.retentionHoldReason) throw Error("Resolve the retention review before removing this insurance hold.");
+  if (reason && !needsReview && !retention.viewable) throw Error("Verification retention has already expired. Expired copies cannot be revived.");
+  if ((archive.retentionHoldReason ?? "") === reason) return;
+  await ctx.db.patch(archive._id, { retentionHoldReason: reason || undefined, retentionHoldRevision: (archive.retentionHoldRevision ?? 0) + 1 });
 } });
 /** Retain through rentals and open claims; keep bytes 90 days after closure or case resolution. */
-export const purgeExpired = internalMutation({ args: {}, handler: async ctx => {
-  const archives = await ctx.db.query("verification_archives").collect();
+export const purgeExpired = internalMutation({ args: { generation:v.optional(v.number()) }, handler: async (ctx,args) => {
+  let state = await ctx.db.query("verification_archive_sweeps").withIndex("by_key",q=>q.eq("key","retention")).unique();
+  if (args.generation !== undefined && (!state || !state.active || state.generation !== args.generation)) return 0;
+  if (args.generation === undefined && state?.active && state.updatedAt > Date.now() - 3600000) return 0;
+  if (!state) {
+    const id = await ctx.db.insert("verification_archive_sweeps",{key:"retention",active:true,generation:1,updatedAt:Date.now()});
+    state = (await ctx.db.get(id))!;
+  } else if (args.generation === undefined) {
+    const generation=state.generation+1;
+    await ctx.db.patch(state._id,{active:true,generation,updatedAt:Date.now(),...(!state.active?{cursor:undefined}:{})});
+    state={...state,active:true,generation,...(!state.active?{cursor:undefined}:{})};
+  }
+  const page = await ctx.db.query("verification_archives").order("asc").paginate({cursor:state.cursor??null,numItems:25,maximumRowsRead:25});
   let removed = 0;
-  for (const archive of archives) {
-    if (removed >= 25 || archive.status === "deleted" || archive.retentionHoldReason) continue;
+  for (const archive of page.page) {
+    if (archive.status === "deleted" || archive.retentionHoldReason) continue;
     const retention = await archiveRetention(ctx, archive);
-    if (retention.status !== "expires" || retention.expiresAt === null || retention.expiresAt > Date.now()) continue;
+    if (retention.status !== "expires" || retention.expiresAt === null || !Number.isFinite(retention.expiresAt) || retention.expiresAt > Date.now()) continue;
     const documents = await ctx.db.query("verification_documents").withIndex("by_archive", q => q.eq("archiveId", archive._id)).collect();
     for (const document of documents) await deletePrivateFile(ctx,document.storageId);
     await ctx.db.patch(archive._id, { status: "deleted", deletedAt: Date.now(), error: undefined,supplementalStatus:undefined,supplementalDueAt:undefined,supplementalLeaseUntil:undefined });
+    if (archive.source !== "drone") {
+      const sources = await ctx.db.query("verification_archives").withIndex("by_booking",q=>q.eq("bookingId",archive.bookingId)).take(101);
+      if (sources.length <= 100 && sources.every(source=>source._id===archive._id || source.status==="deleted")) {
+        const link=await ctx.db.query("verification_archive_links").withIndex("by_source_booking",q=>q.eq("sourceBookingId",archive.bookingId)).first();
+        if(link)await ctx.scheduler.runAfter(0,internal.verificationArchive.purgeArchiveLinks,{sourceBookingId:archive.bookingId});
+      }
+    }
     removed++;
   }
+  const nextGeneration=state.generation+1;
+  await ctx.db.patch(state._id,{active:!page.isDone,generation:nextGeneration,cursor:page.isDone?undefined:page.continueCursor,updatedAt:Date.now()});
+  if(!page.isDone)await ctx.scheduler.runAfter(0,internal.verificationArchive.purgeExpired,{generation:nextGeneration});
   return removed;
 } });
+export const purgeArchiveLinks = internalMutation({args:{sourceBookingId:v.id("bookings")},handler:async(ctx,{sourceBookingId})=>{
+  const sources=await ctx.db.query("verification_archives").withIndex("by_booking",q=>q.eq("bookingId",sourceBookingId)).take(101);
+  if(sources.length>100||sources.some(source=>source.status!=="deleted"))return;
+  const links=await ctx.db.query("verification_archive_links").withIndex("by_source_booking",q=>q.eq("sourceBookingId",sourceBookingId)).take(100);
+  for(const link of links)await ctx.db.delete(link._id);
+  if(links.length===100)await ctx.scheduler.runAfter(0,internal.verificationArchive.purgeArchiveLinks,{sourceBookingId});
+}});

@@ -1,5 +1,17 @@
 .management { --management-site-header-height: 80px; }
 .siteNavigation { position: sticky; top: 0; z-index: 50; background: #060608; }
+.managementHeader { min-height: 68px; display: flex; align-items: center; gap: 22px; padding: 10px 24px; border-bottom: 1px solid #ffffff12; }
+.headerLogo { display: inline-flex; align-items: baseline; gap: 5px; flex: none; color: #f4f1ec; font-size: 20px; font-weight: 700; letter-spacing: -.035em; white-space: nowrap; }
+.headerLogo span:nth-child(2) { color: #d8b39a; }
+.headerLogo small { margin-left: 3px; color: #a19c96; font-size: 9px; font-weight: 500; letter-spacing: .2em; }
+.managementHeader .breadcrumb { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
+.managementHeader .breadcrumb button { color: #aaa8a2; }
+.managementHeader .breadcrumb button:hover { color: #fff; }
+.managementHeader .breadcrumb strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.managementHeader .actor { flex: none; }
+.management .shell[data-management-role=admin][data-management-screen=accounts] .heading { display: none; }
+@media (min-width:1351px) { .management .shell[data-management-role=admin][data-management-screen=accounts] { grid-template-columns:200px minmax(0,1fr); } }
+@media (max-width: 640px) { .managementHeader { gap: 9px; padding: 8px 12px; min-height: 60px; } .managementHeader .headerLogo { font-size: 15px; gap: 3px; } .managementHeader .headerLogo small { display: none; } .managementHeader .breadcrumb { gap: 6px; } .managementHeader .breadcrumb i { display: inline; } .managementHeader .actor > span:not(.avatar) { display: none; } .managementHeader .actor { gap: 5px; } .managementHeader .avatar { display: none; } }
 .shell { font-family:var(--font-inter, Arial),sans-serif; --management-copper: #bd8d6c; display: grid; grid-template-columns: 237px minmax(0, 1fr); min-height: calc(100dvh - var(--management-site-header-height)); position: relative; isolation: isolate; background: #171817; color: #eeeae4; }
 .sidebar { background: #101213; border-right: 1px solid #ffffff0f; display: flex; flex-direction: column; position: sticky; top: var(--management-site-header-height); height: calc(100dvh - var(--management-site-header-height)); overflow-y: auto; }
 .brand { display: block; padding: 24px 20px 4px; color: var(--management-copper); border-bottom: 0; }

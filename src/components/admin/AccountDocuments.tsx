@@ -13,6 +13,11 @@ function documentTitle(kind: string) {
   return kind === "drone-operator-licence" ? "Drone operator licence" : kind.startsWith("address-") ? "Proof of address" : `Proof of identity · ${kind.includes("back") ? "back" : "front"}${kind.includes("full_") ? " · full image" : ""}`;
 }
 
+function reviewTimestamp(value: number | null) {
+  if (value === null || value <= 0 || !Number.isFinite(new Date(value).getTime())) return "Missing or invalid";
+  return `${new Date(value).toISOString().replace("T", " ").replace(".000Z", " UTC")}`;
+}
+
 function DocumentReadinessCard({ archives, verified, verificationExpiresAt }: { archives: Parameters<typeof documentReadiness>[0] | undefined; verified: boolean; verificationExpiresAt: number | null }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -22,13 +27,14 @@ function DocumentReadinessCard({ archives, verified, verificationExpiresAt }: { 
   }, [archives, verificationExpiresAt, now]);
   if (!archives) return <p role="status" className={styles.readiness}>Checking document readiness…</p>;
   const state = documentReadiness(archives, verified, verificationExpiresAt, now);
+  const retentionNeedsReview = archives.some(archive => archive.retention.status === "unknown-closure" && !archive.retention.viewable);
   return <section className={styles.readiness} aria-label="Customer document readiness">
     <header><h4>Document readiness</h4><span data-ready={state.ready}>{state.ready ? "Approval & copies ready" : "Needs attention"}</span></header>
     <dl><div><dt>Verification</dt><dd data-good={state.approved}>{state.approval}{verificationExpiresAt && <small>Valid until {new Date(verificationExpiresAt).toLocaleDateString("en-GB")}</small>}</dd></div>
-    <div><dt>Proof of identity</dt><dd data-good={state.identitySaved}>{state.identitySaved ? state.approved ? "Approved · copy saved" : "Copy saved · awaiting approval" : "Private copy missing"}</dd></div>
-    <div><dt>Proof of address</dt><dd data-good={state.addressSaved}>{state.addressSaved ? state.approved ? "Approved · copy saved" : "Copy saved · awaiting approval" : "Private copy missing"}</dd></div></dl>
-    <p>{state.daysLeft !== null ? `Earliest archive deletion in ${state.daysLeft} ${state.daysLeft === 1 ? "day" : "days"} · ${new Date(state.archiveExpiry!).toLocaleDateString("en-GB")}` : state.protectedArchive ? "Copies retained while a rental or insurance hold is active." : "Retention countdown begins after the rental closes."}</p>
-    <small>Copies are admin-only. Retention normally ends 90 days after rental closure; verification expiry is separate. Readability checks cannot guarantee a browser or connection will open a file. If a file fails to open, retry or contact the team; the failure is reported when the connection allows.</small>
+    <div><dt>Proof of identity</dt><dd data-good={state.identitySaved}>{state.identitySaved ? state.approved ? "Approved · copy saved" : "Copy saved · awaiting approval" : retentionNeedsReview ? "Unavailable · review retention" : "Private copy missing"}</dd></div>
+    <div><dt>Proof of address</dt><dd data-good={state.addressSaved}>{state.addressSaved ? state.approved ? "Approved · copy saved" : "Copy saved · awaiting approval" : retentionNeedsReview ? "Unavailable · review retention" : "Private copy missing"}</dd></div></dl>
+    <p>{retentionNeedsReview ? "Retention needs review. Deletion is paused while the case or rental dates are checked." : state.daysLeft !== null ? `Earliest archive deletion in ${state.daysLeft} ${state.daysLeft === 1 ? "day" : "days"} · ${new Date(state.archiveExpiry!).toLocaleDateString("en-GB")}` : state.protectedArchive ? "Copies retained while a rental or insurance hold is active." : "Retention countdown begins after the rental closes."}</p>
+    <small>Copies are admin-only. Retention normally lasts 90 days after rental closure, or longer for an open case and 90 days after its resolution; verification expiry is separate. Readability checks cannot guarantee a browser or connection will open a file. If a file fails to open, retry or contact the team; the failure is reported when the connection allows.</small>
   </section>;
 }
 
@@ -119,6 +125,7 @@ export function AccountDocuments({
   verificationExpiresAt = null,
   onBack,
   onSection,
+  onRental,
   embedded = false,
   verified,
 }: {
@@ -128,6 +135,7 @@ export function AccountDocuments({
   verificationExpiresAt?: number | null;
   onBack?: () => void;
   onSection?: (section: string) => void;
+  onRental?: (bookingId: string) => void;
   embedded?: boolean;
   verified?: boolean;
 }) {
@@ -156,7 +164,7 @@ export function AccountDocuments({
   const activeUrl = useRef<string | null>(null);
   const request = useRef<AbortController | null>(null);
   const scope = useRef(0);
-  const [holdEditor, setHoldEditor] = useState<string | null>(null);
+  const [holdEditor, setHoldEditor] = useState<{archiveId: string; expectedReason: string; expectedRevision: number} | null>(null);
   const [holdReason, setHoldReason] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -175,7 +183,8 @@ export function AccountDocuments({
   const selectedArchive = selectedFile?.archive ?? currentArchives.find(a => a.status !== "deleted");
   const savedCount = allFiles.filter(d => d.available).length;
   const active = currentArchives.some(a => a.retention.status === "active-rental");
-  const unhealthy = currentArchives.some(a => a.status !== "deleted" && a.retention.viewable && !a.copiesReady);
+  const retentionNeedsReview = currentArchives.some(a => "needsReview" in a.retention && a.retention.needsReview);
+  const unhealthy = retentionNeedsReview || currentArchives.some(a => a.status !== "deleted" && a.retention.viewable && !a.copiesReady);
   const shortDate = (at: number) => new Date(at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
   useEffect(()=>{
     if(!preview || !archives)return;
@@ -296,12 +305,12 @@ export function AccountDocuments({
         <nav aria-label="Customer profile sections">{["Overview","Rentals","Conversations","Documents","Notes"].map(name => <button type="button" key={name} aria-pressed={name === "Documents"} onClick={() => onSection?.(name.toLowerCase())}>{name}</button>)}</nav>
       </div>}
       <div className={styles.stats}>
-        <div><DocumentIcon /><p><strong>{archives === undefined ? "…" : savedCount}</strong><span>saved document{savedCount === 1 ? "" : "s"}</span></p></div>
-        <div><span className={styles.shield}><DocumentIcon type="shieldCheck" /></span><p><strong>{unhealthy ? "Documents need attention" : savedCount ? "Documents saved" : "Awaiting documents"}</strong><span>{unhealthy ? "Repair incomplete or missing copies" : "Private copies linked to this account"}</span></p></div>
+        <div><DocumentIcon /><p><strong>{archives === undefined ? "…" : savedCount}</strong><span>{retentionNeedsReview ? "accessible" : "saved"} document{savedCount === 1 ? "" : "s"}</span></p></div>
+        <div><span className={styles.shield}><DocumentIcon type="shieldCheck" /></span><p><strong>{unhealthy ? "Documents need attention" : savedCount ? "Documents saved" : "Awaiting documents"}</strong><span>{retentionNeedsReview ? "Retention review required" : unhealthy ? "Repair incomplete or missing copies" : "Private copies linked to this account"}</span></p></div>
         <div><span className={styles.lock}><DocumentIcon type="lock" /></span><p><strong>{active ? "Retention protected" : selectedArchive?.retention.viewable ? "Within retention" : "Retention status"}</strong><span>{active ? "Active rentals keep documents available" : "90 days after rental closure"}</span></p></div>
       </div>
       <div className={styles.retentionStrip}>
-        <span className={styles.shield}><DocumentIcon type="shield" /></span><div><strong>Retained during the rental and normally for 90 days after closure.</strong><p>An active rental keeps its documents available.</p></div>
+        <span className={styles.shield}><DocumentIcon type="shield" /></span><div><strong>Retained during the rental and normally for 90 days after closure.</strong><p>Open cases extend retention; uncertain records require review.</p></div>
         <ol aria-label="Document retention timeline">{["Uploaded","Saved","Rental active","Closed","90-day retention"].map((name,i) => <li key={name} className={i === 0 && allFiles.length || i === 1 && savedCount || i === 2 && active ? styles.reached : ""}><span/><strong>{name}</strong><small>{i === 0 && allFiles[0] ? shortDate(Math.min(...allFiles.map(d => d.savedAt))) : i === 1 && selectedArchive?.completedAt ? shortDate(selectedArchive.completedAt) : i === 2 && active ? "Active" : i === 4 && selectedArchive?.retention.expiresAt ? shortDate(selectedArchive.retention.expiresAt) : "—"}</small></li>)}</ol>
       </div>
       <DocumentReadinessCard archives={archives} verified={verified ?? customer?.verified ?? false} verificationExpiresAt={verificationExpiresAt} />
@@ -314,7 +323,7 @@ export function AccountDocuments({
               <PrivateDocumentThumb key={`${accountId}:${document.id}`} token={token} accountId={accountId} document={document} />
               <span><strong>{documentTitle(document.kind)}</strong><small>{document.contentType === "application/pdf" ? "PDF" : document.contentType.split("/")[1].toUpperCase()} · {document.size >= 1024 * 1024 ? (document.size / (1024 * 1024)).toFixed(1) + " MB" : Math.ceil(document.size / 1024) + " KB"}</small><small>Uploaded {shortDate(document.savedAt)}</small></span>
             </button>
-            <div className={styles.fileStatus}><span className={document.available ? styles.good : styles.pending}>{document.available ? "✓ Saved" : document.archive.retention.viewable ? "Copy unavailable" : "Retention ended"}</span><small>{document.archive.source === "drone" ? "Operator licence" : "Didit verification"}</small></div>
+            <div className={styles.fileStatus}><span className={document.available ? styles.good : styles.pending}>{document.available ? "✓ Saved" : "needsReview" in document.archive.retention && document.archive.retention.needsReview ? "Retention needs review" : document.archive.retention.viewable ? "Copy unavailable" : "Retention ended"}</span><small>{document.archive.source === "drone" ? "Operator licence" : "Didit verification"}</small></div>
             <span className={styles.rental}>↗ {document.archive.bookingId.slice(-8)}</span>
             {document.available && <div className={styles.fileActions}><button type="button" disabled={busy} aria-label={`View ${documentTitle(document.kind)}`} onClick={() => void view(document)}><DocumentIcon type="eye" /></button><button type="button" disabled={busy} aria-label={`Download ${documentTitle(document.kind)}`} onClick={() => void view(document,true)}><DocumentIcon type="download" /></button></div>}
           </li>)}</ul>}
@@ -328,10 +337,11 @@ export function AccountDocuments({
           </div>
           {selectedFile && <div className={styles.original}><div><strong>{selectedFile.available ? "Original file saved" : "Copy unavailable"}</strong><small>{selectedFile.contentType === "application/pdf" ? "PDF" : "Image"} · {Math.ceil(selectedFile.size / 1024)} KB</small><small>Linked to {customer?.name ?? "this account"} · {selectedFile.archive.bookingId.slice(-8)}</small></div>{selectedFile.available && <div><button type="button" disabled={busy} onClick={() => void view(selectedFile,"open")}>↗ Open original</button><button type="button" disabled={busy} className={styles.primary} onClick={() => void view(selectedFile,true)}>↓ Download</button></div>}</div>}
           <div className={styles.retention}><h4>Retention</h4>{selectedArchive ? <>
-            <dl><div><dt>Current rental</dt><dd>{selectedArchive.retention.activeRentals ? "Active" : selectedArchive.retention.status === "unknown-closure" ? "Closure not recorded" : "Closed"}</dd></div><div><dt>Deletion date</dt><dd>{selectedArchive.retention.expiresAt ? shortDate(selectedArchive.retention.expiresAt) : selectedArchive.retention.activeRentals ? "Set after return" : selectedArchive.retention.openCases || selectedArchive.retentionHoldReason ? "Protected by insurance hold" : "Awaiting closure"}</dd></div></dl>
-            {(selectedArchive.retention.status === "deleted" || !selectedArchive.retention.viewable || !!selectedArchive.retention.openCases) && <p>{selectedArchive.retention.status === "deleted" ? "File bytes have been removed." : !selectedArchive.retention.viewable ? "Retention ended. These documents cannot be viewed or reopened." : "An open damage or insurance case preserves these copies."}</p>}
-            {selectedArchive.retention.viewable && <><div className={styles.holdRow}><span>Insurance review</span><button type="button" role="switch" aria-label="Insurance retention hold" aria-checked={!!selectedArchive.retentionHoldReason} disabled={busy} onClick={() => selectedArchive.retentionHoldReason ? void perform(() => retentionHold({token,archiveId:selectedArchive._id,reason:""})) : setHoldEditor(selectedArchive._id)} className={selectedArchive.retentionHoldReason ? styles.toggleOn : styles.toggle}><span /></button></div><p>Pause scheduled deletion while an insurance case is open.</p>{selectedArchive.retentionHoldReason && <p className={styles.holdNote}>Insurance hold: {selectedArchive.retentionHoldReason}</p>}
-            {holdEditor === selectedArchive._id && <form onSubmit={event => {event.preventDefault();const origin=scope.current;void perform(async()=>{await retentionHold({token,archiveId:selectedArchive._id,reason:holdReason.trim()});if(origin===scope.current){setHoldEditor(null);setHoldReason("");}});}}><label>Insurance or damage case reason<textarea required minLength={10} maxLength={500} value={holdReason} onChange={e => setHoldReason(e.target.value)} /></label><button disabled={busy || holdReason.trim().length < 10} type="submit" className={styles.primary}>Save insurance hold</button><button type="button" onClick={() => {setHoldEditor(null);setHoldReason("");}}>Cancel</button></form>}</>}
+            <dl><div><dt>Current rental</dt><dd>{"needsReview" in selectedArchive.retention && selectedArchive.retention.needsReview ? "Needs review" : selectedArchive.retention.activeRentals ? "Active" : selectedArchive.retention.status === "unknown-closure" ? "Closure not recorded" : "Closed"}</dd></div><div><dt>Deletion date</dt><dd>{"needsReview" in selectedArchive.retention && selectedArchive.retention.needsReview ? "Paused for review" : selectedArchive.retention.expiresAt ? shortDate(selectedArchive.retention.expiresAt) : selectedArchive.retention.activeRentals ? "Set after return" : selectedArchive.retention.openCases || selectedArchive.retentionHoldReason ? "Protected by insurance hold" : "Awaiting closure"}</dd></div></dl>
+            {(selectedArchive.retention.status === "deleted" || !selectedArchive.retention.viewable || !!selectedArchive.retention.openCases) && <p>{selectedArchive.retention.status === "deleted" ? "File bytes have been removed." : "needsReview" in selectedArchive.retention && selectedArchive.retention.needsReview ? "Retention needs review. These copies are protected from deletion but cannot be opened until reviewed." : !selectedArchive.retention.viewable ? "Retention ended. These documents cannot be viewed or reopened." : "An open damage or insurance case preserves these copies."}</p>}
+            {"reviewDetails" in selectedArchive.retention && selectedArchive.retention.reviewDetails && <div className={`${styles.repair} ${styles.reviewDetails}`}><strong>Case dates need investigation</strong><p>The recorded case closure is missing, before opening, or in the future. Check the original case evidence before requesting a correction; deletion remains paused.</p><dl><div><dt>Rental ID</dt><dd>{selectedArchive.retention.reviewDetails.bookingId}</dd></div><div><dt>Case ID</dt><dd>{selectedArchive.retention.reviewDetails.caseId}</dd></div><div><dt>Opened</dt><dd>{reviewTimestamp(selectedArchive.retention.reviewDetails.openedAt)}</dd></div><div><dt>Closed</dt><dd>{reviewTimestamp(selectedArchive.retention.reviewDetails.closedAt)}</dd></div></dl>{onRental && <button type="button" onClick={() => {const retention=selectedArchive.retention;if("reviewDetails" in retention && retention.reviewDetails)onRental(retention.reviewDetails.bookingId);}}>Open linked rental →</button>}</div>}
+            {(selectedArchive.retention.viewable || ("needsReview" in selectedArchive.retention && selectedArchive.retention.needsReview)) && <><div className={styles.holdRow}><span>Insurance review</span><button type="button" role="switch" aria-label="Insurance retention hold" aria-checked={!!selectedArchive.retentionHoldReason} disabled={busy || (!!selectedArchive.retentionHoldReason && "needsReview" in selectedArchive.retention && !!selectedArchive.retention.needsReview)} onClick={() => {setHoldReason("");setHoldEditor({archiveId:selectedArchive._id,expectedReason:selectedArchive.retentionHoldReason ?? "",expectedRevision:selectedArchive.retentionHoldRevision ?? 0});}} className={selectedArchive.retentionHoldReason ? styles.toggleOn : styles.toggle}><span /></button></div><p>{"needsReview" in selectedArchive.retention && selectedArchive.retention.needsReview ? "Add a separate hold before investigating. It cannot be removed until retention review is resolved." : "Pause scheduled deletion while an insurance case is open."}</p>{selectedArchive.retentionHoldReason && <p className={styles.holdNote}>Insurance hold: {selectedArchive.retentionHoldReason}</p>}
+            {holdEditor?.archiveId === selectedArchive._id && <form onSubmit={event => {event.preventDefault();const origin=scope.current;void perform(async()=>{await retentionHold({token,archiveId:selectedArchive._id,reason:holdEditor.expectedReason ? "" : holdReason.trim(),expectedReason:holdEditor.expectedReason,expectedRevision:holdEditor.expectedRevision,confirmed:true});if(origin===scope.current){setHoldEditor(null);setHoldReason("");}});}}>{holdEditor.expectedReason ? <p>Remove the hold for “{holdEditor.expectedReason}”? If no other retention applies, the documents may become eligible for deletion.</p> : <label>Insurance or damage case reason<textarea required minLength={10} maxLength={500} value={holdReason} onChange={e => setHoldReason(e.target.value)} /></label>}<button disabled={busy || (!holdEditor.expectedReason && holdReason.trim().length < 10)} type="submit" className={styles.primary}>{holdEditor.expectedReason ? "Confirm hold removal" : "Save insurance hold"}</button><button type="button" onClick={() => {setHoldEditor(null);setHoldReason("");}}>Cancel</button></form>}</>}
           </> : <p>No document archive is linked to this account yet.</p>}</div>
         </section>
       </div>

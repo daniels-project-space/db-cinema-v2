@@ -253,7 +253,6 @@ export const review = mutation({
     let grantTier: "pro" | "plus" | null = null;
     if (app.kind === "professional") {
       const ops = await ctx.db.query("operators").collect();
-      const headshot = app.headshotStorageId ? await ctx.storage.getUrl(app.headshotStorageId) : null;
       const operatorId = await ctx.db.insert("operators", {
         role: e.role || "videographer",
         roleLabel: e.roleLabel || e.role || "Crew",
@@ -263,7 +262,6 @@ export const review = mutation({
         tagline: e.tagline || "",
         bio: e.bio || undefined,
         tags: e.tags && e.tags.length ? e.tags : undefined,
-        headshot: headshot ?? undefined,
         skills: e.skills ?? [],
         rateHourly: e.rateHourly,
         rateHalfDay: e.rateHalfDay,

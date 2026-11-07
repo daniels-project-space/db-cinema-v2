@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { SiteHeader } from "@/components/SiteHeader";
 import styles from "./ManagementShell.module.css";
 
 export type ManagementNav = { key: string; label: string; icon?: string; badge?: number };
@@ -39,7 +38,17 @@ export function ManagementShell({ role, title, name, subtitle, nav, active, onNa
     return () => document.removeEventListener("keydown", close);
   }, [menuOpen]);
   return <div ref={managementRef} className={styles.management}>
-    <div ref={siteNavigationRef} className={styles.siteNavigation}><SiteHeader /></div>
+    <div ref={siteNavigationRef} className={styles.siteNavigation}>
+      <header className={styles.managementHeader}>
+        <button type="button" aria-label="Toggle account menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(value => !value)} className={styles.menuButton}>☰</button>
+        <Link href="/" className={styles.headerLogo} aria-label="DB Cinema Rentals home"><span>DB</span> <span>CINEMA</span><small>RENTALS</small></Link>
+        <nav aria-label="Breadcrumb" className={styles.breadcrumb}>
+          <i aria-hidden="true">/</i>
+          {breadcrumb ?? <><button type="button" onClick={() => { onNavigate(role === "admin" ? "overview" : "rentals"); setMenuOpen(false); }}>{role === "admin" ? "Management" : "My account"}</button><i aria-hidden="true">/</i><strong aria-current="page">{title}</strong></>}
+        </nav>
+        <div className={styles.actor}><span className={styles.avatar}>{name.slice(0, 1).toUpperCase()}</span><span>{name}<small>{role === "admin" ? "Administrator" : "Renter"}</small></span>{actions}</div>
+      </header>
+    </div>
     <div className={styles.shell} data-management-role={role} data-management-screen={screen}>
     <aside className={`${styles.sidebar} ${menuOpen ? styles.open : ""}`}>
       <button type="button" aria-label="Close account menu" className={styles.closeButton} onClick={() => setMenuOpen(false)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
@@ -56,15 +65,9 @@ export function ManagementShell({ role, title, name, subtitle, nav, active, onNa
         <Link href="/gear" aria-label="Browse equipment">—</Link>
         <p className={styles.locations}>London</p>
         <span>DB Cinema Rentals<br />Gear people trust.</span>
-        {active === "accounts" && actions && <div className={styles.sidebarActions}>{actions}</div>}
       </div>
     </aside>
     <div className={styles.workspace}>
-      <header className={styles.topbar}>
-        <button type="button" aria-label="Toggle account menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(v => !v)} className={styles.menuButton}>☰</button>
-        <div className={styles.breadcrumb}>{breadcrumb ?? <><span>{role === "admin" ? "Management" : "My account"}</span><i>/</i><strong>{title}</strong></>}</div>
-        <div className={styles.actor}><span className={styles.avatar}>{name.slice(0, 1).toUpperCase()}</span><span>{name}<small>{role === "admin" ? "Administrator" : "Renter"}</small></span>{active !== "accounts" && actions}</div>
-      </header>
       <main className={styles.content}>
         <div className={styles.heading}><div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div></div>
         {children}

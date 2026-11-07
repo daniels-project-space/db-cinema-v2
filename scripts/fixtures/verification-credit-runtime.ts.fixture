@@ -1,0 +1,19 @@
+import { v } from 'convex/values';
+import { mutation, query } from './_generated/server';
+import { creditPlan, availableCreditRows, reconcileReleasedCredit } from './lib/checkoutCredit';
+
+export const seed=mutation({args:{},handler:async ctx=>{
+ const now=Date.now(),accountId=await ctx.db.insert('accounts',{email:`credit-${now}-${Math.random()}@example.invalid`,createdAt:now});
+ const account=await ctx.db.get(accountId);
+ const creditId=await ctx.db.insert('credits',{accountId,amount:20,remaining:20,currency:'GBP',kind:'refund',reason:'synthetic',createdAt:now,expiresAt:now+86400000,status:'active'});
+ const bookingId=await ctx.db.insert('bookings',{accountId,guestEmail:account!.email,status:'pending_verification',lineItems:[],fulfilment:'pickup',deliveryFee:0,subtotal:10,discount:0,depositAmount:0,total:0,currency:'GBP',creditApplied:10,checkoutCreditState:'unspent',creditAllocations:[{creditId,amount:10,kind:'refund'}]});
+ return {accountId,creditId,bookingId};
+}});
+export const reserve=mutation({args:{accountId:v.id('accounts')},handler:async(ctx,{accountId})=>{
+ const account=await ctx.db.get(accountId);if(!account)throw Error('missing account');
+ const allocations=await creditPlan(ctx,accountId,10,0);
+ return ctx.db.insert('bookings',{accountId,guestEmail:account.email,status:'pending_payment',lineItems:[],fulfilment:'pickup',deliveryFee:0,subtotal:10,discount:0,depositAmount:0,total:0,currency:'GBP',creditApplied:10,checkoutCreditState:'unspent',creditAllocations:allocations});
+}});
+export const release=mutation({args:{bookingId:v.id('bookings')},handler:async(ctx,{bookingId})=>{const booking=await ctx.db.get(bookingId);if(!booking)return;await ctx.db.patch(bookingId,{status:'cancelled'});await reconcileReleasedCredit(ctx,booking)}});
+export const freeze=mutation({args:{creditId:v.id('credits')},handler:async(ctx,{creditId})=>ctx.db.patch(creditId,{revokedPendingPence:2000,revokedAmount:20})});
+export const inspect=query({args:{accountId:v.id('accounts'),creditId:v.id('credits')},handler:async(ctx,args)=>({credit:await ctx.db.get(args.creditId),rows:await availableCreditRows(ctx,args.accountId),bookings:await ctx.db.query('bookings').withIndex('by_account_status',q=>q.eq('accountId',args.accountId)).collect()})});

@@ -1,0 +1,12 @@
+import { action, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { v } from "convex/values";
+const refs=internal as any;
+export const seed=mutation({args:{},handler:ctx=>ctx.db.insert("accounts",{email:"fixture@example.invalid",name:"Fixture",stripeSubscriptionId:"sub_fixture",createdAt:Date.now()})});
+export const enqueue=action({args:{accountId:v.id("accounts"),refundId:v.optional(v.string())},handler:(ctx,args)=>ctx.runMutation(refs.membershipRefundJobs.enqueue,{accountId:args.accountId,subscriptionId:"sub_fixture",invoiceId:"in_fixture",refundId:args.refundId??"re_fixture"})});
+export const claim=action({args:{id:v.id("membership_refund_jobs"),token:v.string()},handler:(ctx,args)=>ctx.runMutation(refs.membershipRefundJobs.claim,args)});
+export const finish=action({args:{id:v.id("membership_refund_jobs"),token:v.string(),done:v.boolean()},handler:(ctx,args)=>ctx.runMutation(refs.membershipRefundJobs.finish,args)});
+export const grant=action({args:{accountId:v.id("accounts")},handler:(ctx,args)=>ctx.runMutation(refs.membershipBenefits.grantPaidInvoice,{...args,subscriptionId:"sub_fixture",invoiceId:"in_fixture",paidMembershipPence:1900,periodEnd:Date.now()+86400000,historicalPriceId:"price_fixture",historicalTermsVersion:"fixture",historicalBonusPercent:10})});
+export const credits=query({args:{accountId:v.id("accounts")},handler:(ctx,{accountId})=>ctx.db.query("credits").withIndex("by_account",q=>q.eq("accountId",accountId)).collect()});
+export const expire=mutation({args:{id:v.id("membership_refund_jobs")},handler:(ctx,{id})=>ctx.db.patch(id,{retryAt:Date.now()-1,leaseUntil:Date.now()-1})});
+export const inspect=query({args:{},handler:ctx=>ctx.db.query("membership_refund_jobs").collect()});

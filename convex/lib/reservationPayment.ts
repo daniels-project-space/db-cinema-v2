@@ -8,6 +8,13 @@ export async function reservationPaymentUnresolved(ctx: any, row: any) {
     if (!request || request.type !== "extend" || request.bookingId !== row.bookingId) return true;
     return !["applied", "refunded", "expired", "withdrawn", "declined"].includes(request.status);
   }
+  if (typeof row.externalRef === "string" && row.externalRef.startsWith("swap:")) {
+    let swap;
+    try { swap = await ctx.db.get(row.externalRef.slice("swap:".length)); }
+    catch { return true; }
+    if (!swap || swap.bookingId !== row.bookingId || booking?.activeItemSwapId === swap._id) return true;
+    return !["applied", "refunded", "expired", "withdrawn"].includes(swap.status);
+  }
   if (typeof row.externalRef === "string" && row.externalRef.startsWith("addition:")) {
     let addition;
     try { addition = await ctx.db.get(row.externalRef.slice("addition:".length)); }

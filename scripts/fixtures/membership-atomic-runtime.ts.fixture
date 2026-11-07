@@ -1,0 +1,7 @@
+import { v } from 'convex/values';
+import { action, mutation, query } from './_generated/server';
+import { internal } from './_generated/api';
+
+export const seed=mutation({args:{},handler:async ctx=>ctx.db.insert('accounts',{email:`atomic-${Math.random()}@example.invalid`,createdAt:Date.now(),stripeSubscriptionId:'sub_fixture',membershipTier:'studio'})});
+export const grant=action({args:{accountId:v.id('accounts'),invoiceId:v.string(),refund:v.number()},handler:async(ctx,args)=>ctx.runMutation(internal.membershipBenefits.grantPaidInvoice,{accountId:args.accountId,subscriptionId:'sub_fixture',invoiceId:args.invoiceId,paidMembershipPence:1900,periodEnd:Date.now()+86400000,historicalPriceId:'price_fixture',historicalTermsVersion:'fixture',historicalBonusPercent:10,initialRefundedPence:args.refund})});
+export const inspect=query({args:{accountId:v.id('accounts')},handler:async(ctx,{accountId})=>({account:await ctx.db.get(accountId),grants:await ctx.db.query('membership_credit_grants').withIndex('by_account',q=>q.eq('accountId',accountId)).collect(),credits:await ctx.db.query('credits').withIndex('by_account',q=>q.eq('accountId',accountId)).collect()})});

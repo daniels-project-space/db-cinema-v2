@@ -17,6 +17,7 @@ import { PickupHold } from "@/components/account/PickupHold";
 import { HoldRenewal } from "@/components/account/HoldRenewal";
 import { RentalAdditionApproval } from "@/components/rentals/RentalAdditionApproval";
 import { LateFeeApproval } from "@/components/account/LateFeeApproval";
+import { AuthenticatedBookingDownload } from "@/components/account/AuthenticatedBookingDownload";
 import { type EnrichedBooking, groupOf, fmtRange, rentalDays, countdown } from "@/lib/bookingDisplay";
 import { SETUP_INTENT_SECURITY_POLICY_VERSION } from "../../../shared/rentalSecurity";
 
@@ -171,26 +172,13 @@ export function BookingTile({
           Chat
         </button>
         {["confirmed", "active", "returned"].includes(booking.status) && token && token !== "preview" && (
-          <a
-            href={`/api/invoice/${booking._id}?token=${encodeURIComponent(token)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-medium text-white/55 hover:text-white"
-          >
-            Invoice
-          </a>
+          <AuthenticatedBookingDownload bookingId={booking._id} token={token} kind="invoice" label="Invoice" className="font-medium text-white/55 hover:text-white" />
         )}
         {booking.hasReturnStatement && token && token !== "preview" && (
-          <a href={`/api/invoice/${booking._id}?phase=return&token=${encodeURIComponent(token)}`}
-            target="_blank" rel="noopener noreferrer" className="font-medium text-white/55 hover:text-white">Return statement</a>
+          <AuthenticatedBookingDownload bookingId={booking._id} token={token} kind="return" label="Return statement" className="font-medium text-white/55 hover:text-white" />
         )}
         {["confirmed", "active"].includes(booking.status) && token && token !== "preview" && (
-          <a
-            href={`/api/booking-ics/${booking._id}?token=${encodeURIComponent(token)}`}
-            className="font-medium text-white/55 hover:text-white"
-          >
-            Add to calendar
-          </a>
+          <AuthenticatedBookingDownload bookingId={booking._id} token={token} kind="calendar" label="Add to calendar" className="font-medium text-white/55 hover:text-white" />
         )}
         {group === "past" && booking.status === "returned" && (
           <div id={`rental-review-${booking._id}`} className="scroll-mt-24">

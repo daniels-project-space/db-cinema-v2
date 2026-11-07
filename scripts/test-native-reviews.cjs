@@ -4,7 +4,7 @@ let refunded=2000,holdStatus='canceled';
 class Stripe { constructor(){this.refunds={list:()=>({async *[Symbol.asyncIterator](){yield {id:'re_security',amount:refunded,currency:'gbp',status:'succeeded'}}})};this.paymentIntents={retrieve:async()=>({status:holdStatus,amount_received:0})};} }
 setMock('stripe',{default:Stripe});
 const reviews=load('convex/reviews.ts'),invitations=load('convex/reviewInvitations.ts'),actions=load('convex/reviewActions.ts');
-const account=put('accounts',{email:'review@test.invalid',name:'Reviewer',avatarStorageId:'avatar'});
+const account=put('accounts',{email:'review@test.invalid',name:'Reviewer',avatarStorageId:'avatar',avatarOwnedStorageId:'avatar'});
 put('sessions',{token:'owner',accountId:account._id,expiresAt:Date.now()+100000});
 put('sessions',{token:'expired',accountId:account._id,expiresAt:Date.now()-1});
 const foreign=put('accounts',{email:'other@test.invalid'});put('sessions',{token:'foreign',accountId:foreign._id,expiresAt:Date.now()+100000});
@@ -46,6 +46,9 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  await reviews.submitNative.handler(ctx,args);await assert.rejects(reviews.submitNative.handler(ctx,args),/already/);
  const carousel=await reviews.listPublished.handler(ctx,{});assert.equal(carousel[0].authorImage,'https://storage.test/avatar');assert.equal(carousel[0].rating,5);
  const nativeCarousel=await reviews.listNativePublished.handler(ctx,{limit:50});assert.equal(nativeCarousel.length,1);assert.equal(nativeCarousel[0]._id,carousel[0]._id);assert.equal(nativeCarousel[0].source,'native','The live renter carousel selects newly submitted native reviews');
+ await db.patch(account._id,{avatarOwnedStorageId:undefined});
+ assert.equal((await reviews.listNativePublished.handler(ctx,{limit:50}))[0].authorImage,null,'Untrusted legacy avatar and stored native review snapshot are hidden');
+ await db.patch(account._id,{avatarOwnedStorageId:'avatar'});
  assert.equal((await reviews.stats.handler(ctx,{})).average,5);
  // Import dates must not crowd verified website reviews out of the homepage.
  for(let i=0;i<100;i++)put('reviews',{source:'hygglo',published:true,sourceRatingVerified:true,sourceRating:5,sourcePhotoVerified:true,author:'Imported '+i,authorImage:'https://hygglo.imgix.net/profile-'+i+'.jpg',rating:5,text:'A genuine imported rental review.',date:Date.now()+i+10000});
@@ -57,7 +60,7 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  const highlights=await reviews.listVerifiedHyggloHighlights.handler(ctx,{limit:100});assert.equal(highlights.length,100);assert(highlights.every(r=>r.rating===5&&r.authorImage.startsWith('https://hygglo.imgix.net/')&&r.text.length>8));assert(!highlights.some(r=>r.author==='Unverified imported review'));
  assert.equal((await reviews.listVerifiedHyggloHighlights.handler(ctx,{limit:101})).length,100,'the homepage caps the showcase at 100 verified source reviews');
  const aggregate=await reviews.stats.handler(ctx,{});assert.equal(aggregate.count,102,'the aggregate includes every published verified import and native review');assert.equal(aggregate.average,4.97,'the score averages all published verified imports and native reviews');
- await db.patch(account._id,{avatarStorageId:'updated-avatar'});assert.equal((await reviews.listPublished.handler(ctx,{limit:1}))[0].authorImage,'https://storage.test/updated-avatar','profile changes flow into live cards');
+ await db.patch(account._id,{avatarStorageId:'updated-avatar',avatarOwnedStorageId:'updated-avatar'});assert.equal((await reviews.listPublished.handler(ctx,{limit:1}))[0].authorImage,'https://storage.test/updated-avatar','profile changes flow into live cards');
  const importItem={hyggloReviewId:123,author:'Film Crew',authorImage:sourceReview.author.profileImage.fullSizeUrl,rating:5,sourceRating:5,sourcePhotoVerified:true,text:'Accurate source review.',product:'Cinema Camera',listingSlug:'camera-kit',date:Date.parse(sourceReview.createdAt)};
  assert.equal((await reviews.insertChunk.handler(ctx,{token:'review-admin-test',items:[importItem]})).upserted,1);
  let stored= tables.get('reviews').filter(r=>r.source==='hygglo'&&r.hyggloReviewId===123);
@@ -87,7 +90,7 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  assert(header.includes('inert={Boolean(hover)}') && !header.includes('inert={Boolean(hover || intro)}'),'The automatic FORM / SEVEN introduction must not hide or disable navigation');
  assert(showcase.includes('hygglo-trust-review-quote mt-1 text-[9px] leading-3')&&styles.includes('-webkit-line-clamp: 2;')&&styles.includes('min-height: 1.375rem;')&&styles.includes('min-height: 1.25rem;')&&showcase.includes('h-6 min-w-0 items-center gap-2')&&showcase.includes('h-[148px]')&&showcase.includes('max-[359px]:h-[140px]')&&showcase.includes('sm:h-[304px]')&&showcase.includes('hygglo-trust-review-panel')&&styles.includes('backdrop-filter: blur(20px)')&&!showcase.includes('min-h-[')&&!showcase.includes('max-h-['),'Keep compact mobile featured tiles fixed-height, clamp long reviews, and preserve the blurred review card');
  assert(home.includes('grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4'),'Show the four homepage trust tiles as a compact two-column mobile grid');
- assert(showcase.includes('href="/#reviews"')&&showcase.includes('data-testid="review-eye-glyph"')&&styles.includes('@keyframes review-eye-look'),'Make the featured review tile link to all reviews with its animated eye glyph');
+ assert(showcase.includes('href="/#reviews"')&&showcase.includes('<ReviewEye />')&&fs.readFileSync('src/components/ReviewEye.tsx','utf8').includes('data-testid="review-eye-glyph"')&&styles.includes('@keyframes review-eye-look'),'Make the featured review tile link to all reviews with its animated eye glyph');
  assert(fs.readFileSync('src/components/DeliveryProtectionTile.tsx','utf8').includes('}, 5000);'),'Rotate delivery and protection headlines every five seconds');
  assert.match(reviewsRoute,/redirect\("\/#reviews"\)/,'Make the direct /reviews path land on the homepage review section');
  assert.match(home,/ratingValue: 4\.73, reviewCount: 1300, reviewCountLabel: "1,300\+"/,'Use the full profile-wide rating and review-count floor');

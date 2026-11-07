@@ -17,12 +17,14 @@ listing({...wide,_id:'wide-alias',components:wide.components});
 listing({slug:'wrong',title:'Sony 16-35mm RF lens',itemType:'lens',demandScore:1000,specs:{mount:'RF',coverage:'ff'},components:[{inventoryUnitId:'wrong',qty:1}]});
 const recommend=load('convex/voiceCatalog.ts').recommend;
 const cart={items:[{key:'fx3-line',listingId:camera._id,title:camera.title,start:'2026-11-20',end:'2026-11-21'}],count:1,subtotal:20,depositTotal:100,close(){},open(){},has(id){return this.items.some(i=>i.listingId===id)}};
-let stockCalls=[],recommendArgs;
+let stockCalls=[],recommendArgs,cartStockMode='available',listingStockMode='available',removed=[],added=[];
+cart.remove=key=>removed.push(key);
+cart.add=line=>added.push(line);
 const convex={query:async(name,args)=>{
- if(name==='voiceCatalog.search'){const item=/dji/i.test(args.q)?djiOne:camera;return{matches:[{id:item._id,slug:item.slug,title:item.title,daily:20,minDays:item.minimumRentalDays??1}]};}
+ if(name==='voiceCatalog.search'){const item=/dji/i.test(args.q)?djiOne:camera;return{matches:[{id:item._id,slug:item.slug,title:item.title,daily:item.pricing?.daily,pricing:item.pricing,deal:item.quietDeal,minDays:item.minimumRentalDays??1}]};}
  if(name==='voiceCatalog.recommend'){recommendArgs=args;return recommend.handler({db},args)}
- if(name==='availability.forListing'){stockCalls.push(args);return{available:1}}
- if(name==='availability.forCart')return{[camera._id]:{ok:true}};
+ if(name==='availability.forListing'){stockCalls.push(args);if(listingStockMode==='missing')return {};return{available:1}}
+ if(name==='availability.forCart'){if(cartStockMode==='error')throw Error('fixture outage');if(cartStockMode==='missing')return {};return{[camera._id]:{ok:cartStockMode==='available'}};}
  if(name==='cartReplacements.forCart')return{};
  throw Error('Unexpected query '+name);
 }};
@@ -140,7 +142,25 @@ const {useGafferTools}=load('src/components/gaffer/useGafferTools.ts');
  tools=useGafferTools();
  assert.match(await tools.clientTools.find_gear({item:'FX3',start:'2026-11-20',end:'2026-11-21'}),/1 free/);
  assert.equal(stockCalls.length,1);assert.equal(stockCalls[0].pickupTime,'10:00');assert.equal(stockCalls[0].returnTime,'17:00');
+ listingStockMode='missing';
+ const unknownStock=await tools.clientTools.find_gear({item:'FX3',start:'2026-11-20',end:'2026-11-21'});
+ assert.match(unknownStock,/could not confirm stock/);
+ assert.doesNotMatch(unknownStock,/booked out|free/,'An incomplete listing response is not invented as booked or available');
+ listingStockMode='available';
  assert.match(await tools.clientTools.check_basket(),/available/);
+ assert.match(tools.dynamicVariables.basket_availability,/availability unconfirmed/,'The model never infers stock from missing replacement rows');
+ for(const mode of ['error','missing']){
+   cartStockMode=mode;
+   assert.match(await tools.clientTools.check_basket(),/could not be confirmed/);
+   assert.match(await tools.clientTools.remove_unavailable(),/nothing was removed/);
+   assert.match(await tools.clientTools.go_to_checkout(),/basket is unchanged/);
+   assert.match(await tools.clientTools.review_basket(),/could not be confirmed/);
+   assert.deepEqual(removed,[],'A failed or incomplete stock check cannot remove basket items');
+ }
+ cartStockMode='unavailable';
+ assert.match(await tools.clientTools.remove_unavailable(),/Took/);
+ assert.deepEqual(removed,['fx3-line'],'Only a confirmed unavailable line can be removed');
+ cartStockMode='available';removed=[];
  cart.items[0].pickupTime='10:00';cart.items[0].returnTime='10:00';
  tools=useGafferTools();
  const stockCallsBeforeMinimum=stockCalls.length;
@@ -152,6 +172,17 @@ const {useGafferTools}=load('src/components/gaffer/useGafferTools.ts');
  assert.match(minimumBasket,/2-day minimum/);
  assert.match(minimumBasket,/haven't added it or changed your dates/);
  assert.equal(cart.items.some(item=>item.listingId===djiOne._id),false,'Gaffer must not silently extend a one-day rental to satisfy a listing minimum');
+ djiOne.pricing={daily:100,day3:60};djiOne.quietDeal=10;
+ const pricedSearch=await search.handler({db},{q:'DJI Mic 1',limit:10});
+ const pricedListing=pricedSearch.matches.find(item=>item.id===String(djiOne._id));
+ assert.equal(pricedListing.daily,90);assert.equal(pricedListing.pricing.day3,60);assert.equal(pricedListing.deal,10,'Voice catalogue carries the real price ladder and offer');
+ const actualQuote=await tools.clientTools.add_to_basket({item:'DJI Mic 1',start:'2026-11-20',end:'2026-11-22'});
+ assert.match(actualQuote,/£162/,'The spoken quote includes the authoritative three-day tier and quiet deal');
+ assert.equal(added[0].total,162);assert.equal(added[0].perDay,54);
+ djiOne.pricing=undefined;
+ assert.match(await tools.clientTools.add_to_basket({item:'DJI Mic 1',start:'2026-11-20',end:'2026-11-22'}),/couldn't confirm the current rental price/);
+ assert.equal(added.length,1,'Missing authoritative pricing never adds a zero-priced item');
+ djiOne.pricing={daily:20};djiOne.quietDeal=undefined;
  setMock('@/lib/site',load('src/lib/site.ts'));
  setMock('@/lib/ratelimit',{rateLimit:async()=>({allowed:true})});
  let providerFailure=false, failedPool=null;

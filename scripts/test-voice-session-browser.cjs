@@ -18,6 +18,13 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     await client.cmd('Network.setBlockedURLs', {urls:['*convex.cloud*', '*convex.site*', '*elevenlabs.io*', ...(process.env.DBC_TEST_WORKLET_FAILURE === '1' ? ['*/voice-worklets/*'] : [])]});
     await client.cmd('Browser.grantPermissions', {origin, permissions:['audioCapture']});
     await client.cmd('Page.addScriptToEvaluateOnNewDocument', {source:`(() => {
+      if (${process.env.DBC_TEST_DOUBLE_CLICK === '1'}) {
+        const query = navigator.permissions.query.bind(navigator.permissions);
+        window.__permissionChecks = 0;
+        let released = false;
+        const status = new EventTarget(); status.state = 'granted';
+        navigator.permissions.query = descriptor => descriptor.name === 'microphone' ? (window.__permissionChecks++, released ? Promise.resolve(status) : new Promise(resolve => { window.__resolvePermission = () => { released = true; resolve(status); }; })) : query(descriptor);
+      }
       if (${process.env.DBC_TEST_GENERIC_FAILURE === '1'}) localStorage.removeItem('dbc_gaffer_overrides_blocked_at_v2');
       if (${process.env.DBC_TEST_MIC_DENIED === '1'}) navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Synthetic refusal', 'NotAllowedError'); };
       if (${process.env.DBC_TEST_WORKLET_FAILURE === '1'}) {
@@ -30,6 +37,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       window.WebSocket = class extends EventTarget {
         constructor(url, protocols) {
           super();
+          if (/\.convex\.(cloud|site)(?:[/:?]|$)/.test(String(url))) return new NativeSocket('ws://127.0.0.1:9/blocked-convex');
           if (!String(url).startsWith('wss://api.elevenlabs.io/')) return new NativeSocket(url, protocols);
           this.readyState = 0; this.sent = []; window.__voiceSockets.push(this);
           if (${process.env.DBC_TEST_GENERIC_FAILURE === '1'} && window.__voiceSockets.length === 1) {
@@ -46,7 +54,8 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     })();`});
     await client.cmd('Page.navigate', {url:origin});
     for (let attempt=0;attempt<100&&!(await client.evaluate('!!document.querySelector("button[aria-label=\\"Start a voice call with Gaffer\\"]")'));attempt++) await delay(100);
-    for (let attempt=0;attempt<150&&!(await client.evaluate(`Object.keys(document.querySelector('button[aria-label="Start a voice call with Gaffer"]')).some(key=>key.startsWith('__reactProps$'))`));attempt++) await delay(100);
+    for (let attempt=0;attempt<150&&!(await client.evaluate(`Object.keys([...document.querySelectorAll('button[aria-label="Start a voice call with Gaffer"]')].at(-1)??{}).some(key=>key.startsWith('__reactProps$'))`));attempt++) await delay(100);
+    assert(await client.evaluate(`Object.keys([...document.querySelectorAll('button[aria-label="Start a voice call with Gaffer"]')].at(-1)??{}).some(key=>key.startsWith('__reactProps$'))`),'The targeted voice button must hydrate before testing a call');
     await client.evaluate(`document.documentElement.style.scrollBehavior='auto';[...document.querySelectorAll('button[aria-label="Start a voice call with Gaffer"]')].at(-1).scrollIntoView({block:'center',behavior:'instant'})`);
     await delay(300);
     const position = await client.evaluate(`(() => {const button=[...document.querySelectorAll('button[aria-label="Start a voice call with Gaffer"]')].at(-1),rect=button.getBoundingClientRect();return {x:rect.left+rect.width/2,y:rect.top+rect.height/2}})()`);
@@ -55,6 +64,12 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     await client.cmd('Input.dispatchMouseEvent', {type:'mouseMoved',...position});
     await client.cmd('Input.dispatchMouseEvent', {type:'mousePressed',button:'left',clickCount:1,...position});
     await client.cmd('Input.dispatchMouseEvent', {type:'mouseReleased',button:'left',clickCount:1,...position});
+    if (process.env.DBC_TEST_DOUBLE_CLICK === '1') {
+      await client.cmd('Input.dispatchMouseEvent', {type:'mousePressed',button:'left',clickCount:1,...position});
+      await client.cmd('Input.dispatchMouseEvent', {type:'mouseReleased',button:'left',clickCount:1,...position});
+      assert.equal(await client.evaluate('window.__permissionChecks'),1,'Two rapid clicks start only one permission check');
+      await client.evaluate('window.__resolvePermission()');
+    }
     if (process.env.DBC_TEST_WORKLET_FAILURE === '1') {
       for (let attempt=0;attempt<150&&!(await client.evaluate('document.body.innerText.includes("Audio couldn\u0027t start on this device")'));attempt++) await delay(100);
       assert(await client.evaluate('document.body.innerText.includes("Audio couldn\u0027t start on this device")'),'Audio initialization failure explains the problem visibly');
@@ -73,7 +88,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       return;
     }
     for (let attempt=0;attempt<150&&!(await client.evaluate('!!document.querySelector("button[data-state=live]")'));attempt++) await delay(100);
-    const started = await client.evaluate(`({live:!!document.querySelector('button[data-state=live]'), sockets:window.__voiceSockets.length, labels:[...document.querySelectorAll('button[aria-label*="voice call"]')].map(button=>button.getAttribute('aria-label')), alerts:[...document.querySelectorAll('[role=alert],[role=dialog]')].map(item=>item.textContent.slice(0,250))})`);
+    const started = await client.evaluate(`({live:!!document.querySelector('button[data-state=live]'), sockets:window.__voiceSockets.length, labels:[...document.querySelectorAll('button[aria-label*="voice call"]')].map(button=>({label:button.getAttribute('aria-label'),state:button.dataset.state,hydrated:Object.keys(button).some(key=>key.startsWith('__reactProps$'))})), micDialog:document.querySelector('#mic-ask-title')?.textContent, alerts:[...document.querySelectorAll('[role=alert],[role=dialog]')].map(item=>item.textContent.slice(0,250))})`);
     assert(started.live, `The actual voice control starts with a synthetic provider and microphone: ${JSON.stringify({target,position,started,errors})}`);
     assert.equal(await client.evaluate('window.__voiceSockets.length'),process.env.DBC_TEST_GENERIC_FAILURE === '1' ? 2 : 1,'A generic initial rejection retains the one-time fallback');
     if (process.env.DBC_TEST_RECONNECT === '1') {

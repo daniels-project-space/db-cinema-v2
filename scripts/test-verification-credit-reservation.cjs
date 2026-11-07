@@ -1,0 +1,23 @@
+const assert=require('node:assert/strict');
+const {load,db,put}=require('./lib/rentalTestHarness.cjs');
+const {availableCreditRows,creditPlan}=load('convex/lib/checkoutCredit.ts');
+const credits=load('convex/credits.ts');
+const account=put('accounts',{email:'renter@example.invalid'});
+const now=Date.now();
+const credit=put('credits',{accountId:account._id,status:'active',kind:'refund',remaining:20,amount:20,createdAt:now-10000,expiresAt:now+10000});
+const booking=put('bookings',{accountId:account._id,guestEmail:account.email,status:'pending_verification',creditApplied:20,checkoutCreditState:'unspent',creditAllocations:[{creditId:credit._id,amount:20,kind:'refund'}],_creationTime:now-5000});
+const ctx={db,scheduler:{runAfter:async()=>{}}};
+(async()=>{
+ assert.equal((await availableCreditRows(ctx,account._id))[0].availablePence,0);
+ await assert.rejects(creditPlan(ctx,account._id,20,0),/available credit changed/);
+ booking.checkoutCreditState=undefined;
+ assert.equal((await availableCreditRows(ctx,account._id))[0].availablePence,0,'legacy uncertainty stays reserved');
+ booking.checkoutCreditState='spent';booking.paidConfirmedAt=now;
+ assert.equal((await availableCreditRows(ctx,account._id))[0].availablePence,2000,'previously confirmed rental does not reserve twice');
+ booking.checkoutCreditState='unspent';delete booking.paidConfirmedAt;
+ credit.expiresAt=now-1000;booking._creationTime=now-5000;
+ await credits.expire.handler(ctx,{});assert.equal(credit.status,'active','expiry waits for the paid verification');
+ booking.status='cancelled';await credits.expire.handler(ctx,{});assert.equal(credit.status,'expired','expiry resumes after cancellation');
+ assert.equal(credit.remaining,20,'cancellation did not mint or consume credit');
+ console.log('PASS pending-verification credit reservation, legacy conservative handling and expiry recovery; synthetic data only.');
+})().catch(error=>{console.error(error);process.exitCode=1});

@@ -1,0 +1,20 @@
+const assert=require('node:assert/strict');
+const {load,db,put,setMock}=require('./lib/rentalTestHarness.cjs');
+process.env.STRIPE_SECRET_KEY='sk_test_fixture';process.env.APP_URL='https://dbcinemarentals.com';
+let metadata={},owner='cus_fixture',url='https://billing.stripe.com/p/session/fixture',change='',created=0,reads=0;
+setMock('stripe',{default:class{constructor(){this.customers={retrieve:async id=>{reads++;if(change==='customer')member.stripeCustomerId='cus_changed';return {id,metadata};}};this.subscriptions={retrieve:async id=>({id,customer:owner})};this.billingPortal={sessions:{create:async args=>{created++;assert.equal(args.customer,'cus_fixture');assert.equal(args.return_url,'https://dbcinemarentals.com/account');if(change==='session')session.expiresAt=Date.now()-1;return {url};}}};}}});
+const accounts=load('convex/accounts.ts'),checkout=load('convex/checkout.ts');
+const member=put('accounts',{email:'member@example.invalid',stripeCustomerId:'cus_fixture',stripeSubscriptionId:'sub_fixture'}),session=put('sessions',{accountId:member._id,token:'renter-token',expiresAt:Date.now()+100000});
+const ctx={db,runQuery:async(ref,args)=>{assert.equal(ref,'accounts._billingPortalTarget');return accounts._billingPortalTarget.handler(ctx,args);}};
+(async()=>{
+ const args={token:'renter-token',origin:'https://dbcinemarentals.com'};
+ await assert.rejects(checkout.billingPortal.handler(ctx,{...args,token:'bad'}),/unavailable/);assert.equal(reads,0);
+ metadata={dbcAccountId:'different-account'};await assert.rejects(checkout.billingPortal.handler(ctx,args),/needs review/);metadata={};
+ owner='cus_other';await assert.rejects(checkout.billingPortal.handler(ctx,args),/needs review/);owner='cus_fixture';
+ change='customer';await assert.rejects(checkout.billingPortal.handler(ctx,args),/changed/);assert.equal(created,0);member.stripeCustomerId='cus_fixture';
+ change='session';await assert.rejects(checkout.billingPortal.handler(ctx,args),/changed/);assert.equal(created,1);session.expiresAt=Date.now()+100000;
+ change='';url='http://evil.invalid';await assert.rejects(checkout.billingPortal.handler(ctx,args),/unavailable/);url='https://billing.stripe.com/p/session/fixture';
+ await assert.rejects(checkout.billingPortal.handler(ctx,{...args,origin:'https://evil.invalid'}),/Invalid checkout origin/);
+ const result=await checkout.billingPortal.handler(ctx,args);assert.equal(result.url,url);
+ console.log('PASS renter billing portal: authenticated account binding, Stripe ownership, revocation/relink races, trusted return and provider URL; synthetic data only.');
+})().catch(error=>{console.error(error);process.exitCode=1});

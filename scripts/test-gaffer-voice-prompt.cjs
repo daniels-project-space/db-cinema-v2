@@ -16,6 +16,9 @@ assert.match(GAFFER_VOICE_PROMPT, /clear shoot context/i);
 assert.match(GAFFER_VOICE_PROMPT, /camera-only\/no-extras request/i);
 assert.match(GAFFER_VOICE_PROMPT, /Call request_callback only when the caller explicitly asks/i);
 assert.doesNotMatch(GAFFER_VOICE_PROMPT, /Always call request_callback|for any booking, inquiry, issue/i);
+assert.match(GAFFER_VOICE_PROMPT, /The Grand Building, Trafalgar Square, London, WC2N 5EJ/);
+assert.match(GAFFER_VOICE_PROMPT, /outside the Waterstones bookstore at the confirmed time/);
+assert.match(GAFFER_VOICE_PROMPT, /Never infer booking status from payment, a saved card or an estimate/);
 
 const salesCallBrief = pageBrief("/gear").brief;
 assert.match(salesCallBrief, /Quote the gear hire daily rate and rental total only/i);

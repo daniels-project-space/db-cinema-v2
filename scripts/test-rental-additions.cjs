@@ -96,6 +96,10 @@ const request = (b) => ({
     status: "held",
     expiresAt: Date.now() + 86400000,
   });
+  const unresolvedReceipt = put("swap_stock_applied_receipts", { bookingId: b._id, deliveryState: "pending" });
+  await assert.rejects(state.apply.handler(ctx, { id: r._id }), /stock reconciliation/);
+  assert.equal(b.activeAdditionId, r._id);
+  await db.patch(unresolvedReceipt._id, { deliveryState: "acknowledged", stockRisk: false });
   await state.apply.handler(ctx, { id: r._id });
   const total = b.total,
     lines = b.lineItems.length;

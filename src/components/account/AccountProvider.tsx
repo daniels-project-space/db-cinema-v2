@@ -13,6 +13,7 @@ import { useQuery, useAction, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { LoyaltyCelebration } from "./LoyaltyCelebration";
 import { useFreshVerification } from "./useFreshVerification";
+import { PrivatePortraitOnboarding } from "./PrivatePortraitOnboarding";
 
 type Me = {
   _id: string;
@@ -33,6 +34,7 @@ type Me = {
   membershipActive: boolean;
   membershipAdminGranted?: boolean;
   membershipBillingTier?: string | null;
+  membershipHasBillingSubscription?: boolean;
   membershipPerksPending: boolean;
   loyaltyEligible: boolean;
   loyaltyCompleted: number;
@@ -172,6 +174,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+      {token && meRes && <PrivatePortraitOnboarding key={token} token={token} />}
       {token && meRes?.loyaltyEligible && !meRes.loyaltyCelebrated && <LoyaltyCelebration level={meRes.loyaltyLevel} subscriptionActive={meRes.membershipActive} onAcknowledge={()=>acknowledgeLoyalty({token,level:meRes.loyaltyLevel})}/> }
     </Ctx.Provider>
   );

@@ -149,10 +149,13 @@ export const cancellationEmail = internalAction({
 
 /** Emails the renter when a reschedule/extend is applied. */
 export const changeEmail = internalAction({
-  args: { bookingId: v.id("bookings"), kind: v.string(), detail: v.optional(v.string()) },
-  handler: async (ctx, { bookingId, kind, detail }) => {
-    const recipient: any = await ctx.runQuery(internal.rentalOperations.changeRecipient, { bookingId });
-    if (!recipient) return;
+  args: { bookingId: v.id("bookings"), kind: v.string(), detail: v.optional(v.string()), expectedAccountId: v.optional(v.id("accounts")), expectedRecipientEmail: v.optional(v.string()), refundId: v.optional(v.id("rental_refunds")) },
+  handler: async (ctx, { bookingId, kind, detail, expectedAccountId, expectedRecipientEmail, refundId }) => {
+    const recipient: any = await ctx.runQuery(internal.rentalOperations.changeRecipient, { bookingId, ...(expectedAccountId ? { expectedAccountId } : {}), ...(expectedRecipientEmail !== undefined ? { expectedRecipientEmail } : {}) });
+    if (!recipient) {
+      if (refundId) await ctx.runMutation(internal.rentalOperations.alertRefundContactChange, { bookingId, refundId });
+      return;
+    }
     const escape = (text: string) => text.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const subj = kind === "rescheduled" ? "Your Db Cinema rental has been rescheduled" : "Your Db Cinema rental was updated";

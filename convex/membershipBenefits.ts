@@ -1,8 +1,11 @@
 import { ensureReferralCode } from "./lib/referrals";
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { studioDeliveryAvailable } from "./lib/memberDelivery";
 import { monthlyCreditPence, tierByKey, MEMBERSHIP_TERMS_VERSION } from "../shared/membership";
+import { membershipSnapshot } from "./lib/membershipSnapshot";
+import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
+import { assertAdmin } from "./adminAuth";
 
 const intro = v.union(v.literal("trial"), v.literal("credit"), v.literal("none"));
 
@@ -52,12 +55,22 @@ export const abandonCheckout = internalMutation({
 
 /** Only a server-retrieved Stripe subscription may call this internal mutation. */
 export const syncSubscription = internalMutation({
-  args: { accountId: v.id("accounts"), subscriptionId: v.string(), tier: v.string(), status: v.string(), subscriptionCreatedAt: v.number(), trialEnd: v.optional(v.number()), cancelAtPeriodEnd: v.boolean(), paidThrough: v.optional(v.number()), checkoutId: v.optional(v.id("membership_checkouts")) },
+  args: { accountId: v.id("accounts"), subscriptionId: v.string(), tier: v.string(), status: v.string(), subscriptionCreatedAt: v.number(), trialEnd: v.optional(v.number()), cancelAtPeriodEnd: v.boolean(), paidThrough: v.optional(v.number()), checkoutId: v.optional(v.id("membership_checkouts")), expectedCustomerId: v.optional(v.string()), expectedSubscriptionId: v.optional(v.string()), expectedMembershipSnapshot: v.optional(v.string()), adminRefreshToken: v.optional(v.string()) },
   handler: async (ctx, a) => {
+    if (a.adminRefreshToken && process.env.ADMIN_SESSION_MEMBERSHIP_REFRESH_V2 === "enabled") {
+      if (!adminSessionMigrationReady()) throw Error("Admin session migration is not ready.");
+      await assertAdminScopeSession(ctx, a.adminRefreshToken, "payments:write");
+      await ctx.db.insert("admin_audit_log", { at: Date.now(), success: true, limited: false, fn: `membershipBenefits.adminRefresh:${a.accountId}` });
+    }
     if (!tierByKey(a.tier)) throw Error("Unknown Stripe membership plan.");
     const account = await ctx.db.get(a.accountId);
     if (!account) throw Error("Membership account is missing.");
-    if (account.membershipSubscriptionCreatedAt && account.membershipSubscriptionCreatedAt > a.subscriptionCreatedAt) return;
+    if (a.expectedCustomerId !== undefined && (account.stripeCustomerId !== a.expectedCustomerId || account.stripeSubscriptionId !== a.expectedSubscriptionId || a.subscriptionId !== a.expectedSubscriptionId)) throw Error("The billing link changed while refreshing. Review the account and try again.");
+    if (a.expectedMembershipSnapshot !== undefined && membershipSnapshot(account) !== a.expectedMembershipSnapshot) throw Error("Membership status changed while refreshing. Review it and try again.");
+    if (account.membershipSubscriptionCreatedAt && account.membershipSubscriptionCreatedAt > a.subscriptionCreatedAt) {
+      if (a.expectedCustomerId !== undefined) throw Error("The linked subscription is older than the saved billing state. Review it in Stripe.");
+      return;
+    }
     if (account.stripeSubscriptionId && account.stripeSubscriptionId !== a.subscriptionId && account.membershipActive)
       throw Error("Account already has another active subscription.");
     if (a.checkoutId) {
@@ -82,19 +95,37 @@ export const syncSubscription = internalMutation({
 
 /** Exactly one grant per paid invoice. Receipts containing rentals grant credit ONLY on the recurring membership line. */
 export const grantPaidInvoice = internalMutation({
-  args: { accountId: v.id("accounts"), subscriptionId: v.string(), invoiceId: v.string(), paidMembershipPence: v.number(), periodEnd: v.number(), checkoutId:v.optional(v.id("membership_checkouts")) },
+  args: { accountId: v.id("accounts"), subscriptionId: v.string(), invoiceId: v.string(), paidMembershipPence: v.number(), periodEnd: v.number(), checkoutId:v.optional(v.id("membership_checkouts")), historicalBonusPercent:v.optional(v.number()), historicalPriceId:v.optional(v.string()), historicalTermsVersion:v.optional(v.string()), adminRetryToken:v.optional(v.string()), initialRefundedPence:v.optional(v.number()), refundJobId:v.optional(v.id("membership_refund_jobs")), refundLeaseToken:v.optional(v.string()) },
   handler: async (ctx, a) => {
+    if (a.adminRetryToken) {
+      if (process.env.ADMIN_SESSION_BILLING_PORTAL_V2 === "enabled") {
+        if (!adminSessionMigrationReady()) throw Error("Admin session migration is not ready.");
+        await assertAdminScopeSession(ctx, a.adminRetryToken, "payments:write");
+      } else await assertAdmin(ctx, a.adminRetryToken, "membershipBenefits.grantPaidInvoiceRetry");
+    }
     if (!Number.isSafeInteger(a.paidMembershipPence) || a.paidMembershipPence <= 0 || !Number.isSafeInteger(a.periodEnd)) throw Error("Invalid paid membership invoice.");
     const existing = await ctx.db.query("membership_credit_grants").withIndex("by_invoice", q => q.eq("invoiceId", a.invoiceId)).unique();
     if (existing) {
       if (existing.accountId !== a.accountId || existing.subscriptionId !== a.subscriptionId || existing.paidMembershipPence !== a.paidMembershipPence) throw Error("Membership invoice ownership mismatch.");
+      if (a.historicalBonusPercent !== undefined && existing.historicalBonusPercent !== undefined && (existing.historicalBonusPercent !== a.historicalBonusPercent || existing.historicalPriceId !== a.historicalPriceId || existing.historicalTermsVersion !== a.historicalTermsVersion)) throw Error("Membership invoice historical terms mismatch.");
       return existing._id;
+    }
+    let recoveryJob: any;
+    if (process.env.MEMBERSHIP_HISTORICAL_INVOICE_CREDIT_V1 === "enabled") {
+      const refundJob = await ctx.db.query("membership_refund_jobs").withIndex("by_invoice", q => q.eq("invoiceId", a.invoiceId)).unique();
+      if (refundJob && refundJob.state !== "done") {
+        if (refundJob._id !== a.refundJobId || refundJob.state !== "pending" || !a.refundLeaseToken || refundJob.leaseToken !== a.refundLeaseToken || (refundJob.leaseUntil ?? 0) <= Date.now() || refundJob.accountId !== a.accountId || refundJob.subscriptionId !== a.subscriptionId || a.initialRefundedPence !== a.paidMembershipPence) throw Error("Membership refund requires reconciliation before issuing credit.");
+        recoveryJob = refundJob;
+      } else if (a.refundJobId || a.refundLeaseToken) throw Error("Membership refund lease expired.");
+    } else if (a.refundJobId || a.refundLeaseToken) {
+      throw Error("Membership refund processing is disabled.");
     }
     const account = await ctx.db.get(a.accountId);
     if (!account || account.stripeSubscriptionId !== a.subscriptionId) throw Error("Paid invoice subscription does not match the account.");
     const previous = await ctx.db.query("membership_credit_grants").withIndex("by_account", q => q.eq("accountId", a.accountId)).collect();
     const bonusPence = account.membershipIntroChoice === "credit" && !previous.some(r => r.bonusPence > 0) ? 2000 : 0;
-    const earned = monthlyCreditPence(a.paidMembershipPence,account.membershipTier);
+    if (a.historicalBonusPercent !== undefined && (!Number.isSafeInteger(a.historicalBonusPercent) || a.historicalBonusPercent < 0 || a.historicalBonusPercent > 100 || !a.historicalPriceId || !a.historicalTermsVersion)) throw Error("Invalid historical membership terms.");
+    const earned = a.historicalBonusPercent === undefined ? monthlyCreditPence(a.paidMembershipPence,account.membershipTier) : Math.round(a.paidMembershipPence * (100 + a.historicalBonusPercent) / 100);
     const checkout = a.checkoutId ? await ctx.db.get(a.checkoutId) : null;
     if (a.checkoutId && (!checkout || checkout.accountId !== a.accountId || checkout.subscriptionId !== a.subscriptionId))
       throw Error("First-month credit checkout ownership mismatch.");
@@ -123,7 +154,7 @@ export const grantPaidInvoice = internalMutation({
       await ctx.db.patch(account._id,{membershipSignupOfferUsed:true});
     }
     if (debtUsed) await ctx.db.patch(account._id, {membershipCreditDebtPence: (account.membershipCreditDebtPence ?? 0) - debtUsed});
-    const {checkoutId: _checkoutId, ...invoiceReceipt} = a;
+    const {checkoutId: _checkoutId, adminRetryToken: _adminRetryToken, initialRefundedPence: _initialRefundedPence, refundJobId: _refundJobId, refundLeaseToken: _refundLeaseToken, ...invoiceReceipt} = a;
     const id = await ctx.db.insert("membership_credit_grants", { ...invoiceReceipt, creditPence, earnedCreditPence:earned, initialCreditAppliedPence, bonusPence, revokedPence: 0, createdAt: Date.now() });
     const issue = (amount: number, reason: string, spent = 0) => ctx.db.insert("credits", {
       accountId: a.accountId, amount: amount / 100, remaining: (amount-spent) / 100, currency: "GBP", reason,
@@ -136,6 +167,8 @@ export const grantPaidInvoice = internalMutation({
     if (checkout) await ctx.db.patch(checkout._id,{initialCreditInvoiceId:a.invoiceId});
     if (initialCreditAppliedPence > 0 && booking) await ctx.db.patch(booking._id,{membershipCreditGrantId:id});
     if (a.periodEnd > (account.membershipPaidThrough ?? 0)) await ctx.db.patch(a.accountId, { membershipPaidThrough: a.periodEnd });
+    if (a.initialRefundedPence !== undefined) await revokeRefundedInvoiceInMutation(ctx, {invoiceId:a.invoiceId,membershipRefundedPence:a.initialRefundedPence});
+    if (recoveryJob) await ctx.db.patch(recoveryJob._id, {state:"done",retryAt:undefined,leaseToken:undefined,leaseUntil:undefined,updatedAt:Date.now()});
     return id;
   },
 });
@@ -166,8 +199,14 @@ export const saveSessionParams = internalMutation({
 });
 
 export const revokeRefundedInvoice = internalMutation({
- args:{invoiceId:v.string(),membershipRefundedPence:v.number()},
- handler:async(ctx,a)=>{
+ args:{invoiceId:v.string(),membershipRefundedPence:v.number(),refundJobId:v.optional(v.id("membership_refund_jobs")),leaseToken:v.optional(v.string())},
+ handler:async(ctx,args)=>{
+  if(args.refundJobId){if(process.env.MEMBERSHIP_HISTORICAL_INVOICE_CREDIT_V1!=="enabled")throw Error("Membership refund processing is disabled.");const job=await ctx.db.get(args.refundJobId);if(!job||job.state!=="pending"||job.invoiceId!==args.invoiceId||!args.leaseToken||job.leaseToken!==args.leaseToken||(job.leaseUntil??0)<=Date.now())throw Error("Membership refund lease expired.");const account=await ctx.db.get(job.accountId);const grant=await ctx.db.query("membership_credit_grants").withIndex("by_invoice",q=>q.eq("invoiceId",args.invoiceId)).unique();if(!account||account.stripeSubscriptionId!==job.subscriptionId||!grant||grant.accountId!==job.accountId||grant.subscriptionId!==job.subscriptionId)throw Error("Membership refund ownership changed.");}
+  return revokeRefundedInvoiceInMutation(ctx,args);
+ },
+});
+
+async function revokeRefundedInvoiceInMutation(ctx:MutationCtx,a:{invoiceId:string;membershipRefundedPence:number}){
   const grant=await ctx.db.query("membership_credit_grants").withIndex("by_invoice",q=>q.eq("invoiceId",a.invoiceId)).unique();if(!grant)return;
   if(!Number.isSafeInteger(a.membershipRefundedPence)||a.membershipRefundedPence<0)throw Error("Invalid membership refund.");
   const refunded=Math.min(grant.paidMembershipPence,a.membershipRefundedPence);
@@ -175,11 +214,18 @@ export const revokeRefundedInvoice = internalMutation({
   const target=Math.round((grant.earnedCreditPence??monthlyCreditPence(grant.paidMembershipPence))*refunded/grant.paidMembershipPence)+(refunded===grant.paidMembershipPence?grant.bonusPence:0);
   let need=Math.max(0,target-grant.revokedPence);
   const accountForReservation=await ctx.db.get(grant.accountId);
-  const pending=accountForReservation?await ctx.db.query("bookings").withIndex("by_guestEmail",q=>q.eq("guestEmail",accountForReservation.email)).collect():[];
+  const groups=accountForReservation?await Promise.all([
+   ctx.db.query("bookings").withIndex("by_account_status",q=>q.eq("accountId",grant.accountId).eq("status","pending_payment")).take(101),
+   ctx.db.query("bookings").withIndex("by_guestEmail_status",q=>q.eq("guestEmail",accountForReservation.email.trim().toLowerCase()).eq("status","pending_payment")).take(101),
+   ctx.db.query("bookings").withIndex("by_account_status",q=>q.eq("accountId",grant.accountId).eq("status","pending_verification")).take(101),
+   ctx.db.query("bookings").withIndex("by_guestEmail_status",q=>q.eq("guestEmail",accountForReservation.email.trim().toLowerCase()).eq("status","pending_verification")).take(101),
+  ]):[[],[],[],[]];
+  if(groups.some(rows=>rows.length>100))throw Error("Open credit reservations need reconciliation before reversing membership credit.");
+  const pending=[...new Map([...groups[0],...groups[1].filter(b=>b.accountId==null),...groups[2],...groups[3].filter(b=>b.accountId==null)].filter(b=>b.status==="pending_payment"||b.checkoutCreditState!=="spent"&&!b.paidConfirmedAt).map(b=>[String(b._id),b])).values()];
   const credits=await ctx.db.query("credits").withIndex("by_account",q=>q.eq("accountId",grant.accountId)).collect();
   const reservedBySource=new Map<string,number>();
-  for(const b of pending.filter(b=>b.status==="pending_payment"&&b.creditAllocations))for(const allocation of b.creditAllocations!)reservedBySource.set(allocation.creditId,(reservedBySource.get(allocation.creditId)??0)+Math.round(allocation.amount*100));
-  let reserved=Math.max(0,pending.filter(b=>b.status==="pending_payment"&&!b.creditAllocations).reduce((n,b)=>n+Math.round(((b.creditApplied??0)-(b.membershipCreditApplied??0))*100),0)-credits.filter(c=>c.status==="active").reduce((n,c)=>n+(c.revokedPendingPence??0),0));
+  for(const b of pending.filter(b=>b.creditAllocations))for(const allocation of b.creditAllocations!)reservedBySource.set(allocation.creditId,(reservedBySource.get(allocation.creditId)??0)+Math.round(allocation.amount*100));
+  let reserved=Math.max(0,pending.filter(b=>!b.creditAllocations).reduce((n,b)=>n+Math.round(((b.creditApplied??0)-(b.membershipCreditApplied??0))*100),0)-credits.filter(c=>c.status==="active").reduce((n,c)=>n+(c.revokedPendingPence??0),0));
   // Cancellation can restore first-month credit into a new linked credit row.
   // Revoke that balance too; a returned rental must not turn it into free money.
   const grantCreditIds = new Set([grant.creditId,grant.bonusCreditId,...credits.filter(c=>c.membershipGrantId===grant._id).map(c=>c._id)]);
@@ -195,5 +241,4 @@ export const revokeRefundedInvoice = internalMutation({
   const account=await ctx.db.get(grant.accountId);
   if(account){await ctx.db.patch(account._id,{membershipCreditDebtPence:(account.membershipCreditDebtPence??0)+need,...(refunded===grant.paidMembershipPence&&account.membershipPaidThrough===grant.periodEnd?{membershipPaidThrough:undefined}:{})});}
   await ctx.db.patch(grant._id,{membershipRefundedPence:refunded,revokedPence:target});
- }
-});
+}

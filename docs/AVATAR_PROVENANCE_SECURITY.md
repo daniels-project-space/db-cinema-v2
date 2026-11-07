@@ -1,0 +1,9 @@
+# Avatar provenance and legacy photos
+
+The old profile-photo API accepted any storage ID supplied by an authenticated customer. A customer who knew another file's ID could attach it as a public avatar and could delete it by subsequently removing the avatar. Existing avatar pointers and collective application headshots cannot be treated as proof of ownership.
+
+The replacement uploads authenticated image bytes directly to the server, binds only its own fresh storage object, and rejects caller-selected storage IDs. New photos use revision fencing against stale uploads; retries of the same binding do not delete the photo. Only photos with a matching server-recorded ownership marker are deleted. Legacy uploaded photos and unproven collective headshots are hidden without deleting their blobs; customers must re-upload. Local seeded crew images remain available. Existing native review image snapshots are no longer used as a fallback.
+
+Previously issued storage URLs may still be usable: hiding pointers does not revoke an already issued URL or establish whether any data was accessed. Production needs a separate, access-controlled incident assessment and a verified URL revocation or migration plan. Do not delete legacy blobs without establishing their ownership and retention obligations.
+
+The current local upload path stores and binds a fresh photo in one Convex mutation. A synthetic isolated-backend test forced a failure after the store and binding and confirmed neither survived; it also exercised a successful HTTP upload. Convex documents file storage inside mutations as transactional. A bounded, case-aware sweep handles recorded orphan uploads from the earlier ledger-based path. Neither result identifies unrecorded legacy blobs or proves production cleanup; those still require an ownership and retention assessment. See [Convex file storage in mutations](https://docs.convex.dev/file-storage/store-files).

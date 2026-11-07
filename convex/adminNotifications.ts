@@ -1,13 +1,30 @@
-import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
+import { query, mutation, internalQuery, internalMutation, type QueryCtx, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
-import { ownerPushAllowed, validatePushSubscription } from "./lib/adminPush";
+import { acknowledgeOwnerNotificationPage, acknowledgeOwnerNotifications, ownerPushAllowed, validatePushSubscription } from "./lib/adminPush";
+import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
+
+async function notificationAdminRead(ctx: QueryCtx, token: string): Promise<boolean> {
+  if (process.env.ADMIN_SESSION_NOTIFICATIONS_V2 === "enabled") {
+    if (!adminSessionMigrationReady()) throw Error("Admin session migration is not ready.");
+    await assertAdminScopeSession(ctx, token, "settings:read"); return true;
+  }
+  return checkAdminToken(token);
+}
+async function notificationAdminWrite(ctx: MutationCtx, token: string, fn: string): Promise<void> {
+  if (process.env.ADMIN_SESSION_NOTIFICATIONS_V2 === "enabled") {
+    if (!adminSessionMigrationReady()) throw Error("Admin session migration is not ready.");
+    await assertAdminScopeSession(ctx, token, "settings:write");
+    await ctx.db.insert("admin_audit_log", { at: Date.now(), success: true, limited: false, fn }); return;
+  }
+  await assertAdmin(ctx, token, fn);
+}
 
 export const device = query({
   args: { token: v.string(), deviceId: v.string() },
   handler: async (ctx, { token, deviceId }) => {
-    if (!checkAdminToken(token)) throw Error("unauthorized");
+    if (!await notificationAdminRead(ctx, token)) throw Error("unauthorized");
     const subscription = await ctx.db.query("admin_push_subscriptions").withIndex("by_device", q => q.eq("deviceId", deviceId)).first();
     return { enabled: !!subscription?.enabled, publicKey: process.env.ADMIN_PUSH_PUBLIC_KEY ?? null,
       configured: !!process.env.ADMIN_PUSH_PUBLIC_KEY && !!process.env.ADMIN_PUSH_PRIVATE_KEY, lastError: subscription?.lastError ?? null, label: subscription?.label ?? "", humanRequests: subscription?.humanRequests !== false, renterMessages: subscription?.renterMessages !== false };
@@ -16,7 +33,7 @@ export const device = query({
 export const subscribe = mutation({
   args: { token: v.string(), deviceId: v.string(), endpoint: v.string(), p256dh: v.string(), auth: v.string() },
   handler: async (ctx, { token, deviceId, ...subscription }) => {
-    await assertAdmin(ctx, token, "adminNotifications.subscribe");
+    await notificationAdminWrite(ctx, token, "adminNotifications.subscribe");
     if (!/^[A-Za-z0-9_-]{8,80}$/.test(deviceId)) throw Error("Invalid device.");
     if (!process.env.ADMIN_PUSH_PRIVATE_KEY || !process.env.ADMIN_PUSH_PUBLIC_KEY) throw Error("Phone notifications are not configured.");
     validatePushSubscription(subscription.endpoint, subscription.p256dh, subscription.auth);
@@ -33,7 +50,7 @@ export const subscribe = mutation({
 export const disable = mutation({
   args: { token: v.string(), deviceId: v.string() },
   handler: async (ctx, { token, deviceId }) => {
-    await assertAdmin(ctx, token, "adminNotifications.disable");
+    await notificationAdminWrite(ctx, token, "adminNotifications.disable");
     const existing = await ctx.db.query("admin_push_subscriptions").withIndex("by_device", q => q.eq("deviceId", deviceId)).first();
     if (existing) await ctx.db.patch(existing._id, { enabled: false, updatedAt: Math.max(Date.now(),existing.updatedAt+1) });
   },
@@ -41,7 +58,7 @@ export const disable = mutation({
 export const latest = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
-    if (!checkAdminToken(token)) return [];
+    if (!await notificationAdminRead(ctx, token)) return [];
     const notifications = await ctx.db.query("admin_notifications").withIndex("by_read_created", q => q.eq("read", false)).order("desc").take(30);
     return Promise.all(notifications.map(async n => {
       const b = n.bookingId ? await ctx.db.get(n.bookingId) : null;
@@ -52,7 +69,14 @@ export const latest = query({
 });
 export const acknowledge = mutation({
   args: { token: v.string(), id: v.id("admin_notifications") },
-  handler: async (ctx, { token, id }) => { await assertAdmin(ctx, token, "adminNotifications.acknowledge"); await ctx.db.patch(id, { read: true }); },
+  handler: async (ctx, { token, id }) => { await notificationAdminWrite(ctx, token, "adminNotifications.acknowledge"); await ctx.db.patch(id, { read: true }); },
+});
+export const acknowledgeConversationBatch = internalMutation({
+  args: { accountId: v.id("accounts"), bookingId: v.optional(v.id("bookings")), through: v.number(), kind: v.optional(v.string()), cursor: v.optional(v.string()), marker: v.optional(v.object({ at: v.number(), creationTime: v.number() })) },
+  handler: async (ctx, { accountId, bookingId, through, kind, cursor, marker }) => {
+    if (kind) await acknowledgeOwnerNotificationPage(ctx, { accountId, bookingId, through, kind, cursor, marker });
+    else await acknowledgeOwnerNotifications(ctx, accountId, bookingId, through, marker);
+  },
 });
 export const claim = internalMutation({
   args: { deliveryId: v.id("admin_push_deliveries"), claimId: v.string() },
@@ -93,7 +117,7 @@ export const due = internalQuery({
 
 /** Bounded recent operational view; never expose push endpoints or encryption keys. */
 export const settings = query({args:{token:v.string()},handler:async(ctx,{token})=>{
-  if(!checkAdminToken(token))throw Error("unauthorized");
+  if(!await notificationAdminRead(ctx,token))throw Error("unauthorized");
   const devices=await ctx.db.query("admin_push_subscriptions").order("desc").take(51);
   const deliveries=await ctx.db.query("admin_push_deliveries").order("desc").take(30);
   const recentAlerts=await ctx.db.query("admin_notifications").order("desc").take(30);
@@ -105,14 +129,14 @@ export const settings = query({args:{token:v.string()},handler:async(ctx,{token}
       canRetry:["retry","permanent_failure"].includes(d.status)&&!!s?.enabled&&s.updatedAt===d.subscriptionUpdatedAt&&!!n&&!n.read&&Date.now()-n.createdAt<=86400000&&ownerPushAllowed(s,n.kind)};}))};
 }});
 export const preferences = mutation({args:{token:v.string(),deviceId:v.string(),label:v.string(),humanRequests:v.boolean(),renterMessages:v.boolean()},handler:async(ctx,{token,deviceId,label,humanRequests,renterMessages})=>{
-  await assertAdmin(ctx,token,"adminNotifications.preferences");
+  await notificationAdminWrite(ctx,token,"adminNotifications.preferences");
   const clean=label.trim();if(!clean||clean.length>80)throw Error("Enter a device name of up to 80 characters.");
   const s=await ctx.db.query("admin_push_subscriptions").withIndex("by_device",q=>q.eq("deviceId",deviceId)).first();
   if(!s)throw Error("Enable notifications on this device first.");
   await ctx.db.patch(s._id,{label:clean,humanRequests,renterMessages});
 }});
 export const retry = mutation({args:{token:v.string(),deliveryId:v.id("admin_push_deliveries")},handler:async(ctx,{token,deliveryId})=>{
-  await assertAdmin(ctx,token,"adminNotifications.retry");
+  await notificationAdminWrite(ctx,token,"adminNotifications.retry");
   const d=await ctx.db.get(deliveryId);if(!d||!["retry","permanent_failure"].includes(d.status))throw Error("This delivery does not need a retry.");
   const s=await ctx.db.get(d.subscriptionId),n=await ctx.db.get(d.notificationId);
   if(!s?.enabled||s.updatedAt!==d.subscriptionUpdatedAt)throw Error("This device changed or expired. Enable it again for future alerts.");

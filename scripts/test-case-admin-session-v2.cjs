@@ -1,0 +1,51 @@
+const assert = require("node:assert/strict");
+const { createHash, webcrypto } = require("node:crypto");
+const { load, db, put, tables, setMock } = require("./lib/rentalTestHarness.cjs");
+global.crypto ??= webcrypto;
+const sessions = load("convex/adminSessionsV2.ts");
+const identityAuth = load("convex/adminAccountSessionV2.ts");
+let ready = false;
+setMock("./adminAccountSessionV2", { ...identityAuth, adminSessionMigrationReady: () => ready });
+const cases = load("convex/returnInspections.ts");
+const hash = value => createHash("sha256").update(value).digest("hex");
+const identity = "https://identity.example|case-admin";
+const token = "a".repeat(64);
+const ctx = { db, auth: { getUserIdentity: async () => ({ tokenIdentifier: identity }) }, scheduler: { runAfter: async () => {} } };
+const booking = put("bookings", { status: "active", lineItems: [] });
+const record = put("rental_damage_cases", { bookingId: booking._id, itemKey: "fixture", title: "Fixture camera", details: "Synthetic damage", status: "open", openedAt: Date.now() });
+const readArgs = { token, bookingId: booking._id, caseId: record._id };
+const writeArgs = { ...readArgs, requestId: "case-update-test-01234567", details: "Evidence received today", confirmed: true };
+
+(async () => {
+  process.env.ADMIN_TOKEN = "legacy-case-fixture";
+  process.env.ADMIN_SESSION_SCOPES_V2 = JSON.stringify({ [identity]: ["rentals:read", "rentals:write"] });
+  await sessions.createSession.handler(ctx, { tokenDigest: hash(token), principalId: `admin:${hash(identity)}`, scopes: ["rentals:read", "rentals:write"], expiresAt: Date.now() + 60_000 });
+  process.env.ADMIN_SESSION_RENTAL_CASES_V2 = "enabled";
+  for (const name of ["schedule", "caseUpdates", "caseReopens", "openCase", "closeCase", "addCaseUpdate", "reopenCase", "exportCaseSummary"]) {
+    await assert.rejects(cases[name].handler(ctx, { ...writeArgs, token: process.env.ADMIN_TOKEN }), /not ready/, name);
+    await assert.rejects(cases[name].handler(ctx, writeArgs), /not ready/, name);
+  }
+  ready = true;
+  await assert.rejects(cases.caseUpdates.handler(ctx, { ...readArgs, token: process.env.ADMIN_TOKEN }), /unauthorized/);
+  assert.deepEqual(await cases.caseUpdates.handler(ctx, readArgs), []);
+  const saved = await cases.addCaseUpdate.handler(ctx, writeArgs);
+  assert.equal((await cases.caseUpdates.handler(ctx, readArgs))[0]._id, saved);
+  assert((tables.get("admin_audit_log") ?? []).some(row => row.fn === "returnInspections.addCaseUpdate"));
+  process.env.ADMIN_SESSION_SCOPES_V2 = JSON.stringify({ [identity]: ["rentals:read"] });
+  await assert.rejects(cases.addCaseUpdate.handler(ctx, { ...writeArgs, requestId: "case-update-test-76543210" }), /unauthorized/);
+  assert.equal((await cases.caseUpdates.handler(ctx, readArgs)).length, 1);
+  await assert.rejects(cases.caseUpdates.handler({ ...ctx, auth: { getUserIdentity: async () => ({ tokenIdentifier: "different" }) } }, readArgs), /unauthorized/);
+  const readOnlyToken = "b".repeat(64);
+  await sessions.createSession.handler(ctx, { tokenDigest: hash(readOnlyToken), principalId: `admin:${hash(identity)}`, scopes: ["rentals:read"], expiresAt: Date.now() + 60_000 });
+  process.env.ADMIN_SESSION_SCOPES_V2 = JSON.stringify({ [identity]: ["rentals:read", "rentals:write"] });
+  await assert.rejects(cases.addCaseUpdate.handler(ctx, { ...writeArgs, token: readOnlyToken, requestId: "case-update-test-76543210" }), /unauthorized/, "An assignment cannot expand a read-only session");
+  const readOnlySession = tables.get("admin_sessions_v2").find(row => row.tokenDigest === hash(readOnlyToken));
+  await db.patch(readOnlySession._id, { expiresAt: Date.now() });
+  await assert.rejects(cases.caseUpdates.handler(ctx, { ...readArgs, token: readOnlyToken }), /unauthorized/, "Expired sessions cannot read case details");
+  await sessions.revoke.handler(ctx, { tokenDigest: hash(token) });
+  await assert.rejects(cases.caseUpdates.handler(ctx, readArgs), /unauthorized/);
+  await assert.rejects(cases.addCaseUpdate.handler(ctx, writeArgs), /unauthorized/);
+  delete process.env.ADMIN_SESSION_RENTAL_CASES_V2;
+  assert.equal((await cases.caseUpdates.handler(ctx, { ...readArgs, token: process.env.ADMIN_TOKEN })).length, 1);
+  console.log("PASS staged case access: closed readiness gate, scoped identity, revocation, audit and legacy compatibility; synthetic data only.");
+})().catch(error => { console.error(error); process.exitCode = 1; });

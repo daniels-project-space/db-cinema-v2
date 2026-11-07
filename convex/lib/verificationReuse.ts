@@ -56,7 +56,7 @@ export async function verificationUpdateMessage(ctx: any, bookingId: any, previo
     verified: "Your identity and address verification is approved for this rental.",
     manual_review: "Your verification is awaiting a team review. We will post the decision here; handover requires approval.",
     requires_input: "More verification information is needed. Open verification in your account to complete or resubmit the requested documents before handover.",
-    rejected: "Your verification has not been approved. Contact the team here before arranging handover.",
+    rejected: "Your verification was not approved, so this rental is not ready for collection. Please contact the team here to discuss the outcome. A friend may make a separate booking using their own account and identity; they would be the renter and their booking would be subject to the usual checks and approval.",
   };
   if (!text[status]) return;
   let message=text[status];

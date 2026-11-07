@@ -1,4 +1,5 @@
 import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
+import { assertSwapStockReconciled } from "./lib/swapStockFence";
 import {canDeferAdditionSecurity} from "../shared/pickupSecurity";
 import {schedulePickupHold} from "./pickupSecurity";
 import { tierByKey } from "../shared/membership";
@@ -77,8 +78,9 @@ async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
       b.returnDecision
     )
       throw Error("This rental cannot accept items");
-    if (b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId || b.activePriceAdjustmentId)
+    if (b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId || b.activePriceAdjustmentId || b.activeItemSwapId)
       throw Error("Finish or withdraw the current item addition or approved extension first");
+    await assertSwapStockReconciled(ctx, b._id);
     if (
       ["starting", "requires_action", "failed"].includes(
         b.depositHoldRenewalStatus ?? "",
@@ -351,6 +353,7 @@ export const apply = internalMutation({
     if (r.withdrawalRequestedAt) return { closed: true };
     if (r.securityCreationPending) throw Error("Wait for the pending security authorisation");
     const b = await ctx.db.get(r.bookingId);
+    if (b) await assertSwapStockReconciled(ctx, b._id);
     if (
       !b ||
       b.cancellationDecision ||
@@ -396,6 +399,7 @@ export const apply = internalMutation({
       ...(amendment?{securityAmendments:[...(b.securityAmendments??[]),amendment],savedCardLimit:amendment.savedCardLimit,savedCardConsentText:amendment.consentText,laterChargeConsentAt:amendment.acceptedAt}:{}),
       replacementValues: await replacementValues(ctx, b, [...b.lineItems, line]),
       lineItems: [...b.lineItems, line],
+      ...(r.draftReplacement && b.checkoutLineFunding ? {checkoutLineFunding:[...b.checkoutLineFunding,{listingId:line.listingId,start:line.start,end:line.end,qty:line.qty,gross:line.lineTotal,discount:0,membershipCredit:0,accountCredit:0,card:line.lineTotal}]} : {}),
       subtotal: b.subtotal + r.lineTotal,
       total: b.total + r.lineTotal + r.securityCharge,
       depositAmount: b.depositAmount + r.securityCharge,

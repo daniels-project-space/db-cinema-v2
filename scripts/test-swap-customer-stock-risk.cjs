@@ -1,0 +1,6 @@
+const assert=require('node:assert/strict');
+const {load,db,put}=require('./lib/rentalTestHarness.cjs');
+const state=load('convex/rentalSwapState.ts'),account=put('accounts',{email:'renter@example.invalid'});
+put('sessions',{token:'synthetic-renter',accountId:account._id,expiresAt:Date.now()+3600000});
+const booking=put('bookings',{accountId:account._id}),swap=put('rental_item_swaps',{bookingId:booking._id,accountId:account._id,status:'applied',oldLine:{title:'Camera',qty:1},newLine:{title:'Lens'},quote:{deltaPence:0,restore:[]},expiresAt:Date.now()}),receipt=put('swap_stock_applied_receipts',{bookingId:booking._id,swapId:swap._id,deliveryState:'acknowledged',stockRisk:true});
+(async()=>{const args={token:'synthetic-renter',bookingId:booking._id,id:swap._id};const pending=await state.customerProposal.handler({db},args);assert.equal(pending.stockPending,true,'A separate persistent stock conflict must be visible as pending');assert.equal(await state.customerProposal.handler({db},{...args,token:'wrong'}),null);await db.patch(receipt._id,{stockRisk:false});assert.equal((await state.customerProposal.handler({db},args)).stockPending,false);console.log('PASS renter stock status: unresolved recorded conflict remains pending, without exposing admin details.');})().catch(error=>{console.error(error);process.exitCode=1});

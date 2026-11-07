@@ -1,0 +1,51 @@
+const assert = require("node:assert/strict");
+const { createHash, createHmac, webcrypto } = require("node:crypto");
+const harness = require("./lib/rentalTestHarness.cjs");
+global.crypto ??= webcrypto;
+const routes = [];
+let ready = false;
+harness.setMock("convex/server", { httpRouter: () => ({ route: route => routes.push(route) }) });
+harness.setMock("./adminAccountSessionV2", { adminSessionMigrationReady: () => ready });
+harness.load("convex/http.ts");
+const endpoint = routes.find(route => route.path === "/admin-session" && route.method === "POST");
+const issuer = harness.load("convex/adminSessionIssuerV2.ts");
+const sessions = harness.load("convex/adminSessionsV2.ts");
+const hash = value => createHash("sha256").update(value).digest("hex");
+const identity = "https://identity.example|delivery-fixture", key = Buffer.alloc(32, 3), clientDigest = "a".repeat(64);
+const now = Date.now(), nonce = "b".repeat(64), issuedAt = now;
+const message = `dbc-admin-session-v2|${hash(identity)}|${clientDigest}|${nonce}|${issuedAt}`;
+const attestation = { clientDigest, nonce, issuedAt, mac: createHmac("sha256", key).update(message).digest("hex") };
+process.env.ADMIN_SESSION_GATEWAY_HMAC_V2 = key.toString("hex");
+process.env.ADMIN_SESSION_SCOPES_V2 = JSON.stringify({ [identity]: ["customers:read"] });
+let currentIdentity = identity;
+const ctx = { db: harness.db, auth: { getUserIdentity: async () => currentIdentity ? { tokenIdentifier: currentIdentity } : null } };
+ctx.runMutation = async (ref, args) => { assert.equal(ref, "adminSessionsV2.admitAndCreateSession"); return sessions.admitAndCreateSession.handler(ctx, args); };
+ctx.runAction = async (ref, args) => { assert.equal(ref, "adminSessionIssuerV2.issue"); return issuer.issue.handler(ctx, args); };
+const request = (body = attestation, headers = {}) => new Request("https://fixture.convex.site/admin-session", {
+  method: "POST", headers: { origin: "https://dbcinemarentals.com", authorization: "Bearer identity-jwt", "content-type": "application/json", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body),
+});
+
+(async () => {
+  assert.equal((await endpoint.handler(ctx, request())).status, 503);
+  ready = true;
+  assert.equal((await endpoint.handler(ctx, request(attestation, { origin: "https://foreign.invalid" }))).status, 403);
+  assert.equal((await endpoint.handler(ctx, request(attestation, { authorization: "" }))).status, 401);
+  assert.equal((await endpoint.handler(ctx, request("x".repeat(1025)))).status, 400);
+  currentIdentity = null;
+  assert.equal((await endpoint.handler(ctx, request())).status, 401);
+  currentIdentity = "other";
+  assert.equal((await endpoint.handler(ctx, request())).status, 401);
+  currentIdentity = identity;
+  assert.equal((await endpoint.handler(ctx, request({ ...attestation, mac: "0".repeat(64) }))).status, 401);
+  const response = await endpoint.handler(ctx, request());
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const delivered = await response.json();
+  assert.match(delivered.token, /^[a-f0-9]{64}$/);
+  assert((await sessions.authorize.handler(ctx, { tokenDigest: hash(delivered.token), scope: "customers:read" }))?.principalId);
+  assert.equal(await sessions.authorize.handler(ctx, { tokenDigest: hash(delivered.token), scope: "customers:write" }), null);
+  assert.equal((await endpoint.handler(ctx, request())).status, 401);
+  await sessions.revoke.handler(ctx, { tokenDigest: hash(delivered.token) });
+  assert.equal(await sessions.authorize.handler(ctx, { tokenDigest: hash(delivered.token), scope: "customers:read" }), null);
+  console.log("PASS gated authenticated session HTTP delivery, origin, body limit, signature, replay, scoped token and revocation fixtures; identity and readiness mocked.");
+})().catch(error => { console.error(error); process.exitCode = 1; });

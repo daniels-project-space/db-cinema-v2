@@ -34,6 +34,7 @@ const ctx = {
     return { checkedAt: Date.now() };
   },
   runMutation: async (ref) => {
+    if (ref === 'bookings.recordPaidCheckoutReceipt') return { recorded: true };
     if (ref === 'bookings.confirm') { confirmations++; return { awaitingInventoryReview: inventoryRetries > 0 }; }
     if (ref === 'bookings.markVerificationConfirmationFailure') { failures++; return true; }
     if (ref === 'analytics.track') { trackedPurchases++; return true; }

@@ -63,6 +63,7 @@ const {expire:expireCredits}=load('convex/credits.ts');
     },
     runMutation: async (ref,args)=>{
       mutations.push({ref,args});
+      if(ref==='bookings:recordPaidCheckoutReceipt')return {recorded:true};
       if(ref==='bookings:confirm')return args.bookingId==='verification'?{awaitingVerification:true}:{already:false};
       if(ref==='bookings:expireUnpaidPending')return true;
       throw Error(`Unexpected mutation ${ref}`);
@@ -74,6 +75,7 @@ const {expire:expireCredits}=load('convex/credits.ts');
   try{result=await reconcilePendingPayments.handler(ctx,{});}finally{console.error=originalError;}
   assert.deepEqual(result,{checked:7,confirmed:1,expired:3,failures:1});
   assert.deepEqual(mutations.filter(m=>m.ref==='bookings:confirm').map(m=>m.args.bookingId),['paid','verification']);
+  assert.deepEqual(mutations.filter(m=>m.ref==='bookings:recordPaidCheckoutReceipt').map(m=>m.args.bookingId),['paid','verification']);
   assert.equal(result.confirmed,1,'paid rentals still waiting for Didit are not counted as confirmed');
   assert.deepEqual(mutations.filter(m=>m.ref==='bookings:expireUnpaidPending').map(m=>m.args.bookingId),['expired','open','unbound']);
   assert.ok(!mutations.some(m=>['processing','failed'].includes(m.args.bookingId)));

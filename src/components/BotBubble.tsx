@@ -72,7 +72,13 @@ export function BotBubble() {
     if (onCall) setOpen(false);
   }, [onCall]);
   useEffect(() => {
-    const openGafferChat = () => setOpen(true);
+    const openGafferChat = (event: Event) => {
+      setOpen(true);
+      const prompt = (event as CustomEvent<{ prompt?: unknown }>).detail?.prompt;
+      if (typeof prompt === "string" && prompt.trim() && prompt.length <= 320) {
+        setText((current) => current.trim() ? current : prompt.trim());
+      }
+    };
     window.addEventListener("dbc:open-gaffer-chat", openGafferChat);
     return () => window.removeEventListener("dbc:open-gaffer-chat", openGafferChat);
   }, []);
@@ -94,6 +100,12 @@ export function BotBubble() {
   const account = useAccount();
   const cart = useCart();
   const accountThread = useQuery(api.chat.myThread, account.token ? { token: account.token } : "skip");
+  const [notificationOfferDismissed, setNotificationOfferDismissed] = useState(true);
+  useEffect(() => {
+    if (!account.me?._id) { setNotificationOfferDismissed(true); return; }
+    try { setNotificationOfferDismissed(localStorage.getItem("dbc_chat_notification_offer:" + account.me._id) === "dismissed"); }
+    catch { setNotificationOfferDismissed(false); }
+  }, [account.me?._id]);
   const recordAccountQuestion = useMutation(api.chat.recordGafferUserMessage);
   const recordAccountReply = useMutation(api.chat.recordGafferReply);
   const hydratedAccountToken = useRef<string | null>(null);
@@ -211,6 +223,7 @@ export function BotBubble() {
         body: JSON.stringify({
           messages: next.map((m) => ({ role: m.role, content: m.content })),
           token: account.token ?? undefined,
+          renterMessageId: renterMessageId ?? undefined,
           cart: cart.items.map((i) => ({
             listingId: i.listingId,
             title: i.title,
@@ -225,7 +238,7 @@ export function BotBubble() {
       const reply = d.reply || "…";
       let replyId: string | undefined;
       if (account.token && renterMessageId) {
-        const recorded = await recordAccountReply({ token: account.token, renterMessageId: renterMessageId as any, text: reply });
+        const recorded = await recordAccountReply({ token: account.token, renterMessageId: renterMessageId as any, text: reply, ...(typeof d.completionProof === "string" ? { completionProof:d.completionProof } : {}) });
         if (!recorded.saved) {
           setMsgs((current) => [...current, {
             role: "assistant",
@@ -294,6 +307,8 @@ export function BotBubble() {
     .map((m, i) => ({ m, i }))
     .reverse()
     .find((x) => x.m.role === "assistant");
+  const firstAccountQuestion = accountThread?.findIndex(message => message.sender === "renter" && message.text?.trim()) ?? -1;
+  const firstAccountReply = firstAccountQuestion < 0 ? undefined : accountThread?.slice(firstAccountQuestion + 1).find(message => message.sender === "bot" && message.text?.trim());
   const liveSuggestions =
     !busy && lastAssistant?.m.suggestions?.length
       ? lastAssistant.m.suggestions
@@ -410,6 +425,10 @@ export function BotBubble() {
                 <IconTrash className="h-4 w-4" />
               </button>
             )}
+            <button type="button" onClick={() => setOpen(false)} aria-label="Close chat"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/60 transition-colors hover:bg-white/10 hover:text-white">
+              <IconX className="h-4 w-4" />
+            </button>
           </header>
 
           {/* thread */}
@@ -629,6 +648,7 @@ export function BotBubble() {
                       </div>
                     );
                   })()}
+                {account.token && account.me?._id && !notificationOfferDismissed && m.id === String(firstAccountReply?._id) && <div className="ml-10 rounded-2xl border border-amber-100/20 bg-white/[0.06] p-3 text-xs text-white/80 backdrop-blur-xl" aria-label="Chat notifications"><strong className="text-white">Keep the conversation going</strong><p className="mt-1 leading-relaxed">Turn on chat alerts in your account to hear when the team replies.</p><div className="mt-3 flex items-center gap-4"><Link href="/account#chat" className="rounded-full border border-amber-100/30 px-3 py-2 text-amber-100" onClick={() => { try { localStorage.setItem("dbc_chat_notification_offer:" + account.me!._id, "dismissed"); sessionStorage.setItem("dbc_open_chat_notification_settings", "1"); } catch {} setNotificationOfferDismissed(true); }}>Set up alerts</Link><button type="button" onClick={() => { try { localStorage.setItem("dbc_chat_notification_offer:" + account.me!._id, "dismissed"); } catch {} setNotificationOfferDismissed(true); }}>Not now</button></div></div>}
               </div>
             ))}
             {liveSuggestions && (

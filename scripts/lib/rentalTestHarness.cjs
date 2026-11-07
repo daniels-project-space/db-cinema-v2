@@ -176,5 +176,9 @@ module.exports = {
   put,
   tables,
   docs,
+  confirmSyntheticSwapStock: (id) => {
+    put('swap_stock_operations',{swapId:id,operation:'acquire',state:'confirmed',receipt:{requestId:`fixture-${id}`,fingerprint:'synthetic'}});
+    put('swap_stock_operations',{swapId:id,operation:'beginExecution',state:'confirmed',request:{args:{id:`fixture-${id}`,fingerprint:'synthetic',executionKey:`swap_execution_${id}`}}});
+  },
   setMock: (name, value) => mocks.set(name, value),
 };

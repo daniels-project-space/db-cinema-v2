@@ -40,6 +40,10 @@ async function blocked() {
     assert.equal((await availability.forCart.handler(ctx, { items: lines }))[camera._id].ok, true, 'Another renter can still add equipment held in an unpaid basket');
     await assertRentalInventory(ctx, lines);
     assert.equal((await replacements.forCart.handler(ctx, { items: requested })).replacement[0].listingId, camera._id, 'Unpaid baskets do not hide replacement stock');
+    pending.status = 'pending_verification'; hold.holdExpiresAt = now + 60000;
+    assert.equal((await availability.forListing.handler(ctx, { listingId: camera._id, start, end })).available, 1, 'A paid rental awaiting verification does not reserve stock before confirmation');
+    assert.equal((await availability.forCart.handler(ctx, { items: lines }))[camera._id].ok, true);
+    await assertRentalInventory(ctx, lines);
     pending.status = 'confirmed'; hold.status = 'confirmed';
     await blocked();
     pending.status = 'cancelled'; hold.status = 'cancelled'; otherPending.status = 'cancelled'; otherHold.status = 'cancelled';

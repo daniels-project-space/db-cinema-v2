@@ -1,0 +1,25 @@
+const assert = require('node:assert/strict');
+const {load,db,put,setMock} = require('./lib/rentalTestHarness.cjs');
+setMock('./lib/rentalSwapAuthority',{swapAuthorityAvailable:()=>true});
+const feed=load('convex/rmv2_sync.ts');
+const booking=put('bookings',{status:'confirmed',lineItems:[],rmv2Revision:4});
+const unit=put('inventory_units',{rmv2ItemId:'master-one'});
+const allocation=put('reservations',{bookingId:booking._id,inventoryUnitId:unit._id,source:'site',status:'confirmed',start:10,end:30,qty:1,endExclusive:true,turnaroundBufferMinutes:60});
+const receipt={swapId:'swap-one',bookingId:booking._id,bookingRevision:4,managerRequestId:'manager-claim',fingerprint:'fingerprint',executionKey:'swap_execution_swap-one',appliedAt:10,deliveryState:'pending',windows:[{reservationId:allocation._id,inventoryUnitId:unit._id,managerItemId:'master-one',start:10,end:30,quantity:1,endExclusive:true,turnaroundBufferMinutes:60}]};
+put('swap_stock_applied_receipts',receipt);
+(async()=>{
+ delete process.env.SHARED_STOCK_BRIDGE_EXPERIMENTAL;
+ assert.equal((await feed.forRmv2SyncOne.handler({db},{bookingId:booking._id})).stockApplicationReceipt,undefined);
+ process.env.SHARED_STOCK_BRIDGE_EXPERIMENTAL='true';
+ const projected={...receipt};delete projected.deliveryState;
+ assert.deepEqual((await feed.forRmv2SyncOne.handler({db},{bookingId:booking._id})).stockApplicationReceipt,projected);
+ await db.patch(booking._id,{rmv2Revision:5});
+ assert.deepEqual((await feed.forRmv2SyncOne.handler({db},{bookingId:booking._id})).stockApplicationReceipt,projected);
+ await db.patch(allocation._id,{qty:2});
+ assert.equal((await feed.forRmv2SyncOne.handler({db},{bookingId:booking._id})).stockApplicationReceipt,undefined);
+ await db.patch(allocation._id,{qty:1});
+ await db.patch(booking._id,{rmv2Revision:4});
+ put('swap_stock_applied_receipts',{...receipt,swapId:'swap-two'});
+ await assert.rejects(feed.forRmv2SyncOne.handler({db},{bookingId:booking._id}),/receipt needs reconciliation/);
+ console.log('PASS stock receipt projection: disabled, current, matching superseded, changed occupancy and duplicate cases');
+})().catch(error=>{console.error(error);process.exitCode=1});

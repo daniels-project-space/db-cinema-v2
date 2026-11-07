@@ -1,0 +1,13 @@
+import { internal } from "./_generated/api";
+import { mutation, query } from "./_generated/server";
+
+export const seed = mutation({ args: {}, handler: async ctx => {
+  const now = Date.now(), accountId = await ctx.db.insert("accounts", { email: "identity-fixture@example.invalid", createdAt: now });
+  const bookingId = await ctx.db.insert("bookings", { accountId, status: "confirmed", lineItems: [], fulfilment: "pickup", deliveryFee: 0, subtotal: 0, discount: 0, depositAmount: 0, total: 0, currency: "GBP" });
+  for (let index = 0; index < 60; index++) await ctx.db.insert("restricted_identity_recheck_jobs", { accountId, blockedAt: now + index, state: index % 2 ? "attention" : "pending", generation: 1, attempts: 5, stage: 0, dueAt: now, createdAt: now - 1000, updatedAt: now, expiresAt: now - 1 });
+  await ctx.db.insert("restricted_identity_recheck_jobs", { accountId, blockedAt: now + 100, state: "complete", generation: 1, attempts: 0, stage: 3, dueAt: now, createdAt: now - 1000, updatedAt: now, expiresAt: now - 1 });
+  await ctx.db.insert("restricted_identity_alert_jobs", { bookingId, sessionId: "synthetic", eventId: "unresolved", state: "attention", generation: 1, attempts: 5, dueAt: now, createdAt: now - 1000, updatedAt: now, expiresAt: now - 1 });
+  return { accountId };
+} });
+export const sweep = mutation({ args: {}, handler: async ctx => ctx.runMutation(internal.restrictedIdentityAlerts.purge, {}) });
+export const inspect = query({ args: {}, handler: async ctx => ({ alerts: await ctx.db.query("restricted_identity_alert_jobs").collect(), rechecks: await ctx.db.query("restricted_identity_recheck_jobs").collect() }) });

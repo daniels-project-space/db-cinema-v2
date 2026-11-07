@@ -1,0 +1,20 @@
+const assert=require('node:assert/strict');
+const {load,setMock}=require('./lib/rentalTestHarness.cjs');
+process.env.STRIPE_SECRET_KEY='sk_test_fixture';
+let creates=0;
+setMock('stripe',{default:class{constructor(){this.checkout={sessions:{create:async args=>{creates++;return {id:'cs_test_fixture',url:'https://example.invalid',status:'open',metadata:args.metadata};}}};}}});
+const payments=load('convex/rentalSwapPayments.ts');
+const swap={_id:'swap-1',bookingId:'booking-1',status:'accepted',acceptedAt:Date.now(),acceptedEmail:'fixture@example.invalid',expiresAt:Date.now()+3600000,quote:{deltaPence:100},oldLine:{title:'old'},newLine:{title:'new'}};
+let acquire='unknown',begin='confirmed',current='confirmed',authorized=true;const events=[];
+const ctx={runMutation:async(ref,args)=>{events.push(ref);switch(ref){case 'rentalSwapState.accept':return swap;case 'swapStockOperations.prepareSwapClaim':return 'claim';case 'swapStockOperations.prepare':return 'begin';case 'rentalSwapState.authorizeExecution':if(!authorized)throw Error('rental changed');return swap;case 'rentalSwapState.bindSession':return;default:throw Error(`Unexpected mutation ${ref}`);}},runQuery:async(ref)=>{events.push(ref);return {state:'confirmed',request:{operation:'beginExecution',args:{id:'claim',fingerprint:'fingerprint',executionKey:'execution'}}};},runAction:async(ref,args)=>{events.push(`${ref}:${args.id}`);return {status:ref==='sharedStockBridge.send'?current:args.id==='claim'?acquire:begin};}};
+(async()=>{
+ const args={token:'fixture',id:swap._id,expectedDeltaPence:100};
+ await assert.rejects(payments.accept.handler(ctx,args),/reconciled/);assert.equal(creates,0);
+ acquire='confirmed';begin='unknown';await assert.rejects(payments.accept.handler(ctx,args),/reconciled/);assert.equal(creates,0);
+ begin='confirmed';current='unknown';await assert.rejects(payments.accept.handler(ctx,args),/availability changed/);assert.equal(creates,0);
+ current='confirmed';
+ begin='confirmed';authorized=false;await assert.rejects(payments.accept.handler(ctx,args),/rental changed/);assert.equal(creates,0);
+ authorized=true;events.length=0;await payments.accept.handler(ctx,args);assert.equal(creates,1);
+ assert.deepEqual(events.slice(0,8),['rentalSwapState.accept','swapStockOperations.prepareSwapClaim','swapStockOperations.recover:claim','swapStockOperations.prepare','swapStockOperations.recover:begin','swapStockOperations.read','sharedStockBridge.send:undefined','rentalSwapState.authorizeExecution']);
+ console.log('PASS synthetic swap settlement gate: uncertain claims and stale rentals cannot create payment sessions.');
+})().catch(error=>{console.error(error);process.exitCode=1});

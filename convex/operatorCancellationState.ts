@@ -1,4 +1,5 @@
 import {internalMutation,internalQuery,query,mutation} from "./_generated/server";
+import { assertSwapStockReconciled } from "./lib/swapStockFence";
 import {v,ConvexError} from "convex/values";
 import {accountForRental} from "./lib/rentalAccount";
 import {londonRentalInstant} from "../shared/rentalWindow";
@@ -31,7 +32,8 @@ export const begin=internalMutation({args:{bookingId:v.id("bookings"),reason:v.s
  if((b.currency??"GBP").toUpperCase()!=="GBP"||!b.stripePaymentIntentId&&b.total>0)throw Error("The original GBP rental payment needs review.");
  const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",b._id)).take(501);
  if(reservations.length>500||reservations.some(r=>r.source!=="site"))throw Error("Only direct website rental stock can be cancelled here.");
- if(b.cancellationDecision||b.returnDecision||b.activeAdditionId||b.activeExtensionId||b.activePriceAdjustmentId||["starting","processing"].includes(b.depositHoldRenewalStatus??""))throw Error("Finish the active rental operation first.");
+ if(b.cancellationDecision||b.returnDecision||b.activeAdditionId||b.activeExtensionId||b.activePriceAdjustmentId||b.activeItemSwapId||["starting","processing"].includes(b.depositHoldRenewalStatus??""))throw Error("Finish the active rental operation first.");
+ await assertSwapStockReconciled(ctx, b._id);
  const pickupAt=Math.min(...b.lineItems.map(line=>londonRentalInstant(line.start,line.pickupTime??b.pickupTime??"00:00")));
  if(pickupAt<=now)throw Error("The rental has already reached its pickup time.");
  const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",b._id)).take(101);

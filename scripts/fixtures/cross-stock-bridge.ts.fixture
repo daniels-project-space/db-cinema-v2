@@ -1,0 +1,9 @@
+import { internalAction } from "./_generated/server";
+import { v } from "convex/values";
+import { sendSharedStockRequest } from "./lib/sharedStockTransport";
+
+export const send = internalAction({ args: { request: v.any() }, handler: async (_ctx, args) => {
+  const target = new URL(process.env.SYNTHETIC_STOCK_SITE ?? "");
+  if (target.protocol !== "http:" || target.hostname !== "127.0.0.1" || target.pathname !== "/dbcinema/shared-stock" || target.username || target.password || target.search || target.hash) throw Error("Only an isolated loopback fixture is allowed.");
+  return sendSharedStockRequest(args.request, { enabled: true, managerUrl: "https://synthetic.convex.site/dbcinema/booking-sync", secret: "synthetic-stock-secret-12345678901234567890", fetcher: async (_url, init) => { const response=await fetch(target, init); if(args.request.operation==="releaseCompensated"&&process.env.SYNTHETIC_LOSE_COMPENSATED_RESPONSE==="true")throw Error("Synthetic lost response after manager commit."); return response; } });
+} });

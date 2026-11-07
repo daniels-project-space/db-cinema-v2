@@ -129,6 +129,20 @@ const b = put("bookings", {
     /unavailable/,
   );
   const bookings = load("convex/bookings.ts");
+  const priceLocked = put("bookings", {
+    ...b,
+    _id: "price-change-locked",
+    status: "confirmed",
+    activePriceAdjustmentId: "open-price-change",
+  });
+  await assert.rejects(
+    bookings.prepareCancellation.handler(ctx, { bookingId: priceLocked._id }),
+    /open rental change/,
+  );
+  await assert.rejects(
+    bookings.adminSetStatus.handler(ctx, { token, bookingId: priceLocked._id, status: "active" }),
+    /open rental change/,
+  );
   const returning = put("bookings", {
     ...b,
     _id: "return-locked",

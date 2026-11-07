@@ -40,12 +40,12 @@ export const listPublished = query({
     }
     return Promise.all(selected.map(async (r) => {
       const account = r.authorAccountId ? await ctx.db.get(r.authorAccountId) : null;
-      const photo = account?.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null;
+      const photo = account?.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null;
       return ({
       _id: r._id,
       source: r.source,
       author: r.author,
-      authorImage: photo ?? account?.googleAvatarUrl ?? r.authorImage ?? null,
+      authorImage: photo ?? account?.googleAvatarUrl ?? (r.source === "native" ? null : r.authorImage ?? null),
       rating: r.rating,
       incentivized: r.incentivized ?? false,encoreReward:r.encoreReward??false,prizeEntry:r.prizeEntry??(!!r.incentivized&&!r.encoreReward),
       text: r.text,
@@ -111,12 +111,12 @@ export const listNativePublished = query({
     );
     return Promise.all(withText.map(async (review) => {
       const account = review.authorAccountId ? await ctx.db.get(review.authorAccountId) : null;
-      const photo = account?.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null;
+      const photo = account?.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null;
       return {
         _id: review._id,
         source: review.source,
         author: review.author,
-        authorImage: photo ?? account?.googleAvatarUrl ?? review.authorImage ?? null,
+        authorImage: photo ?? account?.googleAvatarUrl ?? (review.source === "native" ? null : review.authorImage ?? null),
         rating: review.rating,
         incentivized: review.incentivized ?? false,
         encoreReward: review.encoreReward ?? false,
@@ -224,7 +224,7 @@ export const submitNative = mutation({
       source: "native",
       author: acct.name ?? acct.email.split("@")[0],
       authorAccountId: acct._id,
-      authorImage: (acct.avatarStorageId ? await ctx.storage.getUrl(acct.avatarStorageId) : null) ?? acct.googleAvatarUrl ?? undefined,
+      authorImage: (acct.avatarStorageId && acct.avatarStorageId === acct.avatarOwnedStorageId ? await ctx.storage.getUrl(acct.avatarStorageId) : null) ?? acct.googleAvatarUrl ?? undefined,
       rating,
       text: text.trim(),
       product: b.lineItems[0]?.title,

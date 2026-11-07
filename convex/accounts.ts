@@ -1,4 +1,5 @@
 import { assertVerificationArchive } from "./verificationArchive";
+import { retainVerificationArchiveLink } from "./lib/verificationArchiveLink";
 import { renterVerificationNote, verificationValidUntil } from "../shared/verificationProgress";
 import { ensureReferralCode } from "./lib/referrals";
 import { belongsToRentalAccount, rentalsForAccount } from "./lib/rentalAccount";
@@ -10,6 +11,8 @@ import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { usableCredit } from "./lib/creditLedger";
 import { verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
 import { accountVerificationReady } from "./lib/accountVerificationReady";
+import { deletePrivateFile } from "./lib/privateStorage";
+import { droneDocumentType } from "./lib/droneDocument";
 import {
   action,
   query,
@@ -203,6 +206,12 @@ async function resolve(ctx: any, token: string) {
   const account=await ctx.db.get(s.accountId);return account?.blockedAt!=null||account?.emailVerificationRequired&&!account.emailVerifiedAt?null:account;
 }
 
+export const _billingPortalTarget = internalQuery({args:{token:v.string()},handler:async(ctx,{token})=>{
+  const account=await resolve(ctx,token);
+  if(!account?.stripeCustomerId)return null;
+  return {accountId:account._id,customerId:account.stripeCustomerId,subscriptionId:account.stripeSubscriptionId??null};
+}});
+
 export const checkoutVerification = query({
   args: { token:v.string(), name:v.string(), address:v.string(), starts:v.array(v.number()) },
   handler: async (ctx,{token,name,address,starts}) => {
@@ -242,7 +251,7 @@ export const me = query({
       address: a.address ?? null,
       marketingEmails: a.marketingEmails ?? false,
       favorites: (a.favorites ?? []) as string[],
-      avatarUrl: a.avatarStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : (a.googleAvatarUrl ?? null),
+      avatarUrl: a.avatarStorageId && a.avatarStorageId === a.avatarOwnedStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : (a.googleAvatarUrl ?? null),
       idVerified: !!verification,
       verificationValidUntil: verification?.expiresAt ?? null,
       verificationReadyUntil: verification?.proofExpiresAt ?? null,
@@ -250,6 +259,7 @@ export const me = query({
       membershipTier: membershipTierFor(a) ?? null,
       membershipAdminGranted: !!a.adminMembershipTier && a.adminMembershipTier !== "standard",
       membershipBillingTier: a.stripeSubscriptionId ? a.membershipTier ?? null : null,
+      membershipHasBillingSubscription: !!a.stripeSubscriptionId,
       membershipActive: membershipActiveNow(a),
       membershipStatus: a.membershipStatus ?? null,
       membershipPaidThrough: a.membershipPaidThrough ?? null,
@@ -391,7 +401,7 @@ export const updateProfile = mutation({
       ]);
       if ([linked, linkedPending, legacy, legacyPending].some(rows => rows.length > 100)) throw Error("Too many open rentals to update this profile automatically. Contact the team.");
       const bookings = [...new Map([...linked, ...linkedPending, ...legacy, ...legacyPending].filter(b => belongsToRentalAccount(b, a)).map(b => [b._id, b])).values()];
-      for (const b of bookings) if (["confirmed", "pending_verification"].includes(b.status) && b.verificationReusedFrom) { await ctx.db.patch(b._id, {
+      for (const b of bookings) if (["confirmed", "pending_verification"].includes(b.status) && b.verificationReusedFrom) { await retainVerificationArchiveLink(ctx,b); await ctx.db.patch(b._id, {
         idVerifyStatus: "requires_input", verificationReusedFrom: undefined, verificationExpiresAt: undefined,
         verificationNote: "Your account details changed. Complete a new identity and address check before handover.",
       }); await verificationUpdateMessage(ctx, b._id, b.idVerifyStatus, "requires_input"); await queueRmv2Sync(ctx, b._id); }
@@ -400,13 +410,12 @@ export const updateProfile = mutation({
   },
 });
 
-/** Profile photo upload — returns a short-lived Convex storage upload URL (token-gated). */
 export const generateAvatarUploadUrl = mutation({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
     const a: any = await resolve(ctx, token);
     if (!a) throw new Error("unauthorized");
-    return await ctx.storage.generateUploadUrl();
+    throw new Error("Please refresh the page to upload a photo securely.");
   },
 });
 
@@ -417,14 +426,108 @@ export const setAvatar = mutation({
   handler: async (ctx, { token, avatarStorageId }) => {
     const a: any = await resolve(ctx, token);
     if (!a) throw new Error("unauthorized");
-    // delete the previous blob to avoid orphaned storage
-    if (a.avatarStorageId && a.avatarStorageId !== avatarStorageId) {
-      try { await ctx.storage.delete(a.avatarStorageId); } catch {}
-    }
-    await ctx.db.patch(a._id, { avatarStorageId: avatarStorageId ?? undefined });
+    if (avatarStorageId) throw new Error("Please upload your photo again.");
+    if (a.avatarStorageId && a.avatarStorageId === a.avatarOwnedStorageId) await ctx.storage.delete(a.avatarStorageId);
+    await ctx.db.patch(a._id, { avatarStorageId: undefined, avatarOwnedStorageId: undefined, googleAvatarUrl: undefined, googleAvatarRemoved: true, avatarBoundDigest: undefined, avatarUploadRevision: (a.avatarUploadRevision ?? 0) + 1 });
     return { ok: true };
   },
 });
+
+export const reserveAvatarUpload = internalMutation({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const account = await resolve(ctx, token);
+    if (!account) throw new Error("unauthorized");
+    const now = Date.now();
+    const recent = (account.avatarUploadTimes ?? []).filter((time: number) => time > now - 60_000 && time <= now);
+    if (recent.length >= 6) throw new Error("Please wait before uploading another photo.");
+    const revision = (account.avatarUploadRevision ?? 0) + 1;
+    await ctx.db.patch(account._id, { avatarUploadTimes: [...recent, now], avatarUploadRevision: revision });
+    return { accountId: account._id, revision };
+  },
+});
+
+export const commitAvatarUpload = internalMutation({
+  args: { token: v.string(), accountId: v.id("accounts"), revision: v.number(), contentType: v.string(), digest: v.string(), chunks: v.array(v.bytes()) },
+  handler: async (ctx, args) => {
+    const account = await resolve(ctx, args.token);
+    if (!account || account._id !== args.accountId || account.avatarUploadRevision !== args.revision) throw Error("Invalid upload.");
+    if (!/^[a-f0-9]{64}$/.test(args.digest) || args.chunks.length < 1 || args.chunks.length > 10 || args.chunks.some(chunk => chunk.byteLength < 1 || chunk.byteLength > 512 * 1024)) throw Error("Invalid upload.");
+    const size = args.chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
+    if (size > 5 * 1024 * 1024) throw Error("Invalid upload.");
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of args.chunks) { bytes.set(new Uint8Array(chunk), offset); offset += chunk.byteLength; }
+    const type = droneDocumentType(bytes, args.contentType);
+    if (!type.startsWith("image/")) throw Error("Invalid upload.");
+    const digest = toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
+    if (digest !== args.digest) throw Error("Invalid upload.");
+    if (account.avatarBoundRevision === args.revision) {
+      if (account.avatarBoundDigest === digest && account.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId) return { ok: true };
+      throw Error("Photo upload already completed.");
+    }
+    const storageId = await ctx.storage.store(new Blob([bytes], { type }));
+    if (account.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId) await deletePrivateFile(ctx, account.avatarStorageId);
+    await ctx.db.patch(account._id, { avatarStorageId: storageId, avatarOwnedStorageId: storageId, avatarBoundRevision: args.revision, avatarBoundDigest: digest });
+    return { ok: true };
+  },
+});
+
+export const recordAvatarUpload = internalMutation({
+  args: { token: v.string(), accountId: v.id("accounts"), storageId: v.id("_storage"), revision: v.number(), uploadKey: v.string() },
+  handler: async (ctx, args) => {
+    const account = await resolve(ctx, args.token);
+    if (!account || account._id !== args.accountId || account.avatarUploadRevision !== args.revision || !/^[a-f0-9-]{36}$/.test(args.uploadKey)) throw Error("Invalid upload.");
+    const previous = await ctx.db.query("avatar_upload_ledger").withIndex("by_storage", q => q.eq("storageId", args.storageId)).unique();
+    if (previous) {
+      if (previous.accountId !== args.accountId || previous.revision !== args.revision || previous.uploadKey !== args.uploadKey) throw Error("Invalid upload.");
+      return;
+    }
+    await ctx.db.insert("avatar_upload_ledger", { accountId: args.accountId, storageId: args.storageId, revision: args.revision, uploadKey: args.uploadKey, dueAt: Date.now() + 24 * 60 * 60_000 });
+  },
+});
+
+export const bindAvatarUpload = internalMutation({
+  args: { token: v.string(), accountId: v.id("accounts"), storageId: v.id("_storage"), revision: v.number(), uploadKey: v.string() },
+  handler: async (ctx, { token, accountId, storageId, revision, uploadKey }) => {
+    const account = await resolve(ctx, token);
+    if (!account || account._id !== accountId || account.avatarUploadRevision !== revision) throw new Error("unauthorized");
+    if (account.avatarBoundRevision === revision) {
+      if (account.avatarStorageId === storageId && account.avatarOwnedStorageId === storageId) return { ok: true };
+      throw new Error("Photo upload already completed.");
+    }
+    const upload = await ctx.db.query("avatar_upload_ledger").withIndex("by_storage", q => q.eq("storageId", storageId)).unique();
+    if (!upload || upload.accountId !== accountId || upload.revision !== revision || upload.uploadKey !== uploadKey) throw Error("Invalid upload.");
+    if (account.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId)
+      await ctx.storage.delete(account.avatarStorageId);
+    await ctx.db.patch(accountId, { avatarStorageId: storageId, avatarOwnedStorageId: storageId, avatarBoundRevision: revision, avatarBoundDigest: undefined });
+    await ctx.db.delete(upload._id);
+    return { ok: true };
+  },
+});
+
+export const sweepAvatarUploads = internalMutation({ args: {}, handler: async ctx => {
+  const now = Date.now();
+  const due = await ctx.db.query("avatar_upload_ledger").withIndex("by_due", q => q.lte("dueAt", now)).take(10);
+  for (const upload of due) {
+    const account = await ctx.db.get(upload.accountId);
+    const current = await ctx.db.query("accounts").withIndex("by_avatar", q => q.eq("avatarStorageId", upload.storageId)).first();
+    const owned = await ctx.db.query("accounts").withIndex("by_owned_avatar", q => q.eq("avatarOwnedStorageId", upload.storageId)).first();
+    if (current || owned) { await ctx.db.delete(upload._id); continue; }
+    if (!account?.email) { await ctx.db.patch(upload._id, { dueAt: now + 24 * 60 * 60_000 }); continue; }
+    const cases = await ctx.db.query("rental_damage_cases").withIndex("by_account", q => q.eq("accountId", account._id)).first();
+    const linked = await ctx.db.query("bookings").withIndex("by_account", q => q.eq("accountId", account._id)).take(51);
+    const legacy = await ctx.db.query("bookings").withIndex("by_guestEmail", q => q.eq("guestEmail", account.email.trim().toLowerCase())).filter(q => q.eq(q.field("accountId"), undefined)).take(51);
+    let retained = !!cases || linked.length > 50 || legacy.length > 50;
+    for (const booking of [...linked, ...legacy]) {
+      if (retained) break;
+      retained = !!(await ctx.db.query("rental_damage_cases").withIndex("by_booking", q => q.eq("bookingId", booking._id)).first());
+    }
+    if (retained) { await ctx.db.patch(upload._id, { dueAt: now + 24 * 60 * 60_000 }); continue; }
+    await deletePrivateFile(ctx, upload.storageId);
+    await ctx.db.delete(upload._id);
+  }
+} });
 
 export const signOut = mutation({
   args: { token: v.string() },
@@ -607,8 +710,40 @@ export const deleteAccount = mutation({
   handler: async (ctx, { token }) => {
     const a: any = await resolve(ctx, token);
     if (!a) throw new Error("unauthorized");
-    const sessions = await ctx.db.query("sessions").collect();
-    for (const s of sessions) if (s.accountId === a._id) await ctx.db.delete(s._id);
+    if (a.stripeSubscriptionId) throw new Error("Please contact the team to request deletion. Your subscription needs to be checked and cancelled first so billing does not continue.");
+    if (a.membershipActive) throw new Error("Please contact the team to request deletion so we can review your membership and account records.");
+    if (a.lastRestrictedAt != null) throw new Error("Please contact the team to request deletion so we can review your account records.");
+    const [booking, guestBooking, archive, credit, thread, rentalCase, attachment, adminNote, adminChange] = await Promise.all([
+      ctx.db.query("bookings").withIndex("by_account", q => q.eq("accountId", a._id)).first(),
+      ctx.db.query("bookings").withIndex("by_guestEmail_status", q => q.eq("guestEmail", a.email.trim().toLowerCase())).first(),
+      ctx.db.query("verification_archives").withIndex("by_account", q => q.eq("accountId", a._id)).first(),
+      ctx.db.query("credits").withIndex("by_account", q => q.eq("accountId", a._id)).first(),
+      ctx.db.query("chat_threads").withIndex("by_account_updated", q => q.eq("accountId", a._id)).first(),
+      ctx.db.query("rental_damage_cases").withIndex("by_account", q => q.eq("accountId", a._id)).first(),
+      ctx.db.query("chat_attachment_attempts").withIndex("by_account_created", q => q.eq("accountId", a._id)).first(),
+      ctx.db.query("account_admin_notes").withIndex("by_account", q => q.eq("accountId", a._id)).first(),
+      ctx.db.query("account_admin_changes").withIndex("by_account", q => q.eq("accountId", a._id)).first(),
+    ]);
+    if (booking || guestBooking || archive || credit || thread || rentalCase || attachment || adminNote || adminChange || a.stripeCustomerId) throw new Error("Please contact the team to request deletion. We'll review your rental and billing records and any applicable retention requirements.");
+    const pendingAvatar = await ctx.db.query("avatar_upload_ledger").withIndex("by_account", q => q.eq("accountId", a._id)).first();
+    if (pendingAvatar) throw new Error("Your photo is still being processed. Please try again later, or contact the team to request deletion.");
+    if (a.avatarStorageId && a.avatarStorageId === a.avatarOwnedStorageId) {
+      const [current, owned] = await Promise.all([
+        ctx.db.query("accounts").withIndex("by_avatar", q => q.eq("avatarStorageId", a.avatarStorageId)).take(2),
+        ctx.db.query("accounts").withIndex("by_owned_avatar", q => q.eq("avatarOwnedStorageId", a.avatarStorageId)).take(2),
+      ]);
+      if ([...current, ...owned].some(account => account._id !== a._id)) throw new Error("Please contact the team to request deletion so we can safely review your profile photo.");
+    }
+    const [sessions, links, devices] = await Promise.all([
+      ctx.db.query("sessions").withIndex("by_account", q => q.eq("accountId", a._id)).take(101),
+      ctx.db.query("account_access_links").withIndex("by_account", q => q.eq("accountId", a._id)).take(101),
+      ctx.db.query("renter_push_subscriptions").withIndex("by_account_enabled", q => q.eq("accountId", a._id)).take(101),
+    ]);
+    if (sessions.length > 100 || links.length > 100 || devices.length > 100) throw new Error("Please contact the team to request deletion so we can safely review your account.");
+    for (const device of devices) await ctx.db.delete(device._id);
+    for (const session of sessions) await ctx.db.delete(session._id);
+    for (const link of links) await ctx.db.delete(link._id);
+    if (a.avatarStorageId && a.avatarStorageId === a.avatarOwnedStorageId) await deletePrivateFile(ctx, a.avatarStorageId);
     await ctx.db.delete(a._id);
     return { ok: true };
   },
@@ -633,11 +768,14 @@ export const _listSubscribers = internalQuery({
 
 /** Reconcile one account's membership to the REAL Stripe subscription state (cron). */
 export const _applyMembershipReconcile = internalMutation({
-  args: { accountId: v.id("accounts"), active: v.boolean(), tier: v.optional(v.string()) },
-  handler: async (ctx, { accountId, active, tier }) => {
-    const patch: Record<string, unknown> = { membershipActive: active };
+  args: { accountId: v.id("accounts"), subscriptionId: v.string(), active: v.boolean(), tier: v.optional(v.string()) },
+  handler: async (ctx, { accountId, subscriptionId, active, tier }) => {
+    const account = await ctx.db.get(accountId);
+    if (!account || account.stripeSubscriptionId !== subscriptionId) return false;
+    const patch: Record<string, unknown> = { membershipActive: active, ...(!active ? { membershipStatus: "provider_missing", membershipPaidThrough: undefined } : {}) };
     if (tier) patch.membershipTier = tier;
     await ctx.db.patch(accountId, patch);
+    return true;
   },
 });
 

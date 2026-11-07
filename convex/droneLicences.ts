@@ -1,4 +1,4 @@
-import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
+import { query, mutation, internalQuery, internalMutation, type QueryCtx, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
@@ -11,6 +11,21 @@ import { saveDroneCopy } from "./droneArchive";
 import { archiveRetention, documentCopyAvailable } from "./verificationArchive";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { DRONE_DOCUMENT_LIMIT } from "./lib/droneDocument";
+import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
+
+async function droneAdminRead(ctx:QueryCtx,token:string) {
+  if(process.env.ADMIN_SESSION_DRONE_V2==="enabled") {
+    if(!adminSessionMigrationReady())throw Error("Admin session migration is not ready.");
+    await assertAdminScopeSession(ctx,token,"verification:read");
+  } else if(!checkAdminToken(token))throw Error("unauthorized");
+}
+async function droneAdminWrite(ctx:MutationCtx,token:string,fn:string) {
+  if(process.env.ADMIN_SESSION_DRONE_V2==="enabled") {
+    if(!adminSessionMigrationReady())throw Error("Admin session migration is not ready.");
+    await assertAdminScopeSession(ctx,token,"verification:write");
+    await ctx.db.insert("admin_audit_log",{at:Date.now(),success:true,limited:false,fn});
+  } else await assertAdmin(ctx,token,fn);
+}
 
 const access = { bookingId: v.id("bookings"), token: v.optional(v.string()), checkoutSessionId: v.optional(v.string()) };
 async function renterBooking(ctx: any, args: any) {
@@ -43,7 +58,7 @@ export const saveUpload = internalMutation({args:{...access,storageId:v.id("_sto
   return {documentId};
 }});
 export const adminDetails=query({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,args)=>{
-  if(!checkAdminToken(args.token))throw Error("unauthorized");
+  await droneAdminRead(ctx,args.token);
   const booking=await ctx.db.get(args.bookingId);
   if(!booking || !await requiresDroneLicence(ctx,booking))return null;
   const document=booking.droneLicenceDocumentId?await ctx.db.get(booking.droneLicenceDocumentId):null;
@@ -53,13 +68,13 @@ export const adminDetails=query({args:{token:v.string(),bookingId:v.id("bookings
   return {status:await droneLicenceStatusForRental(ctx,booking),note:booking.droneLicenceNote,documentId:available?document!._id:null,expiresAt:retention?.expiresAt??null,legacy:!!booking.droneLicenceStorageId&&!booking.droneLicenceDocumentId,canReview:booking.status==="confirmed"&&verificationCanStart(booking)};
 }});
 export const archiveExisting=mutation({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,args)=>{
-  await assertAdmin(ctx,args.token,"droneLicences.archiveExisting");
+  await droneAdminWrite(ctx,args.token,"droneLicences.archiveExisting");
   const booking=await ctx.db.get(args.bookingId);
   if(!booking?.droneLicenceStorageId)throw Error("No uploaded licence exists.");
   await ctx.scheduler.runAfter(0,internal.droneArchive.captureLegacy,{bookingId:booking._id});
 }});
 export const review=mutation({args:{token:v.string(),bookingId:v.id("bookings"),documentId:v.id("verification_documents"),decision:v.union(v.literal("approved"),v.literal("requires_input")),note:v.string()},handler:async(ctx,args)=>{
-  await assertAdmin(ctx,args.token,"droneLicences.review");
+  await droneAdminWrite(ctx,args.token,"droneLicences.review");
   const booking=await ctx.db.get(args.bookingId);
   if(!booking || booking.status!=="confirmed" || !verificationCanStart(booking) || !await requiresDroneLicence(ctx,booking))throw Error("This rental cannot be reviewed.");
   if(booking.droneLicenceDocumentId!==args.documentId)throw Error("The uploaded licence changed. Open the latest document before reviewing it.");

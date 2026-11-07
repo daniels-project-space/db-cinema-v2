@@ -10,7 +10,7 @@ type LegalPolicyFlags = {
  refundableDepositEnabled?: boolean;
 };
 
-function legalVersionForPolicy(flags: LegalPolicyFlags) {
+export function legalVersionForPolicy(flags: LegalPolicyFlags) {
  return flags.setupIntentSecurityEnabled?SETUP_INTENT_LEGAL_VERSION:flags.cardHoldSecurityEnabled?CARD_HOLD_LEGAL_VERSION:flags.assessmentSecurityEnabled?(flags.cancellationProtectionEnabled?CANCELLATION_PROTECTION_LEGAL_VERSION:ASSESSMENT_DEPOSIT_LEGAL_VERSION):flags.refundableDepositEnabled?REFUNDABLE_DEPOSIT_LEGAL_VERSION:LEGAL_VERSION;
 }
 
