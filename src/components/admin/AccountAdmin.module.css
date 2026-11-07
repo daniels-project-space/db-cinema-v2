@@ -1045,7 +1045,7 @@
 .filters select { height:38px; font-size:13px; }
 .filterLabel { display:block; margin:0 0 6px; color:#ede7de; font-size:13px; }
 .clearFilters { justify-self:end; padding:5px; color:#e0b995; font-size:12px; }
-.filterActions { align-self:end; text-align:right; }
+.filterActions { grid-column:1/-1; display:flex; justify-content:space-between; align-items:center; gap:10px; min-width:0; text-align:left; }
 .filterActions summary { cursor:pointer; color:#a9aaa5; font-size:11px; list-style:none; }
 .filterActions select { margin-top:5px; }
 .filterActions:has(details[open]) { grid-column:1/-1; display:flex; justify-content:space-between; align-items:center; gap:10px; }
