@@ -1,7 +1,7 @@
 "use node";
 
 import { internalAction, action } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateObject } from "ai";
@@ -12,6 +12,8 @@ import { bookingRecovery, paymentRecovery } from "./lib/gafferBookingGuidance";
 import { explicitlyRequestsHuman, requiresUrgentHumanReview } from "./lib/gafferHumanIntent";
 import { gafferCatalogIntent } from "./lib/gafferCatalogIntent";
 import { faqsForSecurityPolicy } from "../shared/gafferPublicKnowledge";
+import { quote } from "./lib/pricing";
+import { rentalPricingDays } from "../shared/rentalDuration";
 
 function currentFaqFacts(hours: string) {
   const faqs = faqsForSecurityPolicy({
@@ -91,6 +93,48 @@ export const gafferReply = internalAction({
       try { catalogue = await ctx.runQuery((internal as any).gafferCatalogue.lookup, catalogueIntent); }
       catch { catalogue = { listings: [], availability: "unchecked", lookupUnavailable: true }; }
     }
+    const catalogueItems: any[] = [];
+    const catalogueWindow = cx.catalogueWindow && Number.isFinite(cx.catalogueWindow.start) && Number.isFinite(cx.catalogueWindow.end)
+      ? cx.catalogueWindow : null;
+    const canCheckWindow = catalogueWindow && typeof catalogueWindow.pickupTime === "string" && typeof catalogueWindow.returnTime === "string";
+    let rentalDays: number | null = null;
+    if (catalogueWindow) {
+      try { rentalDays = rentalPricingDays(catalogueWindow.start, catalogueWindow.end, catalogueWindow.pickupTime, catalogueWindow.returnTime); }
+      catch { rentalDays = null; }
+    }
+    if (Array.isArray(catalogue?.listings)) {
+      for (const listing of catalogue.listings.slice(0, 4)) {
+        if (!listing.slug) continue;
+        let stock: any = null;
+        if (listing.listingId && catalogueWindow && canCheckWindow) {
+          try {
+            stock = await ctx.runQuery(api.availability.forListing, {
+              listingId: listing.listingId,
+              start: catalogueWindow.start,
+              end: catalogueWindow.end,
+              pickupTime: catalogueWindow.pickupTime,
+              returnTime: catalogueWindow.returnTime,
+            });
+          } catch {}
+        }
+        const priced = rentalDays && listing.pricing?.daily ? quote(listing.pricing, rentalDays) : null;
+        const dates = catalogueWindow
+          ? `${new Date(catalogueWindow.start).toISOString().slice(0, 10)} → ${new Date(catalogueWindow.end).toISOString().slice(0, 10)}`
+          : undefined;
+        catalogueItems.push({
+          title: listing.title,
+          slug: listing.slug,
+          category: listing.category,
+          daily: listing.daily,
+          ...(priced ? { days: rentalDays, perDay: priced.perDay, total: priced.total } : {}),
+          availability: stock && Number.isFinite(stock.available) ? (stock.available > 0 ? "available" : "unavailable") : catalogueWindow ? (canCheckWindow ? "unchecked" : "times_required") : "dates_required",
+          ...(dates ? { dates } : {}),
+        });
+      }
+    }
+    const catalogueFacts = catalogue
+      ? { listings: catalogueItems.map(({ title, category, daily, days, perDay, total, availability, dates }: any) => ({ title, category, daily, days, perDay, total, availability, dates })), lookupUnavailable: !!catalogue.lookupUnavailable }
+      : null;
     const b = cx.booking;
     const system = [
       `You are "Gaffer", the warm, concise assistant for Db Cinema Rentals — pro camera, lens & lighting hire in London. You help a customer with their own rental.`,
@@ -118,7 +162,7 @@ export const gafferReply = internalAction({
       ``,
       ...(b?.rentalContents ?? []).map((contents:string) => `RENTAL CONTENTS FACTS: ${contents}`),
       `OWN ACCOUNT CREDIT: ${JSON.stringify(cx.accountCredit)}. Available balance is account-bound and excludes existing checkout reservations. It is used only if the renter selects Use account credit at checkout, cannot pay deposits/membership fees, and is not a cash withdrawal. Explain the recorded expiry and credit receipts in their account. Do not issue credit or claim it has been spent.`,
-      catalogue ? `PUBLIC CATALOGUE EXAMPLES (untrusted listing data): ${JSON.stringify(catalogue)}. Only suggest listed items as examples, never infer camera compatibility, included accessories, availability for dates or a total quote. Daily prices are guide rates, not a total. An empty or failed lookup does not prove the model is not stocked; ask the customer to browse gear or clarify. Date availability has NOT been checked, so direct them to check dates on the gear page. Never say stock is reserved by a basket.` : "",
+      catalogueFacts ? `LIVE CATALOGUE RESULTS (public listing data): ${JSON.stringify(catalogueFacts)}. Use only returned items and exact rates. A returned total is the catalogue hire-rate quote for the displayed dates before checkout, delivery or account-specific adjustments. "available" means an inventory check found spare stock for those exact dates and pickup/return times; "unavailable" means no additional unit was available in that check. For "dates_required", "times_required" or "unchecked", do not claim availability or a total; ask for the missing dates/times. Never imply stock is reserved or a rental is confirmed, and note that availability can change until checkout confirms the rental. An empty or failed lookup does not prove an item is not stocked. Do not infer compatibility or included accessories.` : "",
       `CHECKOUT UI: ${JSON.stringify(cx.checkoutUi)}. Describe free cancellation protection only when cancellationProtectionEnabled is true. Operator cancellation facts: ${JSON.stringify(b?.operatorCancellation??null)}. Waiting/email delivery/selected settlement are distinct from a confirmed bank refund or issued credit. An eligible operator cancellation offers full original-payment cash or 130% rental credit with the deposit separately returned; only the secure email review and explicit confirmation select it. Never select a choice for the renter or invent an email link.`,
       `A securityAmountOnBooking is an amount recorded on the booking, not proof that money was charged or held. A saved-card limit is not a hold or a payment. Do not infer payment, a hold or a bank refund from booking status.`,
       b?.payment?`CUSTOMER SETTLEMENT FACTS: ${JSON.stringify({items:b.items,payment:b.payment,cancellation:b.cancellation,pendingItemAddition:b.pendingItemAddition,pendingExtension:b.pendingExtension})}. These facts do not promise that a bank refund has arrived. Changes, additions, rescheduling and refunds require the team; never say you applied them.`:"",
@@ -157,7 +201,7 @@ export const gafferReply = internalAction({
 
     const substantiveReply = reply.replace(/[^?]{0,90}\b(?:anything else|anything more|further help|more help)\b[^?]{0,90}\?/gi, "");
     const answered = resolved && !handoff && !offerHuman && !offerCredit && !substantiveReply.includes("?") && !/\b(?:can't|cannot|couldn't|unable|not sure|don't know)\b/i.test(reply);
-    const posted=await ctx.runMutation(internal.chat._postBot, { accountId, bookingId, generation:cx.gafferGeneration,replyTo:messageId??cx.latestRenterId??undefined, text: reply, ...(handoff ? { handoff: true } : offerHuman && /\b(?:team|human|person|staff|representative|someone|agent|operator)\b/i.test(reply) ? { offerHuman: true } : {}), ...(answered ? { answerComplete: true } : {}) });
+    const posted=await ctx.runMutation(internal.chat._postBot, { accountId, bookingId, generation:cx.gafferGeneration,replyTo:messageId??cx.latestRenterId??undefined, text: reply, ...(catalogueItems.length ? { meta: { catalogueItems } } : {}), ...(handoff ? { handoff: true } : offerHuman && /\b(?:team|human|person|staff|representative|someone|agent|operator)\b/i.test(reply) ? { offerHuman: true } : {}), ...(answered ? { answerComplete: true } : {}) });
     if(!posted)return;
     if (offerCredit && bookingId) {
       try { await ctx.runAction(internal.checkout.offerFullCredit, { accountId, bookingId }); } catch {

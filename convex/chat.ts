@@ -167,10 +167,12 @@ export const _gafferContext = internalQuery({
     const msgs=rawMessages.reverse().map(m=>({_id:m._id,sender:m.sender,text:m.text}));
     const pick:any=focusBookingId?await ownedBooking(ctx,acct,focusBookingId):null;
     let booking: any = null;
+    let catalogueWindow: { start: number; end: number; pickupTime: string | null; returnTime: string | null } | null = null;
     if (pick) {
       const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
       const start = Math.min(...pick.lineItems.map((li: any) => li.start));
       const end = Math.max(...pick.lineItems.map((li: any) => li.end));
+      if (pick.lineItems.length) catalogueWindow = { start, end, pickupTime: pick.pickupTime ?? null, returnTime: pick.returnTime ?? null };
       // NOTE: the customer's stored delivery/home address is deliberately NOT included here —
       // Gaffer must never be able to read it out. Only the depot pickup address (settings) is shareable.
       const rentalContents = await Promise.all(pick.lineItems.map(async (li:any) => {
@@ -206,6 +208,7 @@ export const _gafferContext = internalQuery({
     const settings: any = await ctx.db.query("settings").first();
     const creditRows=await availableCreditRows(ctx,acct._id),availableCreditPence=creditRows.reduce((n:number,row:any)=>n+row.availablePence,0);
     return {
+      catalogueWindow,
       accountCredit:{available:availableCreditPence/100,expiresAt:creditRows.find((row:any)=>row.availablePence>0)?.expiresAt??null,currency:"GBP",selection:"Choose Use account credit at checkout; it is not automatically spent",nonRefundable:true,securityAndMembershipExcluded:true},
       checkoutUi:{accountCredit:"Header credit bar opens Account credit and receipts. Checkout shows the credit checkbox only when an available balance exists.",cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true",cancellationProtection:"Free shield card at checkout opens the policy. If DB cancels before pickup, all accounts can receive a refund. Non-blocked accounts get private email choices after the one-hour decision: original-payment refund or 130% rental credit. Blocked accounts receive the refund only; the refundable deposit is returned separately. Opening a link does not execute a choice."},
       accountRentals: (await rentalsForAccount(ctx,acct,10)).map(b => ({id:b._id,status:gafferBookingStatus(b),items:b.lineItems.map((i:any)=>({title:i.title,qty:i.qty,start:i.start,end:i.end})),total:b.total,securityAmountOnBooking:b.depositAmount})),
@@ -233,15 +236,16 @@ export const _gafferVerificationAccess = internalQuery({
 });
 
 export const _postBot = internalMutation({
-  args:{accountId:v.id("accounts"),bookingId:v.optional(v.id("bookings")),replyTo:v.optional(v.id("messages")),generation:v.optional(v.number()),text:v.string(),offerHuman:v.optional(v.boolean()),answerComplete:v.optional(v.boolean()),handoff:v.optional(v.boolean())},
-  handler:async(ctx,{accountId,bookingId,replyTo,generation,text,offerHuman,answerComplete,handoff})=>{
+  args:{accountId:v.id("accounts"),bookingId:v.optional(v.id("bookings")),replyTo:v.optional(v.id("messages")),generation:v.optional(v.number()),text:v.string(),offerHuman:v.optional(v.boolean()),answerComplete:v.optional(v.boolean()),handoff:v.optional(v.boolean()),meta:v.optional(v.any())},
+  handler:async(ctx,{accountId,bookingId,replyTo,generation,text,offerHuman,answerComplete,handoff,meta})=>{
     const t=await rentalThread(ctx,accountId,bookingId);
     if(t?.escalated || (generation ?? 0) !== (t?.gafferGeneration ?? 0) || (replyTo && t?.gafferReplyTo===replyTo))return false;
     if(replyTo){
       const recent=await ctx.db.query("messages").withIndex("by_booking_account_at",q=>q.eq("bookingId",bookingId).eq("accountId",accountId)).order("desc").take(20);
       if(recent.find(m=>m.sender==="renter")?._id!==replyTo)return false;
     }
-    const botMessageId=await postRentalMessage(ctx,{accountId,bookingId,sender:"bot",text,...(offerHuman?{meta:{offerHuman:true}}:{})});
+    const botMeta={...(meta&&typeof meta==="object"?meta:{}),...(offerHuman?{offerHuman:true}:{})};
+    const botMessageId=await postRentalMessage(ctx,{accountId,bookingId,sender:"bot",text,...(Object.keys(botMeta).length?{meta:botMeta}:{})});
     const updated=await rentalThread(ctx,accountId,bookingId);
     if(updated && replyTo)await ctx.db.patch(updated._id,{gafferReplyTo:replyTo});
     if(handoff && updated){

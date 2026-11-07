@@ -451,6 +451,21 @@ export function RentalConversation({
                   className={`management-conversation-message-copy min-w-0 max-w-[calc(100%-2.5rem)] rounded-2xl border px-4 py-3 text-sm leading-relaxed ${m.sender === "bot" ? "border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-50" : m.sender === "owner" ? "border-accent-300/25 bg-accent-500/15 text-orange-50" : m.sender === "system" ? "border-dashed border-sky-200/20 bg-sky-300/[0.04] text-sky-100/70" : "border-violet-300/20 bg-violet-300/10 text-violet-50"}`}
                 >
                   <p className="whitespace-pre-wrap break-words">{m.meta?.kind === "review_invitation" ? m.text.replace(/\s*\[Leave your rental review\]\([^)]*\)/, "") : m.text}</p>
+                  {m.sender === "bot" && Array.isArray(m.meta?.catalogueItems) && m.meta.catalogueItems.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Gaffer gear suggestions">
+                    {m.meta.catalogueItems.slice(0, 4).map((item: any) => <article key={`${m._id}-${item.slug}`} data-testid="gaffer-catalogue-card" className="min-w-0 rounded-xl border border-white/10 bg-white/[0.035] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0"><span className="text-[10px] uppercase tracking-[0.16em] text-white/45">{item.category}</span><h4 className="mt-1 break-words text-sm font-medium text-white/90">{item.title}</h4></div>
+                        <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] ${item.availability === "available" ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100" : item.availability === "unavailable" ? "border-amber-300/20 bg-amber-300/10 text-amber-100" : "border-white/10 bg-white/[0.04] text-white/55"}`}>
+                          {item.availability === "available" ? "Open for dates" : item.availability === "unavailable" ? "No extra stock" : item.availability === "times_required" ? "Times needed" : item.availability === "dates_required" ? "Dates needed" : "Check dates"}
+                        </span>
+                      </div>
+                      <div className="mt-3 flex items-end justify-between gap-3">
+                        <p className="min-w-0 text-xs text-white/55">{item.total != null ? <><strong className="text-sm font-semibold text-white/90">£{Number(item.total).toFixed(2)}</strong><span className="ml-1">for {item.days} day{item.days === 1 ? "" : "s"}</span></> : item.daily != null ? `From £${Number(item.daily).toFixed(2)} / day` : "Choose dates for a quote"}</p>
+                        <a data-testid="gaffer-catalogue-card-link" href={`/gear/${encodeURIComponent(item.slug)}`} className="shrink-0 rounded-full border border-accent-300/20 bg-accent-300/[0.08] px-3 py-1.5 text-xs text-accent-100 transition hover:border-accent-200/40 hover:bg-accent-300/[0.14]">View &amp; add</a>
+                      </div>
+                    </article>)}
+                    <p className="sm:col-span-2 text-[10px] leading-relaxed text-white/35">Availability is a live check, not a reservation. Hire-rate estimates exclude delivery and checkout adjustments.</p>
+                  </div>}
                   {!admin && !teamHandling && m.sender === "bot" && m._id === latestConversationMessage?._id && m.meta?.offerHuman === true && <HumanHandoffOffer key={`${scopeKey}:${m._id}`} onRequest={async () => { await human({ token, bookingId: bookingId as any }); }} />}
                   {m.meta?.kind === "attachment" && m.meta.attachmentId && <button type="button" disabled={!attachmentsAvailable || attachmentBusy} onClick={() => void downloadAttachment(m.meta.attachmentId, m.meta.name || "attachment")} className="mt-3 rounded-full border border-current/20 px-3 py-1 text-xs disabled:opacity-40">Download attachment</button>}
                   {admin && attachmentsAvailable && m.meta?.kind === "attachment" && m.meta.attachmentId && <AttachmentAdminControls key={m.meta.attachmentId} token={token} id={m.meta.attachmentId}/>}
