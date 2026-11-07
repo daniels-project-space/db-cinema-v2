@@ -443,8 +443,10 @@ export function RentalOrderTools({
           <p className="mt-2 text-xs leading-relaxed text-white/45">
             {mode === "cancel"
               ? b.cancellationKind === "full_refund"
-                ? "Within the refund window: remaining card payment is refunded and previously used account credit is restored."
-                : "Outside the refund window: rental cash refund is 0%. Remaining rental payment becomes one-year account credit. Refundable security is returned separately."
+                ? b.cancellationTermsVersion === "2026-11-v21" ? "More than seven days before pickup: the renter may choose a full refund or 100% account credit. Record their explicit choice." : "Within the refund window: remaining card payment is refunded and previously used account credit is restored."
+                : b.cancellationKind === "no_refund"
+                  ? "Within 48 hours of pickup: no rental refund or account credit. Any separately refundable security is settled separately."
+                  : "Outside the refund window: rental cash refund is 0%. Remaining rental payment becomes one-year account credit. Refundable security is returned separately."
               : mode === "remove"
                 ? "Remove the selected item and release its stock. This does not change the agreed payment or security: use the separate refund control within the refund window. The original charge remains itemised on the receipt. To remove all kit, cancel the rental."
               : mode === "add"

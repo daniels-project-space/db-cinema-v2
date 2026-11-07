@@ -12,6 +12,7 @@ const fixtureFaqs = [
   { q: "How are the rates structured?", a: "Old discount claim." },
   { q: "What are your opening hours?", a: "Opening hours." },
   { q: "Can I extend or add to my booking?", a: "Old extension guarantee." },
+  { q: "How do cancellations work?", a: "Old cancellation terms." },
 ];
 const sourcePath = path.join(__dirname, "../src/lib/currentFaqs.ts");
 const source = fs.readFileSync(sourcePath, "utf8");
@@ -27,10 +28,11 @@ const moduleRequire = (identifier) => {
     CANCELLATION_PROTECTION_LEGAL_VERSION: "cancellation-v",
     REFUNDABLE_DEPOSIT_LEGAL_VERSION: "cash-v",
     SETUP_INTENT_LEGAL_VERSION: "setup-v",
+    PREVIOUS_SETUP_INTENT_LEGAL_VERSION: "setup-previous-v",
   };
   if (identifier === "./currentLegalVersion") return {
     currentLegalVersion: async () => "setup-v",
-    legalVersionForPolicy: (policy) => policy.version,
+    legalVersionForPolicy: (policy) => policy.setupIntentSecurityEnabled ? "setup-v" : policy.cardHoldSecurityEnabled ? "card-hold-v" : policy.assessmentSecurityEnabled ? (policy.cancellationProtectionEnabled ? "cancellation-v" : "assessment-v") : policy.refundableDepositEnabled ? "cash-v" : policy.version,
   };
   if (identifier === "../../shared/gafferPublicKnowledge") return sharedKnowledge;
   throw new Error(`Unexpected module dependency: ${identifier}`);
@@ -45,6 +47,7 @@ const questions = {
   deposits: "What about deposits and insurance?",
   rates: "How are the rates structured?",
   changes: "Can I extend or add to my booking?",
+  cancellations: "How do cancellations work?",
 };
 
 const setupFaqs = faqsForPolicy({ setupIntentSecurityEnabled: true });
@@ -55,6 +58,8 @@ assert.match(answerFor(setupFaqs, questions.delivery), /eligible addresses/);
 assert.match(answerFor(setupFaqs, questions.rates), /active membership saving is applied to the quote for that account/);
 assert.match(answerFor(setupFaqs, questions.changes), /not complete until your account shows the updated rental/);
 assert.match(answerFor(setupFaqs, questions.deposits), /no upfront deposit and reserve no card funds/);
+assert.match(answerFor(setupFaqs, questions.cancellations), /cancel more than seven London calendar days.*100% rental credit.*More than 48 hours.*At 48 hours or less.*no rental refund or credit/);
+assert.match(answerFor(faqsForLegalVersion("setup-previous-v"), questions.cancellations), /At seven days or less.*account credit/);
 const cardHoldFaqs = faqsForPolicy({ cardHoldSecurityEnabled: true });
 assert.match(answerFor(cardHoldFaqs, questions.deposits), /temporary card authorisation of £50 below £1,000/);
 assert.match(answerFor(cardHoldFaqs, questions.deposits), /may reduce the card's available balance/);

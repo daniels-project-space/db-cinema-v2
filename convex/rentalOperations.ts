@@ -103,6 +103,7 @@ export const details = query({
       rentalRefunds: refunds,
       controlsSnapshot: rentalControlsSnapshot(b, refunds),
       cancellationKind: bookingCancelKind(b, Date.now()),
+      cancellationTermsVersion: b.agreementDocs?.find((doc: { kind: string; version: string }) => doc.kind === "cancellation")?.version ?? "2026-10-v10",
     };
   },
 });

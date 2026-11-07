@@ -1774,9 +1774,10 @@ async function cancellationSourceBalance(source:any,b:any,bookingId:any,strict=f
  if(strict&&(payment.id!==source.paymentIntentId||payment.status!=="succeeded"||payment.currency!==(b.currency??"GBP").toLowerCase()||!Number.isSafeInteger(payment.amount_received)||payment.amount_received<0||payment.metadata?.bookingId&&payment.metadata.bookingId!==String(bookingId)))throw new RefundReviewRequired("The payment does not match this rental's captured currency or ownership. Review before settlement.");
  return {...source,availablePence:await remainingCancellationPayment(payment,source.maxPaidPence)};
 }
-async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReason?:string,fullCreditOfferId?:any,changeRequestId?:any,expectedCancellationKind?:"full_refund"|"store_credit"){
+async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReason?:string,fullCreditOfferId?:any,changeRequestId?:any,expectedCancellationKind?:"full_refund"|"store_credit"|"no_refund",customerChoice?:"refund"|"credit"){
  const requestId=changeRequestId??b.cancellationDecision?.changeRequestId;
- const decision=await ctx.runMutation(internal.bookings.prepareCancellation,{bookingId,fullCreditOfferId,...(b.cancellationDecision?.operatorOfferId?{operatorOfferId:b.cancellationDecision.operatorOfferId}:{}),...(requestId?{changeRequestId:requestId}:{}),...(expectedCancellationKind?{expectedCancellationKind}:{})});
+ const resolvedCustomerChoice=customerChoice??b.cancellationDecision?.customerChoice;
+ const decision=await ctx.runMutation(internal.bookings.prepareCancellation,{bookingId,fullCreditOfferId,...(b.cancellationDecision?.operatorOfferId?{operatorOfferId:b.cancellationDecision.operatorOfferId}:{}),...(requestId?{changeRequestId:requestId}:{}),...(expectedCancellationKind?{expectedCancellationKind}:{}),...(resolvedCustomerChoice?{customerChoice:resolvedCustomerChoice}:{})});
  const operatorContext:any=decision.operatorOfferId?await ctx.runQuery(internal.operatorCancellationState.byId,{offerId:decision.operatorOfferId}):null;
  const operator:any=operatorContext?.offer??null;
  if(decision.operatorOfferId&&(!operator||operator.state!=="chosen"||!operator.choice))throw Error("The cancellation settlement choice is not ready.");
@@ -1784,7 +1785,7 @@ async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReas
  let quote=decision.quote;
  if(!quote){
   const paidIntentId=await paymentBeforeCancellation(b);
-  let mode:"none"|"refund"|"credit"="none",refundAmount=0,creditAmount=0,bonusCreditAmount=0,allocations:any[]=[];
+  let mode:"none"|"refund"|"credit"|"no_refund"="none",refundAmount=0,creditAmount=0,bonusCreditAmount=0,allocations:any[]=[];
   if(paidIntentId || (b.status==="confirmed"||operator)&&(b.creditApplied??0)>0){
    const sources=paidIntentId?(b.paymentSources?.length?b.paymentSources:[{paymentIntentId:paidIntentId,securityPence:pence(b.depositAmount)}]):[];
    const balances=await Promise.all(sources.map((source:any)=>cancellationSourceBalance(source,b,bookingId,!!operator||!!decision.inventoryConflictRefund)));
@@ -1792,7 +1793,7 @@ async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReas
    const spent=(b.status==="confirmed"||operator)?pence(b.creditApplied??0):0;
    const settlement = decision.fullCreditOfferId
     ? { allocations: [], refundPence: 0, creditPence: balances.reduce((sum:number, source:any) => sum + source.availablePence, 0) + pence(b.creditApplied ?? 0) }
-    : cancellationPaymentPlan(operator?.choice==="credit"?"store_credit":decision.kind,balances,spent);
+    : cancellationPaymentPlan(operator?(operator.choice==="credit"?"store_credit":"full_refund"):decision.customerChoice==="credit"?"store_credit":decision.kind,balances,spent);
    if(operator){
     const security=cancellationPaymentPlan("store_credit",balances,0).refundPence,cash=balances.reduce((n:number,s:any)=>n+s.availablePence,0);
     if(cash!==operator.cashRemainingPence||security!==operator.securityRemainingPence||spent!==operator.spentCreditPence)throw new RefundReviewRequired("The provider balance changed after the cancellation offer. Review the settlement before execution.");
@@ -1803,7 +1804,7 @@ async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReas
     if(!offer||settlement.creditPence!==offer.amountPence)throw Error("The payment balance changed. The team must review the credit quote before cancellation.");
    }
    allocations=settlement.allocations;
-   mode=operator?(operator.choice==="credit"?"credit":"refund"):decision.fullCreditOfferId?"credit":decision.kind==="full_refund"?"refund":"credit";refundAmount=settlement.refundPence/100;creditAmount=settlement.creditPence/100;
+   mode=operator?(operator.choice==="credit"?"credit":"refund"):decision.fullCreditOfferId||decision.customerChoice==="credit"?"credit":decision.kind==="full_refund"?"refund":decision.kind==="no_refund"?"no_refund":"credit";refundAmount=settlement.refundPence/100;creditAmount=settlement.creditPence/100;
    if(creditAmount>0&&!accountId)throw Error("The renter needs an account with their booking email before account credit can be issued. Resume this cancellation after account creation.");
   }
   quote=await ctx.runMutation(internal.bookings.recordCancellationQuote,{bookingId,quote:{mode,refundAmount,creditAmount,...(operator?{bonusCreditAmount}:{}),paymentIntentId:paidIntentId??undefined,allocations}});
@@ -1899,7 +1900,7 @@ export const acceptFullCredit = action({
  }
 });
 export const cancelByAdmin = action({
- args:{token:v.string(),bookingId:v.id("bookings"),reason:v.optional(v.string()),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit")))},
+ args:{token:v.string(),bookingId:v.id("bookings"),reason:v.optional(v.string()),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit"),v.literal("no_refund")))},
  handler:async(ctx,{token,bookingId,reason,changeRequestId,expectedCancellationKind}):Promise<{refundAmount:number;creditAmount:number;mode:string}>=>{
   await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:"checkout.cancelByAdmin"});
   reason=reason?.trim()||(changeRequestId?"Requested cancellation approved":"Equipment unexpectedly unavailable");
@@ -1942,8 +1943,8 @@ export const cancelUnpaidByCustomer = action({
  }
 });
 export const cancelByCustomer = action({
- args:{token:v.string(),bookingId:v.id("bookings")},
- handler:async(ctx,{token,bookingId}):Promise<{ok:boolean;mode:string;refundAmount:number;creditAmount:number}>=>{
+ args:{token:v.string(),bookingId:v.id("bookings"),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit"),v.literal("no_refund"))),customerChoice:v.optional(v.union(v.literal("refund"),v.literal("credit")))},
+ handler:async(ctx,{token,bookingId,expectedCancellationKind,customerChoice}):Promise<{ok:boolean;mode:string;refundAmount:number;creditAmount:number}>=>{
   if(process.env.CUSTOMER_BOOKING_ACTIONS!=="true")throw Error("Online cancellation isn't available yet — please contact us to cancel.");
   const me:any=await ctx.runQuery(api.accounts.me,{token});if(!me)throw Error("Please sign in.");
   const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
@@ -1951,7 +1952,7 @@ export const cancelByCustomer = action({
   if(b.status==="cancelled"&&b.cancellationDecision?.quote&&!b.cancellationDecision.operatorOfferId){const quote=b.cancellationDecision.quote;return {ok:true,mode:quote.mode,refundAmount:quote.refundAmount,creditAmount:quote.creditAmount};}
   if(b.cancelledAt||b.status==="cancelled")throw Error("This booking is already cancelled.");
   if(!["confirmed","pending_payment"].includes(b.status)||!b.siteOnly)throw Error("Please contact us to change this booking.");
-  return cancelRental(ctx,bookingId,b,me._id);
+  return cancelRental(ctx,bookingId,b,me._id,undefined,undefined,undefined,expectedCancellationKind,customerChoice);
  }
 });
 

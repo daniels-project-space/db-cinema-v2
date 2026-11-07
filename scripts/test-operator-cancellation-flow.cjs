@@ -53,5 +53,21 @@ async function deliver(offer){
   assert.equal(refundCreates,before+1);const again=await call('checkout.cancelByCustomer',args);assert.deepEqual(again,{ok:true,mode:result.mode,refundAmount:result.refundAmount,creditAmount:result.creditAmount});assert.equal(refundCreates,before+1,'Lost response replays the already settled customer receipt');
   const grants=h.tables.get('credits').filter(c=>c.accountId===customer.account._id&&c.remaining>0);assert.equal(grants.reduce((n,c)=>n+c.amount,0),days===7?100:10);if(days===7)assert(grants.every(c=>c.expiresAt-c.createdAt===365*86400000));
  }
- console.log('PASS actual operator cancellation lifecycle: no financial execution before one hour; exact two-button durable email prepared/sent via synthetic transport; private fragment proof and confirmation; cash or 130% credit with deposit returned separately; prior credit counted once; 365-day cash-restoration credit; immutable retry; blocked-account cash path; seven-day unanswered default; changed provider balance stops for review. No real renters, emails or payments.');
+ now=Date.UTC(2026,10,23,10);const currentCredit=booking(10);currentCredit.b.agreementDocs=[{kind:'cancellation',version:'2026-11-v21'}];assert.equal(h.load('src/lib/cancellationPolicy.ts').bookingCancelKind(currentCredit.b,now),'full_refund');const currentCreditToken='operator-session-'+serial;assert(await call('accounts.me',{token:currentCreditToken}));const creditBefore=refundCreates;
+ const selectedCredit=await call('checkout.cancelByCustomer',{token:currentCreditToken,bookingId:currentCredit.b._id,expectedCancellationKind:'full_refund',customerChoice:'credit'});
+ assert.deepEqual(selectedCredit,{ok:true,mode:'credit',refundAmount:20,creditAmount:100},'The v21 renter can choose 100% rental credit more than seven days before pickup while security returns separately');
+ assert.equal(refundCreates,creditBefore+1);assert.equal([...receipts.values()].at(-1).amount,2000);
+ assert.equal(h.tables.get('credits').filter(c=>c.accountId===currentCredit.account._id&&c.remaining>0).reduce((n,c)=>n+c.amount,0),100);
+ const historicChoice=booking();historicChoice.b.agreementDocs=[{kind:'cancellation',version:'2026-11-v20'}];const historicChoiceToken='operator-session-'+serial;const historicRefunds=refundCreates;
+ await assert.rejects(call('checkout.cancelByCustomer',{token:historicChoiceToken,bookingId:historicChoice.b._id,expectedCancellationKind:'full_refund',customerChoice:'credit'}),/choice is available only more than seven/);
+ assert.equal(historicChoice.b.status,'confirmed');assert.equal(refundCreates,historicRefunds,'v20 renters keep their original refund-only option beyond seven days');
+ now=Date.UTC(2026,10,29,10);const within48=booking(10);within48.b.agreementDocs=[{kind:'cancellation',version:'2026-11-v21'}];const within48Token='operator-session-'+serial;const noRefundBefore=refundCreates;
+ const noRefund=await call('checkout.cancelByCustomer',{token:within48Token,bookingId:within48.b._id,expectedCancellationKind:'no_refund'});
+ assert.deepEqual(noRefund,{ok:true,mode:'no_refund',refundAmount:20,creditAmount:0},'At exactly 48 hours the rental value is forfeited while separately refundable security is returned');
+ assert.equal(refundCreates,noRefundBefore+1);assert.equal([...receipts.values()].at(-1).amount,2000);
+ assert.equal(h.tables.get('credits').filter(c=>c.accountId===within48.account._id&&c.remaining>0).length,0);
+ now=Date.UTC(2026,10,29,10);const spoofChoice=booking();spoofChoice.b.agreementDocs=[{kind:'cancellation',version:'2026-11-v21'}];const spoofToken='operator-session-'+serial;const spoofRefunds=refundCreates;
+ await assert.rejects(call('checkout.cancelByCustomer',{token:spoofToken,bookingId:spoofChoice.b._id,expectedCancellationKind:'no_refund',customerChoice:'credit'}),/choice is available only more than seven/);
+ assert.equal(spoofChoice.b.status,'confirmed');assert.equal(refundCreates,spoofRefunds,'A forged credit choice cannot execute within the no-refund window');
+ console.log('PASS cancellation lifecycle: historic signed rules, current 48-hour cutoff and 100% credit choice; separate security refunds, idempotent retries, restricted-account refund-only path and 130% cancellation protection. No real renters, emails or payments.');
 }finally{Date.now=realNow}})().catch(e=>{console.error(e);process.exitCode=1});

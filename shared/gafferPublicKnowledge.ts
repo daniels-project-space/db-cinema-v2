@@ -7,6 +7,7 @@ export const FAQS: CurrentFaq[] = [
   { q: "How are the rates structured?", a: "Daily, 3-day and weekly rates — the longer you rent, the lower the per-day price, applied automatically. Members save a further 10-30% on every rental." },
   { q: "What are your opening hours?", a: "Pickups and returns run 09:00-22:00, every day. Delivery times are arranged when you book." },
   { q: "Can I extend or add to my booking?", a: "Yes — message us in your account and you can add compatible gear up to an hour before your rental starts, or ask about extending your dates." },
+  { q: "How do cancellations work?", a: "Cancellation rules depend on the terms accepted with your rental. Open the cancellation section in your rental account or ask me to find the terms for your booking." },
 ];
 
 export type GafferPolicyFlags = {
@@ -14,6 +15,7 @@ export type GafferPolicyFlags = {
   cardHoldSecurityEnabled?: boolean;
   assessmentSecurityEnabled?: boolean;
   cancellationProtectionEnabled?: boolean;
+  cancellationPolicyEnabled?: boolean;
   refundableDepositEnabled?: boolean;
 };
 
@@ -35,6 +37,11 @@ export function faqsForSecurityPolicy(flags: GafferPolicyFlags): CurrentFaq[] {
     }
     if (faq.q === "Can I extend or add to my booking?") {
       return { ...faq, a: "Message us in your account to request an extension or compatible extra gear. We need to check the dates, stock and price, and the change is not complete until your account shows the updated rental." };
+    }
+    if (faq.q === "How do cancellations work?") {
+      if (flags.cancellationPolicyEnabled === true) return { ...faq, a: "Under the current terms, cancel more than seven London calendar days before pickup for a full refund or 100% rental credit. More than 48 hours and seven or fewer days before pickup is credit only. At 48 hours or less, no rental refund or credit. Separately refundable security is settled separately, and statutory rights take priority. Existing rentals keep their signed terms." };
+      if (setupIntent || cardHold) return { ...faq, a: "Under the current signed-card terms, cancel more than seven London calendar days before pickup for a full refund. At seven days or less, paid rental value becomes account credit. Refundable security is settled separately. Existing rentals keep their signed terms." };
+      return faq;
     }
     if (faq.q !== "What about deposits and insurance?") return faq;
     if (setupIntent) {

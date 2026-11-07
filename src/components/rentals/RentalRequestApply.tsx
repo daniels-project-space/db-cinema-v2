@@ -12,6 +12,7 @@ export function RentalRequestApply({ token, bookingId, id, kind, decisionNote, d
   const [end, setEnd] = useState("");
   const [keepPrice, setKeepPrice] = useState(false);
   const [consent, setConsent] = useState(false);
+  const [customerChoice, setCustomerChoice] = useState<"refund" | "credit">("refund");
   const [reason, setReason] = useState((decisionNote ?? "Apply the agreed customer request.").slice(0, 400));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -19,7 +20,7 @@ export function RentalRequestApply({ token, bookingId, id, kind, decisionNote, d
   const [refreshKey, setRefreshKey] = useState(0);
   useEffect(() => { if (!open || kind !== "cancel") return; const timer = setInterval(() => setRefreshKey(k => k + 1), 60000); return () => clearInterval(timer); }, [open, kind]);
   const details = useQuery(api.rentalOperations.details, open ? { token, bookingId: bookingId as any, refreshKey } : "skip");
-  useEffect(() => { setConsent(false); }, [details?.cancellationKind]);
+  useEffect(() => { setConsent(false); setCustomerChoice("refund"); }, [details?.cancellationKind]);
   const reschedule = useMutation(api.rentalOperations.reschedule);
   const cancel = useAction(api.checkout.cancelByAdmin);
   async function submit() {
@@ -31,13 +32,13 @@ export function RentalRequestApply({ token, bookingId, id, kind, decisionNote, d
         await reschedule({ token, bookingId: bookingId as any, changeRequestId: id as any, start: Date.parse(start + "T00:00:00Z"), end: end ? Date.parse(end + "T00:00:00Z") : undefined, keepAgreedPrice: keepPrice, reason });
       } else {
         if (!consent) throw Error("Confirm cancellation under the rental's agreed terms.");
-        await cancel({ token, bookingId: bookingId as any, changeRequestId: id as any, reason, expectedCancellationKind: details.cancellationKind });
+        await cancel({ token, bookingId: bookingId as any, changeRequestId: id as any, reason, expectedCancellationKind: details.cancellationKind, ...(details.cancellationTermsVersion === "2026-11-v21" && details.cancellationKind === "full_refund" ? { customerChoice } : {}) });
       }
       setOpen(false);
     } catch (e: any) { setError(e.data?.message ?? e.message ?? "The change could not be completed. Check its status and retry."); setRefreshKey(k => k + 1); if (kind === "cancel") setConsent(false); }
     finally { inFlight.current = false; setBusy(false); }
   }
-  if (!open) return <div className={styles.actions}><button type="button" disabled={disabled || busy} onClick={() => { setOpen(true); setError(""); }}>{kind === "dates" ? "Apply agreed dates" : "Process agreed cancellation"}</button></div>;
+  if (!open) return <div className={styles.actions}><button type="button" disabled={disabled || busy} onClick={() => { setOpen(true); setCustomerChoice("refund"); setError(""); }}>{kind === "dates" ? "Apply agreed dates" : "Process agreed cancellation"}</button></div>;
   return <form aria-label={kind === "dates" ? "Apply approved date request" : "Apply approved cancellation request"} onSubmit={e => { e.preventDefault(); void submit(); }}>
     {!details ? <p role="status">Loading rental details…</p> : <>
       {kind === "dates" ? <>
@@ -46,7 +47,12 @@ export function RentalRequestApply({ token, bookingId, id, kind, decisionNote, d
         <p className={styles.explanation}>Leave the return date blank to keep the duration. Existing collection and return times are retained. Stock is checked before the dates change.</p>
         {end && <label className={styles.check}><input required type="checkbox" disabled={busy} checked={keepPrice} onChange={e => setKeepPrice(e.target.checked)} />Keep the agreed charge. Any additional days are complimentary; any refund is handled separately.</label>}
       </> : <>
-        <p className={styles.explanation}>{details.cancellationKind === "full_refund" ? "Cancel under the agreed terms: remaining refundable card payment returns to its original payment method and used credit is restored." : "Cancel under the agreed terms: remaining rental value becomes account credit. Refundable security is settled separately."} The request completes after refunds and card authorisation releases are confirmed.</p>
+        <p className={styles.explanation}>{details.cancellationTermsVersion === "2026-11-v21" ? details.cancellationKind === "no_refund" ? "Within 48 hours of pickup: no rental refund and no account credit. Refundable security is settled separately." : details.cancellationKind === "store_credit" ? "More than 48 hours and seven or fewer London calendar days before pickup: account credit only for the rental amount. Refundable security is settled separately." : "More than seven London calendar days before pickup: the renter may choose a full refund or 100% account credit. Select credit only if the renter requested it." : details.cancellationKind === "full_refund" ? "Cancel under the agreed terms: remaining refundable card payment returns to its original payment method and used credit is restored." : "Cancel under the agreed terms: remaining rental value becomes account credit. Refundable security is settled separately."} The request completes after refunds and card authorisation releases are confirmed.</p>
+        {details.cancellationTermsVersion === "2026-11-v21" && details.cancellationKind === "full_refund" && <fieldset className="rounded-xl border border-white/10 p-3">
+          <legend>Renter’s requested settlement</legend>
+          <label className="flex items-center gap-2 py-1"><input type="radio" name={`cancel-settlement-${id}`} checked={customerChoice === "refund"} onChange={() => setCustomerChoice("refund")} />Full refund to original payment method</label>
+          <label className="flex items-center gap-2 py-1"><input type="radio" name={`cancel-settlement-${id}`} checked={customerChoice === "credit"} onChange={() => setCustomerChoice("credit")} />100% account credit · only if requested</label>
+        </fieldset>}
         <label className={styles.check}><input required type="checkbox" disabled={busy} checked={consent} onChange={e => setConsent(e.target.checked)} />Process this agreed cancellation under the rental terms.</label>
       </>}
       <label>Reason for the update<textarea required minLength={5} maxLength={400} disabled={busy} value={reason} onChange={e => setReason(e.target.value)} /></label>
