@@ -133,6 +133,10 @@ async function finishRefund(ctx:any, swap:any) {
     if(!receipt.stripeRefundId)throw Error("The equipment refund receipt needs review.");
     const status=receipt.status==="succeeded"?"succeeded":receipt.status==="failed"?"failed":"pending";
     await ctx.runMutation(internal.rentalOperations.recordRefundPart,{id:job._id,paymentIntentId:allocation.paymentIntentId,stripeRefundId:receipt.stripeRefundId,status});
+    if(status==="failed"){
+      await ctx.runMutation(internal.rentalSwapState.markRefundFailureReview,{id:swap._id,refundJobId:job._id,paymentIntentId:allocation.paymentIntentId,stripeRefundId:receipt.stripeRefundId});
+      return {status:"needs_review"};
+    }
     if(status!=="succeeded"){if(readOnly&&status==="pending"){pending=true;continue;}return {status};}
   }
   if(pending)return {status:"pending"};
