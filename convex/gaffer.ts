@@ -79,7 +79,7 @@ export const gafferReply = internalAction({
 
     const fallback=async()=>{
       const urgent=!!latestRenter && requiresUrgentHumanReview(latestRenter.text);
-      await ctx.runMutation(internal.chat._postBot,{accountId,bookingId,generation:cx.gafferGeneration,replyTo:messageId??cx.latestRenterId??undefined,...(urgent?{text:"I couldn't complete that answer. I'll connect you with the team here.",handoff:true}:{text:"I couldn't complete that answer just now. Would you like help from the team?",offerHuman:true})});
+      await ctx.runMutation(internal.chat._postBot,{accountId,bookingId,generation:cx.gafferGeneration,replyTo:messageId??cx.latestRenterId??undefined,...(urgent?{text:"I couldn't complete that answer. I'll connect you with the team here.",handoff:true}:{text:"I'm having trouble finishing that answer just now. Could you add a little detail or ask me again? I'll keep helping here."})});
     };
     if(!process.env.OPENROUTER_API_KEY){await fallback();return;}
     const or = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });

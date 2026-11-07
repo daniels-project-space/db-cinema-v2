@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const { load, db, put, tables } = require("./lib/rentalTestHarness.cjs");
+const { load, db, put, tables, setMock } = require("./lib/rentalTestHarness.cjs");
 
 const chat = load("convex/chat.ts");
 const { GAFFER_AUTO_RESUME_MS } = load("convex/lib/rentalChat.ts");
@@ -18,6 +18,39 @@ put("sessions", { token: "other", accountId: otherAccount._id, expiresAt: now + 
 
 (async () => {
   try {
+    setMock("@openrouter/ai-sdk-provider", { createOpenRouter: () => { throw new Error("No provider call expected in fallback test."); } });
+    setMock("ai", { generateObject: async () => { throw new Error("No provider call expected in fallback test."); } });
+    const { gafferReply } = load("convex/gaffer.ts");
+    const originalOpenRouterKey = process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    const fallbackPosted = [];
+    const gafferContext = {
+      escalated: false,
+      gafferGeneration: 1,
+      latestRenterId: "renter-message-1",
+      messages: [{ sender: "renter", text: "Can you help me choose a microphone?" }],
+    };
+    const gafferCtx = {
+      runQuery: async (reference) => {
+        assert.equal(reference, "chat._gafferContext");
+        return gafferContext;
+      },
+      runMutation: async (reference, args) => {
+        assert.equal(reference, "chat._postBot");
+        fallbackPosted.push(args);
+        return true;
+      },
+    };
+    await gafferReply.handler(gafferCtx, { accountId: account._id, messageId: "renter-message-1" });
+    assert.match(fallbackPosted.at(-1).text, /ask me again.*keep helping here/i);
+    assert.equal(fallbackPosted.at(-1).offerHuman, undefined, "a temporary model failure must not immediately offer a human");
+    assert.equal(fallbackPosted.at(-1).handoff, undefined, "a routine model failure must not escalate the chat");
+    gafferContext.messages[0].text = "Please connect me to a person.";
+    await gafferReply.handler(gafferCtx, { accountId: account._id, messageId: "renter-message-1" });
+    assert.equal(fallbackPosted.at(-1).handoff, true, "explicit human requests still escalate immediately");
+    if (originalOpenRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = originalOpenRouterKey;
+
     const first = await chat.recordGafferUserMessage.handler(ctx, { token: "renter", text: "Can you help me choose a lens?" });
     assert.equal(first.handledByHuman, false);
     const answer = await chat.recordGafferReply.handler(ctx, {
