@@ -56,6 +56,7 @@ const IDLE_CHIPS = [
 export function BotBubble() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [rentalBookingId, setRentalBookingId] = useState<string | null>(null);
   // While a voice call is running this launcher stops being a chat button and
   // becomes the call's handle — see the launcher markup below.
   const {
@@ -76,7 +77,9 @@ export function BotBubble() {
   useEffect(() => {
     const openGafferChat = (event: Event) => {
       setOpen(true);
-      const prompt = (event as CustomEvent<{ prompt?: unknown }>).detail?.prompt;
+      const detail = (event as CustomEvent<{ prompt?: unknown; bookingId?: unknown }>).detail;
+      const prompt = detail?.prompt;
+      setRentalBookingId(typeof detail?.bookingId === "string" && detail.bookingId.length <= 64 ? detail.bookingId : null);
       if (typeof prompt === "string" && prompt.trim() && prompt.length <= 320) {
         setText((current) => current.trim() ? current : prompt.trim());
       }
@@ -228,6 +231,7 @@ export function BotBubble() {
           messages: next.map((m) => ({ role: m.role, content: m.content })),
           token: account.token ?? undefined,
           renterMessageId: renterMessageId ?? undefined,
+          rentalBookingId: rentalBookingId ?? undefined,
           cart: cart.items.map((i) => ({
             listingId: i.listingId,
             title: i.title,

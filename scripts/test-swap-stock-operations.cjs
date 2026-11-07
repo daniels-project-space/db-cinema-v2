@@ -142,5 +142,13 @@ const ctx={db,runMutation:async(ref,args)=>{const name=ref.split('.')[1];assert(
  await db.patch(zero._id,{newLine:{listingId:oldListing._id,qty:2,start:date,end:date}});await assert.rejects(ledger.prepareSwapClaim.handler(ctx,{swapId:zero._id}),/mapping needs review/);
  await db.patch(zero._id,{newLine:{listingId:newListing._id,qty:1,start:date,end:date}});await assert.rejects(ledger.prepareSwapClaim.handler(ctx,{swapId:zero._id}),/mapping needs review/);
  await db.patch(zero._id,{newLine:{listingId:oldListing._id,qty:1,start:date,end:date}});const zeroId=await ledger.prepareSwapClaim.handler(ctx,{swapId:zero._id});assert.equal((await db.get(zeroId)).request.operation,'acquireZero');
+ const basketUnits=['basket-old-a','basket-old-b','basket-new-a','basket-new-b'].map(rmv2ItemId=>put('inventory_units',{rmv2ItemId,quantityOwned:1}));
+ const basketListings=basketUnits.map((unit,index)=>put('listings',{title:`Basket listing ${index}`,active:true,components:[{inventoryUnitId:unit._id,qty:1}]}));
+ const basketLines=[0,1].map(index=>({listingId:basketListings[index]._id,qty:1,start:date,end:date}));
+ const basketNext=basketLines.map((line,index)=>({...line,listingId:basketListings[index+2]._id}));
+ const basketSwap=put('rental_item_swaps',{status:'accepted',lineIndex:0,oldListingId:basketListings[0]._id,newListingId:basketListings[2]._id,oldLine:basketLines[0],newLine:basketNext[0],changes:basketLines.map((oldLine,lineIndex)=>({lineIndex,oldListingId:oldLine.listingId,newListingId:basketNext[lineIndex].listingId,oldLine,newLine:basketNext[lineIndex]}))});
+ const basketBooking=put('bookings',{status:'confirmed',activeItemSwapId:basketSwap._id,lineItems:basketLines});await db.patch(basketSwap._id,{bookingId:basketBooking._id});
+ const basketClaim=await ledger.prepareSwapClaim.handler(ctx,{swapId:basketSwap._id});
+ assert.deepEqual((await db.get(basketClaim)).request.args.items,[{itemId:'basket-new-a',start:date,returnAt:date+86400000,quantity:1},{itemId:'basket-new-b',start:date,returnAt:date+86400000,quantity:1}],"aggregate manager claim fences every added component for the full booking");
  console.log('PASS swap stock ledger: durable replay, immutable requests, uncertain outcome, conflicting transitions and manual review; synthetic handlers only.');
 })().catch(error=>{console.error(error);process.exitCode=1});

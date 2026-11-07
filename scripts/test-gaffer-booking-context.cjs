@@ -11,8 +11,8 @@ const compiled = ts.transpileModule(sourceText, {
 const loadedModule = { exports: {} };
 new Function("exports", "module", compiled)(loadedModule.exports, loadedModule);
 
-const { buildGafferRenterBookingFacts, gafferNeedsRenterBookingContext } = loadedModule.exports;
-const renterFacts = buildGafferRenterBookingFacts([
+const { buildGafferRenterBookingFacts, focusGafferRenterBookings, gafferNeedsRenterBookingContext } = loadedModule.exports;
+const bookings = [
   {
     _id: "private-internal-id",
     at: 2,
@@ -26,7 +26,11 @@ const renterFacts = buildGafferRenterBookingFacts([
     lineItems: [{ title: "Sony FX3", qty: 1, start: "2026-11-07", end: "2026-11-08" }],
   },
   { at: 1, status: "returned", idVerifyStatus: "verified", lineItems: [{ title: "Sony 24-70mm", start: "2026-10-01", end: "2026-10-02" }] },
-]);
+];
+const renterFacts = buildGafferRenterBookingFacts(bookings);
+assert.deepEqual(focusGafferRenterBookings(bookings, "private-internal-id"), [bookings[0]]);
+assert.deepEqual(focusGafferRenterBookings(bookings, "not-owned"), []);
+assert.equal(focusGafferRenterBookings(bookings).length, 2);
 
 assert.equal(renterFacts.length, 2);
 assert.match(renterFacts[0], /awaiting verification and not confirmed/);
@@ -36,6 +40,7 @@ assert.match(renterFacts[0], /pickup 10:00; return 18:00/);
 assert.match(renterFacts[0], /Verification state: in progress/);
 assert.doesNotMatch(renterFacts.join("\n"), /private-internal-id|PRIVATE HOME ADDRESS|900|200/);
 assert.equal(gafferNeedsRenterBookingContext([{ role: "user", content: "Can you check my booking status?" }]), true);
+assert.equal(gafferNeedsRenterBookingContext([{ role: "user", content: "About my rental: Sony FX3 camera. Help me choose extra gear." }]), true);
 assert.equal(gafferNeedsRenterBookingContext([{ role: "assistant", content: "Your rental is confirmed." }]), false);
 assert.equal(gafferNeedsRenterBookingContext([{ role: "user", content: "What camera should I use for a night shoot?" }]), false);
 assert.equal(buildGafferRenterBookingFacts(null).length, 0);
@@ -50,5 +55,8 @@ assert.match(contactSource, /openGaffer\(action\.prompt\)/);
 assert.match(contactSource, /detail: \{ prompt \}/);
 assert.match(chatSource, /detail\?\.prompt/);
 assert.match(chatSource, /setText\(\(current\) => current\.trim\(\) \? current : prompt\.trim\(\)\)/);
+assert.match(chatSource, /rentalBookingId: rentalBookingId \?\? undefined/);
+const rentalChatSource = fs.readFileSync(path.join(__dirname, "../src/components/rentals/RentalConversation.tsx"), "utf8");
+assert.match(rentalChatSource, /detail: \{ prompt, bookingId \}/);
 
 console.log("PASS Gaffer booking facts stay account-scoped and exclude payment/address/internal IDs; contact quick starts open editable, wired chat prompts.");

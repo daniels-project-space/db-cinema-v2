@@ -329,10 +329,10 @@ export function RentalConversation({
   }
   function openGafferGearHelp() {
     const rental = bookingId
-      ? `Help me choose extra gear for ${title.slice(0, 48)}${bookingSummary?.dates ? ` (${bookingSummary.dates.slice(0, 32)})` : ""}.`
+      ? `About my rental: ${title.slice(0, 48)}${bookingSummary?.dates ? ` (${bookingSummary.dates.slice(0, 32)})` : ""}.`
       : "I'm in my account support chat.";
-    const prompt = `${rental} Answer booking questions from my account. For gear: live item cards, a quote and availability check. Ask for missing dates and pickup/return times. Don’t change a booking; a basket is not a reservation.`;
-    window.dispatchEvent(new CustomEvent("dbc:open-gaffer-chat", { detail: { prompt } }));
+    const prompt = `${rental} Help me choose extra gear or answer booking questions from my account. For gear: live item cards, a quote and availability check. Ask for missing dates and pickup/return times. Don’t change a booking; a basket is not a reservation.`;
+    window.dispatchEvent(new CustomEvent("dbc:open-gaffer-chat", { detail: { prompt, bookingId } }));
   }
   const teamHandling = thread?.escalated ?? escalated;
   const latestConversationMessage = [...messages].reverse().find(message => message.sender === "renter" || message.sender === "bot" || message.sender === "owner");

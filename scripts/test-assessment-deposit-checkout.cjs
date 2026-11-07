@@ -51,8 +51,24 @@ StripeFixture.prototype.prices={list:async()=>({data:[{id:'price_fixture',unit_a
  paidMembership(claimAccount);
  const claimBooking=cleanPriorRental(claimAccount,99);
  assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,claimAccount,99900),'active_membership');
+ assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,claimAccount,400000),undefined,'The waiver does not apply at the £4,000 equipment threshold.');
  h.put('rental_security_charges',{bookingId:claimBooking._id,accountId:claimAccount._id,requestId:'prior-claim-00000001',kind:'damage',amountPence:1000,reason:'Previously claimed item damage',customerId:'cus_claim',paymentMethodId:'pm_claim',consentSnapshot:'{}',state:'voided',createdAt:Date.now(),updatedAt:Date.now()});
  assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,claimAccount,99900),undefined,'A prior rental with any security claim is not issue-free, even if that claim was later voided.');
+ const incompleteAccount=h.put('accounts',{email:'member-incomplete-return@example.invalid',stripeCustomerId:'cus_incomplete',stripeSubscriptionId:'sub_incomplete',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+30*86400000});
+ paidMembership(incompleteAccount);
+ const incompleteBooking=cleanPriorRental(incompleteAccount,98);
+ incompleteBooking.returnStatement=undefined;
+ assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,incompleteAccount,99900),undefined,'A returned booking without its completed return statement is not eligible.');
+ const uncleanAccount=h.put('accounts',{email:'member-unclean-return@example.invalid',stripeCustomerId:'cus_unclean',stripeSubscriptionId:'sub_unclean',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+30*86400000});
+ paidMembership(uncleanAccount);
+ const uncleanBooking=cleanPriorRental(uncleanAccount,97);
+ uncleanBooking.returnDecision.inspection[0].condition='fair';
+ uncleanBooking.returnStatement.inspection[0].condition='fair';
+ assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,uncleanAccount,99900),undefined,'A completed return with any item below good condition is not eligible.');
+ const staleSubscriptionAccount=h.put('accounts',{email:'member-stale-subscription@example.invalid',stripeCustomerId:'cus_stale',stripeSubscriptionId:'sub_current',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+30*86400000});
+ cleanPriorRental(staleSubscriptionAccount,96);
+ h.put('membership_credit_grants',{accountId:staleSubscriptionAccount._id,subscriptionId:'sub_previous',invoiceId:'in-previous',paidMembershipPence:1900,creditPence:1900,earnedCreditPence:1900,bonusPence:0,revokedPence:0,membershipRefundedPence:0,periodEnd:staleSubscriptionAccount.membershipPaidThrough,createdAt:Date.now()});
+ assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,staleSubscriptionAccount,99900),undefined,'A successful payment from an old subscription cannot qualify a different current subscription.');
  for(const [value,deposit] of [[999,20],[1000,50],[4000,100]]){
   listing.depositAmount=value;
   const quote=await checkout.priceQuote.handler(ctx,{items:args.items,customerEmail:'guest-threshold@example.invalid',fulfilment:'pickup',selectedMembership:{tier:'plus',intro:'none'}});

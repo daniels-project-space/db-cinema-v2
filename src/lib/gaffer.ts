@@ -7,7 +7,7 @@ import { tierByKey } from "@/lib/membership";
 import { dayMs } from "@/lib/dates";
 import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
 import { rentalDateLabel } from "../../shared/rentalDateLabel";
-import { buildGafferRenterBookingFacts, gafferNeedsRenterBookingContext } from "../../shared/gafferBookingContext";
+import { buildGafferRenterBookingFacts, focusGafferRenterBookings, gafferNeedsRenterBookingContext } from "../../shared/gafferBookingContext";
 import { faqsForPolicy, type CurrentFaq } from "./currentFaqs";
 import { equipmentModelsMatch, equipmentRequest, equipmentRequestDisplayLabel, equipmentRequestLabel, normalizeEquipmentName } from "../../shared/equipmentIdentity";
 import { rentalPricingDays } from "../../shared/rentalDuration";
@@ -882,9 +882,11 @@ async function loadContext(body: any): Promise<Ctx> {
         }
         const bk: any = await c.query(api.accounts.myBookings, { token: body.token });
         const past: any[] = Array.isArray(bk) ? bk : [];
-        ctx.bookingFacts = buildGafferRenterBookingFacts(past);
-        ctx.pastTitles = (past[0]?.lineItems ?? []).map((li: any) => li.title).slice(0, 4);
-        const openB = past.find((b: any) => ["confirmed", "pending", "reserved", "active", "paid"].includes(String(b.status).toLowerCase()));
+        const hasRequestedRental = typeof body?.rentalBookingId === "string" && body.rentalBookingId.length <= 64;
+        const bookingContext = focusGafferRenterBookings(past, hasRequestedRental ? body.rentalBookingId : undefined) as any[];
+        ctx.bookingFacts = buildGafferRenterBookingFacts(bookingContext);
+        ctx.pastTitles = (bookingContext[0]?.lineItems ?? []).map((li: any) => li.title).slice(0, 4);
+        const openB = bookingContext.find((b: any) => ["confirmed", "pending", "reserved", "active", "paid"].includes(String(b.status).toLowerCase()));
         if (openB && openB.lineItems?.[0]) {
           ctx.activeBooking = { id: openB._id, start: openB.lineItems[0].start, end: openB.lineItems[0].end, label: openB.lineItems[0].title };
         }

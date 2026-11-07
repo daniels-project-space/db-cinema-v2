@@ -13,8 +13,8 @@ import { quote } from "./lib/pricing";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { assertRenterExposure, replacementValues } from "./lib/rentalExposure";
 import { cardHoldFor, cardLimitForPolicy, depositForBookingPolicy, isCardHoldSecurityPolicy, ASSESSMENT_SECURITY_POLICY_VERSION } from "../shared/rentalSecurity";
-import { adjustedSwapCreditBalances, quoteSwapFunding, restoreSwapCredit } from "./lib/rentalSwapFunding";
-import { reserveSwapStock, applySwapStock } from "./lib/rentalSwapStock";
+import { adjustedSwapCreditBalances, quoteSwapBasketFunding, quoteSwapFunding, restoreSwapCredit } from "./lib/rentalSwapFunding";
+import { reserveSwapBasketStock, reserveSwapStock, applySwapBasketStock, applySwapStock } from "./lib/rentalSwapStock";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { depositReturnReceipt } from "./lib/depositReturnReceipt";
@@ -76,6 +76,41 @@ async function calculate(ctx: any, bookingId: any, lineIndex: number, newListing
   return { booking, oldLine, newLine, lines, values, funding, snapshot, quoteSnapshot };
 }
 
+async function calculateBasket(ctx: any, bookingId: any, edits: { lineIndex: number; newListingId: any }[], ownSwapId?: any) {
+  await assertFreshSharedStock(ctx);
+  const booking = await ctx.db.get(bookingId);
+  if (!booking || booking.status !== "confirmed" || booking.cancellationDecision || booking.returnDecision || booking.activeAdditionId || booking.activeDeliveryQuoteId || booking.activeExtensionId || booking.activePriceAdjustmentId || booking.activeItemSwapId && booking.activeItemSwapId !== ownSwapId) throw Error("Finish the current rental operation before changing equipment.");
+  await assertSwapStockReconciled(ctx, bookingId);
+  if (!Array.isArray(edits) || edits.length < 2 || edits.length > 16) throw Error("Choose between two and sixteen item changes.");
+  const originalLines = bookingStockLines<any>(booking), lines = [...originalLines], seen = new Set<number>(), changes: any[] = [], pricingSnapshots = [];
+  for (const edit of [...edits].sort((left, right) => left.lineIndex - right.lineIndex)) {
+    if (!Number.isSafeInteger(edit.lineIndex) || edit.lineIndex < 0 || edit.lineIndex >= originalLines.length || seen.has(edit.lineIndex)) throw Error("Choose each original rental item once.");
+    seen.add(edit.lineIndex);
+    const oldLine = originalLines[edit.lineIndex];
+    if (String(oldLine.listingId) === String(edit.newListingId)) throw Error("Choose a different replacement for each selected item.");
+    const listing = await ctx.db.get(edit.newListingId);
+    if (!listing || !listing.active || listing.suppressed || listing.marketingOnly || !listing.components?.length) throw Error("A replacement item is unavailable.");
+    const days = rentalPricingDays(oldLine.start, oldLine.end, oldLine.pickupTime, oldLine.returnTime);
+    const newLine = { ...oldLine, listingId: listing._id, title: listing.title, lineTotal: quote(listing.pricing, days).total * oldLine.qty, dailyRate: listing.pricing.daily * oldLine.qty };
+    lines[edit.lineIndex] = newLine;
+    changes.push({ lineIndex: edit.lineIndex, oldListingId: oldLine.listingId, newListingId: listing._id, oldLine, newLine });
+    pricingSnapshots.push({ listingId: listing._id, pricing: listing.pricing, components: listing.components });
+  }
+  await assertRentalInventory(ctx, lines, booking._id);
+  await assertRenterExposure(ctx, booking, lines);
+  const values = await securityValues(ctx, booking, lines);
+  const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", (index: any) => index.eq("bookingId", bookingId)).take(101);
+  if (refunds.length > 100 || refunds.some((item: any) => ["prepared", "pending"].includes(item.status))) throw Error("The rental refund history needs review before changing equipment.");
+  const funding = await quoteSwapBasketFunding(ctx, booking, changes.map(change => ({ lineIndex: change.lineIndex, oldLine: change.oldLine, newLine: change.newLine })));
+  const snapshot = rentalControlsSnapshot({ ...booking, activeItemSwapId: undefined }, refunds);
+  const quoteSnapshot = JSON.stringify([snapshot, changes, pricingSnapshots, lines, funding]);
+  return { booking, originalLines, lines, changes, values, funding, snapshot, quoteSnapshot };
+}
+
+function equipmentChangeSummary(changes: any[]) {
+  return changes.map(change => `${change.oldLine.qty} × ${change.oldLine.title} → ${change.newLine.qty} × ${change.newLine.title}`).join("; ").slice(0, 1200);
+}
+
 export const readiness=query({args:{token:v.string()},handler:async(_ctx,args)=>checkAdminToken(args.token)&&process.env.RENTAL_ITEM_SWAP_ENABLED==="true"&&swapAuthorityAvailable()});
 
 export const preview = query({ args: { token:v.string(), bookingId:v.id("bookings"), lineIndex:v.number(), newListingId:v.id("listings") }, handler: async (ctx, args) => {
@@ -88,6 +123,12 @@ export const previewForAdmin=query({args:{token:v.string(),bookingId:v.id("booki
   if(!checkAdminToken(args.token))return null;
   try{enabled();const result=await calculate(ctx,args.bookingId,args.lineIndex,args.newListingId);return {ok:true as const,oldLine:result.oldLine,newLine:result.newLine,quote:result.funding,quoteSnapshot:result.quoteSnapshot};}
   catch{return {ok:false as const,error:"This item cannot be quoted for this rental. Check availability, security and any open rental changes."};}
+}});
+
+export const previewBasketForAdmin=query({args:{token:v.string(),bookingId:v.id("bookings"),changes:v.array(v.object({lineIndex:v.number(),newListingId:v.id("listings")}))},handler:async(ctx,args)=>{
+  if(!checkAdminToken(args.token))return null;
+  try{enabled();const result=await calculateBasket(ctx,args.bookingId,args.changes);return {ok:true as const,changes:result.changes,quote:result.funding,quoteSnapshot:result.quoteSnapshot};}
+  catch{return {ok:false as const,error:"This combined change cannot be quoted safely. Check the items, availability, account credits, security and any open rental changes."};}
 }});
 
 export const propose = mutation({ args: { token:v.string(), bookingId:v.id("bookings"), lineIndex:v.number(), newListingId:v.id("listings"), requestId:v.string(), quoteSnapshot:v.string(), confirmed:v.boolean() }, handler: async (ctx, args) => {
@@ -107,6 +148,25 @@ export const propose = mutation({ args: { token:v.string(), bookingId:v.id("book
   await queueRmv2Sync(ctx, args.bookingId); return id;
 } });
 
+export const proposeBasket = mutation({args:{token:v.string(),bookingId:v.id("bookings"),changes:v.array(v.object({lineIndex:v.number(),newListingId:v.id("listings")})),requestId:v.string(),quoteSnapshot:v.string(),confirmed:v.boolean()},handler:async(ctx,args)=>{
+  enabled();await assertAdmin(ctx,args.token,"rentalSwapState.proposeBasket");
+  if(!args.confirmed||!/^[a-zA-Z0-9-]{16,80}$/.test(args.requestId))throw Error("Review and confirm the combined equipment proposal first.");
+  const prior=await ctx.db.query("rental_item_swaps").withIndex("by_request",index=>index.eq("bookingId",args.bookingId).eq("requestId",args.requestId)).unique();
+  if(prior){if(prior.quoteSnapshot!==args.quoteSnapshot||!prior.changes?.length)throw Error("This request belongs to a different equipment proposal.");return prior._id;}
+  const result=await calculateBasket(ctx,args.bookingId,args.changes);
+  if(result.quoteSnapshot!==args.quoteSnapshot)throw Error("The combined equipment quote changed. Review it again.");
+  const account=await accountForRental(ctx,result.booking);
+  if(!account||account.blockedAt!=null||String(result.booking.accountId)!==String(account._id))throw Error("An owned rental account is required for this proposal.");
+  const first=result.changes[0],now=Date.now(),expiresAt=now+24*3600000;
+  const id=await ctx.db.insert("rental_item_swaps",{bookingId:args.bookingId,accountId:account._id,requestId:args.requestId,baseSnapshot:result.snapshot,quoteSnapshot:args.quoteSnapshot,lineIndex:first.lineIndex,oldListingId:first.oldListingId,newListingId:first.newListingId,oldLine:first.oldLine,newLine:first.newLine,changes:result.changes,quote:result.funding,status:"awaiting_acceptance",createdAt:now,updatedAt:now,expiresAt,reconcileAfter:expiresAt});
+  await reserveSwapBasketStock(ctx,result.booking,result.originalLines,result.lines,id,expiresAt);
+  await ctx.db.patch(args.bookingId,{activeItemSwapId:id});
+  const delta=result.funding.deltaPence,difference=delta>0?"Additional card payment: £"+(delta/100).toFixed(2)+".":delta<0?"Refund to the original card: £"+(-delta/100).toFixed(2)+".":"No card payment difference.";
+  const restored=result.funding.restore.reduce((sum:number,row:any)=>sum+row.amountPence,0);
+  await postRentalMessage(ctx,{accountId:account._id,bookingId:args.bookingId,sender:"system",text:"The team proposed these equipment changes: "+equipmentChangeSummary(result.changes)+". "+difference+(restored?" £"+(restored/100).toFixed(2)+" of previously used account credit will be restored.":"")+" Review and accept the combined change before it proceeds. Nothing has been charged or refunded yet.",meta:{kind:"rental_item_swap",swapId:id}});
+  await queueRmv2Sync(ctx,args.bookingId);return id;
+}});
+
 export const accept = internalMutation({ args:{ token:v.string(), id:v.id("rental_item_swaps"), expectedDeltaPence:v.number() }, handler:async(ctx,args)=>{
   const account = await accountForToken(ctx,args.token), swap = await ctx.db.get(args.id);
   if (!account || account.blockedAt != null || !swap || swap.accountId !== account._id) throw Error("This equipment proposal is not available for your account.");
@@ -116,9 +176,14 @@ export const accept = internalMutation({ args:{ token:v.string(), id:v.id("renta
   if (["accepted","awaiting_payment","refund_pending"].includes(swap.status)) return swap;
   await assertFreshSharedStock(ctx);
   if (swap.status !== "awaiting_acceptance" || swap.expiresAt <= Date.now()) throw Error("This equipment proposal has expired.");
-  const result = await calculate(ctx,swap.bookingId,swap.lineIndex,swap.newListingId,swap._id);
+  const result = swap.changes?.length
+    ? await calculateBasket(ctx,swap.bookingId,swap.changes.map((change:any)=>({lineIndex:change.lineIndex,newListingId:change.newListingId})),swap._id)
+    : await calculate(ctx,swap.bookingId,swap.lineIndex,swap.newListingId,swap._id);
   if (result.quoteSnapshot !== swap.quoteSnapshot) throw Error("The rental or equipment quote changed. Ask the team for a fresh proposal.");
-  const acceptedAt = Date.now(), acceptanceText = `I accept replacing ${swap.oldLine.qty} × ${swap.oldLine.title} with ${swap.newLine.qty} × ${swap.newLine.title} on the same dates. The card payment difference is £${(swap.quote.deltaPence/100).toFixed(2)} and any used credit restoration is shown in this proposal.`;
+  const description = swap.changes?.length ? equipmentChangeSummary(swap.changes) : `${swap.oldLine.qty} × ${swap.oldLine.title} → ${swap.newLine.qty} × ${swap.newLine.title}`;
+  const acceptedAt = Date.now(), acceptanceText = swap.changes?.length
+    ? `I accept these equipment changes on the same rental dates: ${description}. The net card difference is £${(swap.quote.deltaPence/100).toFixed(2)} and any used credit restoration is shown in this proposal.`
+    : `I accept replacing ${swap.oldLine.qty} × ${swap.oldLine.title} with ${swap.newLine.qty} × ${swap.newLine.title} on the same dates. The card payment difference is £${(swap.quote.deltaPence/100).toFixed(2)} and any used credit restoration is shown in this proposal.`;
   const patch = { status:"accepted" as const, acceptedAt, acceptedEmail:account.email, acceptanceText, updatedAt:acceptedAt, expiresAt:acceptedAt+35*60000, reconcileAfter:acceptedAt+5*60000 };
   await ctx.db.patch(swap._id,patch); return {...swap,...patch};
 } });
@@ -129,13 +194,13 @@ export const customerProposal=query({args:{token:v.string(),id:v.id("rental_item
   const swap=await ctx.db.get(args.id);if(!swap||swap.accountId!==account._id||swap.bookingId!==args.bookingId)return null;
   let booking;try{booking=await ownedBooking(ctx,account,args.bookingId);}catch{return null;}
   const receipt=["applied","refund_pending"].includes(swap.status)?await ctx.db.query("swap_stock_applied_receipts").withIndex("by_swap",q=>q.eq("swapId",swap._id)).unique():null;
-  return {id:swap._id,oldTitle:swap.oldLine?.title??"Original item",newTitle:swap.newLine?.title??"Replacement item",quantity:swap.oldLine.qty,deltaPence:swap.quote.deltaPence,restoreCreditPence:swap.quote.restore.reduce((sum:number,item:any)=>sum+item.amountPence,0),status:swap.status,stockApplied:!!swap.stockAppliedAt,stockPending:receipt?.deliveryState==="pending"||receipt?.stockRisk===true||swap.status==="applied"&&booking.activeItemSwapId===swap._id,expiresAt:swap.expiresAt};
+  return {id:swap._id,oldTitle:swap.oldLine?.title??"Original item",newTitle:swap.newLine?.title??"Replacement item",quantity:swap.oldLine.qty,changes:swap.changes?.map((change:any)=>({oldTitle:change.oldLine.title,newTitle:change.newLine.title,quantity:change.oldLine.qty}))??null,deltaPence:swap.quote.deltaPence,restoreCreditPence:swap.quote.restore.reduce((sum:number,item:any)=>sum+item.amountPence,0),status:swap.status,stockApplied:!!swap.stockAppliedAt,stockPending:receipt?.deliveryState==="pending"||receipt?.stockRisk===true||swap.status==="applied"&&booking.activeItemSwapId===swap._id,expiresAt:swap.expiresAt};
 }});
 export const list=query({args:{token:v.string(),bookingId:v.id("bookings"),admin:v.optional(v.boolean())},handler:async(ctx,args)=>{
   let rows;
   if(args.admin){if(!checkAdminToken(args.token))throw Error("unauthorized");rows=await ctx.db.query("rental_item_swaps").withIndex("by_booking",index=>index.eq("bookingId",args.bookingId)).order("desc").take(30);}
   else{const account=await accountForToken(ctx,args.token);if(!account)throw Error("Please sign in.");await ownedBooking(ctx,account,args.bookingId);rows=await ctx.db.query("rental_item_swaps").withIndex("by_booking_account",index=>index.eq("bookingId",args.bookingId).eq("accountId",account._id)).order("desc").take(30);}
-  return Promise.all(rows.map(async row=>{const refund=args.admin&&row.refundJobId?await ctx.db.get(row.refundJobId):null;return {id:row._id,oldLine:row.oldLine,newLine:row.newLine,deltaPence:row.quote.deltaPence,restoreCreditPence:row.quote.restore.reduce((sum:number,item:any)=>sum+item.amountPence,0),status:row.status,expiresAt:row.expiresAt,acceptedAt:row.acceptedAt,paymentUrl:["accepted","awaiting_payment"].includes(row.status)?row.paymentUrl:undefined,...(args.admin?{reconcileError:row.reconcileError,paidStockReview:row.status==="review"&&!!row.paymentIntentId&&!row.compensationStartedAt&&row.quote.deltaPence>0,approvalUrl:refund?.refundReceipts?.find(receipt=>receipt.status==="awaiting_approval")?.approvalUrl??(row.compensationReceipt?.status==="awaiting_approval"?row.compensationReceipt.approvalUrl:undefined)}: {})};}));
+  return Promise.all(rows.map(async row=>{const refund=args.admin&&row.refundJobId?await ctx.db.get(row.refundJobId):null;return {id:row._id,oldLine:row.oldLine,newLine:row.newLine,changes:row.changes??null,deltaPence:row.quote.deltaPence,restoreCreditPence:row.quote.restore.reduce((sum:number,item:any)=>sum+item.amountPence,0),status:row.status,expiresAt:row.expiresAt,acceptedAt:row.acceptedAt,paymentUrl:["accepted","awaiting_payment"].includes(row.status)?row.paymentUrl:undefined,...(args.admin?{reconcileError:row.reconcileError,paidStockReview:row.status==="review"&&!!row.paymentIntentId&&!row.compensationStartedAt&&row.quote.deltaPence>0,approvalUrl:refund?.refundReceipts?.find(receipt=>receipt.status==="awaiting_approval")?.approvalUrl??(row.compensationReceipt?.status==="awaiting_approval"?row.compensationReceipt.approvalUrl:undefined)}: {})};}));
 }});
 
 export const bindSession = internalMutation({args:{id:v.id("rental_item_swaps"),sessionId:v.string(),url:v.string()},handler:async(ctx,args)=>{const swap=await ctx.db.get(args.id);if(!swap||!swap.acceptedAt||swap.quote.deltaPence<=0||!["accepted","awaiting_payment","review"].includes(swap.status))throw Error("The accepted swap payment is unavailable.");await assertStockExecution(ctx,swap._id);if(swap.sessionId&&swap.sessionId!==args.sessionId)throw Error("The original swap payment cannot be replaced.");await ctx.db.patch(swap._id,{sessionId:args.sessionId,paymentUrl:args.url,status:"awaiting_payment",updatedAt:Date.now(),reconcileAfter:Date.now()+5*60000});}});
@@ -157,7 +222,8 @@ export const prepareRefund = internalMutation({args:{id:v.id("rental_item_swaps"
   if(!swap.stockAppliedAt)await assertFreshSharedStock(ctx);
   if(swap.refundJobId){const existing=await ctx.db.get(swap.refundJobId);if(!existing||existing.bookingId!==swap.bookingId||existing.amountPence!==-swap.quote.deltaPence)throw Error("The original refund receipt needs review.");return existing;}
   const booking=await ctx.db.get(swap.bookingId);if(!booking||booking.activeItemSwapId!==id||booking.cancellationDecision||booking.returnDecision||booking.status!=="confirmed")throw Error("The rental changed before the equipment refund.");
-  const now=Date.now(),refundId=await ctx.db.insert("rental_refunds",{bookingId:booking._id,expectedAccountId:swap.accountId,requestId:`swap-${swap._id}`,amountPence:-swap.quote.deltaPence,reason:`Equipment swap: ${swap.oldLine.title} to ${swap.newLine.title}`.slice(0,400),status:"prepared",createdAt:now,updatedAt:now});
+  const summary=swap.changes?.length?equipmentChangeSummary(swap.changes):`${swap.oldLine.title} to ${swap.newLine.title}`;
+  const now=Date.now(),refundId=await ctx.db.insert("rental_refunds",{bookingId:booking._id,expectedAccountId:swap.accountId,requestId:`swap-${swap._id}`,amountPence:-swap.quote.deltaPence,reason:`Equipment change: ${summary}`.slice(0,400),status:"prepared",createdAt:now,updatedAt:now});
   await ctx.db.patch(id,{refundJobId:refundId,status:"refund_pending",updatedAt:now,reconcileAfter:now+5*60000});return await ctx.db.get(refundId);
 }});
 
@@ -218,22 +284,34 @@ export const apply = internalMutation({args:{id:v.id("rental_item_swaps"),sessio
   else if(args.stageRefund)throw Error("Only a downgrade can be staged for refund.");
   const booking=await ctx.db.get(swap.bookingId);if(!booking||booking.activeItemSwapId!==swap._id||booking.status!=="confirmed"||booking.cancellationDecision||booking.returnDecision)throw Error("The rental changed during settlement and needs review.");
   const account=await ctx.db.get(swap.accountId);if(!account||!belongsToRentalAccount(booking,account)||account.blockedAt!=null)throw Error("The rental account changed or needs review before applying this equipment change.");
-  const lines=bookingStockLines(booking).map((line:any,index:number)=>index===swap.lineIndex?swap.newLine:line);
-  if(JSON.stringify(canonicalFunding(bookingStockLines(booking)[swap.lineIndex]))!==JSON.stringify(canonicalFunding(swap.oldLine)))throw Error("The original equipment changed during settlement.");
-  const currentFunding=await quoteSwapFunding(ctx,booking,swap.lineIndex,swap.newLine);
+  const originalLines=bookingStockLines(booking);
+  let lines:any[], currentFunding:any, values:any;
+  if(swap.changes?.length){
+    for(const change of swap.changes)if(JSON.stringify(canonicalFunding(originalLines[change.lineIndex]))!==JSON.stringify(canonicalFunding(change.oldLine)))throw Error("The original equipment changed during settlement.");
+    const result=await calculateBasket(ctx,booking._id,swap.changes.map((change:any)=>({lineIndex:change.lineIndex,newListingId:change.newListingId})),swap._id);
+    lines=result.lines;values=result.values;currentFunding=result.funding;
+    await applySwapBasketStock(ctx,booking,originalLines,lines,swap._id);
+  }else{
+    lines=originalLines.map((line:any,index:number)=>index===swap.lineIndex?swap.newLine:line);
+    if(JSON.stringify(canonicalFunding(originalLines[swap.lineIndex]))!==JSON.stringify(canonicalFunding(swap.oldLine)))throw Error("The original equipment changed during settlement.");
+    currentFunding=await quoteSwapFunding(ctx,booking,swap.lineIndex,swap.newLine);
+    await assertRenterExposure(ctx,booking,lines);values=await securityValues(ctx,booking,lines);
+    await applySwapStock(ctx,booking,swap.oldLine,swap.newLine,lines,swap._id);
+  }
   if(JSON.stringify(canonicalFunding(currentFunding))!==JSON.stringify(canonicalFunding(swap.quote)))throw Error("The equipment funding changed during settlement and needs review.");
-  await assertRenterExposure(ctx,booking,lines);const values=await securityValues(ctx,booking,lines);await applySwapStock(ctx,booking,swap.oldLine,swap.newLine,lines,swap._id);
   if(swap.creditsRestoredAt)throw Error("The credit restoration marker needs review.");
   const creditBalances=adjustedSwapCreditBalances(booking,swap.quote.restore);
   await restoreSwapCredit(ctx,booking,String(swap._id),swap.quote.restore,Date.now());
-  const funding=[...(swap.quote.nextAllFunding??booking.checkoutLineFunding!)];funding[swap.lineIndex]=swap.quote.nextFunding;
+  const funding=swap.quote.nextAllFunding?[...swap.quote.nextAllFunding]:[...booking.checkoutLineFunding!];if(!swap.quote.nextAllFunding)funding[swap.lineIndex]=swap.quote.nextFunding;
   const sources=swap.quote.nextAllCreditSources??[...(booking.checkoutLineCreditSources??[]).filter((source:any)=>source.lineIndex!==swap.lineIndex),...swap.quote.nextCreditSources];
   const now=Date.now(),staging=swap.quote.deltaPence<0;
-  const updatedDiscount=swap.quote.nextAllFunding?funding.reduce((sum:number,row:any)=>sum+Math.round(row.discount*100),0)/100:Math.round(((booking.discount??0)-booking.checkoutLineFunding![swap.lineIndex].discount+swap.quote.nextFunding.discount)*100)/100;
+  const updatedDiscount=swap.quote.nextDiscount??(swap.quote.nextAllFunding?funding.reduce((sum:number,row:any)=>sum+Math.round(row.discount*100),0)/100:Math.round(((booking.discount??0)-booking.checkoutLineFunding![swap.lineIndex].discount+swap.quote.nextFunding.discount)*100)/100);
   const fenced=swapAuthorityAvailable()&&process.env.SHARED_STOCK_BRIDGE_EXPERIMENTAL==="true";
-  await ctx.db.patch(booking._id,{...creditBalances,lineItems:lines,replacementValues:values,subtotal:Math.round((booking.subtotal+swap.newLine.lineTotal-swap.oldLine.lineTotal)*100)/100,discount:updatedDiscount,total:Math.round((booking.total+Math.max(0,swap.quote.deltaPence)/100)*100)/100,checkoutLineFunding:funding,checkoutLineCreditSources:sources,...(!staging&&!fenced?{activeItemSwapId:undefined}:{})});
+  const updatedSubtotal=swap.quote.nextSubtotal??Math.round((booking.subtotal+swap.newLine.lineTotal-swap.oldLine.lineTotal)*100)/100;
+  await ctx.db.patch(booking._id,{...creditBalances,lineItems:lines,replacementValues:values,subtotal:updatedSubtotal,discount:updatedDiscount,total:Math.round((booking.total+Math.max(0,swap.quote.deltaPence)/100)*100)/100,checkoutLineFunding:funding,checkoutLineCreditSources:sources,...(!staging&&!fenced?{activeItemSwapId:undefined}:{})});
   await ctx.db.patch(swap._id,{status:staging?"refund_pending":"applied",paymentIntentId:args.paymentIntentId,creditsRestoredAt:now,...(staging?{stockAppliedAt:now,reconcileAfter:now+5*60000}:{reconcileAfter:undefined}),updatedAt:now});
-  await postRentalMessage(ctx,{accountId:swap.accountId,bookingId:swap.bookingId,sender:"system",text:fenced?`We are checking availability for your equipment change.${staging?" Your refund is being processed.":""}`:staging?`Your equipment change is confirmed: ${swap.oldLine.qty} × ${swap.oldLine.title} has been replaced with ${swap.newLine.qty} × ${swap.newLine.title}. Your refund is being processed.`:`Your equipment change is confirmed: ${swap.oldLine.qty} × ${swap.oldLine.title} has been replaced with ${swap.newLine.qty} × ${swap.newLine.title}.`});
+  const changeSummary=swap.changes?.length?equipmentChangeSummary(swap.changes):`${swap.oldLine.qty} × ${swap.oldLine.title} → ${swap.newLine.qty} × ${swap.newLine.title}`;
+  await postRentalMessage(ctx,{accountId:swap.accountId,bookingId:swap.bookingId,sender:"system",text:fenced?`We are checking availability for your equipment change.${staging?" Your refund is being processed.":""}`:staging?`Your equipment change is confirmed: ${changeSummary}. Your refund is being processed.`:`Your equipment change is confirmed: ${changeSummary}.`});
   await queueRmv2Sync(ctx,booking._id);
   const savedBooking=await ctx.db.get(booking._id);
   const claim=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",q=>q.eq("swapId",swap._id).eq("operation","acquire")).unique();
@@ -248,5 +326,5 @@ export const apply = internalMutation({args:{id:v.id("rental_item_swaps"),sessio
   }
   if(!windows.length||windows.length>256)throw Error("The equipment stock receipt needs reconciliation.");
   await ctx.db.insert("swap_stock_applied_receipts",{swapId:swap._id,bookingId:booking._id,bookingRevision:savedBooking.rmv2Revision!,managerRequestId:claim.receipt.requestId,fingerprint:claim.receipt.fingerprint,executionKey:execution.request.args.executionKey,appliedAt:now,deliveryState:"pending",windows});
-  if(!fenced)await ctx.scheduler.runAfter(0,internal.notify.changeEmail,{bookingId:booking._id,expectedAccountId:swap.accountId,kind:"equipment updated",detail:`${swap.oldLine.qty} × ${swap.oldLine.title} replaced by ${swap.newLine.qty} × ${swap.newLine.title}.${staging?" Your refund is being processed.":""}`});return staging?{staged:true}:{applied:true};
+  if(!fenced)await ctx.scheduler.runAfter(0,internal.notify.changeEmail,{bookingId:booking._id,expectedAccountId:swap.accountId,kind:"equipment updated",detail:`${changeSummary}.${staging?" Your refund is being processed.":""}`});return staging?{staged:true}:{applied:true};
 } });

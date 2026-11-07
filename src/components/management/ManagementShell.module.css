@@ -12,6 +12,11 @@
 .management .shell[data-management-role=admin][data-management-screen=accounts] .heading { display: none; }
 @media (min-width:1351px) { .management .shell[data-management-role=admin][data-management-screen=accounts] { grid-template-columns:200px minmax(0,1fr); } }
 @media (max-width: 640px) { .managementHeader { gap: 9px; padding: 8px 12px; min-height: 60px; } .managementHeader .headerLogo { font-size: 15px; gap: 3px; } .managementHeader .headerLogo small { display: none; } .managementHeader .breadcrumb { gap: 6px; } .managementHeader .breadcrumb i { display: inline; } .managementHeader .actor > span:not(.avatar) { display: none; } .managementHeader .actor { gap: 5px; } .managementHeader .avatar { display: none; } }
+@media (max-width: 640px) {
+  .management:has(.shell[data-management-role=admin][data-management-screen=accounts]) .managementHeader { gap: 6px; padding-inline: 9px; }
+  .management:has(.shell[data-management-role=admin][data-management-screen=accounts]) .managementHeader .headerLogo { font-size: 14px; gap: 2px; }
+  .management:has(.shell[data-management-role=admin][data-management-screen=accounts]) .managementHeader .breadcrumb { gap: 4px; font-size: 10px; }
+}
 .shell { font-family:var(--font-inter, Arial),sans-serif; --management-copper: #bd8d6c; display: grid; grid-template-columns: 237px minmax(0, 1fr); min-height: calc(100dvh - var(--management-site-header-height)); position: relative; isolation: isolate; background: #171817; color: #eeeae4; }
 .sidebar { background: #101213; border-right: 1px solid #ffffff0f; display: flex; flex-direction: column; position: sticky; top: var(--management-site-header-height); height: calc(100dvh - var(--management-site-header-height)); overflow-y: auto; }
 .brand { display: block; padding: 24px 20px 4px; color: var(--management-copper); border-bottom: 0; }

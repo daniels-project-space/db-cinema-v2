@@ -50,7 +50,9 @@ export async function queueCompensatedRelease(ctx:any,swapId:any) {
 
 async function compensatedRequest(ctx:any,swapId:any) {
   const swap=await ctx.db.get(swapId),booking=swap?await ctx.db.get(swap.bookingId):null;
-  if(!swap||swap.status!=="refunded"||!swap.acceptedAt||swap.quote.deltaPence<=0||swap.stockAppliedAt||swap.refundJobId||!swap.compensationStartedAt||swap.compensationReceipt?.status!=="succeeded"||swap.compensationReceipt.paymentIntentId!==swap.paymentIntentId||swap.compensationReceipt.amountPence!==swap.quote.deltaPence||swap.compensationReceipt.attemptedAt!==swap.compensationStartedAt||!swap.compensationReceipt.stripeRefundId||!booking||booking.status!=="confirmed"||booking.activeItemSwapId!==swapId||booking.cancellationDecision||booking.returnDecision||!sameRequest(bookingStockLines(booking)[swap.lineIndex],swap.oldLine))throw Error("The compensated rental needs review before releasing stock.");
+  const currentLines=booking?bookingStockLines(booking):[];
+  const originalStillMatches=swap?.changes?.length?swap.changes.every((change:any)=>sameRequest(currentLines[change.lineIndex],change.oldLine)):sameRequest(currentLines[swap?.lineIndex],swap?.oldLine);
+  if(!swap||swap.status!=="refunded"||!swap.acceptedAt||swap.quote.deltaPence<=0||swap.stockAppliedAt||swap.refundJobId||!swap.compensationStartedAt||swap.compensationReceipt?.status!=="succeeded"||swap.compensationReceipt.paymentIntentId!==swap.paymentIntentId||swap.compensationReceipt.amountPence!==swap.quote.deltaPence||swap.compensationReceipt.attemptedAt!==swap.compensationStartedAt||!swap.compensationReceipt.stripeRefundId||!booking||booking.status!=="confirmed"||booking.activeItemSwapId!==swapId||booking.cancellationDecision||booking.returnDecision||!originalStillMatches)throw Error("The compensated rental needs review before releasing stock.");
   if(await ctx.db.query("swap_stock_applied_receipts").withIndex("by_swap",(q:any)=>q.eq("swapId",swapId)).unique())throw Error("The equipment change was applied and cannot be released as compensated.");
   if(booking.rmv2SyncStatus!=="delivered"||!Number.isSafeInteger(booking.rmv2Revision)||booking.rmv2Revision<1||booking.rmv2DeliveredRevision!==booking.rmv2Revision)return null;
   await assertStockExecution(ctx,swapId);
@@ -117,7 +119,45 @@ export const prepareSwapClaim = internalMutation({args:{swapId:v.id("rental_item
   const existing=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",q=>q.eq("swapId",args.swapId).eq("operation","acquire")).unique();
   if(existing)return existing._id;
   const booking=await ctx.db.get(swap.bookingId);
-  if(!booking||booking.activeItemSwapId!==swap._id||booking.status!=="confirmed"||booking.cancellationDecision||booking.returnDecision||!sameRequest(bookingStockLines(booking)[swap.lineIndex],swap.oldLine))throw Error("The original equipment booking needs review.");
+  if(!booking||booking.activeItemSwapId!==swap._id||booking.status!=="confirmed"||booking.cancellationDecision||booking.returnDecision)throw Error("The original equipment booking needs review.");
+  if(swap.changes?.length){
+    const originalLines=bookingStockLines(booking),nextLines=[...originalLines],seen=new Set<number>();
+    for(const change of swap.changes){
+      if(!Number.isSafeInteger(change.lineIndex)||change.lineIndex<0||change.lineIndex>=originalLines.length||seen.has(change.lineIndex)||!sameRequest(originalLines[change.lineIndex],change.oldLine)||!change.newLine||String(change.newLine.listingId)!==String(change.newListingId)||String(change.oldLine.listingId)!==String(change.oldListingId)||!Number.isSafeInteger(change.oldLine.qty)||change.oldLine.qty<1||change.oldLine.qty!==change.newLine.qty)throw Error("The original equipment booking needs review.");
+      for(const field of ["start","end","pickupTime","returnTime"] as const)if((change.oldLine[field]??null)!==(change.newLine[field]??null))throw Error("The equipment change must keep its original rental window.");
+      const listing:any=await ctx.db.get(change.newListingId);
+      if(!listing?.components?.length||!listing.active||listing.suppressed||listing.marketingOnly)throw Error("The equipment stock mapping needs review.");
+      seen.add(change.lineIndex);nextLines[change.lineIndex]=change.newLine;
+    }
+    const precision=await stockTimePrecision(ctx);
+    const managerTotals=async(lines:any[])=>{
+      const totals=new Map<string,{itemId:string;start:number;returnAt:number;quantity:number}>(),unitIds=new Map<string,string>();
+      for(const line of lines){
+        const listing:any=await ctx.db.get(line.listingId);
+        if(!listing?.components?.length||!Number.isSafeInteger(line.qty)||line.qty<1)throw Error("The equipment stock mapping needs review.");
+        const window=rentalWindow(line,precision);
+        for(const component of listing.components){
+          if(!Number.isSafeInteger(component.qty)||component.qty<1)throw Error("The equipment stock mapping needs review.");
+          const unit:any=await ctx.db.get(component.inventoryUnitId),itemId=unit?.rmv2ItemId;
+          if(typeof itemId!=="string"||!itemId||itemId.length>255||unitIds.has(itemId)&&unitIds.get(itemId)!==String(component.inventoryUnitId))throw Error("The manager stock mapping needs review.");
+          unitIds.set(itemId,String(component.inventoryUnitId));
+          const key=JSON.stringify([itemId,window.start,window.end]),current=totals.get(key);
+          totals.set(key,{itemId,start:window.start,returnAt:window.end,quantity:(current?.quantity??0)+component.qty*line.qty});
+        }
+      }
+      return totals;
+    };
+    const oldTotals=await managerTotals(originalLines),newTotals=await managerTotals(nextLines);
+    const entries=(totals:Map<string,{itemId:string;start:number;returnAt:number;quantity:number}>)=>[...totals.values()].sort((a,b)=>a.itemId.localeCompare(b.itemId)||a.start-b.start||a.returnAt-b.returnAt);
+    const items=entries(newTotals).map(line=>({...line,quantity:line.quantity-(oldTotals.get(JSON.stringify([line.itemId,line.start,line.returnAt]))?.quantity??0)})).filter(line=>line.quantity>0);
+    if(!items.length){
+      if(swap.status!=="accepted"||swap.sessionId||swap.paymentIntentId||swap.refundJobId||swap.stockAppliedAt||swap.compensationStartedAt)throw Error("The equipment settlement needs review.");
+      const request={operation:"acquireZero",args:{requestId:`swap_${args.swapId}`,bookingId:String(booking._id),oldItems:entries(oldTotals),newItems:entries(newTotals)}};
+      const now=Date.now();return ctx.db.insert("swap_stock_operations",{swapId:args.swapId,operation:"acquire",request,state:"pending",createdAt:now,updatedAt:now,reconcileAfter:now,reconcileAttempts:0});
+    }
+    return prepareOperation(ctx,{swapId:args.swapId,operation:"acquire",items});
+  }
+  if(!sameRequest(bookingStockLines(booking)[swap.lineIndex],swap.oldLine))throw Error("The original equipment booking needs review.");
   const previous=await ctx.db.get(swap.oldListingId), next=await ctx.db.get(swap.newListingId);
   if(!previous?.components?.length||!next?.components?.length||String(swap.oldLine?.listingId)!==String(swap.oldListingId)||String(swap.newLine?.listingId)!==String(swap.newListingId)||!Number.isSafeInteger(swap.oldLine?.qty)||swap.oldLine.qty<1||swap.oldLine.qty!==swap.newLine?.qty)throw Error("The equipment stock mapping needs review.");
   for(const field of ["start","end","pickupTime","returnTime"] as const)if((swap.oldLine?.[field]??null)!==(swap.newLine?.[field]??null))throw Error("The equipment change must keep its original rental window.");

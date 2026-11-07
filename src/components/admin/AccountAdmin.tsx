@@ -462,9 +462,9 @@ export function AccountAdmin({
             </select>
           </label>
           <label>
-            <span className={styles.filterLabel}>Encore assignment</span>
-            <select aria-label="Encore assignment" value={encoreFilter} onChange={e => { setEncoreFilter(e.target.value as typeof encoreFilter); setPage(0); setSelectedId(null); }}>
-              <option value="all">All assignments</option>
+            <span className={styles.filterLabel}>Encore Tier</span>
+            <select aria-label="Encore Tier" value={encoreFilter} onChange={e => { setEncoreFilter(e.target.value as typeof encoreFilter); setPage(0); setSelectedId(null); }}>
+              <option value="all">All Encore tiers</option>
               <option value="automatic">Automatic / earned tier</option>
               <option value="1">Assigned Encore I</option>
               <option value="2">Assigned Encore II</option>
@@ -613,7 +613,7 @@ export function AccountAdmin({
           aria-label="Customer profile"
         >
           <header className={styles.profileHeader}>
-            <h2 className={styles.managementHeading}>Account management</h2>
+            <h2 className={styles.managementHeading}>Account Management</h2>
             {selected.avatarUrl ? (
               <SmartImage
                 src={selected.avatarUrl}
@@ -654,7 +654,7 @@ export function AccountAdmin({
           </header>
           <div className={styles.summary}>
             <button type="button" onClick={() => setSection("overview")}><span><ActionIcon name="overview"/> Account</span><strong className={selected.blocked ? styles.blocked : styles.verified}>{selected.blocked ? "Restricted" : "Active"}</strong></button>
-            <button type="button" aria-expanded={section === "access" && accessTarget?.target !== "encore"} aria-controls="customer-action-content" onClick={() => openAccess(selected.hasSubscription ? "subscription" : "membership")}><span><ActionIcon name="invoices"/> Subscription</span><strong>{label(selected.tier)} · {selected.hasSubscription ? detail ? billingStatus(detail.membershipStatus) : "Loading…" : "No paid plan"} ﹀</strong></button>
+            <button type="button" aria-expanded={section === "access" && accessTarget?.target !== "encore"} aria-controls="customer-action-content" onClick={() => openAccess(selected.hasSubscription ? "subscription" : "membership")}><span><ActionIcon name="invoices"/> Membership</span><strong>{label(selected.tier)} · {selected.hasSubscription ? detail ? billingStatus(detail.membershipStatus) : "Loading…" : "No paid plan"} ﹀</strong></button>
             <button type="button" aria-expanded={section === "access" && accessTarget?.target === "encore"} aria-controls="customer-action-content" onClick={() => openAccess("encore")}><span><ActionIcon name="access"/> Encore tier</span><strong>{effectiveEncoreFor(selected) ? `${selected.encoreOverride !== "automatic" ? "Assigned" : "Earned"} ${encoreName(effectiveEncoreFor(selected)!).replace("Encore ", "")}` : selected.encoreOverride === "automatic" && !metrics?.some(metric => metric.id === selected.id) ? "Loading…" : effectiveEncoreFor(selected) === null ? "Progress needs review" : "No Encore tier"} ﹀</strong></button>
             <button type="button" onClick={() => setSection("credits")}><span><ActionIcon name="credits"/> Available credit</span><strong>{detail ? formatGbp(detail.credit) : "…"}</strong></button>
           </div>
@@ -739,14 +739,14 @@ export function AccountAdmin({
                 )}
                 {section === "access" && (
                   <section className={`${styles.card} ${styles.accessPanel}`}>
-                    <button type="button" className={styles.accessClose} onClick={() => setSection("closed")} aria-label="Close subscription and Encore controls">Close controls ×</button>
+                    <button type="button" className={styles.accessClose} onClick={() => setSection("closed")} aria-label="Close membership and Encore controls">Close controls ×</button>
                     {selected.blocked && (
                       <p className="mt-3 rounded-xl bg-rose-500/10 p-3 text-xs text-rose-200">
                         Blocked · {selected.blockedReason}
                       </p>
                     )}
                     <label className="mt-5 block text-xs text-white/65">
-                      Membership access level
+                      Membership level
                       <select
                         ref={membershipRef}
                         value={level}

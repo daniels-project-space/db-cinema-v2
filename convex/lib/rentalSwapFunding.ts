@@ -137,6 +137,141 @@ export async function quoteSwapFunding(ctx: any, booking: any, lineIndex: number
   };
 }
 
+/** Quote all selected row replacements once against the original basket funding. */
+export async function quoteSwapBasketFunding(ctx: any, booking: any, changes: { lineIndex: number; oldLine: any; newLine: any }[]) {
+  const rows = booking.lineItems, funding = booking.checkoutLineFunding;
+  if (!Array.isArray(rows) || !rows.length || rows.length > 100 || !Array.isArray(funding) || funding.length !== rows.length || !Array.isArray(changes) || changes.length < 2 || changes.length > 16)
+    throw Error("The equipment change basket needs manual settlement review.");
+  if (booking.pricingVersion !== SINGLE_BENEFIT_VERSION || pence(booking.membershipSignupOfferSaving ?? 0) !== 0)
+    throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
+
+  const indices = new Set<number>();
+  for (const change of changes) {
+    if (!Number.isSafeInteger(change.lineIndex) || change.lineIndex < 0 || change.lineIndex >= rows.length || indices.has(change.lineIndex))
+      throw Error("Choose each original rental item once.");
+    indices.add(change.lineIndex);
+    const original = rows[change.lineIndex], originalFunding = funding[change.lineIndex];
+    if (!original || !originalFunding || String(change.oldLine?.listingId) !== String(original.listingId) || String(change.newLine?.listingId) === String(original.listingId))
+      throw Error("The original equipment changed; refresh the quote.");
+    for (const field of ["start", "end", "pickupTime", "returnTime", "qty"] as const)
+      if ((change.newLine?.[field] ?? null) !== (original[field] ?? null)) throw Error("Each replacement must keep its original quantity and rental times.");
+  }
+
+  const originalRows = rows.map((line: any, index: number) => {
+    const row = funding[index];
+    const gross = pence(row.gross), discount = pence(row.discount), member = pence(row.membershipCredit), credit = pence(row.accountCredit), card = pence(row.card);
+    if (String(line.listingId) !== String(row.listingId) || line.start !== row.start || line.end !== row.end || line.qty !== row.qty || pence(line.lineTotal) !== gross || discount + member + credit + card !== gross)
+      throw Error("The original item funding does not balance; manual settlement review is required.");
+    return { line, row, gross, discount, member, credit, card };
+  });
+  const originalSubtotal = originalRows.reduce((sum: number, row: any) => sum + row.gross, 0);
+  const originalDiscount = originalRows.reduce((sum: number, row: any) => sum + row.discount, 0);
+  const membership = pence(booking.membershipCreditApplied ?? 0), refundCredit = pence(booking.refundCreditApplied ?? 0), earnedCredit = pence(booking.earnedCreditApplied ?? 0);
+  const accountCredit = refundCredit + earnedCredit, delivery = pence(booking.deliveryFee ?? 0);
+  if (!Number.isSafeInteger(originalSubtotal) || !Number.isSafeInteger(originalDiscount) || pence(booking.subtotal) !== originalSubtotal || pence(booking.discount) !== originalDiscount || pence(booking.creditApplied ?? 0) !== membership + accountCredit)
+    throw Error("The original basket total does not reconcile; manual settlement review is required.");
+
+  let percent = 0;
+  if (booking.benefitKind === "loyalty") {
+    const rule = booking.swapBenefitRule;
+    if (rule?.version !== "encore-percent-v1" || ![2, 4, 10].includes(rule.percent) || membership !== 0 || earnedCredit !== 0 || originalDiscount !== Math.round(originalSubtotal * rule.percent / 100))
+      throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
+    percent = rule.percent;
+  } else if (!["none", "delivery", "earned_credit"].includes(booking.benefitKind) || originalDiscount !== 0) {
+    throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
+  }
+
+  if (!Array.isArray(booking.creditAllocations) || !Array.isArray(booking.checkoutLineCreditSources))
+    throw Error("The original credit sources are unavailable; manual settlement review is required.");
+  const sourceRows: Source[] = [], originalSources = new Map<string, number>();
+  for (const allocation of booking.creditAllocations) {
+    const amountPence = pence(allocation.amount), credit = await ctx.db.get(allocation.creditId);
+    if (!booking.accountId || !["refund", "earned"].includes(allocation.kind) || booking.benefitKind === "loyalty" && allocation.kind !== "refund" || !credit || String(credit.accountId) !== String(booking.accountId) || (credit.kind ?? "earned") !== allocation.kind || (credit.currency ?? "GBP").toUpperCase() !== "GBP")
+      throw Error("An original credit source cannot be verified.");
+    const grant = credit.membershipGrantId ? await ctx.db.get(credit.membershipGrantId) : null;
+    if (credit.membershipGrantId && (!grant || String(grant.accountId) !== String(booking.accountId) || grant.invoiceId !== credit.membershipInvoiceId))
+      throw Error("An original membership grant cannot be verified.");
+    const key = `${String(allocation.creditId)}:${allocation.kind}`;
+    const next = (originalSources.get(key) ?? 0) + amountPence;
+    if (!Number.isSafeInteger(next) || next > pence(credit.amount)) throw Error("An original credit source allocation cannot be verified.");
+    originalSources.set(key, next);
+    sourceRows.push({ creditId: allocation.creditId, amountPence, kind: allocation.kind, ...(grant ? { membershipGrantId: grant._id, membershipInvoiceId: grant.invoiceId } : {}) });
+  }
+  if (sourceRows.filter(row => row.kind === "refund").reduce((sum, row) => sum + row.amountPence, 0) !== refundCredit || sourceRows.filter(row => row.kind === "earned").reduce((sum, row) => sum + row.amountPence, 0) !== earnedCredit)
+    throw Error("The original credit sources do not balance.");
+  let membershipGrant: any;
+  if (membership) {
+    membershipGrant = booking.membershipCreditGrantId && await ctx.db.get(booking.membershipCreditGrantId);
+    if (!membershipGrant || String(membershipGrant.accountId) !== String(booking.accountId) || !membershipGrant.invoiceId || (membershipGrant.initialCreditAppliedPence ?? 0) < membership)
+      throw Error("The original membership credit grant cannot be verified.");
+  }
+
+  const originalAllocation = checkoutLineAllocation(originalRows.map((row: any) => row.gross / 100), [delivery / 100], originalDiscount / 100, membership / 100, accountCredit / 100);
+  if (originalRows.some((row: any, index: number) => pence(originalAllocation[index].membershipCredit) !== row.member || pence(originalAllocation[index].accountCredit) !== row.credit || pence(originalAllocation[index].card) !== row.card))
+    throw Error("The original basket credit allocation cannot be verified.");
+  const normalizeSources = (parts: any[]) => {
+    const totals = new Map<string, number>();
+    for (const part of parts) {
+      if (!Number.isSafeInteger(part.lineIndex) || part.lineIndex < -1 || part.lineIndex >= rows.length || !["refund", "earned"].includes(part.kind)) throw Error("Invalid original credit source.");
+      const key = JSON.stringify([part.lineIndex, String(part.creditId), part.kind]);
+      totals.set(key, (totals.get(key) ?? 0) + pence(part.amount));
+    }
+    return JSON.stringify([...totals.entries()].sort(([left], [right]) => left.localeCompare(right)));
+  };
+  const expectedSources = checkoutCreditSources(originalAllocation, sourceRows.map(row => ({ creditId: String(row.creditId), amount: row.amountPence / 100, kind: row.kind }))).map(row => ({ ...row, lineIndex: row.lineIndex === rows.length ? -1 : row.lineIndex }));
+  if (normalizeSources(expectedSources) !== normalizeSources(booking.checkoutLineCreditSources))
+    throw Error("The original basket credit sources cannot be verified.");
+
+  const nextLines = rows.map((line: any, index: number) => changes.find(change => change.lineIndex === index)?.newLine ?? line);
+  const nextGross = nextLines.map((line: any) => pence(line.lineTotal));
+  const nextSubtotal = nextGross.reduce((sum: number, amount: number) => sum + amount, 0);
+  if (!Number.isSafeInteger(nextSubtotal) || !Number.isSafeInteger(nextSubtotal * percent)) throw Error("The replacement basket total is invalid.");
+  const nextDiscount = Math.round(nextSubtotal * percent / 100);
+  const nextMembership = Math.min(membership, nextSubtotal - nextDiscount);
+  const nextAccountCredit = Math.min(accountCredit, nextSubtotal - nextDiscount - nextMembership + delivery);
+  const allocation = checkoutLineAllocation(nextGross.map((amount: number) => amount / 100), [delivery / 100], nextDiscount / 100, nextMembership / 100, nextAccountCredit / 100);
+  const sourceByKey = new Map<string, Source>();
+  for (const source of sourceRows) sourceByKey.set(`${String(source.creditId)}:${source.kind}`, source);
+  let remainingCredit = nextAccountCredit;
+  const retainedSources: Source[] = [];
+  for (const [key, amount] of originalSources) {
+    const retained = Math.min(amount, remainingCredit);
+    remainingCredit -= retained;
+    const source = sourceByKey.get(key);
+    if (retained && source) retainedSources.push({ ...source, amountPence: retained });
+  }
+  if (remainingCredit !== 0) throw Error("The replacement credit allocation cannot be reconciled.");
+  const nextCreditSources = checkoutCreditSources(allocation, retainedSources.map(row => ({ creditId: String(row.creditId), amount: row.amountPence / 100, kind: row.kind }))).map(row => ({ ...row, lineIndex: row.lineIndex === rows.length ? -1 : row.lineIndex }));
+  const nextSources = new Map<string, number>();
+  for (const row of nextCreditSources) {
+    const key = `${row.creditId}:${row.kind}`;
+    nextSources.set(key, (nextSources.get(key) ?? 0) + pence(row.amount));
+  }
+  const restore: Restore[] = [];
+  for (const [key, amount] of originalSources) {
+    const remaining = nextSources.get(key) ?? 0;
+    if (remaining > amount) throw Error("The replacement would spend additional account credit.");
+    const restored = amount - remaining;
+    const source = sourceByKey.get(key);
+    if (restored && source) restore.push({ ...source, amountPence: restored });
+  }
+  if (membership > nextMembership) {
+    if (!membershipGrant) throw Error("The original membership credit grant cannot be verified.");
+    restore.push({ kind: "membership", amountPence: membership - nextMembership, membershipGrantId: membershipGrant._id, membershipInvoiceId: membershipGrant.invoiceId });
+  }
+  const nextFunding = nextLines.map((line: any, index: number) => ({ listingId: line.listingId, start: line.start, end: line.end, qty: line.qty, gross: nextGross[index] / 100, discount: allocation[index].discount, membershipCredit: allocation[index].membershipCredit, accountCredit: allocation[index].accountCredit, card: allocation[index].card }));
+  const originalCash = originalSubtotal - originalDiscount - membership - accountCredit;
+  const nextCash = nextSubtotal - nextDiscount - nextMembership - nextAccountCredit;
+  return {
+    deltaPence: nextCash - originalCash,
+    restore,
+    nextAllFunding: nextFunding,
+    nextAllCreditSources: nextCreditSources,
+    nextSubtotal: nextSubtotal / 100,
+    nextDiscount: nextDiscount / 100,
+  };
+}
+
 /** Reduce original checkout credit balances when excess credit is restored. */
 export function adjustedSwapCreditBalances(booking: any, restore: Restore[]) {
   if (!restore.length) return {};

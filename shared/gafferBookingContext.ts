@@ -98,3 +98,11 @@ export function buildGafferRenterBookingFacts(bookings: unknown): string[] {
     return `Signed-in renter's rental record ${index + 1}: status ${status}.${items.length ? ` Items: ${items.join("; ")}.` : " Items are not listed in this record."}${times}${identity} Do not infer payment, refund, or deposit outcomes from this record.`;
   });
 }
+
+export function focusGafferRenterBookings(bookings: unknown, bookingId: unknown): unknown[] {
+  if (!Array.isArray(bookings)) return [];
+  if (typeof bookingId !== "string" || !bookingId.trim()) return bookings;
+  return bookings.filter((booking) =>
+    !!booking && typeof booking === "object" && String((booking as { _id?: unknown })._id ?? "") === bookingId,
+  ).slice(0, 1);
+}

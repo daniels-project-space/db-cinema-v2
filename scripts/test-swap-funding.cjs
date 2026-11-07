@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const { load, db, put, tables } = require("./lib/rentalTestHarness.cjs");
-const { quoteSwapFunding, restoreSwapCredit, adjustedSwapCreditBalances } = load("convex/lib/rentalSwapFunding.ts");
+const { quoteSwapFunding, quoteSwapBasketFunding, restoreSwapCredit, adjustedSwapCreditBalances } = load("convex/lib/rentalSwapFunding.ts");
 const ctx = { db };
 const account = put("accounts", { email: "renter@example.invalid" });
 const grant = put("membership_credit_grants", { accountId: account._id, invoiceId: "invoice", initialCreditAppliedPence: 1000, revokedPence: 0 });
@@ -51,5 +51,18 @@ const replacement = amount => ({ listingId: "listings-new", start: 100, end: 200
  await assert.rejects(quoteSwapFunding(ctx, { ...booking, checkoutLineFunding: [{ ...booking.checkoutLineFunding[0], card: 69 }] }, 0, replacement(50)), /does not balance/);
  const other = put("accounts", { email: "other@example.invalid" }); source.accountId = other._id;
  await assert.rejects(quoteSwapFunding(ctx, booking, 0, replacement(50)), /cannot be verified/);
+ const basketAccount=put("accounts",{email:"basket@example.invalid"});
+ const creditA=put("credits",{accountId:basketAccount._id,kind:"refund",currency:"GBP",amount:10,remaining:0});
+ const creditB=put("credits",{accountId:basketAccount._id,kind:"refund",currency:"GBP",amount:10,remaining:0});
+ const oldLines=[{listingId:"old-a",title:"Old A",start:100,end:200,qty:1,lineTotal:100},{listingId:"old-b",title:"Old B",start:100,end:200,qty:1,lineTotal:50}];
+ const basket=put("bookings",{accountId:basketAccount._id,pricingVersion:"single-benefit-v1",benefitKind:"none",lineItems:oldLines,subtotal:150,discount:0,deliveryFee:0,creditApplied:20,membershipCreditApplied:0,refundCreditApplied:20,earnedCreditApplied:0,creditAllocations:[{creditId:creditA._id,amount:10,kind:"refund"},{creditId:creditB._id,amount:10,kind:"refund"}],checkoutLineFunding:[{listingId:"old-a",start:100,end:200,qty:1,gross:100,discount:0,membershipCredit:0,accountCredit:20,card:80},{listingId:"old-b",start:100,end:200,qty:1,gross:50,discount:0,membershipCredit:0,accountCredit:0,card:50}],checkoutLineCreditSources:[{lineIndex:0,creditId:creditA._id,amount:10,kind:"refund"},{lineIndex:0,creditId:creditB._id,amount:10,kind:"refund"}]});
+ const basketQuote=await quoteSwapBasketFunding(ctx,basket,[{lineIndex:0,oldLine:oldLines[0],newLine:{...oldLines[0],listingId:"new-a",lineTotal:5}},{lineIndex:1,oldLine:oldLines[1],newLine:{...oldLines[1],listingId:"new-b",lineTotal:5}}]);
+ assert.equal(basketQuote.deltaPence,-13000,"the basket is settled once for its net card difference");
+ assert.equal(basketQuote.nextSubtotal,10);
+ assert.equal(basketQuote.nextAllFunding.reduce((sum,row)=>sum+row.card,0),0);
+ assert.equal(basketQuote.restore.length,1,"restoration is grouped once per original source");
+ assert.equal(basketQuote.restore[0].creditId,creditB._id);
+ assert.equal(basketQuote.restore[0].amountPence,1000);
+ assert.equal(basketQuote.nextAllCreditSources.reduce((sum,row)=>sum+row.amount,0),10);
  console.log("PASS swap funding: integer arithmetic, exact source preservation, downgraded-credit restoration and legacy rejection");
 })().catch(error => { console.error(error); process.exitCode = 1; });

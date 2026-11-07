@@ -13,6 +13,11 @@ function stripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY);
 }
 
+function swapDescription(swap:any) {
+  const changes=swap.changes?.length?swap.changes:[{oldLine:swap.oldLine,newLine:swap.newLine}];
+  return changes.map((change:any)=>`${change.oldLine.qty} × ${change.oldLine.title} → ${change.newLine.title}`).join("; ").slice(0,500);
+}
+
 async function ensureStock(ctx:any,id:any,authorize=true,allowConverted=false) {
   let stockRisk=false;
   const claim=await ctx.runMutation(internal.swapStockOperations.prepareSwapClaim,{swapId:id});
@@ -58,7 +63,7 @@ async function ensureSession(ctx:any, swap:any) {
   swap=await ensureStock(ctx,swap._id);
   if (process.env.RENTAL_CHECKOUT_ENABLED !== "true" && !/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "")) throw Error("Rental payments are not enabled.");
   const origin = new URL(process.env.APP_URL ?? "https://dbcinemarentals.com").origin;
-  const session = await client.checkout.sessions.create({mode:"payment",adaptive_pricing:{enabled:false},customer_email:swap.acceptedEmail,expires_at:Math.floor(swap.expiresAt/1000),line_items:[{quantity:1,price_data:{currency:"gbp",unit_amount:swap.quote.deltaPence,product_data:{name:"DB Cinema · equipment change",description:`${swap.oldLine.title} → ${swap.newLine.title}`.slice(0,500)}}}],success_url:`${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${origin}/account?rental=${swap.bookingId}#chat`,metadata:{itemSwapId:swap._id},payment_intent_data:{metadata:{itemSwapId:swap._id}}},{idempotencyKey:`dbc-rental-swap-${swap._id}`});
+  const session = await client.checkout.sessions.create({mode:"payment",adaptive_pricing:{enabled:false},customer_email:swap.acceptedEmail,expires_at:Math.floor(swap.expiresAt/1000),line_items:[{quantity:1,price_data:{currency:"gbp",unit_amount:swap.quote.deltaPence,product_data:{name:"DB Cinema · equipment change",description:swapDescription(swap)}}}],success_url:`${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${origin}/account?rental=${swap.bookingId}#chat`,metadata:{itemSwapId:swap._id},payment_intent_data:{metadata:{itemSwapId:swap._id}}},{idempotencyKey:`dbc-rental-swap-${swap._id}`});
   if(!session.url)throw Error("The equipment payment link is unavailable; retry to recover it.");
   await ctx.runMutation(internal.rentalSwapState.bindSession,{id:swap._id,sessionId:session.id,url:session.url});return session;
 }
