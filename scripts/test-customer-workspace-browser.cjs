@@ -143,6 +143,7 @@ const mocks = {
     await client.cmd("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/` });
     for (let attempt = 0; attempt < 100 && !await client.evaluate('!!document.querySelector("[data-testid=admin-account-action-rail]")'); attempt++) await wait(100);
     assert.equal(await client.evaluate('!!document.querySelector("[data-testid=admin-account-action-rail]")'), true, "The real account action rail renders");
+    assert.equal(await client.evaluate('!!document.querySelector("[data-testid=admin-customer-conversation-pane] [data-testid=rental-gaffer-gear-help]")'), false, "The renter-facing gear assistant shortcut stays out of the admin workspace");
     for (const width of [1500, 1100, 768, 320]) {
       await client.cmd('Emulation.setDeviceMetricsOverride', {width, height:900, deviceScaleFactor:1, mobile:width < 768}); await wait(60);
       const summaryLayout = await client.evaluate(`(()=>{const rail=document.querySelector('[data-testid="admin-account-action-rail"]');return [...rail.querySelectorAll('button')].filter(button=>button.querySelector(':scope > strong')&&button.querySelector(':scope > span > svg')).map(button=>{const label=button.querySelector(':scope > span').getBoundingClientRect(),value=button.querySelector(':scope > strong').getBoundingClientRect(),row=button.getBoundingClientRect();return {name:button.textContent,labelRight:label.right,valueLeft:value.left,valueRight:value.right,rowRight:row.right,labelHeight:label.height}})})()`);
@@ -492,6 +493,11 @@ const mocks = {
     await client.cmd("Page.navigate", {url:"http://127.0.0.1:" + server.address().port + "/?renter=2&reply=1"});
     for(let attempt=0;attempt<100&&!await client.evaluate('!!document.querySelector("[aria-label=\'Chat notifications\']")');attempt++)await wait(50);
     assert.equal(await client.evaluate('document.querySelector("[data-message-id=gaffer-first-answer]")?.nextElementSibling?.getAttribute("aria-label")'),'Chat notifications','The card follows the first actual Gaffer answer');
+    assert.equal(await client.evaluate('!!document.querySelector("[data-testid=rental-gaffer-gear-help]")'),true,'Renters can open the live gear assistant from their rental chat');
+    await client.evaluate('window.__gafferPrompt="";window.addEventListener("dbc:open-gaffer-chat",event=>window.__gafferPrompt=event.detail?.prompt||"");document.querySelector("[data-testid=rental-gaffer-gear-help]").click()'); await wait(50);
+    assert.match(await client.evaluate('window.__gafferPrompt'),/live item cards.*quote.*availability check/i,'The rental shortcut routes into the full live recommendation, quote and availability flow');
+    assert.match(await client.evaluate('window.__gafferPrompt'),/Don.t change a booking; a basket is not a reservation/i,'The assistant shortcut preserves booking and stock safety');
+    assert.equal(await client.evaluate('window.__gafferPrompt.length<=320'),true,'The prefilled prompt fits the global assistant input limit');
     assert.equal(await client.evaluate('(()=>{const box=document.querySelector("[aria-label=\'Chat notifications\']").getBoundingClientRect();return box.left>=0&&box.right<=innerWidth})()'),true,'The card fits on a phone');
     fs.writeFileSync('/tmp/dbc-chat-alert-card-mobile.png',Buffer.from((await client.cmd("Page.captureScreenshot",{format:"png"})).data,"base64"));
     await client.cmd("Emulation.setDeviceMetricsOverride", { width: 1500, height: 900, deviceScaleFactor: 1, mobile: false }); await wait(100);

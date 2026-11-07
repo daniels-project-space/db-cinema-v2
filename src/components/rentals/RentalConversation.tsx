@@ -327,6 +327,13 @@ export function RentalConversation({
     setNotificationInvitation({ id: invitationId, visible: false });
     if (openSettings) window.dispatchEvent(new Event("dbc:open-renter-notifications"));
   }
+  function openGafferGearHelp() {
+    const rental = bookingId
+      ? `Help me choose extra gear for ${title.slice(0, 48)}${bookingSummary?.dates ? ` (${bookingSummary.dates.slice(0, 32)})` : ""}.`
+      : "I'm in my account support chat.";
+    const prompt = `${rental} Answer booking questions from my account. For gear: live item cards, a quote and availability check. Ask for missing dates and pickup/return times. Don’t change a booking; a basket is not a reservation.`;
+    window.dispatchEvent(new CustomEvent("dbc:open-gaffer-chat", { detail: { prompt } }));
+  }
   const teamHandling = thread?.escalated ?? escalated;
   const latestConversationMessage = [...messages].reverse().find(message => message.sender === "renter" || message.sender === "bot" || message.sender === "owner");
   const workspacePresentation = !!workspaceIdentity || (!admin && renterWorkspace);
@@ -366,7 +373,13 @@ export function RentalConversation({
         <span className={styles.stage}>{stageLabel ?? RENTAL_STAGE_LABELS[stage] ?? stage}</span>
         {bookingId && admin && workspaceIdentity && <details className={styles.workspaceRentalDetails}><summary aria-label="Verification, extension and price controls">Controls</summary><div><RentalVerificationSummary bookingId={bookingId} token={token} admin /><RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin /><RentalPricePanel key={`price-${bookingId}`} token={token} bookingId={bookingId} admin /></div></details>}
       </div>}
-      {!admin && <button type="button" className="mt-3 text-xs text-white/70 underline underline-offset-4" onClick={() => window.dispatchEvent(new Event("dbc:open-renter-notifications"))}>Notification settings</button>}
+      {!admin && <div className="mt-3 flex flex-wrap items-center gap-2">
+        {!teamHandling && <button type="button" data-testid="rental-gaffer-gear-help" onClick={openGafferGearHelp} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-emerald-200/20 bg-white/[0.055] px-3 text-left text-xs text-emerald-50/90 shadow-[inset_0_1px_0_#ffffff0a] backdrop-blur-xl transition hover:border-emerald-200/35 hover:bg-emerald-200/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200/60">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 shrink-0" aria-hidden="true"><path d="m12 3 1.2 5.8L19 10l-5.8 1.2L12 17l-1.2-5.8L5 10l5.8-1.2L12 3Z"/><path d="m19 15 .6 2.4L22 18l-2.4.6L19 21l-.6-2.4L16 18l2.4-.6L19 15Z"/></svg>
+          <span>Ask Gaffer about gear, dates or a quote</span>
+        </button>}
+        <button type="button" className="min-h-10 rounded-xl border border-white/10 px-3 text-xs text-white/60 transition hover:border-white/20 hover:text-white/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40" onClick={() => window.dispatchEvent(new Event("dbc:open-renter-notifications"))}>Notification settings</button>
+      </div>}
       {bookingId && (!admin || !tools) && !workspaceIdentity && <RentalVerificationSummary bookingId={bookingId} token={token} admin={admin}/>}
       {!admin && bookingId && (
         <RentalAdditionApproval token={token} bookingId={bookingId} />
