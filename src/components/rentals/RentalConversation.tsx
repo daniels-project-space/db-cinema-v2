@@ -271,7 +271,7 @@ export function RentalConversation({
           gaffer: thread?.escalated ?? escalated,
         });
       else if (thread?.escalated ?? escalated) await resume({ token, bookingId: bookingId as any });
-      else await human({ token, bookingId: bookingId as any });
+      else throw Error("Gaffer must offer a team handoff before it can be requested.");
     } catch (e: any) {
       if (scope.current === requestedScope) setError(e.message);
     } finally {
@@ -466,7 +466,7 @@ export function RentalConversation({
                     </article>)}
                     <p className="sm:col-span-2 text-[10px] leading-relaxed text-white/35">Availability is a live check, not a reservation. Hire-rate estimates exclude delivery and checkout adjustments.</p>
                   </div>}
-                  {!admin && !teamHandling && m.sender === "bot" && m._id === latestConversationMessage?._id && m.meta?.offerHuman === true && <HumanHandoffOffer key={`${scopeKey}:${m._id}`} onRequest={async () => { await human({ token, bookingId: bookingId as any }); }} />}
+                  {!admin && !teamHandling && m.sender === "bot" && m._id === latestConversationMessage?._id && m.meta?.offerHuman === true && <HumanHandoffOffer key={`${scopeKey}:${m._id}`} onRequest={async () => { await human({ token, bookingId: bookingId as any, offerMessageId: m._id as any }); }} />}
                   {m.meta?.kind === "attachment" && m.meta.attachmentId && <button type="button" disabled={!attachmentsAvailable || attachmentBusy} onClick={() => void downloadAttachment(m.meta.attachmentId, m.meta.name || "attachment")} className="mt-3 rounded-full border border-current/20 px-3 py-1 text-xs disabled:opacity-40">Download attachment</button>}
                   {admin && attachmentsAvailable && m.meta?.kind === "attachment" && m.meta.attachmentId && <AttachmentAdminControls key={m.meta.attachmentId} token={token} id={m.meta.attachmentId}/>}
                   {m.sender === "system" && m.meta?.kind === "verification_update" && m.meta?.status === "verified" && m.meta?.pickupMap === true && <a href={WATERSTONES_MAP_URL} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block rounded-full border border-current/20 px-3 py-1 text-xs">Open Waterstones, Trafalgar Square in Google Maps ↗</a>}

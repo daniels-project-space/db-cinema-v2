@@ -26,6 +26,7 @@ put("sessions", { token: "other", accountId: otherAccount._id, expiresAt: now + 
       text: "Tell me what you are filming and I can recommend one.",
     });
     assert.equal(answer.saved, true);
+    await assert.rejects(() => chat.requestHuman.handler(ctx, { token: "renter", offerMessageId: answer.messageId }), /Gaffer must offer a team handoff/);
     const offerQuestion = await chat.recordGafferUserMessage.handler(ctx, { token: "renter", text: "I have a complicated booking question." });
     const offer = await chat.recordGafferReply.handler(ctx, {
       token: "renter",
@@ -39,7 +40,7 @@ put("sessions", { token: "other", accountId: otherAccount._id, expiresAt: now + 
     assert(tables.get("chat_threads").some((thread) => thread.accountId === otherAccount._id && thread.escalated), "direct requests reach the team's escalation queue");
     const widget = fs.readFileSync("src/components/BotBubble.tsx", "utf8");
     assert(widget.includes("m.meta?.offerHuman") && widget.includes("<HumanHandoffOffer"), "the storefront widget only shows handoff after Gaffer offers it");
-    assert(widget.includes("requestAccountHuman({ token: account.token! })"), "the storefront handoff action is wired to the authenticated support thread");
+    assert(widget.includes("offerMessageId: m.id"), "the storefront handoff action proves it follows Gaffer's live offer");
     assert(widget.indexOf('aria-label="Chat notifications"') < widget.indexOf("<HumanHandoffOffer"), "the notification prompt follows Gaffer's first answer before later controls");
 
     const stale = await chat.recordGafferUserMessage.handler(ctx, { token: "renter", text: "One more question." });
@@ -49,13 +50,20 @@ put("sessions", { token: "other", accountId: otherAccount._id, expiresAt: now + 
       renterMessageId: stale.messageId,
       text: "This stale response must not be saved.",
     })).saved, false);
-    assert.equal((await chat.recordGafferReply.handler(ctx, {
+    const latestAnswer = await chat.recordGafferReply.handler(ctx, {
       token: "renter",
       renterMessageId: latest.messageId,
-      text: "This answer belongs to the latest question.",
-    })).saved, true);
+      text: "Would you like me to connect you with a team member?",
+    });
+    assert.equal(latestAnswer.saved, true);
+    assert.equal(latestAnswer.offerHuman, true);
+    const savedLatestAnswer = await db.get(latestAnswer.messageId);
+    assert.equal(savedLatestAnswer?.meta?.offerHuman, true);
+    const latestSupportMessage = (await db.query("messages").withIndex("by_booking_account_at", q => q.eq("bookingId", undefined).eq("accountId", account._id)).order("desc").take(1))[0];
+    assert.equal(latestSupportMessage?._id, latestAnswer.messageId);
 
-    await chat.requestHuman.handler(ctx, { token: "renter" });
+    await assert.rejects(() => chat.requestHuman.handler(ctx, { token: "renter", offerMessageId: offer.messageId }), /Gaffer must offer a team handoff/);
+    await chat.requestHuman.handler(ctx, { token: "renter", offerMessageId: latestAnswer.messageId });
     const handoffQuestion = await chat.recordGafferUserMessage.handler(ctx, { token: "renter", text: "I still need the team." });
     assert.equal(handoffQuestion.handledByHuman, true);
     const suppressedReply = await chat.recordGafferReply.handler(ctx, {

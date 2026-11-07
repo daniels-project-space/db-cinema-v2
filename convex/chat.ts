@@ -316,13 +316,16 @@ export const _setEscalated = internalMutation({
 
 /** Customer presses "Talk to a human" → escalate + alert the team on Telegram. */
 export const requestHuman = mutation({
-  args: { token: v.string(), bookingId:v.optional(v.id("bookings")) },
-  handler: async (ctx, { token, bookingId }) => {
+  args: { token: v.string(), bookingId:v.optional(v.id("bookings")), offerMessageId:v.id("messages") },
+  handler: async (ctx, { token, bookingId, offerMessageId }) => {
     const a: any = await acctByToken(ctx, token);
     if (!a) throw new Error("unauthorized");
     if(bookingId)await ownedBooking(ctx,a,bookingId);
     const t = await rentalThread(ctx,a._id,bookingId);
     if (t?.escalated) return { ok: true };
+    const offer=await ctx.db.get(offerMessageId);
+    const latestRows=await ctx.db.query("messages").withIndex("by_booking_account_at",(q:any)=>q.eq("bookingId",bookingId).eq("accountId",a._id)).order("desc").take(1);
+    if(!offer||offer._id!==latestRows[0]?._id||offer.accountId!==a._id||offer.bookingId!==bookingId||offer.sender!=="bot"||offer.meta?.offerHuman!==true)throw new Error("Gaffer must offer a team handoff before it can be requested.");
     if (t) await ctx.db.patch(t._id, { escalated: true, gafferGeneration: (t.gafferGeneration ?? 0) + 1, updatedAt: Math.max(Date.now(),t.updatedAt+1) });
     else await ctx.db.insert("chat_threads", { accountId: a._id, bookingId, escalated: true, gafferGeneration: 1, updatedAt: Date.now() });
     const messageId = await postRentalMessage(ctx,{accountId:a._id,bookingId,sender:"system",text:"Your request for the team is recorded. Your conversation stays here."});

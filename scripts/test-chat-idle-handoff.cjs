@@ -28,6 +28,13 @@ function gafferReplyForLatestRenter() {
   assert(scheduled.some((entry) => entry[2]?.messageId === latest._id), "Gaffer replies only after a new renter message");
 }
 
+async function offerHumanForLatestRenter(bookingId) {
+  const renter = [...(tables.get("messages") ?? [])].reverse().find((message) => message.sender === "renter" && message.bookingId === bookingId);
+  const thread = tables.get("chat_threads").find((item) => item.accountId === account._id && item.bookingId === bookingId);
+  await chat._postBot.handler(ctx, { accountId: account._id, bookingId, replyTo: renter._id, generation: thread.gafferGeneration ?? 0, text: "Would you like me to connect you with the team?", offerHuman: true });
+  return [...(tables.get("messages") ?? [])].reverse().find((message) => message.sender === "bot" && message.bookingId === bookingId)._id;
+}
+
 (async () => {
   try {
     await chat.send.handler(ctx, { token: "renter", text: "Account question" });
@@ -37,7 +44,7 @@ function gafferReplyForLatestRenter() {
     assert.equal(threads.filter((thread) => thread.bookingId == null).length, 1);
     assert.equal(threads.filter((thread) => thread.bookingId === booking._id).length, 1);
 
-    await chat.requestHuman.handler(ctx, { token: "renter" });
+    await chat.requestHuman.handler(ctx, { token: "renter", offerMessageId: await offerHumanForLatestRenter(undefined) });
     const accountTimer = latestTimer()[2];
     assert.equal(latestTimer()[0], 4 * 60 * 60 * 1000, "account support uses a four-hour idle handoff");
     const accountMessagesAtHandoff = tables.get("messages").length;
@@ -48,7 +55,7 @@ function gafferReplyForLatestRenter() {
     await chat.send.handler(ctx, { token: "renter", text: "I still need account help." });
     gafferReplyForLatestRenter();
 
-    await chat.requestHuman.handler(ctx, { token: "renter", bookingId: booking._id });
+    await chat.requestHuman.handler(ctx, { token: "renter", bookingId: booking._id, offerMessageId: await offerHumanForLatestRenter(booking._id) });
     const initialTimer = latestTimer()[2];
     assert.equal(latestTimer()[0], GAFFER_AUTO_RESUME_MS);
     const messageCountAtHandoff = tables.get("messages").length;
@@ -69,7 +76,7 @@ function gafferReplyForLatestRenter() {
     await chat.send.handler(ctx, { token: "renter", bookingId: booking._id, text: "I still need help" });
     gafferReplyForLatestRenter();
 
-    await chat.requestHuman.handler(ctx, { token: "renter", bookingId: booking._id });
+    await chat.requestHuman.handler(ctx, { token: "renter", bookingId: booking._id, offerMessageId: await offerHumanForLatestRenter(booking._id) });
     const staleTimer = latestTimer()[2];
     await db.patch(thread._id, { tgMessageId: 42 });
     now += 60 * 60 * 1000;
@@ -83,7 +90,8 @@ function gafferReplyForLatestRenter() {
     assert.deepEqual(await chat.autoResumeGaffer.handler(ctx, refreshedTimer), { resumed: true });
     assert.equal(thread.escalated, false);
 
-    await chat.requestHuman.handler(ctx, { token: "renter", bookingId: booking._id });
+    await chat.send.handler(ctx, { token: "renter", bookingId: booking._id, text: "I have another complicated question." });
+    await chat.requestHuman.handler(ctx, { token: "renter", bookingId: booking._id, offerMessageId: await offerHumanForLatestRenter(booking._id) });
     const beforeSystemMessage = latestTimer()[2];
     now = beforeSystemMessage.expectedUpdatedAt + 60 * 60 * 1000;
     await chat.postSystem.handler(ctx, { accountId: account._id, bookingId: booking._id, text: "The pickup time was updated." });

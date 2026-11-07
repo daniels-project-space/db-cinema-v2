@@ -21,7 +21,7 @@ const scheduled=[],ctx={db,scheduler:{runAfter:async(...a)=>scheduled.push(a)}};
  const other=put('accounts',{email:'other@test.invalid'});assert.equal(await voucher.firstOrderVoucherReason(ctx,other),null);
  await db.patch(a._id,{firstRentalPaidAt:0});assert.match(await voucher.firstOrderVoucherReason(ctx,a),/first order/);
  put('sessions',{token:'renter',accountId:other._id,expiresAt:Date.now()+60000});
- await chat.requestHuman.handler(ctx,{token:'renter'});
+ const humanQuestion=await chat.recordGafferUserMessage.handler(ctx,{token:'renter',text:'I have a complicated support question'});const humanOffer=await chat.recordGafferReply.handler(ctx,{token:'renter',renterMessageId:humanQuestion.messageId,text:'Would you like me to connect you with the team?'});await chat.requestHuman.handler(ctx,{token:'renter',offerMessageId:humanOffer.messageId});
  const t=tables.get('chat_threads').find(t=>t.accountId===other._id),epoch=t.gafferGeneration;
  assert.equal(t.escalated,true);
  await chat.resumeGaffer.handler(ctx,{token:'renter'});assert.equal(t.escalated,false);assert.equal(t.gafferGeneration,epoch+1);
