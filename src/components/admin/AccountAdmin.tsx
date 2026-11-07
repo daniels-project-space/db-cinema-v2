@@ -613,6 +613,26 @@ export function AccountAdmin({
           aria-label="Customer profile"
         >
           <header className={styles.profileHeader}>
+            <span
+              className={`${styles.profileAvatar} ${isCurrentlyVerified(selected) ? styles.profileAvatarVerified : ""}`}
+              data-testid="admin-profile-avatar"
+              role="img"
+              aria-label={`${selected.name || "Customer"} profile photo${isCurrentlyVerified(selected) ? ", verified" : ""}`}
+            >
+              <span className={styles.profileAvatarCrop}>
+                {selected.avatarUrl ? (
+                  <SmartImage src={selected.avatarUrl} alt="" className={styles.profileAvatarImage} />
+                ) : (
+                  <>
+                    <span className={styles.profileAvatarInitial} aria-hidden="true">
+                      {(selected.name || selected.email).slice(0, 1).toUpperCase()}
+                    </span>
+                    {privatePortraitsAvailable && <PrivateVerificationPortrait token={token} accountId={selected.id} className={styles.privatePortrait} />}
+                  </>
+                )}
+              </span>
+              {isCurrentlyVerified(selected) && <span className={styles.profileVerificationCheck} aria-label="Verification active for 90 days">✓</span>}
+            </span>
             <h2 className={styles.managementHeading}>Account Management</h2>
             {selected.avatarUrl ? (
               <SmartImage

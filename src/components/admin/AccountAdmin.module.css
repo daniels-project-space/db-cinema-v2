@@ -288,6 +288,61 @@
   padding: 23px 19px 17px;
   position: relative;
 }
+.profileAvatar {
+  position: relative;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  padding: 2px;
+  border: 1px solid transparent;
+  border-radius: 50%;
+}
+.profileAvatarVerified {
+  border-color: #f5f4f0;
+  box-shadow: 0 0 0 1px #f5f4f033;
+}
+.profileAvatarCrop {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 50%;
+  background: #3b3b35;
+}
+.profileAvatarImage {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.profileAvatarInitial {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: #c4b5a5;
+  font-family: var(--font-instrument), Georgia, serif;
+  font-size: 17px;
+}
+.profileVerificationCheck {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  display: grid;
+  width: 15px;
+  height: 15px;
+  place-items: center;
+  border: 2px solid #191b1b;
+  border-radius: 50%;
+  background: #f5f4f0;
+  color: #242424;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
 .avatarLarge,
 .avatarLargeInitial {
   height: 64px;
