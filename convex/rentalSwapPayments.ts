@@ -13,6 +13,85 @@ function stripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY);
 }
 
+export const syncFailedRefundReview = action({
+  args: { token: v.string(), id: v.id("rental_item_swaps") },
+  handler: async (ctx, args): Promise<{
+    status: string;
+    refunds: Array<{ id: string; amountPence: number; status: string; failureReason?: string; dashboardUrl: string }>;
+    readyToResume: boolean;
+    newRefundCreated: boolean;
+  }> => {
+    await ctx.runMutation(internal.adminAuth.assertAdminInternal, {
+      token: args.token,
+      fn: "rentalSwapPayments.syncFailedRefundReview",
+    });
+    const context = await ctx.runQuery(internal.rentalSwapState.context, { id: args.id });
+    const swap = context?.swap;
+    if (!swap || swap.status !== "review" || !swap.refundJobId)
+      throw Error("This equipment change has no failed refund to review.");
+
+    const job = await ctx.runQuery(internal.rentalOperations.refundJob, { id: swap.refundJobId });
+    if (!job || job.bookingId !== swap.bookingId)
+      throw Error("The equipment refund is not linked to this rental.");
+    const failedParts = job.parts?.filter((part: any) => part.status === "failed") ?? [];
+    if (!failedParts.length)
+      return { status: job.status, refunds: [], readyToResume: job.status === "succeeded", newRefundCreated: false };
+
+    const client = stripe();
+    const refunds: Array<{ id: string; amountPence: number; status: string; failureReason?: string; dashboardUrl: string }> = [];
+    for (const part of failedParts) {
+      const allocation = job.allocations?.find((row: any) => row.paymentIntentId === part.paymentIntentId);
+      if (!allocation || allocation.amountPence !== part.amountPence || !part.stripeRefundId)
+        throw Error("The failed Stripe refund allocation needs manual reconciliation.");
+
+      const refund = await client.refunds.retrieve(part.stripeRefundId);
+      const paymentIntentId = typeof refund.payment_intent === "string"
+        ? refund.payment_intent
+        : refund.payment_intent?.id;
+      if (
+        refund.id !== part.stripeRefundId ||
+        paymentIntentId !== part.paymentIntentId ||
+        refund.amount !== allocation.amountPence ||
+        refund.currency !== "gbp" ||
+        refund.metadata?.rentalRefundId !== String(job._id) ||
+        refund.metadata?.rentalPaymentIntent !== part.paymentIntentId ||
+        refund.metadata?.bookingId !== String(swap.bookingId)
+      ) throw Error("The Stripe refund receipt does not match this rental. No settlement was changed.");
+
+      const status = refund.status === "succeeded"
+        ? "succeeded"
+        : refund.status === "pending"
+          ? "pending"
+          : refund.status === "failed" || refund.status === "canceled"
+            ? "failed"
+            : null;
+      if (!status) throw Error("Stripe returned an unknown refund status. No settlement was changed.");
+
+      await ctx.runMutation(internal.rentalOperations.recordRefundPart, {
+        id: job._id,
+        paymentIntentId: part.paymentIntentId,
+        stripeRefundId: refund.id,
+        status,
+      });
+      refunds.push({
+        id: refund.id,
+        amountPence: refund.amount,
+        status,
+        failureReason: status === "failed" ? refund.failure_reason ?? undefined : undefined,
+        dashboardUrl: `https://dashboard.stripe.com/refunds/${encodeURIComponent(refund.id)}`,
+      });
+    }
+
+    const refreshed = await ctx.runQuery(internal.rentalOperations.refundJob, { id: job._id });
+    return {
+      status: refreshed?.status ?? "unknown",
+      refunds,
+      readyToResume: refreshed?.status === "succeeded",
+      newRefundCreated: false,
+    };
+  },
+});
+
 function swapDescription(swap:any) {
   const changes=swap.changes?.length?swap.changes:[{oldLine:swap.oldLine,newLine:swap.newLine}];
   return changes.map((change:any)=>`${change.oldLine.qty} × ${change.oldLine.title} → ${change.newLine.title}`).join("; ").slice(0,500);
