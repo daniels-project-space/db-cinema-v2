@@ -28,7 +28,17 @@ module.exports=async function(){
   await c.evaluate(`fixture.hold('key-light',1800)`);await until(`!(${card('Nanlite key light')})`,'Hold removes unavailable recommendation');await until(`!!(${card('Nanlite key light')})`,'Hold expires automatically without another database write');
   await c.evaluate(`fixture.spawnLight()`);await until(has('New rental light'),'New inventory enters recommendations');
   await c.evaluate(`fixture.basket('e-body')`);await until(has('Sony FE 90mm'),'Basket camera changes native lens ranking');assert(!await c.evaluate(has('Canon EF 50mm prime')));
-  console.log('Live recommendations: price, new inventory, hold expiry and EF/E basket changes passed');await c.evaluate(`fixture.reset();fixture.setMode('chat')`);await click(`document.querySelector('button[aria-label="Contact us — chat with Gaffer"]')`);await c.evaluate(`document.querySelector('[aria-label="Message Gaffer"]').focus()`);await c.cmd('Input.insertText',{text:'Recommend a kit'});await c.cmd('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await c.cmd('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  console.log('Live recommendations: price, new inventory, hold expiry and EF/E basket changes passed');await c.evaluate(`fixture.reset();fixture.setMode('chat')`);
+  await c.cmd('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+  await click(`[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Chat with Gaffer'))`);
+  await until(`!!document.querySelector('button[aria-label="Close chat"]')`,'Contact chat opens on mobile');
+  await new Promise(resolve=>setTimeout(resolve,800));
+  const mobilePanel=await c.evaluate(`(()=>{const panel=document.querySelector('.chat-panel').getBoundingClientRect();const close=document.querySelector('button[aria-label="Close chat"]').getBoundingClientRect();return {left:panel.left,right:panel.right,top:panel.top,bottom:panel.bottom,closeLeft:close.left,closeRight:close.right}})()`);
+  assert(mobilePanel.left>=0&&mobilePanel.right<=390&&mobilePanel.top>=0&&mobilePanel.bottom<=844&&mobilePanel.closeLeft>=0&&mobilePanel.closeRight<=390,'Mobile chat and its close control fit the viewport');
+  fs.writeFileSync('/tmp/dbc-contact-gaffer-mobile.png',Buffer.from((await c.cmd('Page.captureScreenshot',{format:'png'})).data,'base64'));
+  await click(`document.querySelector('button[aria-label="Close chat"]')`);assert.equal(await c.evaluate(`!!document.querySelector('.chat-panel')`),false,'Mobile close dismisses chat');
+  await c.cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  await click(`[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Chat with Gaffer'))`);await c.evaluate(`document.querySelector('[aria-label="Message Gaffer"]').focus()`);await c.cmd('Input.insertText',{text:'Recommend a kit'});await c.cmd('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await c.cmd('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
   await until(`!!document.querySelector('a[href="/gear/key-light"]')`,'Chat cards render');await c.evaluate(`fixture.hold('key-light',60000);fixture.patch('spare-light',{pricing:{daily:77}})`);
   await until(`document.querySelector('a[href="/gear/key-light"]')?.closest('.spot')?.innerText.includes('Add request')`,'Unavailable compatible chat choice remains requestable');
   await until(`document.querySelector('a[href="/gear/spare-light"]')?.closest('.spot')?.innerText.includes('£154')`,'Chat alternative price refreshes');

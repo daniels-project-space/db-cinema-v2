@@ -47,7 +47,7 @@ export function rentalRefundPlan(
   return allocations;
 }
 export function cancellationPaymentPlan(
-  kind: "full_refund" | "store_credit",
+  kind: "full_refund" | "store_credit" | "no_refund",
   payments: PaymentBalance[],
   restoredCreditPence: number,
 ) {
@@ -70,7 +70,7 @@ export function cancellationPaymentPlan(
     refundPence,
     creditPence:
       (kind === "store_credit" ? available - refundPence : 0) +
-      restoredCreditPence,
+      (kind === "no_refund" ? 0 : restoredCreditPence),
   };
 }
 export function securityReturnPlan(

@@ -17,6 +17,12 @@ import { SavedCardCharges } from "@/components/rentals/SavedCardCharges";
 import {OperatorCancellationStatus} from "./OperatorCancellationStatus";
 import { CompactRentalImages } from "./CompactRentalImages";
 import { RentalDeliveryQuotePanel } from "./RentalDeliveryQuotePanel";
+import { RentalReviewRequest } from "./RentalReviewRequest";
+import { RentalCasePanel } from "./RentalCasePanel";
+import { RentalSwapRecovery } from "./RentalSwapRecovery";
+import { RentalSwapStockReview } from "./RentalSwapStockReview";
+import { RentalSwapProposal } from "./RentalSwapProposal";
+import { InventoryConflictRefund } from "./InventoryConflictRefund";
 import { RENTAL_TIME_SLOTS } from "../../../shared/rentalWindow";
 import { hasCashDepositPolicy } from "../../../shared/rentalSecurity";
 
@@ -223,7 +229,15 @@ export function RentalOrderTools({
   }
   return (
     <div data-testid="owner-rental-tools">
+      {b.verificationConfirmationIssue === "inventory_unavailable" && <div role="alert" className="mb-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-xs text-amber-100">
+        <p className="font-semibold">Checkout completed · equipment needs review</p>
+        <p className="mt-1">This booking is not confirmed. Check live availability and contact the renter before arranging an alternative. If the booking cannot be fulfilled, review the original payment and any refund in Stripe using the normal approval process. Do not mark the rental confirmed without available stock.</p>
+      </div>}
+      <InventoryConflictRefund key={`${token}:${bookingId}`} token={token} bookingId={bookingId}/>
       <RentalRequestHistory token={token} bookingId={bookingId} admin />
+      <RentalSwapRecovery key={JSON.stringify([token,bookingId])} token={token} bookingId={bookingId} />
+      <RentalSwapStockReview key={JSON.stringify([token,bookingId])} token={token} bookingId={bookingId} />
+      {b.status === "confirmed" && <RentalSwapProposal key={JSON.stringify([token,bookingId])} token={token} bookingId={bookingId} items={b.lineItems} />}
       <OperatorCancellationStatus key={bookingId} token={token} bookingId={bookingId}/>
       <section className={chatStyles.bookingFacts} aria-label="Booked equipment and handover">
         <div className={chatStyles.factsIdentity}><div className="min-w-0"><h5>{rentalTitle(b.lineItems[0]?.title ?? "Rental kit")}</h5><p>DBC-{bookingId.slice(-8).toUpperCase()} · {b.lineItems.length} listings</p></div></div>
@@ -237,9 +251,11 @@ export function RentalOrderTools({
         <div><dt>Card authorisation</dt><dd>{formatGbp(b.depositHoldAmount ?? 0)}</dd></div>
       </dl>
       <RentalDeliveryQuotePanel token={token} booking={b} />
+      <RentalReviewRequest key={`${token}:${bookingId}`} token={token} bookingId={bookingId} />
+      {["confirmed", "active", "returned"].includes(b.status) && <RentalCasePanel key={`${token}:${bookingId}`} token={token} bookingId={bookingId} />}
       <p className="mb-2 text-[10px] uppercase tracking-[.16em] text-white/35">Manage rental · owner only</p>
       {cancellation && cancellation.status !== "succeeded" && <div role="status" className="mb-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-xs text-amber-100">
-        <p>{cancellation.status === "attention" ? "Cancellation needs payment review. The existing refund was not completed." : "Cancellation settlement is processing. The rental remains reserved until refunds and security release are confirmed."}</p>
+        <p>{cancellation.status === "attention" ? "Cancellation needs payment review. The existing refund was not completed." : b.status === "pending_verification" ? "Refund settlement is processing. This booking remains unconfirmed until the provider settlement is complete." : "Cancellation settlement is processing. The rental remains reserved until refunds and security release are confirmed."}</p>
         {cancellation.refunds.map((r, i) => <p key={i} className="mt-2">{formatGbp(r.amount)} · {r.status.replaceAll("_", " ")}{r.approvalUrl && r.status === "awaiting_approval" && <a className="ml-2 underline" href={r.approvalUrl} target="_blank" rel="noopener noreferrer">Review in Stripe</a>}</p>)}
       </div>}
       <div className="flex flex-wrap items-center gap-2 text-xs" aria-label="Owner rental controls">
@@ -327,7 +343,7 @@ export function RentalOrderTools({
       </div>
       {showReturn && returnOpen && <ReturnRentalForm booking={b} token={token} onClose={() => setReturnOpen(false)} />}
       {showReturn && !returnOpen && b.status === "returned" && !!b.returnDecision && hasCashDepositPolicy(b.securityPolicyVersion) && <DepositRefundStatus token={token} bookingId={bookingId} />}
-      {showReturn && (b.returnDecision || b.status === "returned") && <ReturnInspectionHistory token={token} bookingId={bookingId} />}
+      <ReturnInspectionHistory token={token} bookingId={bookingId} />
       <RentalManagerDelivery token={token} bookingId={bookingId} />
       {additions
         .filter(
@@ -427,8 +443,10 @@ export function RentalOrderTools({
           <p className="mt-2 text-xs leading-relaxed text-white/45">
             {mode === "cancel"
               ? b.cancellationKind === "full_refund"
-                ? "Within the refund window: remaining card payment is refunded and previously used account credit is restored."
-                : "Outside the refund window: rental cash refund is 0%. Remaining rental payment becomes one-year account credit. Refundable security is returned separately."
+                ? b.cancellationTermsVersion === "2026-11-v21" ? "More than seven days before pickup: the renter may choose a full refund or 100% account credit. Record their explicit choice." : "Within the refund window: remaining card payment is refunded and previously used account credit is restored."
+                : b.cancellationKind === "no_refund"
+                  ? "Within 48 hours of pickup: no rental refund or account credit. Any separately refundable security is settled separately."
+                  : "Outside the refund window: rental cash refund is 0%. Remaining rental payment becomes one-year account credit. Refundable security is returned separately."
               : mode === "remove"
                 ? "Remove the selected item and release its stock. This does not change the agreed payment or security: use the separate refund control within the refund window. The original charge remains itemised on the receipt. To remove all kit, cancel the rental."
               : mode === "add"

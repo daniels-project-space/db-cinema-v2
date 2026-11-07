@@ -1,0 +1,15 @@
+import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+
+export const seed = mutation({ args: {}, handler: async ctx => {
+  const accountId = await ctx.db.insert("accounts", { email: "avatar-fixture@example.invalid", createdAt: Date.now() });
+  await ctx.db.insert("sessions", { accountId, token: "avatar-fixture-token", expiresAt: Date.now() + 3600000 });
+  return accountId;
+} });
+export const reserve = mutation({ args: {}, handler: async ctx => ctx.runMutation(internal.accounts.reserveAvatarUpload, { token: "avatar-fixture-token" }) });
+export const commitThenFail = mutation({ args: { accountId: v.id("accounts"), revision: v.number(), digest: v.string(), chunks: v.array(v.bytes()) }, handler: async (ctx, args) => {
+  await ctx.runMutation(internal.accounts.commitAvatarUpload, { token: "avatar-fixture-token", contentType: "image/png", ...args });
+  throw new Error("Synthetic failure after storage and binding");
+} });
+export const inspect = query({ args: { accountId: v.id("accounts") }, handler: async (ctx, { accountId }) => ({ account: await ctx.db.get(accountId), storage: await ctx.db.system.query("_storage").collect() }) });

@@ -1,4 +1,5 @@
 import {stockWindow} from "./lib/stockWindows";
+import { assertSwapStockReconciled } from "./lib/swapStockFence";
 import {bookingStockLines,rentalWindow} from "../shared/rentalWindow";
 import {assertRentalInventory} from "./lib/rentalInventory";
 import {assertRentalAllocation} from "./lib/rentalAllocation";
@@ -135,7 +136,8 @@ export const _applyReschedule = internalMutation({
     if (!r || r.status !== "pending" || r.type !== "reschedule") return { ok: false, reason: "gone" };
     const b = await ctx.db.get(r.bookingId);
     if (!b || r.requestedStart == null || r.requestedEnd == null) return { ok: false, reason: "gone" };
-    if(b.cancellationDecision||b.returnDecision||b.activeAdditionId||b.activeDeliveryQuoteId||b.activeExtensionId||b.status!=="confirmed")throw Error("This rental can no longer be rescheduled");
+    if(b.cancellationDecision||b.returnDecision||b.activeAdditionId||b.activeDeliveryQuoteId||b.activeExtensionId||b.activePriceAdjustmentId||b.activeItemSwapId||b.status!=="confirmed")throw Error("This rental can no longer be rescheduled");
+    await assertSwapStockReconciled(ctx, r.bookingId);
     const newStart = r.requestedStart, newEnd = r.requestedEnd;
     const lines=bookingStockLines(b).map(li=>({...li,start:newStart,end:newEnd}));
     try{await assertRentalInventory(ctx,lines,r.bookingId);}catch{

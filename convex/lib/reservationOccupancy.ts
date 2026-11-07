@@ -7,7 +7,7 @@ export async function reservationOccupancy(ctx: any, row: any, now = Date.now())
   let booking: any = null;
   if (row.status === "hold" && row.bookingId) {
     booking = await ctx.db.get(row.bookingId);
-    if (booking?.status === "pending_payment") return null;
+    if (booking?.status === "pending_payment" || booking?.status === "pending_verification") return null;
   }
   if (row.status === "hold" && (row.holdExpiresAt ?? Infinity) <= now) {
     if (!await reservationPaymentUnresolved(ctx, row)) return null;

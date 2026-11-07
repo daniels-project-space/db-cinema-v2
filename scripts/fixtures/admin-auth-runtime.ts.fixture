@@ -1,0 +1,33 @@
+import { action, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { v } from "convex/values";
+
+export const identity = query({ args: {}, handler: async ctx => {
+  const identity = await ctx.auth.getUserIdentity();
+  return identity?.tokenIdentifier ?? null;
+} });
+export const issue = action({ args: { attestation: v.object({ clientDigest: v.string(), nonce: v.string(), issuedAt: v.number(), mac: v.string() }) },
+  handler: async (ctx, { attestation }): Promise<{ token: string; expiresAt: number } | null> => ctx.runAction(internal.adminSessionIssuerV2.issue, { attestation }) });
+export const seedDocument = mutation({ args: {}, handler: async ctx => {
+  const now = Date.now(), bytes = new TextEncoder().encode("synthetic-private-document");
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), value => value.toString(16).padStart(2, "0")).join("");
+  const bookingId = await ctx.db.insert("bookings", { guestEmail: "synthetic@example.invalid", status: "confirmed", lineItems: [], fulfilment: "pickup", deliveryFee: 0, subtotal: 0, discount: 0, depositAmount: 0, total: 0, currency: "GBP" });
+  const archiveId = await ctx.db.insert("verification_archives", { bookingId, sessionId: "synthetic-session", email: "synthetic@example.invalid", status: "complete", attempts: 0, dueAt: now, createdAt: now });
+  const storageId = await ctx.storage.store(new Blob([bytes], { type: "application/pdf" }));
+  return await ctx.db.insert("verification_documents", { bookingId, archiveId, sessionId: "synthetic-session", storageId, sha256: hash, size: bytes.length, kind: "synthetic", contentType: "application/pdf", savedAt: now });
+} });
+export const seedAccount = mutation({ args: {}, handler: async ctx => ctx.db.insert("accounts", { email: "synthetic-admin-target@example.invalid", createdAt: Date.now() }) });
+export const seedBillingAccount = mutation({ args: {}, handler: async ctx => ctx.db.insert("accounts", { email: "synthetic-billing@example.invalid", createdAt: Date.now(), stripeCustomerId: "cus_synthetic", stripeSubscriptionId: "sub_synthetic" }) });
+export const billingTarget = action({ args: { token: v.string(), accountId: v.id("accounts") }, handler: async (ctx, args): Promise<{ customerId: string; subscriptionId: string; membershipSnapshot: string }> => ctx.runMutation(internal.accountAdmin.billingPortalTarget, { ...args, purpose: "portal" }) });
+export const refreshTarget = action({ args: { token: v.string(), accountId: v.id("accounts") }, handler: async (ctx, args): Promise<{ customerId: string; subscriptionId: string; membershipSnapshot: string }> => ctx.runMutation(internal.accountAdmin.billingPortalTarget, { ...args, purpose: "membership_refresh" }) });
+export const refreshCommit = action({ args: { token: v.string(), accountId: v.id("accounts"), membershipSnapshot: v.string() }, handler: async (ctx, args): Promise<void> => ctx.runMutation(internal.membershipBenefits.syncSubscription, { accountId: args.accountId, subscriptionId: "sub_synthetic", tier: "pro", status: "canceled", subscriptionCreatedAt: 1000, cancelAtPeriodEnd: false, expectedCustomerId: "cus_synthetic", expectedSubscriptionId: "sub_synthetic", expectedMembershipSnapshot: args.membershipSnapshot, adminRefreshToken: args.token }) });
+export const inspectMembership = query({ args: { accountId: v.id("accounts") }, handler: async (ctx, args) => (await ctx.db.get(args.accountId))?.membershipStatus ?? null });
+export const seedDevice = mutation({ args: {}, handler: async ctx => {
+  const now = Date.now();
+  await ctx.db.insert("admin_push_subscriptions", { deviceId: "synthetic-device", endpoint: "https://example.invalid/push", p256dh: "synthetic", auth: "synthetic", enabled: true, createdAt: now, updatedAt: now });
+} });
+export const inspectAccount = query({ args: { accountId: v.id("accounts") }, handler: async (ctx, { accountId }) => {
+  const account = await ctx.db.get(accountId);
+  const audits = await ctx.db.query("admin_audit_log").collect();
+  return { starred: account?.adminStarred === true, successfulStars: audits.filter(row => row.fn === "accountAdmin.setStarred").length };
+} });

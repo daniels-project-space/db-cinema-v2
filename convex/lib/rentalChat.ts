@@ -3,7 +3,7 @@ import { queueOwnerNotification } from "./adminPush";
 import { belongsToRentalAccount } from "./rentalAccount";
 import { internal } from "../_generated/api";
 
-export const GAFFER_AUTO_RESUME_MS = 3 * 60 * 60 * 1000;
+export const GAFFER_AUTO_RESUME_MS = 4 * 60 * 60 * 1000;
 /** Shared boundaries for customer and owner rental conversations. */
 export async function accountForToken(ctx: any, token: string, requireExpiry = false) {
   const s = await ctx.db
@@ -47,14 +47,16 @@ export async function postRentalMessage(
     sender: "renter" | "bot" | "system" | "owner";
     text: string;
     meta?: any;
+    deferOwnerAlert?: boolean;
   },
 ) {
   if (a.bookingId)
     await ownedBooking(ctx, await ctx.db.get(a.accountId), a.bookingId);
   const thread = await rentalThread(ctx, a.accountId, a.bookingId);
   const now = Math.max(Date.now(), (thread?.updatedAt ?? 0) + 1);
+  const { deferOwnerAlert, ...message } = a;
   const id = await ctx.db.insert("messages", {
-    ...a,
+    ...message,
     at: now,
     readByOwner: a.sender !== "renter",
     threadCounted: true,
@@ -81,7 +83,7 @@ export async function postRentalMessage(
       chatUnreadOwner: patch.unreadOwner,
       chatUnreadRenter: patch.unreadRenter,
     });
-  if (a.sender === "renter") await queueOwnerNotification(ctx, {
+  if (a.sender === "renter" && (!deferOwnerAlert || thread?.escalated)) await queueOwnerNotification(ctx, {
     eventKey: `renter-message:${id}`, kind: "renter_message", accountId: a.accountId, bookingId: a.bookingId,
     title: a.bookingId ? "New rental message" : "New support message",
     body: a.bookingId ? "A renter replied in a rental conversation. Tap to open it." : "A renter sent a general enquiry. Tap to open it.",

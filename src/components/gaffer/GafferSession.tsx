@@ -150,6 +150,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   const [secs, setSecs] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const conv = useRef<any>(null);
+  const starting = useRef(false);
   const { clientTools, dynamicVariables, noteCustomerMessage, resetPriceRequest, noteAgentAlignment, noteAgentMessage, resetSpokenFocus } = useGafferTools();
   const memory = useRef(createCallMemory());
   const callGeneration = useRef(0);
@@ -293,19 +294,24 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         );
       } catch { /* non-fatal */ }
       if (farewell.current) clearTimeout(farewell.current);
-      farewell.current = setTimeout(() => void end(), FAREWELL_MAX_MS);
+      farewell.current = setTimeout(() => { if (!agentTalking.current) void end(); }, FAREWELL_MAX_MS);
     }, 1000);
     return () => clearInterval(id);
   }, [state, end]);
 
   const toggle = useCallback(async (topic?: string) => {
     if (state === "live" || state === "connecting") { void end(); return; }
+    if (starting.current) return;
+    starting.current = true;
+    const permissionGeneration = generation.current;
+    try {
 
     // Explain before the browser asks. An unexplained mic prompt on a rental
     // site is the kind of thing people refuse on reflex, and a refusal is
     // sticky — Chrome won't ask twice.
     if (!micAsked.current) {
       const perm = await micState();
+      if (generation.current !== permissionGeneration) return;
       if (perm !== "granted") {
         micAsked.current = true;
         setMicPrompt({ status: perm === "denied" ? "denied" : "ask", topic });
@@ -414,7 +420,15 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           audioConcatProcessor: "/voice-worklets/audioConcatProcessor.js?v=1.12.0",
         },
         onAudioAlignment: (alignment: any) => { if (mine()) noteAgentAlignment(alignment); },
-        onInterruption: () => { if (mine()) resetSpokenFocus(); },
+        onInterruption: () => {
+          if (!mine()) return;
+          resetSpokenFocus();
+          if (signingOff.current) {
+            signingOff.current = false;
+            if (farewell.current) { clearTimeout(farewell.current); farewell.current = null; }
+            lastActivity.current = Date.now();
+          }
+        },
         clientTools: tools,
         dynamicVariables: {
           ...variablesRef.current,
@@ -449,7 +463,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           // accepts the socket, then closes the conversation. startSession has
           // already resolved by then, so the only place this is visible is an
           // instant disconnect the customer didn't ask for.
-          if (withOverrides && !endedDeliberately.current && Date.now() - startedAt < OVERRIDE_PROBE_MS) {
+          if (withOverrides && !endedDeliberately.current && !signingOff.current && Date.now() - startedAt < OVERRIDE_PROBE_MS) {
             overridesAllowed = false;
             rememberOverridesBlocked();
             console.warn(
@@ -482,6 +496,18 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           if (autoReconnectTried.current && !endedDeliberately.current) {
             setError("The line dropped — try calling again.");
           }
+          if (farewell.current) { clearTimeout(farewell.current); farewell.current = null; }
+          generation.current++;
+          callGeneration.current++;
+          signingOff.current = false;
+          agentTalking.current = false;
+          awaitingAgent.current = false;
+          toolsInFlight.current = 0;
+          memory.current.clear();
+          resetPriceRequest();
+          resetSpokenFocus();
+          hint.current.reset();
+          setDockOpen(false);
           setState("idle");
           setSpeaking(false);
           conv.current = null;
@@ -535,7 +561,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           // the farewell ran past the window. Wait for it to actually stop
           // speaking (see onModeChange); this is only the backstop for a
           // goodbye that never arrives.
-          farewell.current = setTimeout(() => void end(), FAREWELL_MAX_MS);
+          farewell.current = setTimeout(() => { if (!agentTalking.current) void end(); }, FAREWELL_MAX_MS);
         },
         onError: (err: unknown) => {
           if (!mine()) return;
@@ -552,7 +578,10 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           // Signing off: hang up when the goodbye is actually finished, not on a
           // fixed timer. A short beat after the last word so the audio tail
           // isn't clipped.
-          if (signingOff.current && agentTalking.current && !talking) {
+          if (signingOff.current && talking && !agentTalking.current) {
+            if (farewell.current) clearTimeout(farewell.current);
+            farewell.current = null;
+          } else if (signingOff.current && agentTalking.current && !talking) {
             if (farewell.current) clearTimeout(farewell.current);
             farewell.current = setTimeout(() => void end(), GOODBYE_TAIL_MS);
           }
@@ -634,10 +663,14 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     // connecting slow.
     if (overridesAllowed === null && overridesRecentlyBlocked()) overridesAllowed = false;
     await start(overridesAllowed !== false);
+    } finally {
+      starting.current = false;
+    }
   }, [state, end, dynamicVariables, pathname, noteCustomerMessage, resetPriceRequest]);
 
   // Belt and braces: don't leave a session running if the whole app unmounts.
   useEffect(() => () => {
+    generation.current++;
     if (farewell.current) clearTimeout(farewell.current);
     hint.current.reset();
     void conv.current?.endSession?.().catch?.(() => {});

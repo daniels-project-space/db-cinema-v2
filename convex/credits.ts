@@ -47,12 +47,14 @@ export const expire = internalMutation({
     let n=0;
     for(const c of page.page){
       const account=await ctx.db.get(c.accountId);
-      const [linked,legacy]=account?await Promise.all([
+      const [linked,legacy,verifiedLinked,verifiedLegacy]=account?await Promise.all([
         ctx.db.query("bookings").withIndex("by_account_status",q=>q.eq("accountId",c.accountId).eq("status","pending_payment")).take(101),
         ctx.db.query("bookings").withIndex("by_guestEmail_status",q=>q.eq("guestEmail",account.email).eq("status","pending_payment")).take(101),
-      ]):[[],[]];
-      if(linked.length>100||legacy.length>100)continue;
-      const pending=[...linked,...legacy.filter(b=>b.accountId==null)];
+        ctx.db.query("bookings").withIndex("by_account_status",q=>q.eq("accountId",c.accountId).eq("status","pending_verification")).take(101),
+        ctx.db.query("bookings").withIndex("by_guestEmail_status",q=>q.eq("guestEmail",account.email).eq("status","pending_verification")).take(101),
+      ]):[[],[],[],[]];
+      if([linked,legacy,verifiedLinked,verifiedLegacy].some(rows=>rows.length>100))continue;
+      const pending=[...linked,...legacy.filter(b=>b.accountId==null),...[...verifiedLinked,...verifiedLegacy.filter(b=>b.accountId==null)].filter(b=>b.checkoutCreditState!=="spent"&&!b.paidConfirmedAt)];
       const reserved=pending.some(b=>b._creationTime<c.expiresAt&&(b.creditAllocations?b.creditAllocations.some(a=>a.creditId===c._id&&a.amount>0):((b.creditApplied??0)-(b.membershipCreditApplied??0))>0));
       if(reserved)continue;
       await ctx.db.patch(c._id,{status:"expired"});n++;

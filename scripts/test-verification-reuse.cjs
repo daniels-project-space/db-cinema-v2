@@ -93,14 +93,14 @@ function providerContext(runMutation,sourceSnapshot=source){return {runMutation,
   const offline=put('bookings',{...next,_id:'offline-real-reuse'});global.fetch=async()=>new Response('',{status:503});
   await load('convex/didit.ts').reuseVerification.handler(providerContext(async(ref,args)=>ref==='bookings.applyVerificationReuse'?bookings.applyVerificationReuse.handler(ctx,args):true,{...source}),{bookingId:offline._id});
   assert.equal(offline.idVerifyStatus,'verified','provider outages do not require re-upload when the actual archive and account gates pass');
-  await db.delete(offline._id);
+  for(const link of await db.query('verification_archive_links').collect())if(link.bookingId===offline._id)await db.delete(link._id);await db.delete(offline._id);
   const missingArchive=put('bookings',{...next,_id:'offline-missing-archive'});await db.patch(archived._id,{status:'pending'});global.fetch=async()=>new Response('',{status:404});
   await load('convex/didit.ts').reuseVerification.handler(providerContext(async(ref,args)=>ref==='bookings.applyVerificationReuse'?bookings.applyVerificationReuse.handler(ctx,args):true,{...source}),{bookingId:missingArchive._id});
   assert.equal(missingArchive.idVerifyStatus,'required','provider fallback cannot bypass a missing verified archive');await db.patch(archived._id,{status:'complete'});
   const absentProvider=put('bookings',{...next,_id:'not-found-readable-archive'});
   await load('convex/didit.ts').reuseVerification.handler(providerContext(async(ref,args)=>ref==='bookings.applyVerificationReuse'?bookings.applyVerificationReuse.handler(ctx,args):true,{...source}),{bookingId:absentProvider._id});
   assert.equal(absentProvider.idVerifyStatus,'verified','a 404 can use the complete retained archive');
-  await db.delete(absentProvider._id);
+  for(const link of await db.query('verification_archive_links').collect())if(link.bookingId===absentProvider._id)await db.delete(link._id);await db.delete(absentProvider._id);
   const document=(tables.get('verification_documents')??[]).find(row=>row.archiveId===archived._id&&row.kind.startsWith('address-'));
   const metadata=await db.system.get(document.storageId),size=metadata.size;await db.patch(metadata._id,{size:size+1});
   const unreadable=put('bookings',{...next,_id:'not-found-unreadable-archive'});
@@ -160,6 +160,7 @@ function providerContext(runMutation,sourceSnapshot=source){return {runMutation,
  await db.patch(source._id,{idVerificationSource:'manual'});assert.equal(await bookings.reuseVerificationCandidate.handler(ctx,{bookingId:next._id}),null);await db.patch(source._id,{idVerificationSource:'didit'});
  assert.equal(await bookings.applyVerificationReuse.handler(ctx,{bookingId:next._id,sourceBookingId:source._id,documentExpiresAt:now-1}),false);
  assert.equal(await bookings.applyVerificationReuse.handler(ctx,{bookingId:next._id,sourceBookingId:source._id,documentExpiresAt:now+30*86400000,personKey:'verified-person'}),true);
+ assert((await db.query('restricted_identity_alert_jobs').collect()).some(job=>job.bookingId===next._id&&job.sessionId===source.diditSessionId&&job.state==='pending'),'A verified later rental queues its own restricted-identity check');
  assert.equal(next.verificationExpiresAt,now+90*86400000,'the approved verification remains valid for 90 days even when the ID expires sooner');assert.equal(next.idVerifiedAt,now,'reuse cannot reset verification age');
  const afterDocumentExpiry=put('bookings',{...next,_id:'reuse-after-document-expiry',idVerifyStatus:'required',verificationExpiresAt:undefined,verificationReusedFrom:undefined,lineItems:[{listingId:item._id,qty:1,start:now+60*86400000,end:now+61*86400000}]});
  assert.ok(await bookings.reuseVerificationCandidate.handler(ctx,{bookingId:afterDocumentExpiry._id}),'the account badge and saved Didit approval remain reusable after the document expiry date but within 90 days');
@@ -201,6 +202,7 @@ function providerContext(runMutation,sourceSnapshot=source){return {runMutation,
  assert.equal(unrelatedOwner.idVerifyStatus,'verified','another account’s rental cannot be invalidated by a recycled email');
  const pending=put('bookings',{...next,_id:'pending-stage',status:'pending_payment'});const count=tables.get('messages').length;await load('convex/lib/verificationReuse.ts').verificationUpdateMessage(ctx,pending._id,'required','verified');assert.equal(tables.get('messages').length,count,'unpaid receives no document approval');
  const update=load('convex/lib/verificationReuse.ts').verificationUpdateMessage,other=put('accounts',{email:'other@example.invalid'});
+ const declineAccount=put('accounts',{email:'declined@example.invalid'}),declineRental=put('bookings',{accountId:declineAccount._id,guestEmail:declineAccount.email,status:'pending_verification',lineItems:[]});await update(ctx,declineRental._id,'processing','rejected');const declineMessage=tables.get('messages').find(message=>message.bookingId===declineRental._id);assert.match(declineMessage.text,/not approved.*not ready for collection/i);assert.match(declineMessage.text,/friend.*separate booking.*own account and identity/i);assert.match(declineMessage.text,/usual checks and approval/i);const countDecline=tables.get('messages').length;await update(ctx,declineRental._id,'rejected','rejected');assert.equal(tables.get('messages').length,countDecline,'A repeated decision does not send duplicate chat messages');
  const pickupSettings=put('settings',{businessAddress:'The Grand Building, Trafalgar Square, London, WC2N 5EJ. Please meet us at the confirmed time outside the Waterstones bookstore at Trafalgar Square.'});
  const pickup=put('bookings',{accountId:account._id,guestEmail:other.email,status:'confirmed',fulfilment:'pickup',pickupTime:'14:00',lineItems:[{title:'Test camera',start:Date.UTC(2030,0,2),end:Date.UTC(2030,0,3),qty:1}]});
  await update(ctx,pickup._id,'required','verified');const pickupMessage=tables.get('messages').at(-1);assert.equal(pickupMessage.accountId,account._id,'permanent owner receives the update even if guest email changed');

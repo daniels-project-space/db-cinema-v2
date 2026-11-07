@@ -1,0 +1,33 @@
+const assert = require("node:assert/strict");
+const { createHash, webcrypto } = require("node:crypto");
+const harness = require("./lib/rentalTestHarness.cjs");
+global.crypto ??= webcrypto;
+const access = harness.load("convex/adminAccountSessionV2.ts"), sessions = harness.load("convex/adminSessionsV2.ts");
+let ready = false, revokeDuringRead = false, reads = 0;
+harness.setMock("./adminAccountSessionV2", { ...access, adminSessionMigrationReady: () => ready });
+const identity = "https://identity.example|refresh-fixture", token = "a".repeat(64);
+const hash = value => createHash("sha256").update(value).digest("hex");
+const ctx = { db: harness.db, auth: { getUserIdentity: async () => ({ tokenIdentifier: identity }) } };
+harness.setMock("stripe", { default: class { constructor() { this.subscriptions = { retrieve: async id => {
+  reads++;
+  if (revokeDuringRead) await sessions.revoke.handler(ctx, { tokenDigest: hash(token) });
+  return { id, customer: "cus_fixture", status: "canceled", created: 1000, metadata: { accountEmail: "member@example.invalid", membershipTier: "pro" }, items: { data: [] }, cancel_at_period_end: false };
+} }; } } });
+const admin = harness.load("convex/accountAdmin.ts"), checkout = harness.load("convex/checkout.ts"), benefits = harness.load("convex/membershipBenefits.ts");
+const member = harness.put("accounts", { email: "member@example.invalid", createdAt: 1, stripeCustomerId: "cus_fixture", stripeSubscriptionId: "sub_fixture", membershipStatus: "active", membershipActive: true });
+ctx.runQuery = async (ref, args) => { assert.equal(ref, "accounts._byEmail"); return args.email === member.email ? member : null; };
+ctx.runMutation = async (ref, args) => { if (ref === "accountAdmin.billingPortalTarget") return admin.billingPortalTarget.handler(ctx, args); if (ref === "membershipBenefits.syncSubscription") return benefits.syncSubscription.handler(ctx, args); throw Error(`Unexpected mutation ${ref}`); };
+process.env.ADMIN_TOKEN = "legacy-refresh-fixture"; process.env.ADMIN_SESSION_MEMBERSHIP_REFRESH_V2 = "enabled";
+process.env.ADMIN_SESSION_SCOPES_V2 = JSON.stringify({ [identity]: ["payments:write"] }); process.env.STRIPE_SECRET_KEY = "sk_test_fixture";
+(async () => {
+  const args = { token, accountId: member._id };
+  await assert.rejects(checkout.adminRefreshMembership.handler(ctx, args), /not ready/);
+  ready = true;
+  await sessions.createSession.handler(ctx, { tokenDigest: hash(token), principalId: `admin:${hash(identity)}`, scopes: ["payments:write"], expiresAt: Date.now() + 60_000 });
+  await assert.rejects(checkout.adminRefreshMembership.handler(ctx, { ...args, token: process.env.ADMIN_TOKEN }), /unauthorized/);
+  assert.equal(reads, 0);
+  revokeDuringRead = true;
+  await assert.rejects(checkout.adminRefreshMembership.handler(ctx, args), /unauthorized/);
+  assert.equal(member.membershipStatus, "active");
+  console.log("PASS staged membership refresh: gate and revocation during Stripe read prevent the membership write; Stripe mocked.");
+})().catch(error => { console.error(error); process.exitCode = 1; });

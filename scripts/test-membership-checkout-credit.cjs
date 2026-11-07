@@ -22,7 +22,8 @@ function renderQuotedHook(quote,member,variant='basket'){
  renderingAccount=member;
  return renderToStaticMarkup(React.createElement(uiModule.exports.CheckoutMembership,{variant,suggestions:quote?.recommendations,selected:null,onChange:()=>{},appliedSavings:quote}));
 }
-const camera=put('listings',{active:true,title:'Camera',pricing:{daily:300},depositAmount:1000,components:[]});
+const unit=put('inventory_units',{name:'Camera',quantityOwned:100,active:true});
+const camera=put('listings',{active:true,title:'Camera',pricing:{daily:300},depositAmount:1000,components:[{inventoryUnitId:unit._id,qty:1}]});
 let account;
 const ctx={db,scheduler:{runAfter:async()=>{}},runQuery:async(ref,args)=>{
  if(ref==='accounts._byEmail')return load('convex/accounts.ts')._byEmail.handler({db},args);
@@ -42,8 +43,8 @@ async function prepare(tier='plus') {
  await billing.syncSubscription.handler(ctx,{accountId:account._id,subscriptionId:'sub-'+account._id,tier,status:'active',subscriptionCreatedAt:now,cancelAtPeriodEnd:false,checkoutId:reservation._id});
  return {price,reservation,booking:await db.get(pending.bookingId)};
 }
-async function pay(fixture,fee=1900) {
- const args={accountId:account._id,subscriptionId:account.stripeSubscriptionId,invoiceId:'in-'+account._id,paidMembershipPence:fee,periodEnd:now+30*86400000,checkoutId:fixture.reservation._id};
+async function pay(fixture,fee=1900,historical={}) {
+ const args={accountId:account._id,subscriptionId:account.stripeSubscriptionId,invoiceId:'in-'+account._id,paidMembershipPence:fee,periodEnd:now+30*86400000,checkoutId:fixture.reservation._id,...historical};
  const id=await billing.grantPaidInvoice.handler(ctx,args);
  assert.equal(await billing.grantPaidInvoice.handler(ctx,args),id,'duplicate payment cannot mint credit twice');
  await assert.rejects(billing.grantPaidInvoice.handler(ctx,{...args,invoiceId:'second-'+account._id}),/already settled/);
@@ -160,7 +161,7 @@ async function pay(fixture,fee=1900) {
  const f=await prepare();assert.equal(f.price.membershipCreditApplied,20.9);assert.equal(f.price.membershipSignupOfferSaving,5);assert.equal(f.price.combinedTotalDue,f.price.depositAmount+93.1);
  assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),0,'unpaid credit is unavailable to other rentals');
  await assert.rejects(bookings.confirm.handler(ctx,{bookingId:f.booking._id}),/has not settled/);
- assert.equal(f.price.depositAmount,0,"first checkout never takes security money");const receipt=await pay(f);assert.equal(account.membershipPerksPendingBookingId,f.booking._id);assert.equal(load("shared/membership.ts").paidDepositExempt(account),false);assert.equal(receipt.credit.remaining,0);assert.equal(!!account.membershipSignupOfferUsed,true);
+ assert.equal(f.price.depositAmount,0,"first checkout never takes security money");account.membershipTier='studio';const receipt=await pay(f,1900,{historicalBonusPercent:10,historicalPriceId:'price_fixture',historicalTermsVersion:'fixture'});account.membershipTier='plus';assert.equal(receipt.grant.earnedCreditPence,2090,'first-month checkout uses invoice terms even if the current tier changes');assert.equal(account.membershipPerksPendingBookingId,f.booking._id);assert.equal(load("shared/membership.ts").paidDepositExempt(account),false);assert.equal(receipt.credit.remaining,0);assert.equal(!!account.membershipSignupOfferUsed,true);
  await bookings.confirm.handler(ctx,{bookingId:f.booking._id,paymentIntentId:'pi-fixture'});
  await bookings.confirm.handler(ctx,{bookingId:f.booking._id,paymentIntentId:'pi-fixture'});
  assert.equal(receipt.credit.remaining,0,'confirm does not spend first-month credit twice');assert.equal(account.membershipPerksPendingBookingId,undefined);assert.equal(load('shared/membership.ts').paidDepositExempt(account),true);

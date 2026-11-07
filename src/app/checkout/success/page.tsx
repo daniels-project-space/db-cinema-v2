@@ -31,6 +31,7 @@ function SuccessSession({sessionId}: {sessionId: string | null}) {
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [membership, setMembership] = useState<string | null>(null);
   const [cardSaved, setCardSaved] = useState(false);
+  const [swapStatus, setSwapStatus] = useState<string | null>(null);
   const [holdStatus, setHoldStatus] = useState<string | null>(null);
   const [holdSecret, setHoldSecret] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -48,12 +49,13 @@ function SuccessSession({sessionId}: {sessionId: string | null}) {
           if (r.closed) { setState("cancelled"); return; }
           setBookingId(r.bookingId);
           setCardSaved(!!r.cardSaved);
+          setSwapStatus(r.swapStatus ?? null);
           setAdditionId(r.additionId??null);
           setMembership((r as any).membership ?? null);
           setHoldStatus(r.holdStatus ?? null);
           setHoldSecret(r.holdClientSecret ?? null);
           setState("paid");
-          if (!(r as any).membership&&!r.additionId&&!r.cardSaved) clear();
+          if (!(r as any).membership&&!r.additionId&&!r.cardSaved&&!r.swapStatus) clear();
         } else {
           setState("unpaid");
         }
@@ -98,6 +100,8 @@ function SuccessSession({sessionId}: {sessionId: string | null}) {
     return <Msg title="This booking is closed" body="This checkout belongs to a cancelled booking. Please contact us if your bank shows a charge so we can confirm its refund." cta />;
   if (state === "error")
     return <Msg title="We’re still confirming your payment" body="Your basket is still intact. Do not pay again — check the payment status once more in a moment. If it still cannot be confirmed, contact us with your payment reference." cta onRetry={() => { setState("working"); setAttempt((value) => value + 1); }} />;
+
+  if(swapStatus)return <Msg title={swapStatus === "applied" ? "Equipment change confirmed" : swapStatus === "refunded" ? "Equipment change not completed" : "Equipment change being checked"} body={swapStatus === "applied" ? "Your rental conversation now shows the updated equipment." : swapStatus === "refunded" ? "Your original equipment is unchanged and the extra payment has been refunded. Check your rental conversation for details." : "Your payment was received, but the equipment change is not confirmed yet. Check your rental conversation for updates; please do not pay again."} accountRental={bookingId} />;
 
   if(additionId){
     const ready=holdStatus==="held";

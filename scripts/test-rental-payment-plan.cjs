@@ -29,6 +29,14 @@ assert.equal(
   plan.cancellationPaymentPlan("full_refund", payments, 3000).refundPence,
   19500,
 );
+assert.deepEqual(plan.cancellationPaymentPlan("no_refund", payments, 3000), {
+  allocations: [
+    { paymentIntentId: "pi_original", amountPence: 2000 },
+    { paymentIntentId: "pi_addition", amountPence: 2500 },
+  ],
+  refundPence: 4500,
+  creditPence: 0,
+});
 assert.deepEqual(plan.securityReturnPlan(payments, 3000), [
   { paymentIntentId: "pi_original", amountPence: 2000 },
   { paymentIntentId: "pi_addition", amountPence: 1000 },

@@ -3,6 +3,7 @@ import { formatGbp } from "@/lib/pricing";
 import { RentalKit } from "@/components/rentals/RentalKit";
 import { CompactRentalImages } from "./CompactRentalImages";
 import { RentalOrderTools } from "./RentalOrderTools";
+import { RestrictedIdentityAlertFailures } from "./RestrictedIdentityAlertFailures";
 import { AccountDocuments } from "./AccountDocuments";
 import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -310,6 +311,7 @@ export function RentalInbox({
         </button>
         </div>
       </div>
+      <RestrictedIdentityAlertFailures token={token} onOpen={bookingId => { setSearch(""); setStage("all"); setSelected(bookingId); setSelectedEmail(null); setNavigationRevision(value => value + 1); window.history.replaceState(null, "", ownerConversationUrl({ bookingId })); }} />
       {!!notifications.length && <div className={chatStyles.attentionPanel}>
         <button type="button" onClick={() => setShowAttention(v => !v)} aria-expanded={showAttention} aria-controls="rental-attention-list" className={chatStyles.attentionToggle}><span>Needs your attention</span><span className="rounded-full bg-[#b98160]/15 px-2 py-1">{notifications.length>=30?"30+":notifications.length}</span></button>
         {showAttention && <div id="rental-attention-list" className={chatStyles.attentionList}>{ADMIN_NOTIFICATION_CATEGORIES.map(category => {

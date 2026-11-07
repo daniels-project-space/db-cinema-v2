@@ -15,7 +15,8 @@ const esc = (s: string) =>
 // (token → session → account → email ownership), same as the invoice route.
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const token = req.nextUrl.searchParams.get("token") ?? undefined;
+  const authorization = req.headers.get("authorization");
+  const token = authorization?.startsWith("Bearer ") ? authorization.slice(7) : req.nextUrl.searchParams.get("token") ?? undefined;
   const key = req.nextUrl.searchParams.get("key") ?? undefined;
   const convex = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!convex) return new Response("not configured", { status: 500 });

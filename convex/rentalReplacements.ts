@@ -1,4 +1,5 @@
 import {ASSESSMENT_SECURITY_POLICY_VERSION,depositForBookingPolicy} from "../shared/rentalSecurity";
+import { assertSwapStockReconciled } from "./lib/swapStockFence";
 import { replacementSets } from "./lib/replacementSets";
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
@@ -87,7 +88,10 @@ export const options = query({
           b.status === "confirmed" &&
           !b.cancellationDecision &&
           !b.activeAdditionId &&
+          !b.activeDeliveryQuoteId &&
           !b.activeExtensionId &&
+          !b.activePriceAdjustmentId &&
+          !b.activeItemSwapId &&
           !b.returnDecision,
         price_note:
           "Agreed rental charges stay unchanged. No refund or extra payment is made.",
@@ -130,12 +134,16 @@ export const accept = mutation({
       b.status !== "confirmed" ||
       b.cancellationDecision ||
       b.activeAdditionId ||
+      b.activeDeliveryQuoteId ||
       b.activeExtensionId ||
+      b.activePriceAdjustmentId ||
+      b.activeItemSwapId ||
       b.returnDecision
     )
       throw Error(
         "Finish the open operation first. Only an upcoming confirmed rental can be changed here.",
       );
+    await assertSwapStockReconciled(ctx, b._id);
     const { original, line } = await context(ctx, a.bookingId, a.lineIndex);
     assertReplacementSnapshot(
       {
@@ -398,7 +406,10 @@ async function completeBasketOptions(ctx: any, bookingId: any): Promise<any> {
         b.status === "confirmed" &&
         !b.cancellationDecision &&
         !b.activeAdditionId &&
+        !b.activeDeliveryQuoteId &&
         !b.activeExtensionId &&
+        !b.activePriceAdjustmentId &&
+        !b.activeItemSwapId &&
         !b.returnDecision,
       price_note:
         "All replacements were checked together with the retained kit. Agreed rental charges stay unchanged; no refund or extra payment is made.",
@@ -467,12 +478,16 @@ export const acceptBasket = mutation({
       b.status !== "confirmed" ||
       b.cancellationDecision ||
       b.activeAdditionId ||
+      b.activeDeliveryQuoteId ||
       b.activeExtensionId ||
+      b.activePriceAdjustmentId ||
+      b.activeItemSwapId ||
       b.returnDecision
     )
       throw Error(
         "Finish the open operation first. Only an upcoming confirmed rental can be changed here.",
       );
+    await assertSwapStockReconciled(ctx, b._id);
     const fresh = await completeBasketOptions(ctx, a.bookingId);
     const choice = fresh.options.find(
       (option: any) => option.id === a.replacementId,

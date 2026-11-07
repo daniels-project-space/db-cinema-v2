@@ -16,6 +16,15 @@ assert.match(GAFFER_VOICE_PROMPT, /clear shoot context/i);
 assert.match(GAFFER_VOICE_PROMPT, /camera-only\/no-extras request/i);
 assert.match(GAFFER_VOICE_PROMPT, /Call request_callback only when the caller explicitly asks/i);
 assert.doesNotMatch(GAFFER_VOICE_PROMPT, /Always call request_callback|for any booking, inquiry, issue/i);
+assert.match(GAFFER_VOICE_PROMPT, /The Grand Building, Trafalgar Square, London, WC2N 5EJ/);
+assert.match(GAFFER_VOICE_PROMPT, /outside the Waterstones bookstore at the confirmed time/);
+assert.match(GAFFER_VOICE_PROMPT, /Never infer booking status from payment, a saved card or an estimate/);
+assert.match(GAFFER_VOICE_PROMPT, /Before speaking, choose one considered answer/i,
+  "the agent should settle on its answer before beginning to speak");
+assert.match(GAFFER_VOICE_PROMPT, /do not voice provisional conclusions, change conclusions mid-response, or restart your own active response/i,
+  "the agent must not revise or interrupt its own spoken response");
+assert.match(GAFFER_VOICE_PROMPT, /always yield if the caller interrupts/i,
+  "the response-completion rule must preserve caller barge-in");
 
 const salesCallBrief = pageBrief("/gear").brief;
 assert.match(salesCallBrief, /Quote the gear hire daily rate and rental total only/i);

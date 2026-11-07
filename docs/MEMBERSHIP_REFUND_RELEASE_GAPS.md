@@ -1,0 +1,9 @@
+# Membership refund release gaps
+
+Keep `MEMBERSHIP_HISTORICAL_INVOICE_CREDIT_V1` disabled. Refund events are not a transactional snapshot of Stripe: a refund may succeed after the invoice snapshot and before its event creates a local job. A known pending or ambiguous refund now fences new credit issuance, but this cannot close the external-provider race.
+
+The current refund review is an owner notification and durable job, not a complete operator resolution workflow. In particular, a pre-grant refund can remain fenced because the refund worker expects an existing credit receipt. Do not clear or mark the job done manually to bypass the fence.
+
+When a distinct refund is recorded against an existing job, the worker lease is invalidated and a completed job reopens; an existing review remains in review. This protects only events that actually reach the job. It does not make Stripe reads transactional or establish allocation for a partial refund.
+
+Before enabling, implement and test a scoped billing-admin review that shows the invoice, payment, all successful and pending refunds, credit notes and existing credit receipt, verifies ownership and currency, records the evidence and operator decision in an immutable audit trail, and prevents allocation of the same refund both directly and through a credit note. Commit the reviewed cumulative allocation and grant/reversal in the same local transaction under a versioned fence, with safe retries and an explicit review state if provider evidence changes. Ensure approved resolution requeues the invoice without blocking unrelated rental confirmation. Test concurrent grants and refund updates, duplicate and reordered events, partial and multiple refunds, credit-note overlap, spent credits, provider failures and operator retries on an isolated backend. Validate the remaining external snapshot race and webhook subscription against Stripe before release.

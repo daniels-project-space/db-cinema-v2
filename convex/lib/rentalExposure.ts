@@ -6,10 +6,13 @@ const BOUND = 200;
 export async function renterValueBookings(ctx: any, renter: any) {
   const email = (renter.guestEmail ?? renter.customerEmail ?? "").trim().toLowerCase();
   if (!email) throw Error("Rental customer needs a team check.");
-  const account = await ctx.db.query("accounts").withIndex("by_email", (q: any) => q.eq("email", email)).first();
+  const account = renter.accountId ? await ctx.db.get(renter.accountId) : await ctx.db.query("accounts").withIndex("by_email", (q: any) => q.eq("email", email)).first();
+  if (renter.accountId && !account) throw Error("The rental account needs a team check.");
   const personKey = renter.renterPersonKey ?? account?.renterPersonKey;
+  const currentEmail = (account?.email ?? email).trim().toLowerCase();
   const groups = await Promise.all(statuses.flatMap(status => [
-    ctx.db.query("bookings").withIndex("by_guestEmail_status", (q: any) => q.eq("guestEmail", email).eq("status", status)).take(BOUND + 1),
+    ...[...new Set([email, currentEmail])].map(address => ctx.db.query("bookings").withIndex("by_guestEmail_status", (q: any) => q.eq("guestEmail", address).eq("status", status)).take(BOUND + 1).then((rows: any[]) => { if (rows.length > BOUND) throw Error("Your overlapping rentals need a team review before another booking."); return rows.filter(row => row.accountId ? !!account && row.accountId === account._id : row.guestEmail === currentEmail); })),
+    ...(account ? [ctx.db.query("bookings").withIndex("by_account_status", (q: any) => q.eq("accountId", account._id).eq("status", status)).take(BOUND + 1)] : []),
     ...(personKey ? [ctx.db.query("bookings").withIndex("by_person_status", (q: any) => q.eq("renterPersonKey", personKey).eq("status", status)).take(BOUND + 1)] : []),
   ]));
   if (groups.some(rows => rows.length > BOUND)) throw Error("Your overlapping rentals need a team review before another booking.");
@@ -44,7 +47,14 @@ export async function renterExposure(ctx: any, renter: any, lines = renter.lineI
       const extension = await ctx.db.get(b.activeExtensionId);
       if (extension?.quoteItems && ["approved", "awaiting_payment", "refund_pending"].includes(extension.status)) proposed = proposed.map((line: any, i: number) => { const extra = extension.quoteItems.find((q: any) => q.lineIndex === i); return extra ? { ...line, end: Math.max(line.end, extra.end) } : line; });
     }
-    return valueIntervals(ctx, b, proposed);
+    const intervals = await valueIntervals(ctx, b, proposed);
+    if (b.activeItemSwapId) {
+      const swap = await ctx.db.get(b.activeItemSwapId);
+      if (!swap || !swap.newLine || !Number.isSafeInteger(swap.lineIndex) || !proposed[swap.lineIndex]) throw Error("The pending equipment change needs review.");
+      const replacement = await valueIntervals(ctx, b, [swap.newLine]);
+      intervals[swap.lineIndex] = { ...intervals[swap.lineIndex], valuePence: Math.max(intervals[swap.lineIndex].valuePence, replacement[0].valuePence) };
+    }
+    return intervals;
   }));
   const own = await valueIntervals(ctx, renter, lines);
   const intervals = [...all.flat(), ...own];
@@ -63,10 +73,12 @@ export async function attachRenterPerson(ctx: any, booking: any, personKey?: str
   if (!personKey) return;
   const { rows } = await renterValueBookings(ctx, booking);
   const email = (booking.guestEmail ?? "").trim().toLowerCase();
-  const account = await ctx.db.query("accounts").withIndex("by_email", (q: any) => q.eq("email", email)).first();
+  const account = booking.accountId ? await ctx.db.get(booking.accountId) : await ctx.db.query("accounts").withIndex("by_email", (q: any) => q.eq("email", email)).first();
+  if (booking.accountId && !account) throw Error("The rental account needs a team check.");
   if ((account?.renterPersonKey && account.renterPersonKey !== personKey) || (booking.renterPersonKey && booking.renterPersonKey !== personKey))
     throw Error("Verified identity changed. A team identity review is required before handover.");
   if (account) await ctx.db.patch(account._id, { renterPersonKey: personKey });
   await ctx.db.patch(booking._id, { renterPersonKey: personKey });
-  for (const row of rows) if (row.guestEmail === email && !row.renterPersonKey) await ctx.db.patch(row._id, { renterPersonKey: personKey });
+  const currentEmail = (account?.email ?? email).trim().toLowerCase();
+  for (const row of rows) if (!row.renterPersonKey && (row.accountId ? !!account && row.accountId === account._id : row.guestEmail === currentEmail)) await ctx.db.patch(row._id, { renterPersonKey: personKey });
 }

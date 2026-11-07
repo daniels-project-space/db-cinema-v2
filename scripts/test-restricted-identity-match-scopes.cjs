@@ -1,0 +1,42 @@
+const assert = require("node:assert/strict");
+const { createHash, webcrypto } = require("node:crypto");
+const harness = require("./lib/rentalTestHarness.cjs");
+global.crypto ??= webcrypto;
+const access = harness.load("convex/adminAccountSessionV2.ts");
+let ready = false;
+harness.setMock("./adminAccountSessionV2", { ...access, adminSessionMigrationReady: () => ready });
+const admin = harness.load("convex/accountAdmin.ts");
+const sessions = harness.load("convex/adminSessionsV2.ts");
+const identity = "https://identity.example|match-scopes-fixture";
+const hash = value => createHash("sha256").update(value).digest("hex");
+const tokens = { customers: "a".repeat(64), verification: "b".repeat(64), both: "c".repeat(64) };
+const ctx = { db: harness.db, auth: { getUserIdentity: async () => ({ tokenIdentifier: identity }) } };
+process.env.ADMIN_TOKEN = "fixture-admin";
+process.env.ADMIN_SESSION_SCOPES_V2 = JSON.stringify({ [identity]: ["customers:read", "verification:read"] });
+const key = "a".repeat(64);
+const renter = harness.put("accounts", { email: "renter@example.invalid", renterPersonKey: key });
+const restricted = harness.put("accounts", { email: "restricted@example.invalid", renterPersonKey: key, blockedAt: 1 });
+const booking = harness.put("bookings", { accountId: renter._id, renterPersonKey: key, diditSessionId: "fixture", idVerifyStatus: "verified", idVerificationSource: "didit", verificationChecks: { identity: "approved", selfie: "approved", address: "approved" } });
+const read = token => admin.possibleRestrictedIdentityMatches.handler(ctx, { token, bookingId: booking._id });
+
+(async () => {
+  process.env.ADMIN_SESSION_IDENTITY_ALERTS_V2 = "enabled";
+  await assert.rejects(read(process.env.ADMIN_TOKEN), /not ready/);
+  ready = true;
+  for (const [name, scopes] of Object.entries({ customers: ["customers:read"], verification: ["verification:read"], both: ["customers:read", "verification:read"] }))
+    await sessions.createSession.handler(ctx, { tokenDigest: hash(tokens[name]), principalId: `admin:${hash(identity)}`, scopes, expiresAt: Date.now() + 60_000 });
+  await assert.rejects(read(tokens.customers), /unauthorized/);
+  assert.deepEqual((await read(tokens.verification)).matches.map(row => row.id), [restricted._id]);
+  process.env.ADMIN_SESSION_CUSTOMER_READ_V2 = "enabled";
+  await assert.rejects(read(tokens.verification), /unauthorized/);
+  assert.deepEqual((await read(tokens.both)).matches.map(row => row.id), [restricted._id]);
+  delete process.env.ADMIN_SESSION_IDENTITY_ALERTS_V2;
+  await assert.rejects(read(tokens.customers), /unauthorized/);
+  assert.equal((await read(tokens.both)).matches.length, 1);
+  await sessions.revoke.handler(ctx, { tokenDigest: hash(tokens.both) });
+  await assert.rejects(read(tokens.both), /unauthorized/);
+  delete process.env.ADMIN_SESSION_CUSTOMER_READ_V2;
+  assert.equal((await read(process.env.ADMIN_TOKEN)).matches.length, 1);
+  assert.deepEqual(await read("wrong"), { matches: [], more: false });
+  console.log("PASS restricted identity match requires scoped verification access during either migration and preserves legacy compatibility");
+})().catch(error => { console.error(error); process.exitCode = 1; });

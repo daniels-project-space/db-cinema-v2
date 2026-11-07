@@ -140,19 +140,22 @@ export const cancellationEmail = internalAction({
     if (!b || !b.guestEmail) return null;
     const app=process.env.APP_URL??"https://dbcinemarentals.com",url=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
     const rows:Array<[string,string]>=[];
-    if(refundAmount>0)rows.push(["Refund to original payment method",emailMoney(refundAmount)]);
+    if(refundAmount>0)rows.push([mode==="no_refund"?"Separately refundable security to original payment method":"Refund to original payment method",emailMoney(refundAmount)]);
     if(creditAmount>0)rows.push([mode==="credit"?"Account credit added":"Account credit restored",emailMoney(creditAmount)]);
-    const detail=mode==="credit"?`<p>Account credit is available for future rentals for ${CANCELLATION_CREDIT_DAYS} days. It is separate from any cash refund shown above; no cash refund is issued for the amount converted to credit.</p>`:mode==="refund"?(refundAmount>0?"<p>Your refund is returned to the original payment method. Bank processing times vary.</p>":"<p>No cash refund is due under this cancellation.</p>"):"<p>No payment was taken, so there is no payment to refund.</p>";
+    const detail=mode==="credit"?`<p>Account credit is available for future rentals for ${CANCELLATION_CREDIT_DAYS} days. It is separate from any cash refund shown above; no cash refund is issued for the amount converted to credit.</p>`:mode==="refund"?(refundAmount>0?"<p>Your refund is returned to the original payment method. Bank processing times vary.</p>":"<p>No cash refund is due under this cancellation.</p>"):mode==="no_refund"?`<p>No rental refund or account credit is due under the accepted terms. Any separately refundable security shown above is returned to the original payment method; bank processing times vary.</p>`:"<p>No payment was taken, so there is no payment to refund.</p>";
     return email(b.guestEmail,"Your DB Cinema booking is cancelled",rentalEmail({title:"Booking cancelled",preview:"Your cancellation and settlement summary.",url,button:"View cancellation",body:`<p>Your rental request has been cancelled.</p>${emailRows(rows)}${detail}<p>Any uncaptured card authorisation is released separately.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
   },
 });
 
 /** Emails the renter when a reschedule/extend is applied. */
 export const changeEmail = internalAction({
-  args: { bookingId: v.id("bookings"), kind: v.string(), detail: v.optional(v.string()) },
-  handler: async (ctx, { bookingId, kind, detail }) => {
-    const recipient: any = await ctx.runQuery(internal.rentalOperations.changeRecipient, { bookingId });
-    if (!recipient) return;
+  args: { bookingId: v.id("bookings"), kind: v.string(), detail: v.optional(v.string()), expectedAccountId: v.optional(v.id("accounts")), expectedRecipientEmail: v.optional(v.string()), refundId: v.optional(v.id("rental_refunds")) },
+  handler: async (ctx, { bookingId, kind, detail, expectedAccountId, expectedRecipientEmail, refundId }) => {
+    const recipient: any = await ctx.runQuery(internal.rentalOperations.changeRecipient, { bookingId, ...(expectedAccountId ? { expectedAccountId } : {}), ...(expectedRecipientEmail !== undefined ? { expectedRecipientEmail } : {}) });
+    if (!recipient) {
+      if (refundId) await ctx.runMutation(internal.rentalOperations.alertRefundContactChange, { bookingId, refundId });
+      return;
+    }
     const escape = (text: string) => text.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const subj = kind === "rescheduled" ? "Your Db Cinema rental has been rescheduled" : "Your Db Cinema rental was updated";

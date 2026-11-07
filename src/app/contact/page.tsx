@@ -11,6 +11,7 @@ import { IconCheck, IconClock, IconPin, IconSend } from "@/components/icons";
 import { HOURS_WINDOWS } from "@/lib/site";
 import { EmailLink } from "@/components/EmailLink";
 import { AskGaffer } from "@/components/gaffer/AskGaffer";
+import { OpenGafferChat } from "@/components/gaffer/OpenGafferChat";
 
 export default function ContactPage() {
   const submit = useMutation(api.contact.submit);
@@ -65,6 +66,8 @@ export default function ContactPage() {
           accent="us"
           sub="Questions about gear, availability or delivery? Gaffer can help with live stock, rental quotes and your booking."
         />
+
+        <div className="mt-8"><OpenGafferChat /></div>
 
         <div className="mt-10 grid gap-8 md:grid-cols-[1fr_260px]">
           <div>
@@ -152,12 +155,14 @@ export default function ContactPage() {
             <div className="spot rounded-2xl p-5">
               <div className="flex items-center gap-2.5">
                 <IconPin className="h-4 w-4 text-accent-400" />
-                <span className="hud-label !text-white/60">Where</span>
+                <span className="hud-label !text-white/60">In-person collection</span>
               </div>
               <p className="mt-2 text-sm leading-relaxed text-white/60">
-                Central London pickup
-                <br />
-                <span className="text-white/35">+ local delivery ~30km</span>
+                The Grand Building<br />
+                Trafalgar Square, London<br />
+                WC2N 5EJ
+                <span className="mt-2 block text-white/45">Meet outside the Waterstones bookstore at your confirmed time.</span>
+                <span className="mt-2 block text-white/35">Ask Gaffer to check delivery for your address and dates.</span>
               </p>
             </div>
           </aside>

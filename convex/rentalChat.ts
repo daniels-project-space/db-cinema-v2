@@ -7,6 +7,7 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { verificationValidUntil } from "../shared/verificationProgress";
 import { paginationOptsValidator } from "convex/server";
@@ -97,10 +98,10 @@ async function bookingView(
       ? (
           await ctx.db
             .query("messages")
-            .withIndex("by_booking_at", (q: any) => q.eq("bookingId", b._id))
+            .withIndex("by_booking_account_at", (q: any) => q.eq("bookingId", b._id).eq("accountId", account._id))
             .order("desc")
             .take(40)
-        ).filter((message: any) => message.accountId === account._id)
+        )
       : [];
   const requestedGearTexts = searchMessages
     .filter((message: any) => message.sender === "renter")
@@ -137,7 +138,7 @@ async function bookingView(
         ? account.email.trim().toLowerCase()
         : null,
     renterPhoto: account
-      ? ((account.avatarStorageId
+      ? ((account.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId
           ? await ctx.storage.getUrl(account.avatarStorageId)
           : null) ??
         account.googleAvatarUrl ??
@@ -228,8 +229,7 @@ export const messages = query({
     // Account filter also protects old rows created before booking ownership was enforced.
     const page = await ctx.db
       .query("messages")
-      .withIndex("by_booking_at", (q) => q.eq("bookingId", bookingId))
-      .filter((q) => q.eq(q.field("accountId"), a._id))
+      .withIndex("by_booking_account_at", (q) => q.eq("bookingId", bookingId).eq("accountId", a._id))
       .order("desc")
       .paginate({
         ...paginationOpts,
@@ -238,6 +238,7 @@ export const messages = query({
     const thread = await rentalThread(ctx, a._id, bookingId);
     return {
       ...page,
+      notificationScope: admin ? null : String(a._id),
       escalated: !!thread?.escalated,
       replyState: admin ? await conversationReplyState(ctx, a._id, bookingId, !!thread?.escalated) : null,
       quickReplies: admin
@@ -252,7 +253,7 @@ export const messages = query({
           ? (bookingId ? (await ctx.db.get(bookingId))?.guestPhone : null) || a.phone || null
           : null,
         photo:
-          (a.avatarStorageId
+          (a.avatarStorageId && a.avatarStorageId === a.avatarOwnedStorageId
             ? await ctx.storage.getUrl(a.avatarStorageId)
             : null) ??
           a.googleAvatarUrl ??
@@ -290,7 +291,7 @@ export const sendOwner = mutation({
       );
     if (!text.trim() || text.trim().length > 2000)
       throw Error("Write a message of up to 2,000 characters.");
-    await postRentalMessage(ctx, {
+    const messageId = await postRentalMessage(ctx, {
       accountId: a._id,
       bookingId,
       sender: "owner",
@@ -301,7 +302,8 @@ export const sendOwner = mutation({
       await ctx.db.patch(t._id, { escalated: true, gafferGeneration: (t.gafferGeneration ?? 0) + 1 });
       await scheduleGafferAutoResume(ctx, a._id, bookingId);
     }
-    await acknowledgeOwnerNotifications(ctx, a._id, bookingId);
+    const message = await ctx.db.get(messageId as Id<"messages">);
+    if (message) await acknowledgeOwnerNotifications(ctx, a._id, bookingId, message.at, { at: message.at, creationTime: message._creationTime });
     return { ok: true };
   },
 });
@@ -329,16 +331,16 @@ export const markRead = mutation({
     if (!seen || seen.accountId !== a._id || seen.bookingId !== bookingId)
       throw Error("Invalid read marker");
     const previous = admin ? t.ownerReadAt : t.renterReadAt;
-    if (previous != null && previous > seen.at) return;
+    const previousCreationTime = admin ? t.ownerReadCreationTime : t.renterReadCreationTime;
+    if (previous != null && (previous > seen.at || previous === seen.at && previousCreationTime != null && previousCreationTime > seen._creationTime)) return;
     if (admin)
-      await acknowledgeOwnerNotifications(ctx, a._id, bookingId, seen.at);
+      await acknowledgeOwnerNotifications(ctx, a._id, bookingId, seen.at, { at: seen.at, creationTime: seen._creationTime });
     // at is monotonic for new messages; creation time disambiguates historical ties.
     const newer = await ctx.db
       .query("messages")
-      .withIndex("by_booking_at", (q) =>
-        q.eq("bookingId", bookingId).gte("at", seen.at),
+      .withIndex("by_booking_account_at", (q) =>
+        q.eq("bookingId", bookingId).eq("accountId", a._id).gte("at", seen.at),
       )
-      .filter((q) => q.eq(q.field("accountId"), a._id))
       .collect();
     const unread = newer.filter(
       (m) =>
@@ -348,8 +350,8 @@ export const markRead = mutation({
     await ctx.db.patch(
       t._id,
       admin
-        ? { unreadOwner: unread, ownerReadAt: seen.at }
-        : { unreadRenter: unread, renterReadAt: seen.at },
+        ? { unreadOwner: unread, ownerReadAt: seen.at, ownerReadCreationTime: seen._creationTime }
+        : { unreadRenter: unread, renterReadAt: seen.at, renterReadCreationTime: seen._creationTime },
     );
     if (bookingId)
       await ctx.db.patch(
@@ -370,9 +372,8 @@ export const setHandler = mutation({
     const a = await ownerAccount(ctx, bookingId, accountId);
     if (!a) throw Error("No renter account yet");
     const t = await rentalThread(ctx, a._id, bookingId);
-    await acknowledgeOwnerNotifications(ctx, a._id, bookingId);
     if (t)
-      await ctx.db.patch(t._id, { escalated: !gaffer, gafferGeneration: (t.gafferGeneration ?? 0) + 1, updatedAt: Date.now() });
+      await ctx.db.patch(t._id, { escalated: !gaffer, gafferGeneration: (t.gafferGeneration ?? 0) + 1, updatedAt: Math.max(Date.now(), (t.updatedAt ?? 0) + 1) });
     else
       await ctx.db.insert("chat_threads", {
         accountId: a._id,
@@ -381,7 +382,7 @@ export const setHandler = mutation({
         gafferGeneration: 1,
         updatedAt: Date.now(),
       });
-    await postRentalMessage(ctx, {
+    const messageId = await postRentalMessage(ctx, {
       accountId: a._id,
       bookingId,
       sender: "system",
@@ -389,6 +390,8 @@ export const setHandler = mutation({
         ? "Gaffer is here to help with this rental."
         : "The team is handling this conversation.",
     });
+    const message = await ctx.db.get(messageId as Id<"messages">);
+    if (message) await acknowledgeOwnerNotifications(ctx, a._id, bookingId, message.at, { at: message.at, creationTime: message._creationTime });
   },
 });
 

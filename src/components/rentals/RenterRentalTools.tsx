@@ -14,6 +14,7 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
   const cancelUnpaid = useAction(api.checkout.cancelUnpaidByCustomer);
   const [mode, setMode] = useState<"dates" | "items" | "extension" | "cancel" | null>(null);
   const [detail, setDetail] = useState("");
+  const [cancellationChoice, setCancellationChoice] = useState<"refund" | "credit">("refund");
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -22,7 +23,7 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
   if (!context) return null;
   if (!["pending_payment", "confirmed", "active"].includes(context.status)) return <RentalRequestHistory token={token} bookingId={bookingId} />;
   const canCancel = context.direct && (context.status === "pending_payment" || context.selfService);
-  function open(next: typeof mode) { setMode(next); setDetail(""); setConsent(false); setError(""); setResult(""); requestId.current = null; }
+  function open(next: typeof mode) { setMode(next); setDetail(""); setCancellationChoice("refund"); setConsent(false); setError(""); setResult(""); requestId.current = null; }
   async function submit() {
     if (busy || !mode) return;
     setBusy(true); setError("");
@@ -30,11 +31,14 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
       if (mode === "cancel" && canCancel) {
         if (!consent) throw Error("Please confirm that you have read the cancellation terms.");
         if (context!.status === "pending_payment") await cancelUnpaid({ token, bookingId: bookingId as any });
-        else await cancel({ token, bookingId: bookingId as any });
+        else await cancel({ token, bookingId: bookingId as any, expectedCancellationKind: context!.cancellationKind, ...(context!.cancellationTermsVersion === "2026-11-v21" && context!.cancellationKind === "full_refund" ? { customerChoice: cancellationChoice } : {}) });
         setResult("Rental cancelled. The settlement details are saved in this conversation.");
       } else {
         requestId.current ??= crypto.randomUUID();
-        await request({ token, bookingId: bookingId as any, requestId: requestId.current, kind: mode, detail });
+        const requestDetail = mode === "cancel" && context!.status !== "pending_payment" && context!.cancellationTermsVersion === "2026-11-v21" && context!.cancellationKind === "full_refund"
+          ? `${detail.trim()}\nPreferred cancellation settlement: ${cancellationChoice === "credit" ? "100% account credit" : "full refund to original payment method"}.`
+          : detail;
+        await request({ token, bookingId: bookingId as any, requestId: requestId.current, kind: mode, detail: requestDetail });
         setResult("Request sent to the team in this conversation. Your rental stays unchanged until the team confirms it.");
       }
       setMode(null);
@@ -50,7 +54,12 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
     {mode && <form onSubmit={e => { e.preventDefault(); void submit(); }} className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
       <div className="flex justify-between gap-3"><h3 className="text-sm font-medium text-white">{mode === "cancel" ? "Cancellation terms" : "Ask the team"}</h3><button type="button" disabled={busy} onClick={() => setMode(null)} className="text-xs text-white/50">Close</button></div>
       {mode === "cancel" ? <div className="mt-3 space-y-2 text-xs leading-relaxed text-white/65">
-        <p>{context.status === "pending_payment" ? "This is an unpaid checkout. Cancelling abandons the checkout and releases its reservations. Any payment already captured is checked before settlement." : context.cancellationKind === "full_refund" ? `At least ${context.cancellationFullRefundDays} London calendar days before the earliest rental start: the full remaining captured rental payment, including refundable security, is refunded to the original payment method and used account credit is restored.` : `Fewer than ${context.cancellationFullRefundDays} London calendar days before the earliest rental start: 0% rental cash refund. The remaining rental value becomes account credit valid for 365 days; refundable security is settled separately. Your statutory rights are unaffected.`}</p>
+        <p>{context.status === "pending_payment" ? "This is an unpaid checkout. Cancelling abandons the checkout and releases its reservations. Any payment already captured is checked before settlement." : context.cancellationTermsVersion === "2026-11-v21" ? context.cancellationKind === "no_refund" ? "Within 48 hours of pickup: no rental refund and no account credit. Any separately refundable security is settled separately. Statutory rights remain unaffected." : context.cancellationKind === "store_credit" ? "More than 48 hours and seven or fewer London calendar days before pickup: account credit only for the rental amount. No rental cash refund; separately refundable security is settled separately." : "More than seven London calendar days before pickup: choose a full refund to your original payment method or 100% rental account credit. Separately refundable security is settled separately." : context.cancellationKind === "full_refund" ? `At least ${context.cancellationFullRefundDays} London calendar days before the earliest rental start: the full remaining captured rental payment, including refundable security, is refunded to the original payment method and used account credit is restored.` : `Fewer than ${context.cancellationFullRefundDays} London calendar days before the earliest rental start: 0% rental cash refund. The remaining rental value becomes account credit valid for 365 days; refundable security is settled separately. Your statutory rights are unaffected.`}</p>
+        {context.status !== "pending_payment" && context.cancellationTermsVersion === "2026-11-v21" && context.cancellationKind === "full_refund" && <fieldset className="rounded-xl border border-white/10 p-3">
+          <legend className="px-1 text-white/75">Choose your settlement</legend>
+          <label className="flex items-center gap-2 py-1"><input type="radio" name={`cancel-choice-${bookingId}`} checked={cancellationChoice === "refund"} onChange={() => setCancellationChoice("refund")} />Full refund to original payment method</label>
+          <label className="flex items-center gap-2 py-1"><input type="radio" name={`cancel-choice-${bookingId}`} checked={cancellationChoice === "credit"} onChange={() => setCancellationChoice("credit")} />100% account credit · 365 days</label>
+        </fieldset>}
         <p>Already refunded amounts cannot be refunded again. Any remaining security payment or unused card authorisation is settled under your accepted rental terms. <a href={`/legal/cancellation?version=${encodeURIComponent(context.cancellationTermsVersion)}`} target="_blank" rel="noopener noreferrer" className="text-accent-300 underline">Read the full terms</a>.</p>
         {!canCancel && <p>The team will process your cancellation request. The rental is still booked until cancellation is confirmed; eligibility is checked when it is processed.</p>}
         {canCancel && <label className="flex items-start gap-2"><input required type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} className="mt-0.5" />I have read the terms and want to cancel this rental.</label>}

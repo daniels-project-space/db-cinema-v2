@@ -1,0 +1,20 @@
+const assert=require('node:assert/strict');
+const {load,db,put}=require('./lib/rentalTestHarness.cjs');
+process.env.ADMIN_TOKEN='review-fixture-admin';
+const {verificationReviews}=load('convex/accountAdmin.ts');
+const account=put('accounts',{email:'review@example.invalid',name:'Review fixture'});
+const other=put('accounts',{email:'other@example.invalid'});
+const old=put('bookings',{accountId:account._id,guestEmail:account.email,status:'confirmed',idVerifyStatus:'manual_review',verificationProvider:'didit',lineItems:[{title:'Older camera',start:1}]});
+const legacy=put('bookings',{guestEmail:account.email,status:'pending_verification',idVerifyStatus:'manual_review',verificationProvider:'didit',lineItems:[{title:'Legacy rental',start:2}]});
+put('bookings',{accountId:other._id,guestEmail:account.email,status:'confirmed',idVerifyStatus:'manual_review',verificationProvider:'didit',lineItems:[{title:'Foreign',start:3}]});
+put('bookings',{accountId:account._id,status:'returned',idVerifyStatus:'manual_review',verificationProvider:'didit',lineItems:[]});
+put('bookings',{accountId:account._id,status:'confirmed',idVerifyStatus:'verified',verificationProvider:'didit',lineItems:[]});
+for(let index=0;index<125;index++)put('bookings',{accountId:account._id,status:'returned',idVerifyStatus:'verified',verificationProvider:'didit',lineItems:[]});
+(async()=>{
+  const args={token:process.env.ADMIN_TOKEN,accountId:account._id};
+  await assert.rejects(verificationReviews.handler({db},{...args,token:'foreign'}),/unauthorized/);
+  const result=await verificationReviews.handler({db},args);assert.deepEqual(new Set(result.items.map(item=>item.id)),new Set([old._id,legacy._id]));assert.equal(result.more,false);
+  for(let index=0;index<24;index++)put('bookings',{accountId:account._id,status:'active',idVerifyStatus:'manual_review',verificationProvider:'didit',lineItems:[]});
+  const many=await verificationReviews.handler({db},args);assert.equal(many.items.length,20);assert.equal(many.more,true);
+  console.log('PASS admin verification queue: old and legacy open reviews, account isolation, bounded results and authorization.');
+})().catch(error=>{console.error(error);process.exitCode=1});

@@ -16,8 +16,7 @@ export const list = query({
         const account = application?.status === "approved"
           ? await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", application.email.trim().toLowerCase())).first()
           : null;
-        const uploaded = account?.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null;
-        const applicationPhoto = application?.headshotStorageId ? await ctx.storage.getUrl(application.headshotStorageId) : null;
+        const uploaded = account?.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null;
         return ({
         _id: o._id,
         role: o.role,
@@ -28,7 +27,7 @@ export const list = query({
         tagline: o.tagline,
         bio: o.bio ?? null,
         tags: o.tags ?? [],
-        headshot: uploaded ?? applicationPhoto ?? o.headshot ?? account?.googleAvatarUrl ?? null,
+        headshot: uploaded ?? (o.headshot?.startsWith("/crew/headshots/") ? o.headshot : null) ?? account?.googleAvatarUrl ?? null,
         skills: o.skills,
         rateHourly: o.rateHourly ?? null,
         rateHalfDay: o.rateHalfDay ?? null,

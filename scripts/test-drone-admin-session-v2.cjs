@@ -1,0 +1,53 @@
+const assert = require("node:assert/strict");
+const { createHash, webcrypto } = require("node:crypto");
+const { load, db, put, tables, setMock } = require("./lib/rentalTestHarness.cjs");
+global.crypto ??= webcrypto;
+const sessions = load("convex/adminSessionsV2.ts");
+const identityAuth = load("convex/adminAccountSessionV2.ts");
+let ready = false;
+setMock("./adminAccountSessionV2", { ...identityAuth, adminSessionMigrationReady: () => ready });
+const licences = load("convex/droneLicences.ts");
+const hash = value => createHash("sha256").update(value).digest("hex");
+const identity = "https://identity.example|drone-admin", token = "a".repeat(64);
+const jobs = [];
+const ctx = { db, auth: { getUserIdentity: async () => ({ tokenIdentifier: identity }) }, scheduler: { runAfter: async (...args) => jobs.push(args) } };
+const booking = put("bookings", { status: "active", lineItems: [], droneLicenceStorageId: "synthetic-file" });
+const args = { token, bookingId: booking._id };
+
+(async () => {
+  process.env.ADMIN_TOKEN = "legacy-drone-fixture";
+  process.env.ADMIN_SESSION_SCOPES_V2 = JSON.stringify({ [identity]: ["verification:read", "verification:write"] });
+  await sessions.createSession.handler(ctx, { tokenDigest: hash(token), principalId: `admin:${hash(identity)}`, scopes: ["verification:read", "verification:write"], expiresAt: Date.now() + 60_000 });
+  process.env.ADMIN_SESSION_DRONE_V2 = "enabled";
+  for (const name of ["adminDetails", "archiveExisting", "review"]) {
+    await assert.rejects(licences[name].handler(ctx, args), /not ready/, name);
+    await assert.rejects(licences[name].handler(ctx, { ...args, token: process.env.ADMIN_TOKEN }), /not ready/, name);
+  }
+  assert.equal(jobs.length, 0);
+  ready = true;
+  assert.equal(await licences.adminDetails.handler(ctx, args), null);
+  await licences.archiveExisting.handler(ctx, args);
+  assert.equal(jobs.length, 1);
+  assert((tables.get("admin_audit_log") ?? []).some(row => row.fn === "droneLicences.archiveExisting"));
+  await assert.rejects(licences.review.handler(ctx, args), /cannot be reviewed/, "An authorized review still checks rental state");
+  await assert.rejects(licences.adminDetails.handler({ ...ctx, auth: { getUserIdentity: async () => null } }, args), /unauthorized/);
+  await assert.rejects(licences.adminDetails.handler({ ...ctx, auth: { getUserIdentity: async () => ({ tokenIdentifier: "different" }) } }, args), /unauthorized/);
+  process.env.ADMIN_SESSION_SCOPES_V2 = JSON.stringify({ [identity]: ["verification:read"] });
+  assert.equal(await licences.adminDetails.handler(ctx, args), null);
+  await assert.rejects(licences.archiveExisting.handler(ctx, args), /unauthorized/);
+  await assert.rejects(licences.review.handler(ctx, args), /unauthorized/);
+  assert.equal(jobs.length, 1);
+  process.env.ADMIN_SESSION_SCOPES_V2 = JSON.stringify({ [identity]: ["verification:read", "verification:write"] });
+  const readToken = "b".repeat(64);
+  await sessions.createSession.handler(ctx, { tokenDigest: hash(readToken), principalId: `admin:${hash(identity)}`, scopes: ["verification:read"], expiresAt: Date.now() + 60_000 });
+  await assert.rejects(licences.archiveExisting.handler(ctx, { ...args, token: readToken }), /unauthorized/, "Assignment cannot expand a read-only session");
+  const readSession = tables.get("admin_sessions_v2").find(row => row.tokenDigest === hash(readToken));
+  await db.patch(readSession._id, { expiresAt: Date.now() });
+  await assert.rejects(licences.adminDetails.handler(ctx, { ...args, token: readToken }), /unauthorized/);
+  await sessions.revoke.handler(ctx, { tokenDigest: hash(token) });
+  await assert.rejects(licences.adminDetails.handler(ctx, args), /unauthorized/);
+  await assert.rejects(licences.archiveExisting.handler(ctx, args), /unauthorized/);
+  delete process.env.ADMIN_SESSION_DRONE_V2;
+  assert.equal(await licences.adminDetails.handler(ctx, { ...args, token: process.env.ADMIN_TOKEN }), null);
+  console.log("PASS staged drone admin access: closed readiness gate, scopes, identity, expiry, revocation and audit; synthetic data only.");
+})().catch(error => { console.error(error); process.exitCode = 1; });

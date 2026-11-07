@@ -1,0 +1,28 @@
+import { mutation } from "./_generated/server";
+import { v } from "convex/values";
+
+export const seed = mutation({ args: {}, handler: async ctx => {
+  const now = Date.now(), verifiedAt = now - 10000;
+  const accountId = await ctx.db.insert("accounts", { email: "portrait-runtime@example.invalid", name: "Fixture Person", address: "1 Example Road", createdAt: now - 2 * 86400000, privateVerificationPortraitNoticeVersion: "2026-11-06", privateVerificationPortraitNotifiedAt: verifiedAt, privateVerificationPortraitConsentVersion: "2026-11-06", privateVerificationPortraitConsentedAt: verifiedAt });
+  await ctx.db.insert("sessions", { accountId, token: "synthetic-portrait-owner", expiresAt: now + 3600000 });
+  const otherId = await ctx.db.insert("accounts", { email: "portrait-other@example.invalid", createdAt: now - 2 * 86400000 });
+  await ctx.db.insert("sessions", { accountId: otherId, token: "synthetic-portrait-other", expiresAt: now + 3600000 });
+  const newId = await ctx.db.insert("accounts", { email: "portrait-new@example.invalid", createdAt: now });
+  await ctx.db.insert("sessions", { accountId: newId, token: "synthetic-portrait-new", expiresAt: now + 3600000 });
+  const bookingId = await ctx.db.insert("bookings", { accountId, accountAccessRequired: false, guestEmail: "portrait-runtime@example.invalid", agreementName: "Fixture Person", billingAddress: "1 Example Road", diditSessionId: "synthetic-session", status: "active", idVerifyStatus: "verified", idVerificationSource: "didit", renterPersonKey: "synthetic-person", verificationChecks: { identity: "approved", selfie: "approved", address: "approved" }, lineItems: [], fulfilment: "pickup", deliveryFee: 0, subtotal: 0, discount: 0, depositAmount: 0, total: 0, currency: "GBP" });
+  await ctx.db.patch(accountId, { rentalVerification: { sourceBookingId: bookingId, name: "fixture person", address: "1 example road", verifiedAt, expiresAt: verifiedAt + 90 * 86400000 } });
+  const archiveId = await ctx.db.insert("verification_archives", { accountId, bookingId, sessionId: "synthetic-session", email: "portrait-runtime@example.invalid", status: "complete", source: "didit", attempts: 0, dueAt: now, createdAt: now, readVerifiedAt: now, readProofVersion: 2, supplementalStatus: "complete" });
+  let selfieId;
+  for (const [kind, contentType, value] of [["identity-0-front_image", "image/jpeg", "synthetic identity"], ["address-0", "application/pdf", "synthetic address"], ["selfie-0-reference_image", "image/png", "synthetic portrait"]]) {
+    const bytes = kind.startsWith("selfie") ? Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="), char => char.charCodeAt(0)) : new TextEncoder().encode(value), hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    const sha256 = Array.from(hash).map(byte => byte.toString(16).padStart(2, "0")).join("");
+    const storageId = await ctx.storage.store(new Blob([bytes], { type: contentType }));
+    const id = await ctx.db.insert("verification_documents", { accountId, bookingId, archiveId, sessionId: "synthetic-session", kind, contentType, storageId, sha256, size: bytes.length, savedAt: now });
+    if (kind.startsWith("selfie")) selfieId = id;
+  }
+  if (!selfieId) throw Error("Missing fixture");
+  return { accountId, otherId, newId, bookingId, selfieId };
+} });
+export const expire = mutation({ args: { bookingId: v.id("bookings") }, handler: async (ctx, { bookingId }) => ctx.db.patch(bookingId, { status: "returned", returnedAt: Date.now() - 91 * 86400000 }) });
+export const setAccount = mutation({ args: { accountId: v.id("accounts"), tooNew: v.boolean(), hasPhoto: v.boolean() }, handler: async (ctx, args) => ctx.db.patch(args.accountId, { createdAt: Date.now() - (args.tooNew ? 1000 : 2 * 86400000), googleAvatarUrl: args.hasPhoto ? "https://example.invalid/avatar.png" : undefined }) });
+export const openCase = mutation({ args: { bookingId: v.id("bookings") }, handler: async (ctx, { bookingId }) => ctx.db.insert("rental_damage_cases", { bookingId, itemKey: "synthetic-item", title: "Synthetic case", details: "Fixture only", status: "open", openedAt: Date.now() }) });

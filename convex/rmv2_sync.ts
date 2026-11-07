@@ -22,6 +22,7 @@ import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVe
 import { securityReady, verificationValidUntil } from "../shared/verificationProgress";
 import { stockWindow } from "./lib/stockWindows";
 import { bookingStockLines } from "../shared/rentalWindow";
+import { swapAuthorityAvailable } from "./lib/rentalSwapAuthority";
 
 const PAID_STATUSES = new Set(["confirmed", "active", "returned"]);
 
@@ -246,7 +247,30 @@ async function loadBookingProjection(ctx: any, b: Doc<"bookings">) {
       const unit = await ctx.db.get(record.inventoryUnitId);
       if (unit) unitById.set(String(unit._id), unit);
     }
-    return mapBookingForSync(b, listingById, unitById, custById, reservations, damageCases, await verificationReadiness(ctx,b));
+    const booking=mapBookingForSync(b, listingById, unitById, custById, reservations, damageCases, await verificationReadiness(ctx,b));
+    if(!swapAuthorityAvailable() || process.env.SHARED_STOCK_BRIDGE_EXPERIMENTAL!=="true")return booking;
+    if(b.status==="pending_verification")return booking;
+    const initial=await ctx.db.query("booking_stock_claims").withIndex("by_booking",(q:any)=>q.eq("bookingId",b._id)).unique();
+    if(initial?.state==="applied"&&!initial.acknowledgedAt){
+      if(!initial.windows?.length||!initial.bookingRevision||!initial.appliedAt||!initial.managerRequestId||!initial.fingerprint)throw Error("The booking stock application receipt needs reconciliation.");
+      const physical=booking.physicalReservations??[];
+      const saved=initial.windows.map((window:any)=>JSON.stringify([String(window.reservationId),String(window.inventoryUnitId),window.managerItemId,window.start,window.end,window.quantity,window.endExclusive,window.turnaroundBufferMinutes])).sort();
+      const current=physical.map((window:any)=>JSON.stringify([window.reservationId,window.inventoryUnitId,window.rmv2ItemId,window.start,window.end,window.qty,window.endExclusive,window.turnaroundBufferMinutes])).sort();
+      if(JSON.stringify(saved)!==JSON.stringify(current))throw Error("The booking stock application changed before acknowledgement.");
+      return {...booking,stockApplicationReceipt:{kind:"booking_confirmation",bookingId:String(b._id),bookingRevision:initial.bookingRevision,managerRequestId:initial.managerRequestId,fingerprint:initial.fingerprint,executionKey:`booking_execution_${b._id}`,appliedAt:initial.appliedAt,windows:initial.windows.map((window:any)=>({...window,reservationId:String(window.reservationId),inventoryUnitId:String(window.inventoryUnitId)}))}};
+    }
+    const receipts=await ctx.db.query("swap_stock_applied_receipts").withIndex("by_booking_delivery",(q:any)=>q.eq("bookingId",b._id).eq("deliveryState","pending").lte("bookingRevision",b.rmv2Revision??0)).take(2);
+    if(receipts.length>1&&receipts[0].bookingRevision===receipts[1].bookingRevision)throw Error("The rental stock application receipt needs reconciliation.");
+    const receipt=receipts[0];
+    if(!receipt)return booking;
+    if(receipt.bookingRevision!==(b.rmv2Revision??0)) {
+      const physical=booking.physicalReservations;
+      if(!physical?.length||!receipt.windows.length)return booking;
+      const saved=receipt.windows.map((window:any)=>JSON.stringify([String(window.reservationId),String(window.inventoryUnitId),window.managerItemId,window.start,window.end,window.quantity,window.endExclusive,window.turnaroundBufferMinutes])).sort();
+      const current=physical.map((window:any)=>JSON.stringify([window.reservationId,window.inventoryUnitId,window.rmv2ItemId,window.start,window.end,window.qty,window.endExclusive,window.turnaroundBufferMinutes])).sort();
+      if(JSON.stringify(saved)!==JSON.stringify(current))return booking;
+    }
+    return {...booking,stockApplicationReceipt:{swapId:String(receipt.swapId),bookingId:String(receipt.bookingId),bookingRevision:receipt.bookingRevision,managerRequestId:receipt.managerRequestId,fingerprint:receipt.fingerprint,executionKey:receipt.executionKey,appliedAt:receipt.appliedAt,windows:receipt.windows.map((window:any)=>({...window,reservationId:String(window.reservationId),inventoryUnitId:String(window.inventoryUnitId)}))}};
 }
 
 async function verificationReadiness(ctx: any, b: Doc<"bookings">) {

@@ -11,7 +11,7 @@ import { deliveryQuoteTermsVersion, rentalDeliveryBookingFingerprint } from "../
 const deliveryLegs = v.union(v.literal("one_way"), v.literal("round_trip"));
 
 function assertQuoteStillCurrent(b: any, quote: any) {
-  if (!b || b.status !== "confirmed" || b.idVerifyStatus !== "verified" || b.fulfilment !== "pickup" || b.deliveryLegs || b.cancellationDecision || b.returnDecision || b.activeAdditionId || b.activeDeliveryQuoteId && b.activeDeliveryQuoteId !== quote._id || b.activeExtensionId || b.activePriceAdjustmentId || rentalDeliveryBookingFingerprint(b) !== quote.bookingFingerprint)
+  if (!b || b.status !== "confirmed" || b.idVerifyStatus !== "verified" || b.fulfilment !== "pickup" || b.deliveryLegs || b.cancellationDecision || b.returnDecision || b.activeAdditionId || b.activeDeliveryQuoteId && b.activeDeliveryQuoteId !== quote._id || b.activeExtensionId || b.activePriceAdjustmentId || b.activeItemSwapId || rentalDeliveryBookingFingerprint(b) !== quote.bookingFingerprint)
     throw Error("This rental changed or is no longer eligible for a delivery quote. Ask the team to prepare a fresh quote.");
 }
 
@@ -106,7 +106,7 @@ export const prepareQuote = internalMutation({
       return existing;
     }
     if (rentalDeliveryBookingFingerprint(booking) !== a.expectedFingerprint) throw Error("This rental changed while the delivery price was being calculated. Refresh and try again.");
-    if (booking.status !== "confirmed" || booking.idVerifyStatus !== "verified" || booking.fulfilment !== "pickup" || booking.deliveryLegs || booking.cancellationDecision || booking.returnDecision || booking.activeAdditionId || booking.activeDeliveryQuoteId || booking.activeExtensionId || booking.activePriceAdjustmentId)
+    if (booking.status !== "confirmed" || booking.idVerifyStatus !== "verified" || booking.fulfilment !== "pickup" || booking.deliveryLegs || booking.cancellationDecision || booking.returnDecision || booking.activeAdditionId || booking.activeDeliveryQuoteId || booking.activeExtensionId || booking.activePriceAdjustmentId || booking.activeItemSwapId)
       throw Error("Only a verified, confirmed rental with pickup selected can receive a delivery quote.");
     const open = await ctx.db.query("rental_delivery_quotes").withIndex("by_booking", q => q.eq("bookingId", a.bookingId)).order("desc").take(50);
     if (open.some(q => q.status === "awaiting_acceptance" && q.expiresAt > Date.now() || q.status === "creating_checkout" && q.updatedAt > Date.now() - 5 * 60 * 1000 || q.status === "checkout_open" && (q.checkoutExpiresAt ?? q.expiresAt) > Date.now()))

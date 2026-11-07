@@ -1,4 +1,5 @@
 import {stockWindow} from "./lib/stockWindows";
+import { assertSwapStockReconciled } from "./lib/swapStockFence";
 import {bookingStockLines,rentalWindow} from "../shared/rentalWindow";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
@@ -12,6 +13,8 @@ import { assertRenterExposure } from "./lib/rentalExposure";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { lateFeeQuote } from "./lib/lateFee";
 import { londonStartOfDay } from "../src/lib/cancellationPolicy";
+import { bestBenefit, loyaltyPercent } from "../shared/rentalBenefits";
+import { allocateSaving, membershipActiveNow, membershipTierFor, tierByKey, weekendDays } from "../shared/membership";
 
 import { isAllowedReturnTime, HOURS_LABEL } from "../src/lib/site";
 
@@ -23,7 +26,8 @@ const quoteIdentity = (items: any[]) => JSON.stringify(items.map(i => [i.lineInd
 
 async function mutableRental(ctx: any, b: any, ownRequest?: any) {
   if (!b || !["confirmed", "active"].includes(b.status)) throw Error("Only confirmed or collected rentals can be extended.");
-  if (b.cancellationDecision || b.returnDecision || b.activePriceAdjustmentId || b.activeAdditionId || b.activeDeliveryQuoteId || (b.activeExtensionId && b.activeExtensionId !== ownRequest))
+  await assertSwapStockReconciled(ctx, b._id);
+  if (b.cancellationDecision || b.returnDecision || b.activePriceAdjustmentId || b.activeItemSwapId || b.activeAdditionId || b.activeDeliveryQuoteId || (b.activeExtensionId && b.activeExtensionId !== ownRequest))
     throw Error("Finish the open rental operation first.");
   const reservations = await ctx.db.query("reservations").withIndex("by_booking", (q: any) => q.eq("bookingId", b._id)).collect();
   if (!reservations.length || reservations.some((r: any) => r.source !== "site")) throw Error("Manage this rental through its original booking platform.");
@@ -39,7 +43,7 @@ function indexes(b: any, selected?: number[]) {
 }
 
 /** A server-owned daily-rate quote; no deposits, delivery charges or stacked promotions. */
-async function quoteFor(ctx: any, b: any, extraDays: number, selected?: number[]) {
+async function quoteFor(ctx: any, b: any, extraDays: number, selected?: number[], accountOverride?: any) {
   if (!Number.isSafeInteger(extraDays) || extraDays < 1 || extraDays > 30) throw Error("Choose between 1 and 30 extra days.");
   const chosen = indexes(b, selected);
   const chosenLines = chosen.map(i => b.lineItems[i]);
@@ -52,11 +56,31 @@ async function quoteFor(ctx: any, b: any, extraDays: number, selected?: number[]
     const dailyRate = Math.round(unitRate * li.qty * 100) / 100;
     return { lineIndex, listingId: li.listingId, title: li.title, start: li.end + DAY, end: li.end + extraDays * DAY, qty: li.qty, dailyRate, lineTotal: Math.round(dailyRate * extraDays * 100) / 100 };
   }));
+  const account = accountOverride ?? (b.accountId ? await ctx.db.get(b.accountId) : null);
+  const activeMembership = membershipActiveNow(account);
+  const member = activeMembership ? tierByKey(membershipTierFor(account)) : undefined;
+  const grossPence = items.reduce((sum, item) => sum + Math.round(item.lineTotal * 100), 0);
+  const weekendSavingPence = member?.weekend
+    ? Math.min(10000, items.reduce((sum, item) => weekendDays(item.start, item.end) ? sum + Math.round(item.dailyRate * 100) : sum, 0))
+    : 0;
+  const encorePercent = !activeMembership
+    ? account?.loyaltyPercent ?? (account?.loyaltyEligible ? loyaltyPercent(3) : 0)
+    : 0;
+  const encoreSavingPence = Number.isFinite(encorePercent) && encorePercent > 0
+    ? Math.min(grossPence, Math.round(grossPence * Math.min(encorePercent, 100) / 100))
+    : 0;
+  const benefit = bestBenefit([
+    { kind: "weekend", savingPence: weekendSavingPence, label: "Member weekend deal · £100 cap" },
+    { kind: "loyalty", savingPence: encoreSavingPence, label: `Encore · ${encorePercent}% rental saving` },
+  ]);
+  const discountedLineTotals = allocateSaving(items.map(item => item.lineTotal), benefit.savingPence / 100);
+  const pricedItems = items.map((item, index) => ({ ...item, lineTotal: discountedLineTotals[index] }));
+  const benefitSaving = benefit.savingPence / 100;
   const proposed = bookingStockLines<any>(b).map((li: any, i: number) => chosen.includes(i) ? { ...li, end: li.end + extraDays * DAY } : li);
   await assertRenterExposure(ctx, b, proposed);
   const cache = { records: new Map(), reservations: new Map() };
   await assertRentalInventory(ctx, proposed, b._id, cache);
-  return { items, proposed, priceDelta: Math.round(items.reduce((sum, item) => sum + item.lineTotal, 0) * 100) / 100 };
+  return { items: pricedItems, proposed, priceDelta: Math.round(pricedItems.reduce((sum, item) => sum + item.lineTotal, 0) * 100) / 100, benefitKind: benefit.kind, benefitLabel: benefitSaving > 0 ? benefit.label : undefined, benefitSaving };
 }
 
 async function customer(ctx: any, token: string, bookingId: any) {
@@ -68,11 +92,11 @@ async function customer(ctx: any, token: string, bookingId: any) {
 export const quote = query({
   args: { token: v.string(), bookingId: v.id("bookings"), extraDays: v.number(), lineItemIndexes: v.optional(v.array(v.number())), refreshKey: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    const { b } = await customer(ctx, args.token, args.bookingId);
+    const { a, b } = await customer(ctx, args.token, args.bookingId);
     try {
       await mutableRental(ctx, b);
-      const q = await quoteFor(ctx, b, args.extraDays, args.lineItemIndexes);
-      return { available: true, items: q.items, priceDelta: q.priceDelta, baseLines: baseLines(b) };
+      const q = await quoteFor(ctx, b, args.extraDays, args.lineItemIndexes, a);
+      return { available: true, items: q.items, priceDelta: q.priceDelta, benefitKind: q.benefitKind, benefitLabel: q.benefitLabel, benefitSaving: q.benefitSaving, baseLines: baseLines(b) };
     } catch (e: any) { return { available: false, reason: e.message }; }
   },
 });
@@ -92,13 +116,13 @@ export const request = mutation({
     }
     await mutableRental(ctx, b);
     if (previous.some(r => openStatuses.includes(r.status))) throw Error("You already have an open change request for this rental.");
-    const q = await quoteFor(ctx, b, args.extraDays, chosen);
+    const q = await quoteFor(ctx, b, args.extraDays, chosen, a);
     if (args.expectedBase !== baseLines(b) || args.expectedAmount !== q.priceDelta) throw Error("The rental or quote changed. Review the fresh quote before requesting.");
-    const requestId = await ctx.db.insert("booking_change_requests", { bookingId: b._id, accountId: a._id, type: "extend", requestedReturnTime: args.requestedReturnTime, requestKey: args.requestKey, lineItemIndexes: chosen, extraDays: args.extraDays, baseLines: baseLines(b), quoteItems: q.items, priceDelta: q.priceDelta, status: "pending", createdAt: Date.now() });
+    const requestId = await ctx.db.insert("booking_change_requests", { bookingId: b._id, accountId: a._id, type: "extend", requestedReturnTime: args.requestedReturnTime, requestKey: args.requestKey, lineItemIndexes: chosen, extraDays: args.extraDays, baseLines: baseLines(b), quoteItems: q.items, priceDelta: q.priceDelta, benefitKind: q.benefitKind, benefitLabel: q.benefitLabel, benefitSaving: q.benefitSaving, status: "pending", createdAt: Date.now() });
     const thread = await rentalThread(ctx, a._id, b._id);
     if (thread) await ctx.db.patch(thread._id, { escalated: true });
     else await ctx.db.insert("chat_threads", { accountId: a._id, bookingId: b._id, escalated: true, updatedAt: Date.now(), unreadOwner: 0, unreadRenter: 0 });
-    await postRentalMessage(ctx, { accountId: a._id, bookingId: b._id, sender: "renter", text: `Extension request · ${args.extraDays} extra day${args.extraDays === 1 ? "" : "s"} · £${q.priceDelta.toFixed(2)}\n${q.items.map(i => `${i.qty}× ${i.title} → ${iso(i.end)} at ${args.requestedReturnTime} London time`).join("\n")}\nPlease approve this request. The team may adjust the proposed time. The original return deadlines remain in place until approval and payment.`, meta: { kind: "extension_request", requestId } });
+    await postRentalMessage(ctx, { accountId: a._id, bookingId: b._id, sender: "renter", text: `Extension request · ${args.extraDays} extra day${args.extraDays === 1 ? "" : "s"} · £${q.priceDelta.toFixed(2)}${q.benefitSaving > 0 ? `\n${q.benefitLabel} · saving £${q.benefitSaving.toFixed(2)}` : ""}\n${q.items.map(i => `${i.qty}× ${i.title} → ${iso(i.end)} at ${args.requestedReturnTime} London time`).join("\n")}\nPlease approve this request. The team may adjust the proposed time. The original return deadlines remain in place until approval and payment.`, meta: { kind: "extension_request", requestId } });
     await ctx.scheduler.runAfter(0, internal.notify.renterChat, { email: a.email, bookingId: b._id, text: "Rental extension requested — owner approval required." });
     return { ok: true, requestId };
   },
@@ -112,7 +136,7 @@ export const state = query({
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
     const rows = await ctx.db.query("booking_change_requests").withIndex("by_booking", q => q.eq("bookingId", bookingId)).order("desc").take(20);
-    return { status: b.status, locked: !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId || b.activePriceAdjustmentId || b.returnDecision || b.cancellationDecision), items: b.lineItems.map((li, i) => ({ index: i, title: li.title, qty: li.qty, end: li.end, returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime })), requests: rows.filter(r => r.type === "extend").map(r => ({ id: r._id, status: r.status, items: r.quoteItems ?? [], amount: r.priceDelta ?? null, days: r.extraDays, requestedReturnTime: r.requestedReturnTime, approvedReturnTime: r.approvedReturnTime, url: r.status === "awaiting_payment" ? r.paymentLinkUrl : undefined, expiresAt: r.expiresAt, reason: r.approvalReason, createdAt: r.createdAt })), paymentsEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" || /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") };
+    return { status: b.status, locked: !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId || b.activePriceAdjustmentId || b.activeItemSwapId || b.returnDecision || b.cancellationDecision), items: b.lineItems.map((li, i) => ({ index: i, title: li.title, qty: li.qty, end: li.end, returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime })), requests: rows.filter(r => r.type === "extend").map(r => ({ id: r._id, status: r.status, items: r.quoteItems ?? [], amount: r.priceDelta ?? null, benefitKind: r.benefitKind, benefitLabel: r.benefitLabel, benefitSaving: r.benefitSaving ?? 0, days: r.extraDays, requestedReturnTime: r.requestedReturnTime, approvedReturnTime: r.approvedReturnTime, url: r.status === "awaiting_payment" ? r.paymentLinkUrl : undefined, expiresAt: r.expiresAt, reason: r.approvalReason, createdAt: r.createdAt })), paymentsEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" || /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") };
   },
 });
 
@@ -139,8 +163,9 @@ export const prepare = internalMutation({
     await mutableRental(ctx, b);
     if (b?.depositHoldAmount && ((b.depositHoldExpiresAt ?? 0) <= Date.now() + 25 * 3600000 || ["starting", "requires_action", "failed"].includes(b.depositHoldRenewalStatus ?? ""))) throw Error("Renew or resolve the existing security hold before approving an extension.");
     if (!r.baseLines || r.baseLines !== baseLines(b)) throw Error("The rental changed. Decline this request and ask for a new quote.");
-    const q = await quoteFor(ctx, b, r.extraDays!, r.lineItemIndexes);
-    if (q.priceDelta !== r.priceDelta || quoteIdentity(q.items) !== quoteIdentity(r.quoteItems ?? [])) throw Error("The price changed. Decline this request and ask the renter to review a fresh quote.");
+    const account = await ctx.db.get(r.accountId);
+    const q = await quoteFor(ctx, b, r.extraDays!, r.lineItemIndexes, account);
+    if (q.priceDelta !== r.priceDelta || q.benefitKind !== (r.benefitKind ?? "none") || q.benefitSaving !== (r.benefitSaving ?? 0) || quoteIdentity(q.items) !== quoteIdentity(r.quoteItems ?? [])) throw Error("The price changed because the member benefit changed. Decline this request and ask the renter to review a fresh quote.");
     const proposed=bookingStockLines(b!).map((li,index)=>q.items.some(item=>item.lineIndex===index)?{...li,end:q.items.find(item=>item.lineIndex===index)!.end,returnTime}:li);
     await assertRentalInventory(ctx,proposed,b!._id);
     const expiresAt = Date.now() + DAY;
@@ -166,7 +191,7 @@ export const bindPayment = internalMutation({
     if (!r || !["approved", "awaiting_payment"].includes(r.status)) throw Error("The extension approval is closed.");
     if (r.stripePaymentLinkId) { if (r.stripePaymentLinkId !== sessionId) throw Error("Payment session mismatch."); return; }
     await ctx.db.patch(requestId, { status: "awaiting_payment", stripePaymentLinkId: sessionId, paymentLinkUrl: url });
-    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `The team approved your extension.\n${r.quoteItems?.map(i => `${i.title} → return ${iso(i.end)} at ${r.approvedReturnTime} London time`).join("\n")}\nPay £${r.priceDelta!.toFixed(2)} to confirm ${r.extraDays} extra day${r.extraDays === 1 ? "" : "s"}. Your original return dates still apply until payment succeeds. This payment link expires in 24 hours.`, meta: { kind: "extension_payment", requestId, url, amount: r.priceDelta } });
+    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `The team approved your extension.\n${r.quoteItems?.map(i => `${i.title} → return ${iso(i.end)} at ${r.approvedReturnTime} London time`).join("\n")}${r.benefitSaving ? `\n${r.benefitLabel} · saving £${r.benefitSaving.toFixed(2)}` : ""}\nPay £${r.priceDelta!.toFixed(2)} to confirm ${r.extraDays} extra day${r.extraDays === 1 ? "" : "s"}. Your original return dates still apply until payment succeeds. This payment link expires in 24 hours.`, meta: { kind: "extension_payment", requestId, url, amount: r.priceDelta } });
   },
 });
 
@@ -214,6 +239,7 @@ export const applyPaid = internalMutation({
     if (r.stripePaymentLinkId !== sessionId || Math.round((r.priceDelta ?? -1) * 100) !== amountPence) throw Error("Extension payment does not match its approved quote.");
     if (r.status === "applied") { if (r.paymentIntentId !== paymentIntentId) throw Error("Payment identity mismatch."); return { ok: true, bookingId: r.bookingId }; }
     const b = await ctx.db.get(r.bookingId);
+    if (b) await assertSwapStockReconciled(ctx, b._id);
     if (r.status !== "awaiting_payment" || !r.approvedAt || !r.quoteItems || !r.approvedReturnTime || !isAllowedReturnTime(r.approvedReturnTime) || (r.expiresAt ?? 0) <= Date.now() || !b || b.activeExtensionId !== requestId || r.baseLines !== baseLines(b)) return { ok: false, closed: true, bookingId: r.bookingId };
     try { await mutableRental(ctx, b, requestId); } catch { return { ok: false, closed: true, bookingId: r.bookingId }; }
     const byIndex = new Map(r.quoteItems.map(i => [i.lineIndex, i]));
@@ -229,7 +255,7 @@ export const applyPaid = internalMutation({
     const charges = r.quoteItems.map(i => ({ requestId, returnTime: r.approvedReturnTime, title: `${i.title} · approved extension`, start: i.start, end: i.end, qty: i.qty, lineTotal: i.lineTotal }));
     await ctx.db.patch(b._id, { lineItems: lines, returnTime: [...lines].sort((a, b) => b.end - a.end)[0]?.returnTime ?? undefined, remindedReturn: false, total: Math.round((b.total + r.priceDelta!) * 100) / 100, subtotal: Math.round((b.subtotal + r.priceDelta!) * 100) / 100, extensionCharges: [...(b.extensionCharges ?? []), ...charges], activeExtensionId: undefined });
     await ctx.db.patch(requestId, { status: "applied", paymentIntentId, paidAt: Date.now(), resolvedAt: Date.now() });
-    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: b._id, sender: "system", text: `Extension confirmed · £${r.priceDelta!.toFixed(2)} paid.\n${r.quoteItems.map(i => `${i.qty}× ${i.title} → return ${iso(i.end)} at ${r.approvedReturnTime} London time`).join("\n")}\nSecurity amounts are unchanged.` });
+    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: b._id, sender: "system", text: `Extension confirmed · £${r.priceDelta!.toFixed(2)} paid.\n${r.quoteItems.map(i => `${i.qty}× ${i.title} → return ${iso(i.end)} at ${r.approvedReturnTime} London time`).join("\n")}${r.benefitSaving ? `\n${r.benefitLabel} · saving £${r.benefitSaving.toFixed(2)}` : ""}\nSecurity amounts are unchanged.` });
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, { bookingId: b._id, kind: "extended", detail: r.quoteItems.map(i => `${i.title}: return ${iso(i.end)} at ${r.approvedReturnTime} London time`).join("; ") });
     await queueRmv2Sync(ctx, b._id);
     return { ok: true, bookingId: b._id };

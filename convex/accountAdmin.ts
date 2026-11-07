@@ -1,4 +1,5 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
+import { membershipSnapshot } from "./lib/membershipSnapshot";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
@@ -9,11 +10,110 @@ import { paginationOptsValidator } from "convex/server";
 import { accountVerificationReady } from "./lib/accountVerificationReady";
 import { verificationValidUntil } from "../shared/verificationProgress";
 import { customerAdminVisual } from "../shared/customerAdminVisual";
-import { loyaltyProgress } from "./lib/loyalty";
+import { loyaltyProgressWithin } from "./lib/loyalty";
+import { approvedRestrictedIdentitySource, restrictedIdentityMatches } from "./lib/restrictedIdentityMatch";
+import { internal } from "./_generated/api";
+import { queueRestrictedAccountRecheck } from "./restrictedIdentityAlerts";
+import { adminSessionMigrationReady, assertAdminScopeSession, assertCustomerReadSession, assertCustomerWriteSession } from "./adminAccountSessionV2";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+
+async function customerReadAuthorized(ctx: QueryCtx, token: string): Promise<boolean> {
+  if (process.env.ADMIN_SESSION_CUSTOMER_READ_V2 === "enabled") {
+    if (!adminSessionMigrationReady()) throw new Error("Admin session migration is not ready.");
+    await assertCustomerReadSession(ctx, token);
+    return true;
+  }
+  return checkAdminToken(token);
+}
+
+async function authorizeCustomerWrite(ctx: MutationCtx, token: string, fn: string): Promise<void> {
+  if (process.env.ADMIN_SESSION_CUSTOMER_WRITE_V2 === "enabled") {
+    if (!adminSessionMigrationReady()) throw new Error("Admin session migration is not ready.");
+    await assertCustomerWriteSession(ctx, token);
+    await ctx.db.insert("admin_audit_log", { at: Date.now(), success: true, limited: false, fn });
+    return;
+  }
+  await assertAdmin(ctx, token, fn);
+}
 
 export const directoryAccess = query({
   args: { token: v.string() },
-  handler: async (_ctx, args) => checkAdminToken(args.token),
+  handler: async (ctx, args) => customerReadAuthorized(ctx, args.token),
+});
+
+export const possibleRestrictedIdentityMatches = query({
+  args: { token: v.string(), bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    if (process.env.ADMIN_SESSION_IDENTITY_ALERTS_V2 === "enabled" || process.env.ADMIN_SESSION_CUSTOMER_READ_V2 === "enabled") {
+      if (!adminSessionMigrationReady()) throw new Error("Admin session migration is not ready.");
+      await assertAdminScopeSession(ctx, args.token, "verification:read");
+      if (process.env.ADMIN_SESSION_CUSTOMER_READ_V2 === "enabled") await assertCustomerReadSession(ctx, args.token);
+    } else if (!await customerReadAuthorized(ctx, args.token)) return { matches: [], more: false };
+    const booking = await ctx.db.get(args.bookingId);
+    if (!await approvedRestrictedIdentitySource(ctx,booking) || !booking?.renterPersonKey) return { matches: [], more: false };
+    const result = await restrictedIdentityMatches(ctx, booking, booking.renterPersonKey);
+    return { matches: result.matches.map((account: any) => ({ id: account._id, name: account.name ?? "", email: account.email, blockedAt: account.blockedAt, blockedReason: account.blockedReason ?? "" })), more: result.more };
+  },
+});
+
+const directoryView = v.optional(v.union(v.literal("all"), v.literal("unread"), v.literal("starred")));
+
+async function belongsToCustomerConversation(ctx: QueryCtx, account: any, conversation: { bookingId?: any }) {
+  return !conversation.bookingId || belongsToRentalAccount(await ctx.db.get(conversation.bookingId), account);
+}
+
+async function matchesDirectoryView(ctx: any, account: any, view: "all" | "unread" | "starred" | undefined) {
+  if (view === "starred") return account.adminStarred === true;
+  if (view !== "unread") return true;
+  const threads = await ctx.db.query("chat_threads")
+    .withIndex("by_account_unread_owner", (q: any) => q.eq("accountId", account._id).gt("unreadOwner", 0))
+    .take(100);
+  for (const thread of threads) if (await belongsToCustomerConversation(ctx, account, thread)) return true;
+  return false;
+}
+
+export const setStarred = mutation({
+  args: { token: v.string(), accountId: v.id("accounts"), starred: v.boolean() },
+  handler: async (ctx, args) => {
+    if (process.env.ADMIN_SESSION_STARRED_V2 === "enabled") {
+      if (!adminSessionMigrationReady()) throw new Error("Admin session migration is not ready.");
+      await assertCustomerWriteSession(ctx, args.token);
+      await ctx.db.insert("admin_audit_log", { at: Date.now(), success: true, limited: false, fn: "accountAdmin.setStarred" });
+    } else {
+      await assertAdmin(ctx, args.token, "accountAdmin.setStarred");
+    }
+    const account = await ctx.db.get(args.accountId);
+    if (!account) throw Error("Account no longer exists.");
+    if ((account.adminStarred === true) !== args.starred)
+      await ctx.db.patch(account._id, { adminStarred: args.starred ? true : undefined });
+  },
+});
+
+export const billingPortalTarget = internalMutation({
+  args: { token: v.string(), accountId: v.id("accounts"), purpose: v.optional(v.union(v.literal("portal"), v.literal("membership_refresh"))) },
+  handler: async (ctx, { token, accountId, purpose }) => {
+    if ((purpose === "portal" && process.env.ADMIN_SESSION_BILLING_PORTAL_V2 === "enabled") || (purpose === "membership_refresh" && process.env.ADMIN_SESSION_MEMBERSHIP_REFRESH_V2 === "enabled")) {
+      if (!adminSessionMigrationReady()) throw Error("Admin session migration is not ready.");
+      await assertAdminScopeSession(ctx, token, "payments:write");
+      await ctx.db.insert("admin_audit_log", { at: Date.now(), success: true, limited: false, fn: `accountAdmin.billingPortal:${accountId}` });
+    } else await assertAdmin(ctx, token, `accountAdmin.billingPortal:${accountId}`);
+    const account = await ctx.db.get(accountId);
+    if (!account?.stripeCustomerId || !account.stripeSubscriptionId)
+      throw Error("This account does not have a linked Stripe subscription and customer.");
+    return { customerId: account.stripeCustomerId, subscriptionId: account.stripeSubscriptionId, membershipSnapshot: membershipSnapshot(account) };
+  },
+});
+
+export const membershipInvoiceReceipt = internalQuery({
+  args:{accountId:v.id("accounts"),customerId:v.string(),subscriptionId:v.string(),invoiceId:v.string()},
+  handler:async(ctx,args)=>{
+    const account=await ctx.db.get(args.accountId);
+    if(!account||account.stripeCustomerId!==args.customerId||account.stripeSubscriptionId!==args.subscriptionId)throw Error("The billing link changed. Review the account and try again.");
+    const grant=await ctx.db.query("membership_credit_grants").withIndex("by_invoice",q=>q.eq("invoiceId",args.invoiceId)).unique();
+    if(!grant)return null;
+    if(grant.accountId!==args.accountId||grant.subscriptionId!==args.subscriptionId)throw Error("The invoice credit receipt belongs to another account. Review it before continuing.");
+    return {creditPence:grant.creditPence,bonusPence:grant.bonusPence,revokedPence:grant.revokedPence,paidMembershipPence:grant.paidMembershipPence,membershipRefundedPence:grant.membershipRefundedPence,createdAt:grant.createdAt,historicalPriceId:grant.historicalPriceId};
+  },
 });
 
 /** Bounded scans preserve cursor ordering across every account, including name
@@ -23,31 +123,37 @@ export const directory = query({
     token: v.string(), search: v.string(), paginationOpts: paginationOptsValidator,
     filter: v.union(v.literal("all"), v.literal("members"), v.literal("verified"), v.literal("pending")),
     tier: v.union(v.literal("all"), v.literal("standard"), v.literal("plus"), v.literal("pro"), v.literal("studio")),
+    encore: v.optional(v.union(v.literal("all"), v.literal("automatic"), v.literal("1"), v.literal("2"), v.literal("3"))),
     verification: v.optional(v.union(v.literal("all"), v.literal("verified"), v.literal("pending"))),
+    view: directoryView,
   },
   handler: async (ctx, args) => {
-    if (!checkAdminToken(args.token)) return { page: [], isDone: true, continueCursor: "" };
+    if (!await customerReadAuthorized(ctx, args.token)) return { page: [], isDone: true, continueCursor: "" };
     if (args.search.length > 254) throw Error("Customer search is too long.");
     if (!Number.isInteger(args.paginationOpts.numItems) || args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > 100)
       throw Error("Invalid customer page size.");
     const result = await ctx.db.query("accounts").order("desc").paginate(args.paginationOpts);
     const search = args.search.trim().toLocaleLowerCase("en-GB");
-    const checked=await Promise.all(result.page.map(async account=>({account,verified:!!await accountVerificationReady(ctx,account)})));
-    const matches = checked.filter(({account,verified}) => {
+    const checked=await Promise.all(result.page.map(async account=>({account,readiness:await accountVerificationReady(ctx,account),viewMatch:await matchesDirectoryView(ctx,account,args.view)})));
+    const matches = checked.filter(({account,readiness,viewMatch}) => {
+      const verified = !!readiness;
       const tier = membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard";
-      return (!search || `${account.name ?? ""} ${account.email}`.toLocaleLowerCase("en-GB").includes(search)) &&
+      const encoreMatch = !args.encore || args.encore === "all" ||
+        (args.encore === "automatic" ? account.adminEncoreLevel == null : String(account.adminEncoreLevel) === args.encore);
+      return viewMatch && (!search || `${account.name ?? ""} ${account.email}`.toLocaleLowerCase("en-GB").includes(search)) &&
         (args.tier === "all" || tier === args.tier) &&
+        encoreMatch &&
         (!args.verification || args.verification === "all" || (args.verification === "verified" ? verified : !verified)) &&
         (args.filter === "all" || args.filter === "members" && tier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified);
     });
-    return { ...result, page: await Promise.all(matches.map(async ({account,verified}) => ({
+    return { ...result, page: await Promise.all(matches.map(async ({account,readiness}) => ({
       id: account._id, email: account.email, name: account.name ?? "", createdAt: account.createdAt,
       tier: membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard",
       override: account.adminMembershipTier ?? "automatic", encoreOverride: account.adminEncoreLevel == null ? "automatic" : String(account.adminEncoreLevel), blocked: account.blockedAt != null,
-      blockedReason: account.blockedReason ?? "", hasSubscription: !!account.stripeSubscriptionId, visualTier: customerAdminVisual(account),
+      blockedReason: account.blockedReason ?? "", blockedAt: account.blockedAt ?? null, restrictionRevision: account.restrictionRevision ?? 0, restrictionNoticeId: account.restrictionNoticeId ?? null, hasSubscription: !!account.stripeSubscriptionId, visualTier: customerAdminVisual(account), starred: account.adminStarred === true,
       subscriptionTier: account.membershipTier ?? null,
-      verified,
-      avatarUrl: account.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
+      verified: !!readiness, verifiedUntil: readiness?.proofExpiresAt ?? null,
+      avatarUrl: account.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
     }))) };
   },
 });
@@ -57,10 +163,12 @@ export const searchMessages = query({
     token: v.string(), search: v.string(),
     filter: v.union(v.literal("all"), v.literal("members"), v.literal("verified"), v.literal("pending")),
     tier: v.union(v.literal("all"), v.literal("standard"), v.literal("plus"), v.literal("pro"), v.literal("studio")),
+    encore: v.optional(v.union(v.literal("all"), v.literal("automatic"), v.literal("1"), v.literal("2"), v.literal("3"))),
     verification: v.optional(v.union(v.literal("all"), v.literal("verified"), v.literal("pending"))),
+    view: directoryView,
   },
   handler: async (ctx, args) => {
-    if (!checkAdminToken(args.token)) return { items: [], truncated: false };
+    if (!await customerReadAuthorized(ctx, args.token)) return { items: [], truncated: false };
     const search = args.search.trim();
     if (search.length > 254) throw Error("Customer search is too long.");
     if (search.length < 2) return { items: [], truncated: false };
@@ -70,20 +178,26 @@ export const searchMessages = query({
     for (const message of messages.slice(0, 100)) {
       const accountId = String(message.accountId);
       if (seen.has(accountId)) continue;
-      seen.add(accountId);
       const account = await ctx.db.get(message.accountId);
       if (!account) continue;
-      const verified = !!await accountVerificationReady(ctx, account);
+      if (!await belongsToCustomerConversation(ctx, account, message)) continue;
+      seen.add(accountId);
+      if (!await matchesDirectoryView(ctx, account, args.view)) continue;
+      const readiness = await accountVerificationReady(ctx, account);
+      const verified = !!readiness;
       const tier = membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard";
+      const encoreMatch = !args.encore || args.encore === "all" ||
+        (args.encore === "automatic" ? account.adminEncoreLevel == null : String(account.adminEncoreLevel) === args.encore);
       if (args.tier !== "all" && tier !== args.tier) continue;
+      if (!encoreMatch) continue;
       if (args.verification && args.verification !== "all" && (args.verification === "verified" ? !verified : verified)) continue;
       if (!(args.filter === "all" || args.filter === "members" && tier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified)) continue;
       items.push({
         id: account._id, email: account.email, name: account.name ?? "", createdAt: account.createdAt,
         tier, override: account.adminMembershipTier ?? "automatic", encoreOverride: account.adminEncoreLevel == null ? "automatic" : String(account.adminEncoreLevel),
-        blocked: account.blockedAt != null, blockedReason: account.blockedReason ?? "", hasSubscription: !!account.stripeSubscriptionId, visualTier: customerAdminVisual(account),
-        subscriptionTier: account.membershipTier ?? null, verified,
-        avatarUrl: account.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
+        blocked: account.blockedAt != null, blockedReason: account.blockedReason ?? "", blockedAt: account.blockedAt ?? null, restrictionRevision: account.restrictionRevision ?? 0, restrictionNoticeId: account.restrictionNoticeId ?? null, hasSubscription: !!account.stripeSubscriptionId, visualTier: customerAdminVisual(account),
+        subscriptionTier: account.membershipTier ?? null, verified, verifiedUntil: readiness?.proofExpiresAt ?? null, starred: account.adminStarred === true,
+        avatarUrl: account.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
         matchedMessage: message.text.slice(0, 150),
       });
       if (items.length >= 50) break;
@@ -97,27 +211,33 @@ export const searchMessages = query({
 export const directoryMetrics = query({
   args: { token: v.string(), accountIds: v.array(v.id("accounts")) },
   handler: async (ctx, args) => {
-    if (!checkAdminToken(args.token)) return [];
-    if (args.accountIds.length > 10) throw Error("Invalid customer metrics page.");
+    if (!await customerReadAuthorized(ctx, args.token)) return [];
+    if (args.accountIds.length > 11) throw Error("Invalid customer metrics page.");
     return Promise.all([...new Set(args.accountIds)].map(async id => {
       const account = await ctx.db.get(id);
-      if (!account) return { id, activeRentals: 0, activeRentalsMore: false, credit: 0, unreadMessages: 0, visualTier: "guest" as const };
+      if (!account) return { id, activeRentals: 0, activeRentalsMore: false, credit: 0, unreadMessages: 0, lastMessage: null, visualTier: "guest" as const, encoreLevel: 0 };
       const active = (q: any) => q.or(q.eq(q.field("status"), "active"), q.eq(q.field("status"), "confirmed"));
-      const [owned, legacy, credits, unreadThreads] = await Promise.all([
+      const [owned, legacy, credits, unreadThreads, recentThreads] = await Promise.all([
         ctx.db.query("bookings").withIndex("by_account", q => q.eq("accountId", id)).filter(active).take(101),
         ctx.db.query("bookings").withIndex("by_guestEmail", q => q.eq("guestEmail", account.email.trim().toLowerCase()))
           .filter(q => q.and(active(q), q.eq(q.field("accountId"), undefined))).take(101),
         availableCreditRows(ctx, id),
         ctx.db.query("chat_threads").withIndex("by_account_unread_owner", q => q.eq("accountId", id).gt("unreadOwner", 0)).take(100),
+        ctx.db.query("chat_threads").withIndex("by_account_updated", q => q.eq("accountId", id)).order("desc").take(100),
       ]);
-      const earnedEncoreLevel = !account.adminEncoreLevel && customerAdminVisual(account) !== "subscriber"
-        ? (await loyaltyProgress(ctx, account)).completed
-        : 0;
+      const [validUnread, validRecent] = await Promise.all([
+        Promise.all(unreadThreads.map(thread => belongsToCustomerConversation(ctx, account, thread))),
+        Promise.all(recentThreads.map(thread => belongsToCustomerConversation(ctx, account, thread))),
+      ]);
+      const latestThread = recentThreads.find((_, index) => validRecent[index]);
+      const progress = !account.adminEncoreLevel ? await loyaltyProgressWithin(ctx, account, 100) : null;
+      const earnedEncoreLevel = progress?.completed ?? 0;
       const count = owned.length + legacy.length;
       return { id, activeRentals: Math.min(count, 100), activeRentalsMore: count > 100,
         credit: credits.reduce((n: number, c: any) => n + c.availablePence, 0) / 100,
-        unreadMessages: Math.min(100, unreadThreads.reduce((n, thread) => n + (thread.unreadOwner ?? 0), 0)),
-        visualTier: customerAdminVisual(account, earnedEncoreLevel) };
+        unreadMessages: Math.min(100, unreadThreads.reduce((n, thread, index) => n + (validUnread[index] ? thread.unreadOwner ?? 0 : 0), 0)),
+        lastMessage: typeof latestThread?.lastMessage === "string" ? latestThread.lastMessage.slice(0, 150) : null,
+        visualTier: customerAdminVisual(account, earnedEncoreLevel), encoreLevel: account.adminEncoreLevel ?? (progress ? earnedEncoreLevel : null) };
     }));
   },
 });
@@ -132,7 +252,7 @@ const level = v.union(
 export const search = query({
   args: { token: v.string(), email: v.string() },
   handler: async (ctx, a) => {
-    if (!checkAdminToken(a.token))
+    if (!await customerReadAuthorized(ctx, a.token))
       return { authorized: false, items: [], more: false };
     const prefix = a.email.trim().toLowerCase();
     if (prefix.length > 254) throw Error("Email search is too long.");
@@ -163,7 +283,7 @@ export const search = query({
           hasSubscription: !!a.stripeSubscriptionId,
           subscriptionTier: a.membershipTier ?? null,
           verified: !!await accountVerificationReady(ctx,a),
-          avatarUrl: a.avatarStorageId
+          avatarUrl: a.avatarStorageId && a.avatarStorageId === a.avatarOwnedStorageId
             ? await ctx.storage.getUrl(a.avatarStorageId)
             : (a.googleAvatarUrl ?? null),
         })),
@@ -176,10 +296,11 @@ export const setLevel = mutation({
     token: v.string(),
     accountId: v.id("accounts"),
     level,
+    expectedLevel: level,
     reason: v.string(),
   },
   handler: async (ctx, a) => {
-    await assertAdmin(ctx, a.token, "accountAdmin.setLevel");
+    await authorizeCustomerWrite(ctx, a.token, "accountAdmin.setLevel");
     const account = await ctx.db.get(a.accountId);
     if (!account) throw Error("Account no longer exists.");
     const reason = a.reason.trim();
@@ -190,6 +311,8 @@ export const setLevel = mutation({
       (!account.adminMembershipTier && a.level === "automatic")
     )
       return;
+    if ((account.adminMembershipTier ?? "automatic") !== a.expectedLevel)
+      throw Error("Membership access changed in another session. Review the current level and try again.");
     await ctx.db.patch(account._id, {
       adminMembershipTier: a.level === "automatic" ? undefined : a.level,
     });
@@ -208,10 +331,11 @@ export const setEncoreLevel = mutation({
     token: v.string(),
     accountId: v.id("accounts"),
     level: v.union(v.literal("automatic"), v.literal(1), v.literal(2), v.literal(3)),
+    expectedLevel: v.union(v.literal("automatic"), v.literal(1), v.literal(2), v.literal(3)),
     reason: v.string(),
   },
   handler: async (ctx, a) => {
-    await assertAdmin(ctx, a.token, "accountAdmin.setEncoreLevel");
+    await authorizeCustomerWrite(ctx, a.token, "accountAdmin.setEncoreLevel");
     const account = await ctx.db.get(a.accountId);
     if (!account) throw Error("Account no longer exists.");
     const reason = a.reason.trim();
@@ -222,6 +346,8 @@ export const setEncoreLevel = mutation({
       (account.adminEncoreLevel == null && a.level === "automatic")
     )
       return;
+    if ((account.adminEncoreLevel ?? "automatic") !== a.expectedLevel)
+      throw Error("Encore access changed in another session. Review the current level and try again.");
     await ctx.db.patch(account._id, {
       adminEncoreLevel: a.level === "automatic" ? undefined : a.level,
     });
@@ -241,17 +367,30 @@ export const setBlocked = mutation({
     accountId: v.id("accounts"),
     blocked: v.boolean(),
     reason: v.string(),
+    expected: v.object({ blockedAt: v.union(v.number(), v.null()), noticeId: v.union(v.id("account_restriction_notices"), v.null()), reason: v.string(), revision: v.number() }),
   },
   handler: async (ctx, a) => {
-    await assertAdmin(ctx, a.token, "accountAdmin.setBlocked");
+    await authorizeCustomerWrite(ctx, a.token, "accountAdmin.setBlocked");
     const account = await ctx.db.get(a.accountId);
     if (!account) throw Error("Account no longer exists.");
     const reason = a.reason.trim();
     if (!reason || reason.length > 500)
       throw Error("Add a reason of up to 500 characters.");
+    if ((account.blockedAt ?? null) !== a.expected.blockedAt || (account.restrictionNoticeId ?? null) !== a.expected.noticeId || (account.blockedReason ?? "") !== a.expected.reason || (account.restrictionRevision ?? 0) !== a.expected.revision)
+      throw Error("Account restriction changed in another session. Review the current status and try again.");
     if ((account.blockedAt != null) === a.blocked) return;
+    const lastRestrictedAt = Math.max(account.lastRestrictedAt ?? 0, account.blockedAt ?? 0);
+    if (!Number.isSafeInteger(lastRestrictedAt) || lastRestrictedAt < 0 || lastRestrictedAt >= Number.MAX_SAFE_INTEGER) throw Error("Restriction history needs review.");
+    const blockedAt = a.blocked ? Math.max(Date.now(), lastRestrictedAt + 1) : undefined;
+    const noticeId = blockedAt == null ? undefined : await ctx.db.insert("account_restriction_notices", {
+      accountId: account._id, blockedAt, recipient: account.email,
+      state: "pending", dueAt: blockedAt, createdAt: blockedAt, updatedAt: blockedAt,
+    });
     await ctx.db.patch(account._id, {
-      blockedAt: a.blocked ? Date.now() : undefined,
+      blockedAt,
+      lastRestrictedAt: blockedAt ?? (lastRestrictedAt || undefined),
+      restrictionRevision: (account.restrictionRevision ?? 0) + 1,
+      restrictionNoticeId: noticeId,
       blockedReason: a.blocked ? reason : undefined,
     });
     if (a.blocked) {
@@ -274,12 +413,16 @@ export const setBlocked = mutation({
       after: a.blocked ? "blocked" : "active",
       reason,
     });
+    if (noticeId != null) {
+      await ctx.scheduler.runAfter(0, internal.accountRestrictionNotice.dispatchOne, { noticeId });
+      await queueRestrictedAccountRecheck(ctx,account._id,blockedAt!);
+    }
   },
 });
 export const history = query({
   args: { token: v.string(), accountId: v.id("accounts") },
   handler: async (ctx, a) =>
-    checkAdminToken(a.token)
+    await customerReadAuthorized(ctx, a.token)
       ? ctx.db
           .query("account_admin_changes")
           .withIndex("by_account", (q) => q.eq("accountId", a.accountId))
@@ -288,14 +431,29 @@ export const history = query({
       : [],
 });
 
+export const verificationReviews = query({
+  args:{token:v.string(),accountId:v.id("accounts")},
+  handler:async(ctx,args)=>{
+    if(!await customerReadAuthorized(ctx,args.token))throw Error("unauthorized");
+    const account=await ctx.db.get(args.accountId);if(!account)return {items:[],more:false};
+    const statuses=["pending_verification","confirmed","active"] as const;
+    const groups=await Promise.all(statuses.flatMap(status=>[
+      ctx.db.query("bookings").withIndex("by_account_verification_review",q=>q.eq("accountId",account._id).eq("idVerifyStatus","manual_review").eq("verificationProvider","didit").eq("status",status)).order("desc").take(21),
+      ctx.db.query("bookings").withIndex("by_guest_verification_review",q=>q.eq("guestEmail",account.email.trim().toLowerCase()).eq("accountId",undefined).eq("idVerifyStatus","manual_review").eq("verificationProvider","didit").eq("status",status)).order("desc").take(21),
+    ]));
+    const rows=groups.flat().sort((left,right)=>right._creationTime-left._creationTime);
+    return {items:rows.slice(0,20).map(booking=>({id:booking._id,title:booking.lineItems?.[0]?.title??"Rental request",start:booking.lineItems?.length?Math.min(...booking.lineItems.map(line=>line.start)):null})),more:rows.length>20};
+  },
+});
+
 /** Admin-only projection; never return provider IDs, credentials or document URLs. */
 export const detail = query({
   args: { token: v.string(), accountId: v.id("accounts") },
   handler: async (ctx, args) => {
-    if (!checkAdminToken(args.token)) throw Error("unauthorized");
+    if (!await customerReadAuthorized(ctx, args.token)) throw Error("unauthorized");
     const account = await ctx.db.get(args.accountId);
     if (!account) return null;
-    const [bookings, credits, threads, notes] = await Promise.all([
+    const [bookings, credits, threads, notes, restrictionNotice] = await Promise.all([
       rentalsForAccount(ctx, account, 101),
       availableCreditRows(ctx, account._id),
       ctx.db
@@ -308,16 +466,27 @@ export const detail = query({
         .withIndex("by_account", (q) => q.eq("accountId", account._id))
         .order("desc")
         .take(20),
+      account.restrictionNoticeId ? ctx.db.get(account.restrictionNoticeId) : null,
     ]);
     const rentalRows = await Promise.all(
       bookings.slice(0, 100).map(async (booking) => {
         const first = booking.lineItems?.[0];
-        const listing = first?.listingId
-          ? await ctx.db.get(first.listingId)
-          : null;
+        const grouped = new Map<string, { listingId: typeof first.listingId; title: string; qty: number }>();
+        for (const line of booking.lineItems ?? []) {
+          const key = String(line.listingId ?? line.title);
+          const previous = grouped.get(key);
+          if (previous) previous.qty += line.qty;
+          else grouped.set(key, { listingId: line.listingId, title: line.title, qty: line.qty });
+        }
+        const items = await Promise.all([...grouped.values()].map(async item => ({
+          ...item,
+          imageSources: listingImages(item.listingId ? await ctx.db.get(item.listingId) : null),
+        })));
         return {
           id: booking._id,
           status: booking.status,
+          idVerifyStatus: booking.idVerifyStatus ?? null,
+          verificationProvider: booking.verificationProvider ?? null,
           total: booking.total,
           title: first?.title ?? "Rental request",
           start: first
@@ -326,7 +495,8 @@ export const detail = query({
           end: first
             ? Math.max(...booking.lineItems.map((l: any) => l.end))
             : null,
-          imageSources: listingImages(listing),
+          imageSources: items[0]?.imageSources ?? [],
+          items,
           quantity: (booking.lineItems ?? []).reduce(
             (n: number, l: any) => n + l.qty,
             0,
@@ -352,7 +522,9 @@ export const detail = query({
       membershipStatus: account.membershipStatus ?? null,
       membershipActive: membershipActiveNow(account),
       paidThrough: account.membershipPaidThrough ?? null,
+      trialEnd: account.membershipTrialEnd ?? null,
       cancelAtPeriodEnd: !!account.membershipCancelAtPeriodEnd,
+      restrictionNotice: restrictionNotice && restrictionNotice.accountId === account._id && restrictionNotice.blockedAt === account.blockedAt ? { state: restrictionNotice.state, sentAt: restrictionNotice.sentAt ?? null } : null,
       verificationExpiresAt: account.rentalVerification ? verificationValidUntil(account.rentalVerification) : null,
       credit:
         credits.reduce((n: number, c: any) => n + c.availablePence, 0) / 100,
@@ -380,7 +552,7 @@ export const detail = query({
 export const addNote = mutation({
   args: { token: v.string(), accountId: v.id("accounts"), text: v.string() },
   handler: async (ctx, args) => {
-    await assertAdmin(ctx, args.token, "accountAdmin.addNote");
+    await authorizeCustomerWrite(ctx, args.token, "accountAdmin.addNote");
     if (!(await ctx.db.get(args.accountId)))
       throw Error("Account no longer exists.");
     const text = args.text.trim();

@@ -125,7 +125,7 @@ export const _upsertGoogle = internalMutation({
     }
     if (!acct.googleId) patch.googleId = a.googleId;
     if (!acct.name && a.name) patch.name = a.name;
-    if (!acct.googleAvatarUrl && a.picture) patch.googleAvatarUrl = a.picture;
+    if (!acct.googleAvatarRemoved && !acct.googleAvatarUrl && a.picture) patch.googleAvatarUrl = a.picture;
     if (Object.keys(patch).length) await ctx.db.patch(acct._id, patch);
     if(needsVerificationRecovery)await ctx.scheduler.runAfter(0,internal.verificationArchive.linkVerifiedAccount,{accountId:acct._id,cursor:null});
     await ctx.db.insert("sessions", {

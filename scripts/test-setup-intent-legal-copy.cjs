@@ -4,12 +4,38 @@ const { load } = require("./lib/rentalTestHarness.cjs");
 
 const { LEGAL_ARCHIVE } = load("shared/legalDocuments.ts");
 const agreement = LEGAL_ARCHIVE["2026-11-v20"];
+const newAgreement = LEGAL_ARCHIVE["2026-11-v21"];
 const rentalSecurityHeading = agreement["rental-terms"].sections.find(section => section.h.startsWith("2."))?.h;
 assert.equal(rentalSecurityHeading, "2. Saved-card security claims");
 
 const agreementText = Object.values(agreement).flatMap(document => document.sections.map(section => `${section.h} ${section.p}`)).join("\n");
 assert(!agreementText.includes("New rentals use a Stripe card authorisation hold"));
 assert(!agreementText.includes("Security payment and hold"));
+assert(agreement.terms.sections.find(section => section.h === "Cancellation and refunds").p.includes("Cancelling seven or fewer London calendar days"));
+const newCancellation = newAgreement.cancellation.sections.find(section => section.h === "Your cancellation").p;
+assert.match(newCancellation, /full refund.*100% of that remaining rental value as account credit/);
+assert.match(newCancellation, /more than 48 hours.*account credit only/);
+assert.match(newCancellation, /48 hours or less.*no rental refund and no account credit/);
+assert.match(newAgreement.terms.sections.find(section => section.h === "Free cancellation protection").p, /rejected or restricted/);
+const { assertAgreementBeforeRelease } = load("shared/rentalAgreement.ts");
+const { SETUP_INTENT_SECURITY_POLICY_VERSION } = load("shared/rentalSecurity.ts");
+const historicAgreement = {
+  agreementName: "Test Renter",
+  agreementSignedAt: 123,
+  agreementDocs: [{ kind: "rental-agreement", version: "2026-11-v20" }],
+  agreementSnapshot: JSON.stringify({
+    format: 1,
+    version: "2026-11-v20",
+    signer: "Test Renter",
+    acceptedAt: 123,
+    documents: [{ kind: "rental-agreement", version: "2026-11-v20", text: { sections: [] } }],
+    particulars: { timeZone: "Europe/London", lineItems: [] },
+  }),
+  securityPolicyVersion: SETUP_INTENT_SECURITY_POLICY_VERSION,
+  securityHoldConsentAt: 123,
+  laterChargeConsentAt: 123,
+};
+assert.throws(() => assertAgreementBeforeRelease(historicAgreement), /Broker, legal and operational review/, "A previously signed v20 agreement passes its historical copy check after v21 is introduced");
 
 const { returnStatementEmail } = load("shared/returnStatement.ts");
 const statement = returnStatementEmail({

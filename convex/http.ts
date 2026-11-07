@@ -1,7 +1,11 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { droneDocumentType, DRONE_DOCUMENT_LIMIT } from "./lib/droneDocument";
+import { chatAttachmentsReady, scanChatAttachment, CHAT_ATTACHMENT_LIMIT } from "./lib/chatAttachmentScanner";
+import { chatAttachmentName } from "./lib/chatAttachmentName";
+import { adminSessionMigrationReady } from "./adminAccountSessionV2";
+import { isChatImageType } from "../shared/chatAttachmentPolicy";
 
 const http = httpRouter();
 
@@ -50,8 +54,159 @@ http.route({
 function documentCors(req: Request) {
   const origin = req.headers.get("origin") ?? "";
   const allowed = new Set([process.env.APP_URL?.replace(/\/$/, ""), "https://dbcinemarentals.com", "https://www.dbcinemarentals.com", "https://db-cinema-v2.vercel.app"]);
-  return allowed.has(origin) ? { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Checkout-Session", "Access-Control-Allow-Methods": "POST, OPTIONS", "Vary": "Origin" } : null;
+  return allowed.has(origin) ? { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Checkout-Session, X-Chat-Filename, X-DBC-Admin-Session", "Access-Control-Allow-Methods": "POST, OPTIONS", "Vary": "Origin" } : null;
 }
+function adminHttpToken(req: Request, scoped: boolean): string {
+  const authorization = req.headers.get("authorization") ?? "";
+  if (!scoped) return authorization.replace(/^Bearer /, "");
+  const token = req.headers.get("x-dbc-admin-session") ?? "";
+  if (!/^Bearer [^\s]+$/.test(authorization) || !/^[a-f0-9]{64}$/.test(token)) throw Error("unauthorized");
+  return token;
+}
+http.route({ path: "/admin-session", method: "OPTIONS", handler: httpAction(async (_ctx, req) => {
+  const cors = documentCors(req);
+  return new Response(null, { status: cors ? 204 : 403, headers: cors ?? {} });
+}) });
+http.route({ path: "/admin-session", method: "POST", handler: httpAction(async (ctx, req) => {
+  const cors = documentCors(req);
+  if (!cors) return new Response("Forbidden", { status: 403 });
+  const headers = { ...cors, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
+  if (!adminSessionMigrationReady()) return new Response("Admin session unavailable", { status: 503, headers });
+  if (!/^Bearer [^\s]+$/.test(req.headers.get("authorization") ?? "") ||
+      !/^application\/json(?:\s*;|$)/i.test(req.headers.get("content-type") ?? ""))
+    return new Response("Unauthorized", { status: 401, headers });
+  try {
+    if (Number(req.headers.get("content-length")) > 1024) return new Response("Invalid request", { status: 400, headers });
+    const reader = req.body?.getReader();
+    if (!reader) return new Response("Invalid request", { status: 400, headers });
+    const chunks: Uint8Array[] = [];
+    let length = 0;
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      length += part.value.length;
+      if (length > 1024) { await reader.cancel(); return new Response("Invalid request", { status: 400, headers }); }
+      chunks.push(part.value);
+    }
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+    const body = JSON.parse(new TextDecoder().decode(bytes));
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 4 ||
+        !["clientDigest", "nonce", "mac"].every(key => typeof body[key] === "string" && /^[a-f0-9]{64}$/.test(body[key])) ||
+        !Number.isSafeInteger(body.issuedAt)) return new Response("Invalid request", { status: 400, headers });
+    const result = await ctx.runAction(internal.adminSessionIssuerV2.issue, { attestation: body });
+    if (!result) return new Response("Unauthorized", { status: 401, headers });
+    return Response.json(result, { headers });
+  } catch { return new Response("Unauthorized", { status: 401, headers }); }
+}) });
+http.route({ path: "/renter-avatar", method: "OPTIONS", handler: httpAction(async (_ctx, req) => {
+  const cors = documentCors(req); return new Response(null, { status: cors ? 204 : 403, headers: cors ?? {} });
+}) });
+http.route({ path: "/renter-avatar", method: "POST", handler: httpAction(async (ctx, req) => {
+  const cors = documentCors(req);
+  if (!cors) return new Response("Forbidden", { status: 403 });
+  const headers = { ...cors, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
+  try {
+    const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
+    const { accountId, revision } = await ctx.runMutation(internal.accounts.reserveAvatarUpload, { token });
+    const limit = 5 * 1024 * 1024;
+    if (Number(req.headers.get("content-length")) > limit) throw Error("Image too large.");
+    const reader = req.body?.getReader();
+    if (!reader) throw Error("Missing image.");
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      size += part.value.length;
+      if (size > limit) { await reader.cancel(); throw Error("Image too large."); }
+      chunks.push(part.value);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+    const type = droneDocumentType(bytes, req.headers.get("content-type") ?? "");
+    if (!type.startsWith("image/")) throw Error("Please choose an image.");
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(part => part.toString(16).padStart(2, "0")).join("");
+    const parts: ArrayBuffer[] = [];
+    for (let start = 0; start < bytes.length; start += 512 * 1024) parts.push(bytes.slice(start, start + 512 * 1024).buffer);
+    await ctx.runMutation(internal.accounts.commitAvatarUpload, { token, accountId, revision, contentType: type, digest, chunks: parts });
+    return Response.json({ ok: true }, { headers });
+  } catch {
+    return new Response("Photo could not be uploaded. Choose a JPG, PNG or WebP up to 5 MB.", { status: 403, headers });
+  }
+}) });
+http.route({ path: "/chat-attachment", method: "OPTIONS", handler: httpAction(async (_ctx, req) => {
+  const cors = documentCors(req); return new Response(null, { status: cors ? 204 : 403, headers: cors ?? {} });
+}) });
+http.route({ path: "/chat-attachment", method: "POST", handler: httpAction(async (ctx, req) => {
+  const cors = documentCors(req);
+  if (!cors) return new Response("Forbidden", { status: 403 });
+  const headers = { ...cors, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
+  if (!chatAttachmentsReady()) return new Response("Attachments are temporarily unavailable.", { status: 503, headers });
+  const url = new URL(req.url);
+  const admin = url.searchParams.get("admin") === "1";
+  let id: any, marker: string | undefined, storageId: any;
+  try {
+    const scope = { token: adminHttpToken(req, admin && process.env.ADMIN_SESSION_ATTACHMENTS_V2 === "enabled"), admin, bookingId: (url.searchParams.get("bookingId") || undefined) as any, accountId: (url.searchParams.get("accountId") || undefined) as any };
+    const download = url.searchParams.get("download");
+    if (download) {
+      const file = await ctx.runMutation(internal.chatAttachments.download, { ...scope, id: download as any });
+      const stored = await ctx.storage.get(file.storageId);
+      if (!stored || stored.size !== file.size) throw Error("File unavailable.");
+      const bytes = new Uint8Array(await stored.arrayBuffer());
+      const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(part => part.toString(16).padStart(2, "0")).join("");
+      if (hash !== file.sha256) throw Error("File unavailable.");
+      const current = await ctx.runMutation(internal.chatAttachments.download, { ...scope, id: download as any });
+      if (current.storageId !== file.storageId || current.messageId !== file.messageId || current.sha256 !== file.sha256 || current.size !== file.size || current.name !== file.name) throw Error("File unavailable.");
+      return new Response(bytes, { headers: { ...headers, "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${file.name}"` } });
+    }
+    const nonce = crypto.randomUUID().replace(/-/g, "");
+    marker = `application/vnd.dbcinema.chat-${nonce}`;
+    const reservation = await ctx.runMutation(internal.chatAttachments.reserve, { ...scope, marker, requestKey: url.searchParams.get("key") ?? "" });
+    if (reservation.status === "pending") return new Response("Upload is processing.", { status: 409, headers });
+    if (reservation.status !== "published") id = reservation.id;
+    const declared = Number(req.headers.get("content-length"));
+    if (declared > CHAT_ATTACHMENT_LIMIT) throw Error("File too large.");
+    const reader = req.body?.getReader();
+    if (!reader) throw Error("Missing file.");
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      size += part.value.length;
+      if (size > CHAT_ATTACHMENT_LIMIT) { await reader.cancel(); throw Error("File too large."); }
+      chunks.push(part.value);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+    const contentType = droneDocumentType(bytes, req.headers.get("content-type") ?? "");
+    if (!isChatImageType(contentType)) throw Error("Image attachments only.");
+    const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(part => part.toString(16).padStart(2, "0")).join("");
+    const encodedName = req.headers.get("x-chat-filename") ?? "attachment";
+    if (encodedName.length > 1080) throw Error("Invalid filename.");
+    const name = decodeURIComponent(encodedName);
+    if (reservation.status === "published") {
+      if (reservation.sha256 !== sha256 || reservation.size !== size || reservation.contentType !== contentType || reservation.name !== chatAttachmentName(name, contentType)) throw Error("Upload retry does not match the original file.");
+      return Response.json({ ok: true }, { headers });
+    }
+    const verdict = await scanChatAttachment(bytes, sha256, nonce, { endpoint: process.env.CHAT_ATTACHMENT_SCANNER_URL ?? "", token: process.env.CHAT_ATTACHMENT_SCANNER_TOKEN ?? "" });
+    await ctx.runMutation(internal.chatAttachments.recordScan, { id, marker, contentType, size, sha256, ...verdict });
+    storageId = await ctx.storage.store(new Blob([bytes], { type: marker }));
+    const stored = await ctx.storage.get(storageId);
+    if (!stored || stored.size !== size) throw Error("File unavailable.");
+    const storedHash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await stored.arrayBuffer()))).map(part => part.toString(16).padStart(2, "0")).join("");
+    if (storedHash !== sha256) throw Error("File unavailable.");
+    await ctx.runMutation(internal.chatAttachments.publish, { ...scope, id, marker, storageId, name });
+    return Response.json({ ok: true }, { headers });
+  } catch {
+    if (id && marker) try { await ctx.runMutation(internal.chatAttachments.fail, { id, marker, storageId }); } catch {}
+    return new Response("Attachment unavailable.", { status: 403, headers });
+  }
+}) });
 http.route({path:"/renter-drone-document",method:"OPTIONS",handler:httpAction(async(_ctx,req)=>{
   const cors=documentCors(req);return new Response(null,{status:cors?204:403,headers:cors??{}});
 })});
@@ -83,6 +238,30 @@ http.route({path:"/renter-drone-document",method:"POST",handler:httpAction(async
     return new Response("Document could not be saved. Check your account and rental, then upload a PDF, JPG, PNG or WebP up to 10 MB.",{status:403,headers});
   }
 })});
+http.route({ path: "/admin-private-portrait", method: "OPTIONS", handler: httpAction(async (_ctx, req) => {
+  const cors = documentCors(req);
+  return new Response(null, { status: cors ? 204 : 403, headers: cors ?? {} });
+}) });
+http.route({ path: "/admin-private-portrait", method: "POST", handler: httpAction(async (ctx, req) => {
+  const cors = documentCors(req);
+  if (!cors) return new Response("Forbidden", { status: 403 });
+  const headers = { ...cors, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
+  try {
+    const token = adminHttpToken(req, process.env.ADMIN_SESSION_VERIFICATION_V2 === "enabled");
+    const { accountId, documentId } = await req.json();
+    const selected = () => ctx.runQuery(api.privateVerificationPortrait.selected, { token, accountId, refresh: Math.floor(Date.now() / 60000) });
+    if ((await selected())?.documentId !== documentId) throw Error("Portrait unavailable");
+    const document = await ctx.runMutation(internal.verificationArchive.downloadAccess, { token, documentId });
+    const blob = await ctx.storage.get(document.storageId);
+    if (!blob) throw Error("Portrait unavailable");
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(byte => byte.toString(16).padStart(2, "0")).join("");
+    if (bytes.byteLength !== document.size || digest !== document.sha256 || (await selected())?.documentId !== documentId) throw Error("Portrait unavailable");
+    return new Response(bytes, { headers: { ...headers, "Content-Type": document.contentType, "Content-Disposition": "inline; filename=private-portrait" } });
+  } catch {
+    return new Response("Portrait unavailable", { status: 403, headers });
+  }
+}) });
 http.route({ path: "/admin-verification-document", method: "OPTIONS", handler: httpAction(async (_ctx, req) => {
   const cors = documentCors(req);
   return new Response(null, { status: cors ? 204 : 403, headers: cors ?? {} });
@@ -92,7 +271,7 @@ http.route({ path: "/admin-verification-document", method: "POST", handler: http
   if (!cors) return new Response("Forbidden", { status: 403 });
   const headers = { ...cors, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
   try {
-    const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
+    const token = adminHttpToken(req, process.env.ADMIN_SESSION_VERIFICATION_V2 === "enabled");
     const { documentId } = await req.json();
     const document = await ctx.runMutation(internal.verificationArchive.downloadAccess, { token, documentId });
     const blob = await ctx.storage.get(document.storageId);

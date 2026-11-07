@@ -82,10 +82,10 @@ export default function AdminPage() {
   const rentalUnread =
     useQuery(
       api.rentalChat.unreadTotals,
-      token ? { token, admin: true } : "skip",
+      token && authed === true ? { token, admin: true } : "skip",
     ) ?? 0;
-  const contacts = useQuery(api.contact.adminList, token ? { token } : "skip");
-  const attention = useQuery(api.adminNotifications.latest, token ? { token } : "skip") ?? [];
+  const contacts = useQuery(api.contact.adminList, token && authed === true ? { token } : "skip");
+  const attention = useQuery(api.adminNotifications.latest, token && authed === true ? { token } : "skip") ?? [];
   const markHandled = useMutation(api.contact.adminMarkHandled);
 
 
@@ -133,8 +133,12 @@ export default function AdminPage() {
     );
   }
 
+  if (authed !== true) {
+    return <main role="status" className="mx-auto max-w-sm px-6 py-24 text-sm text-white/60">Checking admin access…</main>;
+  }
+
   return (
-    <ManagementShell screenOverride={tab === "accounts" && documentsOpen ? "documents" : undefined} breadcrumb={tab === "accounts" && documentsOpen ? <><span>Customers</span><i>/</i><strong>{documentsOpen}</strong></> : undefined} role="admin" name="DB Cinema team" title={tab === "accounts" && documentsOpen ? "Documents & verification" : { overview: "Dashboard", bookings: "Rentals", insights: "Insights & Demand", inbox: "Messages & enquiries", accounts: "Customers & members", promotions: "Promotional actions", settings: "Settings" }[tab]} subtitle={tab === "accounts" && documentsOpen ? "Securely saved documents linked to this customer and their rentals." : "Manage rentals, accounts and equipment operations."}
+    <ManagementShell screenOverride={tab === "accounts" && documentsOpen ? "documents" : undefined} breadcrumb={tab === "accounts" && documentsOpen ? <><button type="button" onClick={() => setDocumentsOpen(null)}>Customers</button><i aria-hidden="true">/</i><strong aria-current="page">{documentsOpen}</strong></> : undefined} role="admin" name="DB Cinema team" title={tab === "accounts" && documentsOpen ? "Documents & verification" : { overview: "Dashboard", bookings: "Rentals", insights: "Insights & Demand", inbox: "Messages & enquiries", accounts: "Customers & members", promotions: "Promotional actions", settings: "Settings" }[tab]} subtitle={tab === "accounts" && documentsOpen ? "Securely saved documents linked to this customer and their rentals." : "Manage rentals, accounts and equipment operations."}
       active={tab} nav={[
         { key: "overview", label: "Dashboard", icon: "dashboard" },
         { key: "bookings", label: "Rentals", icon: "rentals" },

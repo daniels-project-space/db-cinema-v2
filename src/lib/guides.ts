@@ -425,12 +425,5 @@ export const GUIDES: Guide[] = [
 
 export const guideBySlug = (s: string) => GUIDES.find((g) => g.slug === s);
 
-export type Faq = { q: string; a: string };
-export const FAQS: Faq[] = [
-  { q: "How does renting work?", a: "Browse the catalogue, pick your dates on the calendar, add gear to your kit and check out. You'll get a confirmation by email, then collect from central London or have it delivered." },
-  { q: "Do you deliver across London?", a: "Yes. Delivery is quoted both ways based on distance and load — larger setups travel by van. You choose pickup or delivery at checkout and pick your time window." },
-  { q: "What about deposits and insurance?", a: "Your quote and signed agreement show the security terms for that rental. Any saved-card permission is limited to the reasons and amount recorded in those terms; it is not a bank hold, liability cap or insurance purchase. Own insurance is optional for currently declared company-owned or declared leased kit; DB’s contingent cover does not waive renter responsibility. Identity and address checks are required before handover. Existing bookings keep their accepted terms." },
-  { q: "How are the rates structured?", a: "Daily, 3-day and weekly rates — the longer you rent, the lower the per-day price, applied automatically. Members save a further 10-30% on every rental." },
-  { q: "What are your opening hours?", a: "Pickups and returns run 09:00-22:00, every day. Delivery times are arranged when you book." },
-  { q: "Can I extend or add to my booking?", a: "Yes — message us in your account and you can add compatible gear up to an hour before your rental starts, or ask about extending your dates." },
-];
+export { FAQS } from "../../shared/gafferPublicKnowledge";
+export type { CurrentFaq as Faq } from "../../shared/gafferPublicKnowledge";

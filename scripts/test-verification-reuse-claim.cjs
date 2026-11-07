@@ -43,14 +43,15 @@ const ctx={db,scheduler:{runAfter:async()=>{}}};
  assert.equal(booking.verificationReuseOwnershipAccountId,account._id);assert.equal(booking.verificationReuseOwnershipSessionId,booking.diditSessionId);
  assert.equal(account.rentalVerification.verifiedAt,booking.idVerifiedAt);assert.equal(account.rentalVerification.expiresAt,booking.idVerifiedAt+90*86400000);
  assert.ok(await accountVerificationReady(ctx,account),'the real account badge accepts only the newly attested source');
- const next=put('bookings',{accountId:account._id,accountAccessRequired:false,status:'confirmed',verificationProvider:'didit',idVerifyStatus:'required',agreementName:account.name,billingAddress:account.address,lineItems:[{start:now+86400000,end:now+2*86400000,qty:1}]});
+ const item=put('listings',{title:'Synthetic equipment',depositAmount:200});
+ const next=put('bookings',{accountId:account._id,accountAccessRequired:false,status:'confirmed',verificationProvider:'didit',idVerifyStatus:'required',agreementName:account.name,billingAddress:account.address,lineItems:[{listingId:item._id,start:now+86400000,end:now+2*86400000,qty:1}]});
  const bookings=load('convex/bookings.ts');
  assert.ok(await bookings.reuseVerificationCandidate.handler(ctx,{bookingId:next._id}),'the claimed source is usable before changes');
  async function deniedAfterChange(label){assert.equal(await accountVerificationReady(ctx,account),null,label+' hides the badge');assert.equal(await bookings.reuseVerificationCandidate.handler(ctx,{bookingId:next._id}),null,label+' prevents reuse');assert.equal(await bookings.applyVerificationReuse.handler(ctx,{bookingId:next._id,sourceBookingId:booking._id,documentExpiresAt:booking.documentExpiresAt,personKey:booking.renterPersonKey}),false,label+' is rechecked atomically');}
  booking.idVerifyStatus='rejected';await deniedAfterChange('a later rejection');booking.idVerifyStatus='verified';
  booking.verificationChecks.address='rejected';await deniedAfterChange('a later address-check failure');booking.verificationChecks.address='approved';
  booking.diditSessionId='different-session';await deniedAfterChange('a later provider session change');booking.diditSessionId=originalSession;
- booking.verificationProvider='didit';const item=put('listings',{title:'Synthetic equipment',depositAmount:200});booking.lineItems=[{listingId:item._id,title:'Synthetic equipment',qty:1,start:now+86400000,end:now+2*86400000}];
+ booking.verificationProvider='didit';booking.lineItems=[{listingId:item._id,title:'Synthetic equipment',qty:1,start:now+86400000,end:now+2*86400000}];
  await bookings.setDiditResult.handler(ctx,{bookingId:booking._id,sessionId:booking.diditSessionId,eventId:'later-approved',eventAt:now+1,status:'verified',providerStatus:'Approved',poaPostcodes:['SW1A 1AA'],documentExpiresAt:booking.documentExpiresAt,checks:booking.verificationChecks,personKey:booking.renterPersonKey});
  assert.equal(booking.idVerifyStatus,'verified',booking.verificationNote);
  assert.equal(booking.idVerifiedAt,claim.verifiedAt,'a later approval for the same session preserves the original approval time');

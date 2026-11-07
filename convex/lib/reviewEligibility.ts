@@ -10,6 +10,8 @@ export function customerReviewGate(b: any): string | null {
       (b.returnDecision?.damageKept ?? 0) > 0 || (b.lateFeePaidFromHold ?? 0) > 0)
     return "deposit_retained";
   if (b.returnDecision && !b.actualReturnedAt) return "return_settlement_pending";
+  if ((b.depositHoldAmount ?? 0) > 0 && !b.stripeDepositIntentId && !b.depositHoldRenewalIntentId &&
+      !(b.depositHoldPreviousIntentIds ?? []).some(Boolean)) return "hold_release_unverified";
   if (b.depositAmount > 0 && !b.depositRefunded) return "refund_not_settled";
   if (b.depositRefundAmount !== undefined && b.depositRefundAmount < b.depositAmount)
     return "partial_refund";

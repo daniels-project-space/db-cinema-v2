@@ -106,6 +106,8 @@ ctx.runAction=async(ref,args)=>{assert.equal(ref,'operatorCancellation.reconcile
     assert.equal((await helper.recoverApprovedRefund(sb, { ...receipt, approvalRequestId: 'apreq_fixture' }, base)).status, 'failed');
   }
   const priorCreates = creates;
+  assert.equal((await helper.recoverApprovedRefund(sb,receipt,{...base,readOnly:true,metadata:{rentalCancellationId:'missing'}})).status,'unknown');
+  assert.equal(creates,priorCreates,'read-only recovery must never create a refund when no receipt is found');
   await assert.rejects(helper.recoverApprovedRefund(sb, { ...receipt, attemptedAt: Date.now() - 24 * 3600000 }, base), /older Stripe refund/);
   assert.equal(creates, priorCreates, 'an expired idempotency request is not recreated');
   refunds.set('re_meta', { id: 're_meta', status: 'succeeded', amount: 4500, currency: 'gbp', payment_intent: 'pi_main', metadata: { rentalCancellationId: 'job' } });

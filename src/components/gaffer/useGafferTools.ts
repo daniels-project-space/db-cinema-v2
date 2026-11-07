@@ -17,6 +17,7 @@ import { resolveDate, inclusiveDays, londonToday } from "@/lib/voiceDates";
 import { dayMs } from "@/lib/dates";
 import { rentalPricingDays } from "../../../shared/rentalDuration";
 import { useGafferFocus, scrollToId } from "@/components/gaffer/GafferFocus";
+import { voiceCartReviewSignature, voiceCartShareSignature } from "@/components/gaffer/cartSnapshot";
 
 /**
  * Lets Gaffer act on the page while it talks.
@@ -122,9 +123,22 @@ export function useGafferTools() {
    * Reset whenever the basket changes, so adding something after reviewing
    * means they see the new total before paying rather than skipping past it.
    */
-  const reviewed = useRef(false);
-  const basketSig = cart.items.map((i) => `${i.listingId}:${i.start}:${i.end}`).join("|");
-  useEffect(() => { reviewed.current = false; }, [basketSig]);
+  const reviewed = useRef<string | null>(null);
+  const currentCart = useRef(cart);
+  currentCart.current = cart;
+  const reviewContext = {
+    accountId: account.me?._id ?? null, email: account.me?.email ?? null,
+    membershipTier: account.me?.membershipTier ?? null, membershipActive: account.me?.membershipActive ?? null,
+    membershipStatus: account.me?.membershipStatus ?? null, membershipPaidThrough: account.me?.membershipPaidThrough ?? null,
+    membershipTrialEnd: account.me?.membershipTrialEnd ?? null, membershipPerksPending: account.me?.membershipPerksPending ?? null,
+    membershipAdminGranted: account.me?.membershipAdminGranted ?? null, membershipBillingTier: account.me?.membershipBillingTier ?? null,
+    creditAccountId: accountCredit?.accountId ?? null, creditAvailable: accountCredit?.available ?? null, creditNextExpiry: accountCredit?.nextExpiry ?? null,
+    cancellationProtection: checkoutSettings?.cancellationProtectionEnabled ?? null,
+    setupIntentSecurity: checkoutSettings?.setupIntentSecurityEnabled ?? null,
+    assessmentSecurity: checkoutSettings?.assessmentSecurityEnabled ?? null,
+  };
+  const currentReviewContext = useRef(reviewContext);
+  currentReviewContext.current = reviewContext;
 
   /** Resolve a spoken item name to a real listing via the same matcher the phone line uses. */
   const findOne = useCallback(
@@ -167,7 +181,8 @@ export function useGafferTools() {
           end: dayMs(endIso),
           pickupTime: window.pickupTime, returnTime: window.returnTime,
         });
-        return { available: Number(r?.available ?? 0), blocked: !!r?.blocked, unknown: false, needsTimes: false, pickupTime: window.pickupTime, returnTime: window.returnTime };
+        if (!r || typeof r.available !== "number" || !Number.isFinite(r.available) || r.available < 0) return { available: 0, blocked: false, unknown: true, needsTimes: false, pickupTime: window.pickupTime, returnTime: window.returnTime };
+        return { available: r.available, blocked: !!r.blocked, unknown: false, needsTimes: false, pickupTime: window.pickupTime, returnTime: window.returnTime };
       } catch {
         return { available: 0, blocked: false, unknown: true, needsTimes: false, pickupTime: window.pickupTime, returnTime: window.returnTime };
       }
@@ -264,14 +279,15 @@ export function useGafferTools() {
 
   /** Availability across every basket line, unit-aware (shared inventory included). */
   const basketProblems = useCallback(async () => {
-    if (!cart.items.length || cart.items.some(item => !item.pickupTime || !item.returnTime)) return [];
+    if (!cart.items.length || cart.items.some(item => !item.pickupTime || !item.returnTime)) return null;
     try {
       const res: any = await convex.query(api.availability.forCart, {
         items: cart.items.map((i) => ({ listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime })),
       });
-      return cart.items.filter((i) => res?.[i.listingId] && !res[i.listingId].ok);
+      if (!res || cart.items.some(item => typeof res[item.listingId]?.ok !== "boolean")) return null;
+      return cart.items.filter((i) => !res[i.listingId].ok);
     } catch {
-      return cart.items; // Do not promise availability when its check failed.
+      return null;
     }
   }, [convex, cart]);
 
@@ -302,9 +318,9 @@ export function useGafferTools() {
 
   const securitySummary = useCallback(() => {
     const credit=accountCredit&&accountCredit.accountId===account.me?._id?` Available account credit is £${accountCredit.available.toFixed(2)}. ${accountCredit.available>0?"Choose Use account credit at checkout to apply it; the checkbox is hidden without an available balance.":"No account credit is currently available for this checkout."} Credit cannot pay separately quoted security amounts or membership fees and cannot be withdrawn as cash; the account receipts show its expiry.`:" Account credit is selected at checkout only when an available signed-in balance exists.";
-    const protection=checkoutSettings?.cancellationProtectionEnabled?` The free cancellation-protection shield card opens the policy. If DB cancels before pickup, all accounts can receive a refund. Non-blocked accounts receive private email choices after the one-hour decision: original-payment refund or 130% rental credit valid 365 days; blocked accounts receive the refund only.${checkoutSettings?.setupIntentSecurityEnabled?" No security funds are held.":" Deposits are returned separately."} Opening an email link does not execute a choice.`:"";
+    const protection=checkoutSettings?.cancellationProtectionEnabled?` The free cancellation-protection shield card opens the policy. If DB cancels before pickup, all accounts can receive a refund. Accounts not rejected or restricted for a terms violation may receive private email choices after the one-hour decision: original-payment refund or 130% rental credit valid 365 days; rejected or restricted accounts receive the refund only.${checkoutSettings?.setupIntentSecurityEnabled?" No security funds are held.":" Deposits are returned separately."} Opening an email link does not execute a choice.`:"";
     if(checkoutSettings?.setupIntentSecurityEnabled) return `No security deposit or card hold is charged or reserved. Stripe saves the card for a combined post-return claim ceiling of £${setupIntentSecurityLimit(cart.depositTotal).toFixed(2)} based on equipment value. Any claim needs a recorded reason, evidence, itemised notice and at least seven days to dispute; no automatic charge on an on-time return without a reported issue. Insurance is separate. A later bank payment may be declined or require authentication.${credit}${protection}`;
-    if(checkoutSettings?.assessmentSecurityEnabled) return `The refundable deposit starts at £20, rises to £50 from £1,000 equipment value and £100 from £4,000. Eligible active members/subscribers and verified Encore renters are exempt; the final account-bound quote confirms eligibility. Stripe saves a card for evidenced future damage, loss and late-fee payments. Retained deposit is deducted from the same assessment. Later collection requires an itemised notice, at least seven days for review and admin action.${credit}${protection}`;
+    if(checkoutSettings?.assessmentSecurityEnabled) return `The refundable deposit starts at £20, rises to £50 from £1,000 equipment value and £100 from £4,000. Any waiver depends on the account-bound checkout eligibility check; a subscription or verification alone does not qualify. Stripe saves a card for evidenced future damage, loss and late-fee payments. Retained deposit is deducted from the same assessment. Later collection requires an itemised notice, at least seven days for review and admin action.${credit}${protection}`;
     const cash = checkoutSettings?.refundableDepositEnabled === true ? refundableDepositFor(cart.depositTotal) : null;
     return `${cash === null ? "The final checkout quote confirms whether a refundable deposit is due." : cash > 0 ? `A refundable £${cash.toFixed(2)} deposit is paid at checkout.` : "No refundable deposit is due below £1,000 equipment value."} The combined saved-card damage/loss and late-fee permission is £${savedCardChargeLimit(cart.depositTotal).toFixed(2)}, subject to the final quote and explicit consent. Any retained deposit reduces later charges for the same loss. Later collection requires itemised evidence, at least seven days for review and admin action.${credit}${protection}`;
   }, [checkoutSettings?.setupIntentSecurityEnabled,checkoutSettings?.assessmentSecurityEnabled, checkoutSettings?.refundableDepositEnabled,checkoutSettings?.cancellationProtectionEnabled,accountCredit,account.me?._id,cart.depositTotal]);
@@ -572,11 +588,16 @@ export function useGafferTools() {
             : `${line} Nothing else in ${hit.category} is free then either — shall I try different dates?`;
         }
 
+        if (!hit.pricing || !Number.isFinite(hit.pricing.daily) || hit.pricing.daily <= 0 || hit.deal != null && (!Number.isFinite(hit.deal) || hit.deal < 0 || hit.deal > 100))
+          return "I couldn't confirm the current rental price for " + hit.title + ", so I haven't added it. Please try again.";
+        const baseQuote = quote(hit.pricing, days);
+        const total = hit.deal ? Math.round(baseQuote.total * (1 - hit.deal / 100)) : baseQuote.total;
+        const q = { total, perDay: Math.round(total / days * 100) / 100 };
+
         // the pick lands on screen first, the basket a moment later
         focus(hit.id);
         await new Promise((r) => setTimeout(r, 1000));
 
-        const q: any = quote({ daily: hit.daily ?? 0 } as any, days);
         cart.add({
           listingId: hit.id,
           slug: hit.slug,
@@ -716,8 +737,9 @@ export function useGafferTools() {
       email_checkout_cart: async ({email}:{email?:string}) => {
         const to=(email??account.me?.email??"").trim().toLowerCase();
         if(!to)return "Ask for their email address and permission to email the discussed cart.";
-        try{const result=await convex.action(api.checkoutCarts.email,{email:to,token:account.me?.email===to?account.token??undefined:undefined,lines:cart.items.map(i=>({listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime}))});
-          emailedCart.current={email:to,shareKey:result.shareKey,signature:cart.items.map(i=>`${i.listingId}:${i.start}:${i.end}`).join("|")};
+        try{const signature=voiceCartShareSignature(cart.items);const result=await convex.action(api.checkoutCarts.email,{email:to,token:account.me?.email===to?account.token??undefined:undefined,lines:cart.items.map(i=>({listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime}))});
+          emailedCart.current={email:to,shareKey:result.shareKey,signature};
+          if(voiceCartShareSignature(currentCart.current.items)!==signature)return "The earlier basket was emailed, but the basket changed while sending. Review the current basket before sending another link.";
           return `The discussed cart was emailed to ${to}. Its private link restores the items and selected dates; availability is rechecked and unavailable items show replacements. It does not reserve gear or take payment.`;
         }catch(e){return e instanceof Error?e.message:"The cart email could not be sent.";}
       },
@@ -731,13 +753,15 @@ export function useGafferTools() {
       },
       setup_account: async ({email,name,phone}:{email:string;name:string;phone:string}) => {
         if(!email?.trim()||!name?.trim()||!phone?.trim())return "Ask for their name, phone number and email address, and confirm they want an account.";
-        try{const to=email.trim().toLowerCase(),signature=cart.items.map(i=>`${i.listingId}:${i.start}:${i.end}`).join("|");
+        try{const to=email.trim().toLowerCase(),signature=voiceCartShareSignature(cart.items);
           if(cart.count&&(!emailedCart.current||emailedCart.current.email!==to||emailedCart.current.signature!==signature)){
             const result=await convex.action(api.checkoutCarts.email,{email:to,lines:cart.items.map(i=>({listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime}))});emailedCart.current={email:to,shareKey:result.shareKey,signature};
           }
-          const result=await convex.action(api.accountCodes.request,{email:to,name,phone,purpose:"setup",cartKey:emailedCart.current?.email===to?emailedCart.current.shareKey:undefined});
+          if(voiceCartShareSignature(currentCart.current.items)!==signature)return "Your basket changed while preparing the account. Please review it and ask me to continue again.";
+          const result=await convex.action(api.accountCodes.request,{email:to,name,phone,purpose:"setup",cartKey:cart.count&&emailedCart.current?.email===to?emailedCart.current.shareKey:undefined});
           router.push(`/account/setup?challenge=${result.challenge}`);
-          return "The email code entry page is open. Ask them to enter the one-time code themselves, then choose a new password. Never ask them to say or send you the code or password. Their saved cart will reopen after setup. An existing profile is preserved.";
+          if(voiceCartShareSignature(currentCart.current.items)!==signature)return "The email code entry page is open. The basket changed while the code was requested; review the basket after signing in. Never share the code or password.";
+          return `The email code entry page is open. Ask them to enter the one-time code themselves, then choose a new password. Never ask them to say or send you the code or password.${cart.count ? " Their saved cart will reopen after setup." : ""} An existing profile is preserved.`;
         }catch(e){return e instanceof Error?e.message:"Account setup could not start.";}
       },
       reset_password: async ({email}:{email:string}) => {
@@ -790,6 +814,7 @@ export function useGafferTools() {
           `${await rentalSummary()}. ${securitySummary()}` +
           speakCompat(compat.warnings ?? []);
         if (cart.items.some(item => !item.pickupTime || !item.returnTime)) return `${summary} Choose pickup and return times for every line before confirming availability.`;
+        if (!bad) return summary + " Availability could not be confirmed just now. Please try again before checkout.";
         return bad.length
           ? `${summary} ${await replacementBrief()}`
           : `${summary} Happy to go through to checkout?`;
@@ -800,6 +825,7 @@ export function useGafferTools() {
         if (!cart.count) return "Basket is empty.";
         if (cart.items.some(item => !item.pickupTime || !item.returnTime)) return "Choose pickup and return times for every basket line before confirming availability.";
         const bad = await basketProblems();
+        if (!bad) return "Availability could not be confirmed just now. Please try again; nothing has been marked unavailable.";
         if (!bad.length) return `All ${cart.items.length} line${cart.items.length > 1 ? "s are" : " is"} available. Good to check out.`;
         return (
           `${bad.map((b) => `${b.title} (${b.start} to ${b.end})`).join(" and ")} ` +
@@ -878,6 +904,7 @@ export function useGafferTools() {
       /** "Just take the ones that aren't available off." */
       remove_unavailable: async () => {
         const bad = await basketProblems();
+        if (!bad) return "Availability could not be confirmed, so nothing was removed. Choose dates and times and try again.";
         if (!bad.length) return "Nothing in the basket needs removing — it's all available.";
         for (const line of bad) cart.remove(line.key);
         const left = cart.items.length - bad.length;
@@ -889,10 +916,13 @@ export function useGafferTools() {
 
       go_to_checkout: async () => {
         if (!cart.count) return "Basket is empty — nothing to check out yet.";
+        const signature = voiceCartReviewSignature(cart, reviewContext);
         if (cart.items.some(item => !item.pickupTime || !item.returnTime)) { router.push("/cart"); return "Your basket is on screen. Choose pickup and return times for every line before checking availability and continuing to payment."; }
         // Don't walk them into a checkout that will reject the basket: the page
         // gates on this same data, so catch it here where Gaffer can still help.
         const bad = await basketProblems();
+        if (!bad) { router.push("/cart"); return "Availability could not be confirmed just now. Your basket is unchanged; please try again before checkout."; }
+        if (voiceCartReviewSignature(currentCart.current, currentReviewContext.current) !== signature) return "Your basket changed while I checked it. Please review it and ask me to check again.";
         if (bad.length)
           return (
             `Can't check out yet — ${bad.map((b) => b.title).join(" and ")} ` +
@@ -910,27 +940,31 @@ export function useGafferTools() {
          * without having seen dates, line prices and the deposit, and without
          * availability having been checked at that moment.
          */
-        if (!reviewed.current) {
-          reviewed.current = true;
+        if (reviewed.current !== signature) {
           instant();
           cart.close();
           router.push("/cart");
           const compat = await compatWarnings();
-            const lines = cart.items
+          const lines = cart.items
             .map((i) => `${i.title}, ${i.start} to ${i.end}, £${i.total}`)
             .join("; ");
+          const summary = await rentalSummary();
+          if (voiceCartReviewSignature(currentCart.current, currentReviewContext.current) !== signature) { reviewed.current = null; return "Your basket changed while I prepared the breakdown. Please review it and ask me to check again."; }
+          reviewed.current = signature;
           return (
             `Full breakdown is on screen and everything in it is available.${speakCompat(compat.warnings ?? [])} ${lines}. ` +
-            `That's ${await rentalSummary()}. ${securitySummary()} ` +
+            `That's ${summary}. ${securitySummary()} ` +
             `Read it back to them, then ask if they're happy to go through to payment — ` +
             `call go_to_checkout again only once they say yes.`
           );
         }
 
+        const summary = await rentalSummary();
+        if (voiceCartReviewSignature(currentCart.current, currentReviewContext.current) !== signature) { reviewed.current = null; return "Your basket changed while I prepared checkout. Please review it and ask me to check again."; }
         instant();
         cart.close();
         router.push("/checkout");
-        return `Taking them to checkout, ${await rentalSummary()}. ${securitySummary()}`;
+        return `Taking them to checkout, ${summary}. ${securitySummary()}`;
       },
     }),
     [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems, lensMismatch, suggest, rentalSummary, replacementBrief, securitySummary],
@@ -953,7 +987,7 @@ export function useGafferTools() {
       membership_tier: me?.membershipActive ? (me?.membershipTier ?? "") : "",
       basket_count: String(cart.count),
       basket_items: cart.items.map((i) => `${i.title} (${i.days}d, £${i.total})`).join("; "),
-      basket_availability: cartAlternatives===undefined&&cart.count ? "checking" : cart.items.map(i=>!i.pickupTime||!i.returnTime?`${i.title}: times needed; availability unconfirmed`:cartAlternatives&&Object.prototype.hasOwnProperty.call(cartAlternatives,i.key)?`${i.title}: unavailable; same-date alternatives: ${cartAlternatives[i.key].map(c=>`${c.title} £${c.total}`).join(", ")||"none"}`:`${i.title}: available`).join("; "),
+      basket_availability: cartAlternatives===undefined&&cart.count ? "checking" : cart.items.map(i=>!i.pickupTime||!i.returnTime?`${i.title}: times needed; availability unconfirmed`:cartAlternatives&&Object.prototype.hasOwnProperty.call(cartAlternatives,i.key)?`${i.title}: availability unconfirmed; possible alternatives: ${cartAlternatives[i.key].map(c=>`${c.title} £${c.total}`).join(", ")||"none"}`:`${i.title}: availability unconfirmed; use check_basket`).join("; "),
       basket_subtotal: String(cart.subtotal),
       current_page: typeof window !== "undefined" ? window.location.pathname : "",
     };

@@ -7,6 +7,7 @@ import { RentalJourney } from "./rentals/RentalJourney";
 import { RentalKit } from "./rentals/RentalKit";
 import chatStyles from "@/components/rentals/RentalConversation.module.css";
 import { RentalConversation } from "./rentals/RentalConversation";
+import { GafferIcon } from "./rentals/ChatIdentity";
 import { rentalStageLabel } from "../../shared/rentalReadiness";
 import { RenterRentalTools } from "./rentals/RenterRentalTools";
 import { SmartImage } from "./SmartImage";
@@ -68,7 +69,7 @@ export function RenterChat({
             panel.scrollLeft +
             button.getBoundingClientRect().left -
             panel.getBoundingClientRect().left,
-          behavior: "smooth",
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
         });
     };
     scroll();
@@ -86,51 +87,49 @@ export function RenterChat({
   )
     return <p className="text-sm text-white/40">Loading your conversations…</p>;
   return (
-    <div className={chatStyles.inbox}>
-      <aside ref={sidebar} className={`${chatStyles.directory} ${chatStyles.renterDirectory} flex gap-2 overflow-x-auto lg:flex-col`}>
+    <div className={`${chatStyles.inbox} ${chatStyles.renterInbox}`} data-renter-support={focus ? "false" : "true"}>
+      <aside ref={sidebar} aria-label="Your conversations" className={`${chatStyles.directory} ${chatStyles.renterDirectory} flex gap-2 overflow-x-auto lg:flex-col`}>
         <h2 className="hidden px-2 pb-2 text-xs uppercase tracking-[.2em] text-white/35 lg:block">
           Conversations
         </h2>
         <button
-          aria-current={selected === "general"}
+          aria-current={!focus}
           onClick={() => setSelected("general")}
-          className={`min-w-[230px] rounded-2xl border p-4 text-left text-sm ${!focus ? "border-accent-400/25 bg-accent-500/[0.07] text-white" : "border-white/[0.05] text-white/60"}`}
+          className={chatStyles.renterThread}
         >
-          Account support
+          <span className={chatStyles.renterThreadIcon}><GafferIcon className="h-6 w-6" /></span>
+          <span className={chatStyles.renterThreadCopy}><strong>Account support</strong><small>Questions and help</small></span>
           {(unread?.general ?? 0) > 0 && (
-            <span className="ml-2 rounded-full bg-accent-500 px-2 py-0.5 text-[10px] text-white">
+            <span className={chatStyles.renterUnread} aria-label={`${unread!.general} unread ${unread!.general === 1 ? "message" : "messages"}`}>
               {unread!.general}
             </span>
           )}
-          <span className="mt-1 block text-xs text-white/35">
-            One thread for account questions and call follow-ups. Rental chats stay separate.
-          </span>
         </button>
         {rows?.map((r) => (
           <button
             key={r._id}
             aria-current={focus?._id === r._id}
             onClick={() => setSelected(r._id)}
-            className={`flex min-w-[230px] items-center gap-3 rounded-2xl p-3 text-left transition lg:min-w-0 ${focus?._id === r._id ? "border border-accent-400/25 bg-accent-500/[0.07]" : "border border-white/[0.05] hover:bg-white/[0.03]"}`}
+            className={chatStyles.renterThread}
           >
-            <div className="h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-white/[0.04]">
+            <span className={chatStyles.renterThreadIcon}>
               <SmartImage fit="contain"
                 src={r.items[0]?.heroImage}
                 fallbackSources={r.items[0]?.imageSources}
                 alt=""
                 className="h-full w-full"
               />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium text-white/85">
+            </span>
+            <span className={chatStyles.renterThreadCopy}>
+              <strong>
                 {rentalTitle(r.items[0]?.title ?? "Rental")}
-              </p>
-              <p className="mt-1 text-[10px] text-white/40">
+              </strong>
+              <small>
                 {RENTAL_STAGE_LABELS[r.status]} · {rentalDate(r.start, r.end)}
-              </p>
-            </div>
+              </small>
+            </span>
             {r.unreadRenter > 0 && (
-              <span className="rounded-full bg-accent-500 px-2 py-0.5 text-[10px] text-white">
+              <span className={chatStyles.renterUnread} aria-label={`${r.unreadRenter} unread ${r.unreadRenter === 1 ? "message" : "messages"}`}>
                 {r.unreadRenter}
               </span>
             )}
@@ -146,6 +145,7 @@ export function RenterChat({
         )}
       </aside>
       <RentalConversation
+        renterWorkspace
         key={focus?._id ?? "general"}
         token={token}
         bookingId={focus?._id}

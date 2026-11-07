@@ -234,6 +234,20 @@ function signed(event) {
     calls.length = 0;
     await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'decline',note:'Identity evidence needs review'}),/Didit Business Console/);
     assert.equal(calls.some(x=>x.options?.method==='PATCH'),false,'Decline cannot race and overwrite provider approval');
+    for (const [providerStatus, decision, expectedStatus] of [['Declined','decline','rejected'],['Resubmitted','resubmit','requires_input']]) {
+      report.status = providerStatus; calls.length = 0;
+      await adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision,note:'Reviewed verification case'});
+      const update = calls.find(call=>call.ref==='bookings:setDiditResult');
+      assert.equal(update.args.status,expectedStatus);
+      assert.equal(update.args.providerStatus,providerStatus);
+      assert.equal(update.args.reconciliation,true);
+      assert.equal(update.args.requireApplied,true);
+      assert.equal(update.args.expectedEventId,null);
+      assert.equal(calls.some(call=>call.options?.method==='PATCH'),false);
+      await assert.rejects(adminReview.handler({...reviewCtx,runMutation:async(ref,args)=>ref==='bookings:setDiditResult'?false:reviewCtx.runMutation(ref,args)},
+        {token:'admin',bookingId:'booking-1',decision,note:'Reviewed verification case'}),/rental changed during review/);
+    }
+    report.status='Approved';
     calls.length = 0;
     report.vendor_data = 'dbc-booking-another';
     await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'approve',note:'Address evidence reviewed'}),/does not match/);
@@ -293,6 +307,7 @@ function signed(event) {
     recovered.length = 0;
     await bookingSession.handler(completedCtx,{bookingId:'booking-1',accountToken:'account-token'});
     assert.equal(recovered[0].args.status,'manual_review','top-level approval cannot bypass the address check');
+    assert.match(recovered[0].args.note,/not confirmed every required/,'missing checks are not reported as a failed verification');
     report.vendor_data = 'dbc-booking-another';
     recovered.length = 0;
     await assert.rejects(bookingSession.handler(completedCtx,{bookingId:'booking-1',accountToken:'account-token'}),/does not match/);

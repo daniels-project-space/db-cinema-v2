@@ -17,7 +17,6 @@ function initials(name?: string | null, email?: string) {
 export function AvatarUpload() {
   const account = useAccount();
   const me = account.me;
-  const genUrl = useMutation(api.accounts.generateAvatarUploadUrl);
   const setAvatar = useMutation(api.accounts.setAvatar);
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -29,16 +28,15 @@ export function AvatarUpload() {
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) { setErr("Please choose an image file."); return; }
-    if (file.size > 5 * 1024 * 1024) { setErr("Image must be under 5MB."); return; }
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) { setErr("Please choose a JPEG, PNG or WebP image."); e.target.value = ""; return; }
+    if (file.size > 5 * 1024 * 1024) { setErr("Image must be under 5MB."); e.target.value = ""; return; }
     setErr(null);
     setBusy(true);
     try {
-      const uploadUrl = await genUrl({ token: account.token! });
-      const res = await fetch(uploadUrl, { method: "POST", headers: { "Content-Type": file.type }, body: file });
+      const origin = process.env.NEXT_PUBLIC_CONVEX_URL?.replace(".convex.cloud", ".convex.site");
+      if (!origin) throw new Error("Photo upload is unavailable.");
+      const res = await fetch(`${origin}/renter-avatar`, { method: "POST", headers: { "Content-Type": file.type, Authorization: `Bearer ${account.token!}` }, body: file });
       if (!res.ok) throw new Error("Upload failed");
-      const { storageId } = await res.json();
-      await setAvatar({ token: account.token!, avatarStorageId: storageId });
     } catch (e: any) {
       setErr(e?.message ?? "Upload failed");
     } finally {
@@ -48,11 +46,12 @@ export function AvatarUpload() {
   }
 
   async function remove() {
+    setErr(null);
     setBusy(true);
     try {
       await setAvatar({ token: account.token! });
     } catch {
-      /* ignore */
+      setErr("Could not remove your photo. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -62,6 +61,7 @@ export function AvatarUpload() {
     <div className="flex items-center gap-4">
       <button
         onClick={() => inputRef.current?.click()}
+        disabled={busy}
         className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-full ring-2 ring-white/10"
         aria-label="Change profile photo"
       >
@@ -86,9 +86,9 @@ export function AvatarUpload() {
             Remove
           </button>
         )}
-        {err && <div className="mt-1 text-xs text-red-300">{err}</div>}
+        {err && <div role="alert" className="mt-1 text-xs text-red-300">{err}</div>}
       </div>
-      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
+      <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={onPick} />
     </div>
   );
 }

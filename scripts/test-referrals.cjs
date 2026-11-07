@@ -10,7 +10,8 @@ assert.equal(new Date(threeMonthsAfter(Date.UTC(2026,10,30,12))).toISOString(),'
 assert.equal(new Date(threeMonthsAfter(Date.UTC(2027,0,31))).toISOString(),'2027-04-30T00:00:00.000Z');
 assert.equal(bestBenefit([{kind:'promo',savingPence:1000,label:'coupon'},{kind:'earned_credit',savingPence:900,label:'credit'}]).kind,'promo');
 async function account(email,token){const a=put('accounts',{email,emailVerifiedAt:now});put('sessions',{accountId:a._id,token,expiresAt:now+DAY});await referral.ensureMine.handler(ctx,{token});return a;}
-const start=Date.UTC(2027,0,4),camera=put('listings',{title:'Camera',active:true,pricing:{daily:100},depositAmount:2000,components:[]});
+const unit=put('inventory_units',{name:'Camera',quantityOwned:100,active:true});
+const start=Date.UTC(2027,0,4),camera=put('listings',{title:'Camera',active:true,pricing:{daily:100},depositAmount:2000,components:[{inventoryUnitId:unit._id,qty:1}]});
 const input=a=>({items:[{listingId:camera._id,title:'wrong',start,end:start,qty:1,total:1,deposit:1}],token:a.email,customer:{email:a.email},fulfilment:'pickup'});
 const pricing={...ctx,runQuery:async(ref,args)=>{
  if(ref==='accounts._byEmail')return load('convex/accounts.ts')._byEmail.handler({db},args);

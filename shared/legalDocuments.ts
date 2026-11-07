@@ -4,6 +4,7 @@ import currentAssessment from "./legal-history/2026-11-v17";
 import currentCancellationProtection from "./legal-history/2026-11-v18";
 import currentCardHold from "./legal-history/2026-11-v19";
 import currentSetupIntent from "./legal-history/2026-11-v20";
+import currentCancellationTerms from "./legal-history/2026-11-v21";
 import refundable from './legal-history/2026-10-v14';
 import current from "./legal-history/2026-10-v13";
 import v12 from "./legal-history/2026-10-v12";
@@ -14,6 +15,7 @@ import earlier from "./legal-history/2026-10-v8";
 export type LegalDoc = { title: string; updated: string; sections: { h: string; p: string }[] };
 export const LEGAL_DOCS: Record<string, LegalDoc> = current;
 export const LEGAL_ARCHIVE: Record<string, Record<string, LegalDoc>> = {
+  "2026-11-v21":currentCancellationTerms,
   "2026-11-v20":currentSetupIntent,
   "2026-11-v19":currentCardHold,
   "2026-11-v18":currentCancellationProtection,

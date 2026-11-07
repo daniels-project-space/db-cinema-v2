@@ -81,6 +81,14 @@ const args = {
   });
   assert.equal(opts.options.length, 1);
   assert.equal(opts.options[0].id, next._id);
+  for (const field of ["activeDeliveryQuoteId", "activePriceAdjustmentId"]) {
+    await db.patch(b._id, { [field]: "open-change" });
+    const lockedOptions = await replacements.options.handler(ctx, { token, bookingId: b._id, lineIndex: 0 });
+    assert.equal(lockedOptions.options[0].can_apply, false);
+    await assert.rejects(replacements.accept.handler(ctx, args), /Finish the open operation/);
+    assert.equal(b.lineItems[0].listingId, old._id);
+    await db.patch(b._id, { [field]: undefined });
+  }
   await assert.rejects(
     replacements.accept.handler(ctx, { ...args, qty: 2 }),
     /changed/,
