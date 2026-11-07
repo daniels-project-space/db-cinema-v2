@@ -490,7 +490,7 @@ const mocks = {
     await client.cmd("Emulation.setDeviceMetricsOverride", { width: 1500, height: 900, deviceScaleFactor: 1, mobile: false }); await wait(100);
     assert.equal(await client.evaluate('(()=>{const box=document.querySelector("[aria-label=\'Chat notifications\']").getBoundingClientRect();return box.left>=0&&box.right<=innerWidth})()'),true,'The card fits on desktop');
     fs.writeFileSync('/tmp/dbc-chat-alert-card-desktop.png',Buffer.from((await client.cmd("Page.captureScreenshot",{format:"png"})).data,"base64"));
-    await client.evaluate('window.__alertOpened=0;window.addEventListener("dbc:open-renter-notifications",()=>window.__alertOpened++);[...document.querySelectorAll("[aria-label=\'Chat notifications\'] button")].find(button=>button.textContent==="Set up alerts").click()'); await wait(100);
+    await client.evaluate('window.__alertOpened=0;window.addEventListener("dbc:open-renter-notifications",()=>window.__alertOpened++);[...document.querySelectorAll("[aria-label=\'Chat notifications\'] button")].find(button=>button.textContent==="Turn on notifications").click()'); await wait(100);
     assert.equal(await client.evaluate('window.__alertOpened'),1,'The card opens the existing notification flow');
     assert.equal(await client.evaluate('!!document.querySelector("[aria-label=\'Chat notifications\']")'),false);
     await client.cmd("Page.reload",{});await wait(500);

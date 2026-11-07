@@ -462,7 +462,7 @@ export function RentalConversation({
               </div>
               {!admin && notificationDeviceStatus === "inactive" && notificationInvitation?.id === String(m._id) && notificationInvitation.visible && <div className={styles.notificationCard} aria-label="Chat notifications">
                 <span className={styles.notificationIcon} aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M18 8a6 6 0 0 0-12 0v5l-2 3v1h16v-1l-2-3V8ZM9 20h6"/><path d="M18.5 3v3m-1.5-1.5h3"/></svg></span>
-                <div className={styles.notificationCopy}><strong>Keep the conversation going</strong><p>Get chat and booking updates on this device.</p><div><button type="button" onClick={() => dismissNotificationInvitation(true)}>Set up alerts</button><button type="button" onClick={() => dismissNotificationInvitation(false)}>Not now</button></div></div>
+                <div className={styles.notificationCopy}><strong>Stay in the loop</strong><p>Get chat and booking updates. On iPhone or iPad, add DB Cinema to your Home Screen first.</p><div><button type="button" onClick={() => dismissNotificationInvitation(true)}>Turn on notifications</button><button type="button" onClick={() => dismissNotificationInvitation(false)}>Not now</button></div></div>
               </div>}
               </Fragment>
             );
