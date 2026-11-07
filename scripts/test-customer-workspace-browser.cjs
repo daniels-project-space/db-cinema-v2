@@ -518,6 +518,15 @@ const mocks = {
     assert(Math.abs(renterChatLayout.chatBottom-renterChatLayout.viewport)<2 && renterChatLayout.paneBottom>=10 && renterChatLayout.paneBottom<=14, 'The renter chat fills the viewport with only its intentional inner gutter');
     assert(renterChatLayout.messagesHeight>300 && renterChatLayout.composerBottom>=10 && renterChatLayout.composerBottom<=14, 'The message history expands and the composer stays at the bottom');
     fs.writeFileSync('/tmp/dbc-renter-chat-fill-desktop.png',Buffer.from((await client.cmd("Page.captureScreenshot",{format:"png"})).data,"base64"));
+    await client.cmd("Emulation.setDeviceMetricsOverride", {width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await client.cmd("Page.navigate", {url:"http://127.0.0.1:" + server.address().port + "/?renter=1"});
+    for(let attempt=0;attempt<100&&!await client.evaluate('!!document.querySelector("#renter-chat [data-conversation-scope]")');attempt++)await wait(50);
+    await wait(500);
+    const renterMobileLayout=await client.evaluate(`(()=>{const pane=document.querySelector('#renter-chat [data-conversation-scope]'),composer=pane?.querySelector('footer'),messages=pane?.querySelector('[aria-label="Rental conversation"]'),paneBox=pane?.getBoundingClientRect(),composerBox=composer?.getBoundingClientRect(),messagesBox=messages?.getBoundingClientRect();return paneBox&&composerBox&&messagesBox?{viewport:innerHeight,scrollHeight:document.documentElement.scrollHeight,paneBottom:innerHeight-paneBox.bottom,composerTop:composerBox.top,composerBottom:composerBox.bottom,messagesHeight:messagesBox.height}:null})()`);
+    assert(renterMobileLayout && renterMobileLayout.scrollHeight<=renterMobileLayout.viewport && renterMobileLayout.paneBottom>=0 && renterMobileLayout.paneBottom<=2, 'The renter support workspace fills the phone without page overflow');
+    assert(renterMobileLayout.composerTop<renterMobileLayout.viewport && renterMobileLayout.composerBottom<=renterMobileLayout.viewport && renterMobileLayout.messagesHeight>300, 'The phone shows an anchored composer and an expanded scrollable message area');
+    assert.equal(await client.evaluate(`!!document.querySelector('#renter-chat [data-renter-support="true"] button[aria-label="Notification settings"]')`),true,'The compact mobile alerts control stays accessible by name');
+    fs.writeFileSync('/tmp/dbc-renter-chat-fill-mobile.png',Buffer.from((await client.cmd("Page.captureScreenshot",{format:"png"})).data,"base64"));
     console.log("PASS real AccountAdmin and renter conversation UI: directory/chat/action panes, bounded filters, isolated renter controls and responsive layouts. Synthetic data only.");
   } finally {
     if (client) { client.close(); try { await fetch(`${process.env.DBC_CDP_URL}/json/close/${client.tabId}`); } catch {} }

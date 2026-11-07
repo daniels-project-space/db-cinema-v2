@@ -87,7 +87,7 @@ export function RenterChat({
   )
     return <p className="text-sm text-white/40">Loading your conversations…</p>;
   return (
-    <div className={`${chatStyles.inbox} ${chatStyles.renterInbox}`}>
+    <div className={`${chatStyles.inbox} ${chatStyles.renterInbox}`} data-renter-support={focus ? "false" : "true"}>
       <aside ref={sidebar} aria-label="Your conversations" className={`${chatStyles.directory} ${chatStyles.renterDirectory} flex gap-2 overflow-x-auto lg:flex-col`}>
         <h2 className="hidden px-2 pb-2 text-xs uppercase tracking-[.2em] text-white/35 lg:block">
           Conversations

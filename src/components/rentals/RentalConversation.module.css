@@ -301,6 +301,14 @@
 @media(max-width:767px) {
  .renterInbox .workspace .messages { min-height:max(300px,calc(100dvh - 425px)); }
 }
+@media(max-width:640px) {
+ .renterInbox[data-renter-support=true] { display:flex; flex-direction:column; height:100%; min-height:0; margin:0; padding:0; gap:0; overflow:hidden; }
+ .renterInbox[data-renter-support=true] .renterDirectory { flex:0 0 82px; height:82px; min-height:0; margin:0; padding:0 12px 6px; overflow-x:auto; overflow-y:hidden; }
+ .renterInbox[data-renter-support=true] .renterDirectory > .renterThread { min-height:76px; height:76px; }
+ .renterInbox[data-renter-support=true] > .workspace { display:flex; flex:1; flex-direction:column; height:100%; min-height:0; border-radius:0; overflow:hidden; }
+ .renterInbox[data-renter-support=true] .workspace .main { flex:1; min-height:0; overflow:hidden; }
+ .renterInbox[data-renter-support=true] .workspace .messages { flex:1; height:auto; min-height:120px; padding:16px 12px; }
+}
 @media(min-width:768px) and (max-width:1023px) {
  .renterInbox .workspace .messages { min-height:max(300px,calc(100dvh - 455px)); }
 }
