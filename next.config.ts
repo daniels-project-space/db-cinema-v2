@@ -42,6 +42,8 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors:
       process.env.VERCEL === "1" &&
       process.env.VERCEL_ENV === "production" &&
+      process.env.VERCEL_GIT_PROVIDER === "github" &&
+      /^[0-9a-f]{40}$/.test(process.env.VERCEL_GIT_COMMIT_SHA ?? "") &&
       process.env.DBC_EXTERNAL_TYPECHECK === "1",
   },
   // react-pdf (invoice route) ships its own fonts/wasm — keep it external so Next doesn't bundle it
