@@ -115,8 +115,8 @@ export default function AssemblePage() {
     const selectedLens = selList.find((item: any) => item.stageKey === "lens");
     const candidates = [group?.preferred, ...(group?.options ?? [])].filter(Boolean);
     const lens = selectedLens
-      ? selectedLens.available === true ? selectedLens : null
-      : candidates.find((item: any) => item.available === true && lensStage?.briefConstraint && matchesAssemblyBrief(item, lensStage.briefConstraint)) ?? null;
+      ? selectedLens.available === true || selectedLens.needsTimes ? selectedLens : null
+      : candidates.find((item: any) => (item.available === true || item.needsTimes) && lensStage?.briefConstraint && matchesAssemblyBrief(item, lensStage.briefConstraint)) ?? null;
     return { ...constraint, requestedLens: lens };
   };
   // the recommended ("Pick") id for a stage, re-derived from the current selection
@@ -125,7 +125,7 @@ export default function AssemblePage() {
     const stype = STAGE_TYPE[s.key];
     if (stype && stype !== "lens" && includedTypes.has(stype)) return ""; // already in the chosen set — don't pre-pick
     const context=contextList.filter(i=>i.stageKey!==s.key||["lens","light","nd-filter","battery","lav-mic"].includes(s.key));
-    const v = visibleFor(s).filter((o: any) => o.available===true && !incompatOf(o, s) &&
+    const v = visibleFor(s).filter((o: any) => (o.available===true || (o.needsTimes===true && o.available===null)) && !incompatOf(o, s) &&
       !alreadySupplied(o, context.filter(i => i.listingId !== o.listingId)) &&
       (s.key !== "camera" || !s.cameraConstraint || matchesAssemblyCamera(o, cameraConstraintFor(s))) &&
       (!s.briefConstraint || matchesAssemblyBrief(o, s.briefConstraint)) &&
@@ -216,7 +216,7 @@ export default function AssemblePage() {
     for (const c of selList)
       cart.add({
         listingId: c.listingId, slug: c.slug, title: c.title, heroImage: c.image ?? null,
-        start: c.start, end: c.end, pickupTime: c.pickupTime, returnTime: c.returnTime, days: c.days, perDay: c.perDay, total: c.total, deposit: c.deposit ?? 0,
+        start: c.start, end: c.end, pickupTime: c.pickupTime ?? undefined, returnTime: c.returnTime ?? undefined, days: c.days, perDay: c.perDay, total: c.total, deposit: c.deposit ?? 0,
       });
     router.push("/cart");
   }
@@ -262,10 +262,15 @@ export default function AssemblePage() {
       return `Ø${o.specs.filterThreadMm}mm — smaller than your lens (needs a step-up ring)`;
     return null;
   };
-  const canAddSelection = !!liveFresh && selList.length > 0 && liveFresh.selectionOk === true && selList.every((item:any) => {
+  const hasPendingCheckoutTime = !!start && !!end && liveFresh?.selectionOk === null && selList.length > 0 && selList.every((item:any) => {
     const stage=data?.stages?.find((candidate:any)=>candidate.key===item.stageKey);
     const current=liveFresh.groups?.[item.stageKey]?.selection?.find((option:any)=>option.listingId===item.listingId);
-    return !!stage && current?.bookable === true && current.available === true && !incompatOf(current,stage);
+    return !!stage && current?.bookable === true && current.needsTimes === true && current.available === null && !incompatOf(current,stage);
+  });
+  const canAddSelection = !!liveFresh && selList.length > 0 && (liveFresh.selectionOk === true || hasPendingCheckoutTime) && selList.every((item:any) => {
+    const stage=data?.stages?.find((candidate:any)=>candidate.key===item.stageKey);
+    const current=liveFresh.groups?.[item.stageKey]?.selection?.find((option:any)=>option.listingId===item.listingId);
+    return !!stage && current?.bookable === true && (current.available === true || hasPendingCheckoutTime && current.needsTimes === true && current.available === null) && !incompatOf(current,stage);
   });
 
   // compatibility warnings for the review — the SAME shared engine the cart + bot use
@@ -458,7 +463,7 @@ export default function AssemblePage() {
                           : s.key === "gimbal" && !automaticRecommendation(o, contextList.filter(i => i.listingId !== o.listingId), live?.compatibilityKits)
                             ? "Confirm payload, mounting and balance for your selected camera and lenses." : null;
                         return (
-                          <button key={o.listingId} onClick={() => toggle(o, s)} disabled={!liveFresh||o.needsTimes||!!bad||(!on&&o.available!==true)} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all disabled:opacity-40 ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : bad ? "border-red-500/30 opacity-55 grayscale hover:opacity-80" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
+                          <button key={o.listingId} onClick={() => toggle(o, s)} disabled={!liveFresh||!!bad||(!on&&(!o.bookable||!(o.available===true||o.needsTimes===true&&o.available===null)))} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all disabled:opacity-40 ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : bad ? "border-red-500/30 opacity-55 grayscale hover:opacity-80" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
                             {rec && !on && !bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black">Pick</span>}
                             {bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Won't fit</span>}
                             {adapter && !bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-sky-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Adapter</span>}
@@ -470,6 +475,7 @@ export default function AssemblePage() {
                               <div className="line-clamp-2 text-xs font-medium text-white/85">{o.title}</div>
                               <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-white/45">
                                 <span>£{o.total} · {o.days}d</span>
+                                {o.needsTimes&&o.available===null&&<span className="rounded bg-sky-300/10 px-1.5 py-0.5 text-sky-200">Time check at checkout</span>}
                                 {!o.needsTimes&&o.available===false&&<span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-amber-200">Unavailable for these dates</span>}
                                 {o.mount && o.mount !== "any" && o.mount !== "fixed" && (
                                   // non-E camera systems (Blackmagic EF/MFT, Canon RF…) get a blue "other-mount" tag
