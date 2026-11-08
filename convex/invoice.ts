@@ -5,7 +5,7 @@ import { rentalBillingLines } from "./lib/rentalBillingLines";
 
 import { rentalSecurityEmailRows, rentalSecurityEmailNote } from "../shared/rentalSecurityEmail";
 import { initialInvoiceSnapshot } from "./lib/initialInvoiceSnapshot";
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { sendMail } from "./lib/mailer";
@@ -98,42 +98,10 @@ export const returnSettlementEmail = internalAction({
   },
 });
 
-const SWAP_ADJUSTMENT_EMAIL_LEASE_MS=5*60_000;
 const poundsFromPence=(pence:number)=>amount(pence/100);
 
-/** Due items remain queryable until a delivery is recorded; the stable delivery key
- * lets the mail transport deduplicate a retry after an uncertain response. */
-export const dueSwapAdjustmentEmails=internalQuery({args:{},handler:async ctx=>{
-  const rows=await ctx.db.query("rental_swap_adjustment_receipts").withIndex("by_email_state_attempt",q=>q.eq("emailState","pending").lte("lastAttemptAt",Date.now()-SWAP_ADJUSTMENT_EMAIL_LEASE_MS)).take(50);
-  return rows.map(row=>row._id);
-}});
-
-export const claimSwapAdjustmentEmail=internalMutation({args:{receiptId:v.id("rental_swap_adjustment_receipts")},handler:async(ctx,{receiptId})=>{
-  const now=Date.now(),receipt=await ctx.db.get(receiptId);
-  if(!receipt||receipt.emailState!=="pending"||receipt.lastAttemptAt>now-SWAP_ADJUSTMENT_EMAIL_LEASE_MS)return null;
-  const swap=await ctx.db.get(receipt.swapId),booking=await ctx.db.get(receipt.bookingId),account=await ctx.db.get(receipt.accountId);
-  if(!swap||swap.status!=="applied"||!booking||!account||booking._id!==swap.bookingId||swap.accountId!==receipt.accountId)return null;
-  if(receipt.requiresStockAck){
-    if(booking.activeItemSwapId===swap._id)return null;
-    const stock=await ctx.db.query("swap_stock_applied_receipts").withIndex("by_swap",q=>q.eq("swapId",swap._id)).unique();
-    if(!stock||stock.deliveryState!=="acknowledged"||stock.stockRisk===true)return null;
-  }
-  const recipientEmail=receipt.recipientEmail||booking.guestEmail||account.email;
-  if(typeof recipientEmail!=="string"||!recipientEmail.includes("@"))return null;
-  await ctx.db.patch(receipt._id,{recipientEmail,lastAttemptAt:now});
-  return {...receipt,recipientEmail,claimAt:now};
-}});
-
-export const markSwapAdjustmentEmailSent=internalMutation({args:{receiptId:v.id("rental_swap_adjustment_receipts"),claimAt:v.number()},handler:async(ctx,{receiptId,claimAt})=>{
-  const receipt=await ctx.db.get(receiptId);
-  if(!receipt||receipt.emailState==="sent")return false;
-  if(receipt.lastAttemptAt!==claimAt||claimAt<Date.now()-SWAP_ADJUSTMENT_EMAIL_LEASE_MS)throw Error("The equipment adjustment email claim expired.");
-  await ctx.db.patch(receipt._id,{emailState:"sent",sentAt:Date.now()});
-  return true;
-}});
-
 export const swapAdjustmentEmail=internalAction({args:{receiptId:v.id("rental_swap_adjustment_receipts")},handler:async(ctx,{receiptId})=>{
-  const receipt:any=await ctx.runMutation((internal as any).invoice.claimSwapAdjustmentEmail,{receiptId});
+  const receipt:any=await ctx.runMutation(internal.invoiceAdjustments.claimSwapAdjustmentEmail,{receiptId});
   if(!receipt)return {sent:false,waiting:true};
   const equipmentRows=receipt.changes.map((change:any)=>`<tr><td style="padding:9px 12px;border-bottom:1px solid #eee">${esc(change.oldTitle)} → ${esc(change.newTitle)}<br><span style="color:#777">Qty ${change.oldQty} to ${change.newQty}</span></td><td style="padding:9px 12px;border-bottom:1px solid #eee;text-align:right">${poundsFromPence(change.oldLineTotalPence)} → ${poundsFromPence(change.newLineTotalPence)}</td></tr>`).join("");
   const settlements:string[]=[];
@@ -154,7 +122,7 @@ export const swapAdjustmentEmail=internalAction({args:{receiptId:v.id("rental_sw
       body:`<p>This itemised adjustment applies to rental invoice <strong>${esc(receipt.originalInvoiceNumber)}</strong>. It does not replace the original rental invoice; it records only the accepted equipment change and its settlement.</p><table role="presentation" style="width:100%;border-collapse:collapse"><thead><tr><th align="left" style="padding:8px 12px;border-bottom:1px solid #ddd">Equipment</th><th align="right" style="padding:8px 12px;border-bottom:1px solid #ddd">Rental line</th></tr></thead><tbody>${equipmentRows}</tbody></table><div style="margin-top:14px">${settlements.join("")}</div><p style="font-size:12px;color:#777">Issued ${new Date(receipt.issuedAt).toLocaleDateString("en-GB",{timeZone:"Europe/London",day:"numeric",month:"short",year:"numeric"})}. This is an itemised adjustment, not a second rental charge.</p>`,
     }),
   });
-  if(result)await ctx.runMutation((internal as any).invoice.markSwapAdjustmentEmailSent,{receiptId,claimAt:receipt.claimAt});
+  if(result)await ctx.runMutation(internal.invoiceAdjustments.markSwapAdjustmentEmailSent,{receiptId,claimAt:receipt.claimAt});
   return {sent:result};
 }});
 
@@ -163,7 +131,7 @@ export const retryReturnStatements = internalAction({
   handler: async (ctx) => {
     const ids: any[] = await ctx.runQuery(internal.bookings.dueReturnStatementEmails, {});
     for (const bookingId of ids) await ctx.runAction(internal.invoice.returnSettlementEmail, { bookingId });
-    const adjustmentIds:any[]=await ctx.runQuery((internal as any).invoice.dueSwapAdjustmentEmails,{});
+    const adjustmentIds:any[]=await ctx.runQuery(internal.invoiceAdjustments.dueSwapAdjustmentEmails,{});
     for(const receiptId of adjustmentIds)try{await ctx.runAction((internal as any).invoice.swapAdjustmentEmail,{receiptId});}catch(error){console.error("Equipment adjustment email will retry",receiptId,error);}
   },
 });

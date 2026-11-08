@@ -1,9 +1,19 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { load, db, put, setMock } = require("./lib/rentalTestHarness.cjs");
+
+const nodeInvoiceSource = fs.readFileSync(path.join(__dirname, "../convex/invoice.ts"), "utf8");
+const invoiceMutationSource = fs.readFileSync(path.join(__dirname, "../convex/invoiceAdjustments.ts"), "utf8");
+assert.match(nodeInvoiceSource, /^\s*["']use node["']/);
+assert.doesNotMatch(nodeInvoiceSource, /\binternal(?:Mutation|Query)\s*\(/);
+assert.match(invoiceMutationSource, /export const claimSwapAdjustmentEmail\s*=\s*internalMutation\(/);
 
 const sent=[];
 setMock("./lib/mailer",{sendMail:async payload=>{sent.push(payload);return true;}});
 const invoice=load("convex/invoice.ts");
+const invoiceAdjustments=load("convex/invoiceAdjustments.ts");
+const invoiceHandlers={...invoice,...invoiceAdjustments};
 const account=put("accounts",{email:"renter@example.invalid"});
 const booking=put("bookings",{accountId:account._id,status:"confirmed"});
 const swap=put("rental_item_swaps",{bookingId:booking._id,accountId:account._id,status:"applied"});
@@ -15,10 +25,10 @@ const receipt=put("rental_swap_adjustment_receipts",{
   cardChargePence:2400,cardRefundPence:0,accountCreditRestoredPence:500,requiresStockAck:true,
   emailState:"pending",lastAttemptAt:0,
 });
-const ctx={db,runMutation:async(reference,args)=>invoice[reference.split(".").at(-1)].handler(ctx,args),runQuery:async(reference,args)=>invoice[reference.split(".").at(-1)].handler(ctx,args)};
+const ctx={db,runMutation:async(reference,args)=>invoiceHandlers[reference.split(".").at(-1)].handler(ctx,args),runQuery:async(reference,args)=>invoiceHandlers[reference.split(".").at(-1)].handler(ctx,args)};
 
 (async()=>{
-  assert.deepEqual(await invoice.dueSwapAdjustmentEmails.handler(ctx,{}),[receipt._id]);
+  assert.deepEqual(await invoiceAdjustments.dueSwapAdjustmentEmails.handler(ctx,{}),[receipt._id]);
   const waiting=await invoice.swapAdjustmentEmail.handler(ctx,{receiptId:receipt._id});
   assert.deepEqual(waiting,{sent:false,waiting:true});
   assert.equal(sent.length,0,"Fenced equipment changes are not emailed before shared-stock acknowledgement");
@@ -38,7 +48,7 @@ const ctx={db,runMutation:async(reference,args)=>invoice[reference.split(".").at
   assert.match(sent[0].html,/£24\.00/);
   assert.match(sent[0].html,/£5\.00/);
   assert.match(sent[0].html,/does not replace the original rental invoice/);
-  assert.deepEqual(await invoice.dueSwapAdjustmentEmails.handler(ctx,{}),[],"A sent adjustment is not retried");
+  assert.deepEqual(await invoiceAdjustments.dueSwapAdjustmentEmails.handler(ctx,{}),[],"A sent adjustment is not retried");
   assert.deepEqual(await invoice.swapAdjustmentEmail.handler(ctx,{receiptId:receipt._id}),{sent:false,waiting:true});
   assert.equal(sent.length,1,"Replaying the completed action does not send a duplicate");
   console.log("PASS swap adjustment email: itemized delta and restored credit, shared-stock gate, durable state and idempotent replay; synthetic mail only.");

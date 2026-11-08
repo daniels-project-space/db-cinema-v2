@@ -991,13 +991,13 @@ export convex/identity.ts:createAccountSession
 export convex/identity.ts:createSession
 export convex/identity.ts:refresh
 export convex/identity.ts:refreshAccount
-export convex/invoice.ts:claimSwapAdjustmentEmail
-export convex/invoice.ts:dueSwapAdjustmentEmails
 export convex/invoice.ts:invoiceEmail
-export convex/invoice.ts:markSwapAdjustmentEmailSent
 export convex/invoice.ts:retryReturnStatements
 export convex/invoice.ts:returnSettlementEmail
 export convex/invoice.ts:swapAdjustmentEmail
+export convex/invoiceAdjustments.ts:claimSwapAdjustmentEmail
+export convex/invoiceAdjustments.ts:dueSwapAdjustmentEmails
+export convex/invoiceAdjustments.ts:markSwapAdjustmentEmailSent
 export convex/kitPlans.ts:list
 export convex/kitPlans.ts:preview
 export convex/kitPlans.ts:remove

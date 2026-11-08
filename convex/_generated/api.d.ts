@@ -62,6 +62,7 @@ import type * as holdRenewal from "../holdRenewal.js";
 import type * as http from "../http.js";
 import type * as identity from "../identity.js";
 import type * as invoice from "../invoice.js";
+import type * as invoiceAdjustments from "../invoiceAdjustments.js";
 import type * as kitPlans from "../kitPlans.js";
 import type * as lateFees from "../lateFees.js";
 import type * as lib_adminPush from "../lib/adminPush.js";
@@ -265,6 +266,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   identity: typeof identity;
   invoice: typeof invoice;
+  invoiceAdjustments: typeof invoiceAdjustments;
   kitPlans: typeof kitPlans;
   lateFees: typeof lateFees;
   "lib/adminPush": typeof lib_adminPush;
