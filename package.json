@@ -9,7 +9,7 @@
     "test:rental-delivery-quotes": "node scripts/test-rental-delivery-quotes.cjs",
     "test:gaffer-account-channel": "node scripts/test-gaffer-account-channel.cjs",
     "test:gaffer-booking-context": "node scripts/test-gaffer-booking-context.cjs",
-    "test:gaffer-voice-call-telemetry": "node scripts/test-gaffer-call-telemetry.cjs && node scripts/test-gaffer-start-race-browser.cjs",
+    "test:gaffer-voice-call-telemetry": "node scripts/test-gaffer-call-telemetry.cjs && node scripts/test-gaffer-start-race-browser.cjs && node scripts/test-gaffer-provider-settings.cjs",
     "test:gaffer-current-faqs": "node scripts/test-gaffer-current-faqs.cjs",
     "prebuild": "node scripts/generate-voice-worklets.cjs",
     "predev": "node scripts/generate-voice-worklets.cjs",

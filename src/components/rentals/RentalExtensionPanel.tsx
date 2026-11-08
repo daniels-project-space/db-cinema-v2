@@ -77,7 +77,7 @@ export function RentalExtensionPanel({ token, bookingId, admin = false, showTrig
     } catch (e: any) { setError(e.message ?? "The request could not be updated."); }
     finally { setBusy(false); }
   }
-  return <aside data-testid="rental-extension-panel" className="scroll-mt-24 border-b border-sky-300/15 bg-sky-300/[0.035] px-5 py-4">
+  return <section aria-label={admin ? "Extension requests" : "Rental extension request"} data-testid="rental-extension-panel" className="scroll-mt-24 border-b border-sky-300/15 bg-sky-300/[0.035] px-5 py-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex items-center gap-2.5"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 text-sky-200" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="5" width="18" height="16" rx="4"/><path d="M7 3v4m10-4v4M3 10h18m-9 3v5m-2.5-2.5h5"/></svg><span className="text-sm font-medium text-white/85">{admin ? "Extension requests" : "Need more shoot time?"}</span></div>
       {!admin && showTrigger && eligible && !current && <button type="button" data-testid="request-extension-open" disabled={state.locked || busy} onClick={() => { setOpen(!open); setError(""); setNotice(""); setSelected(null); key.current = null; }} className="rounded-full border border-sky-200/25 bg-sky-200/10 px-3 py-2 text-xs text-sky-100 disabled:opacity-40">{open ? "Close" : "Request extension"}</button>}
@@ -195,5 +195,5 @@ export function RentalExtensionPanel({ token, bookingId, admin = false, showTrig
     </form>}
     {error && <p role="alert" className="mt-3 text-xs text-rose-300">{error}</p>}
     {notice && <p role="status" className="mt-3 text-xs leading-relaxed text-sky-100/80">{notice}</p>}
-  </aside>;
+  </section>;
 }
