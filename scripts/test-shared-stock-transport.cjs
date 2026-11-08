@@ -15,6 +15,10 @@ const body = {version:1,operation:'acquire',request:{source:'website',...request
  assert.equal(calls.length,0);
  assert.deepEqual(await sendSharedStockRequest(request,{...config,fetcher}),{status:'confirmed',result:body.result});
  assert.equal(calls.length,1); assert.equal(calls[0].url,'https://fixture-manager.convex.site/dbcinema/shared-stock'); assert.equal(calls[0].options.redirect,'error'); assert.equal(calls[0].options.headers['x-shared-stock-token'],secret); assert(!calls[0].options.body.includes(secret)); assert(calls[0].options.signal instanceof AbortSignal);
+ const associatedAcquire={operation:'acquire',args:{...request.args,bookingId:'booking-fixture'}};
+ const associatedReceipt={...body,request:{...body.request,bookingId:'booking-fixture'}};
+ assert.deepEqual(await sendSharedStockRequest(associatedAcquire,{...config,fetcher:async()=>new Response(JSON.stringify(associatedReceipt))}),{status:'confirmed',result:body.result},'positive swap claims retain the parent booking identity through transport');
+ assert.equal((await sendSharedStockRequest(associatedAcquire,{...config,fetcher:async()=>new Response(JSON.stringify({...associatedReceipt,request:{...associatedReceipt.request,bookingId:'different-booking'}}))})).status,'unknown','a stock claim receipt cannot be rebound to another booking');
  const extraFieldReceipt={...body,request:{...body.request,bookingId:'booking-fixture'}};
  assert.equal((await sendSharedStockRequest(request,{...config,fetcher:async()=>new Response(JSON.stringify(extraFieldReceipt))})).status,'unknown','reject acquire receipts that include fields outside Rental Manager contract');
  const staleBookingRequest={operation:'acquire',args:{...request.args,bookingId:'booking-fixture'}};
@@ -48,6 +52,9 @@ const body = {version:1,operation:'acquire',request:{source:'website',...request
  const released={version:1,operation:'releaseCompensated',request:{source:'website',...compensated.args},result:{state:'compensated_released',replayed:false}};
  assert.equal((await sendSharedStockRequest(compensated,{...config,fetcher:async()=>new Response(JSON.stringify(released))})).status,'confirmed');
  assert.equal((await sendSharedStockRequest(compensated,{...config,fetcher:async()=>new Response(JSON.stringify({...released,request:{...released.request,evidence:{...compensated.args.evidence,refundId:'re_other'}}}))})).status,'unknown');
+ const checkCompensated={operation:'checkCompensatedRelease',args:compensated.args};
+ const unconfirmedRelease={version:1,operation:'checkCompensatedRelease',request:{source:'website',...checkCompensated.args},result:{state:'unconfirmed',replayed:true}};
+ assert.equal((await sendSharedStockRequest(checkCompensated,{...config,fetcher:async()=>new Response(JSON.stringify(unconfirmedRelease))})).status,'unknown','An unconfirmed stock check remains ambiguous until exact release evidence is returned.');
  for(const [operation,state,args] of [['beginExecution','execution_started',{id:'claim-fixture',fingerprint,executionKey:'provider-execution-0001'}],['checkExecution','execution_started',{id:'claim-fixture',fingerprint,executionKey:'provider-execution-0001'}],['releasePrepared','released',{id:'claim-fixture',fingerprint,reason:'withdrawn_before_execution'}]]) {
   const payload={operation,args},receipt={version:1,operation,request:{...args,source:'website'},result:{state,replayed:true}};
   assert.deepEqual(await sendSharedStockRequest(payload,{...config,fetcher:async()=>new Response(JSON.stringify(receipt))}),{status:'confirmed',result:receipt.result});

@@ -120,10 +120,10 @@ async function prepareOperation(ctx:any,args:any) {
     let request:any;
     if(args.operation==="acquire"){
       if(args.reason!==undefined||!args.items?.length||args.items.length>64||args.items.some((line:any)=>!line.itemId||line.itemId.length>255||!Number.isSafeInteger(line.start)||!Number.isSafeInteger(line.returnAt)||!Number.isSafeInteger(line.returnAt+3600000)||line.returnAt<=line.start||line.returnAt-line.start>365*86400000||!Number.isSafeInteger(line.quantity)||line.quantity<1||line.quantity>100))throw Error("Invalid stock claim.");
-      // The Rental Manager acquire endpoint identifies this idempotent claim
-      // by requestId and items. Booking association stays in this site's swap
-      // operation row; the manager's acquire contract does not accept bookingId.
-      request={operation:"acquire",args:{requestId:`swap_${args.swapId}`,items:args.items}};
+      // Associate the net-new claim with the original booking so Rental
+      // Manager can convert it only after that booking's exact new windows
+      // have synced. The claim still reserves only the incremental units.
+      request={operation:"acquire",args:{requestId:`swap_${args.swapId}`,bookingId:String(swap.bookingId),items:args.items}};
     }else{
       if(args.items!==undefined||!acquire||acquire.state!=="confirmed"||!acquire.receipt?.requestId||!acquire.receipt?.fingerprint)throw Error("A confirmed stock claim is required.");
       const identity={id:acquire.receipt.requestId,fingerprint:acquire.receipt.fingerprint};

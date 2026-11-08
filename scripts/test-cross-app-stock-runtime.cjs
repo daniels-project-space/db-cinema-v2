@@ -120,7 +120,7 @@ async function main() {
   const releaseEvidence = { swapId: releaseSwapId, bookingId: releaseBookingId, bookingRevision: 3, paymentIntentId: 'pi_fixture1', refundId: 're_fixture1', refundStatus: 'succeeded', amountPence: 500, refundAttemptedAt: Date.now(), windows: [{ itemId: releaseOld, start, end: returnAt + 3600000, quantity: 1 }] };
   const releaseRequest = { operation: 'releaseCompensated', args: { ...releaseExecution, evidence: releaseEvidence } };
   const checkRelease = { operation: 'checkCompensatedRelease', args: releaseRequest.args };
-  assert.equal((await call(checkRelease)).result.state,'unconfirmed');
+  assert.equal((await call(checkRelease)).status,'unknown', 'An unconfirmed manager check is not proof that the compensated stock release completed.');
   assert.equal((await managerBackend.client.query(inspect,{})).requests.find(row=>row._id===releaseExecution.id).state,'execution_started');
   assert.equal((await call({ ...releaseRequest, args: { ...releaseRequest.args, evidence: { ...releaseEvidence, bookingRevision: 2 } } })).status, 'unknown');
   assert.equal((await call(releaseRequest, true)).status, 'unknown');
@@ -130,7 +130,7 @@ async function main() {
   assert.equal((await call({ ...releaseRequest, args: { ...releaseRequest.args, evidence: { ...releaseEvidence, refundId: 're_other1' } } })).status, 'unknown');
   const releasedState = await managerBackend.client.query(inspect, {});
   assert.equal(releasedState.requests.find(row => row._id === releaseExecution.id).state, 'compensated_released');
-  assert.ok(!releasedState.claims.some(row => row.requestId === releaseExecution.id));
+  assert.equal(releasedState.claims.find(row => row.requestId === releaseExecution.id)?.holdsStock, false, 'Keep the idempotency receipt while releasing its stock hold.');
   console.log('PASS synthetic compensated claim release: stale evidence rejected and a lost response replays the exact original release.');
   const oldManagerId = await managerBackend.client.mutation(seed, {}), newManagerId = await managerBackend.client.mutation(seed, {});
   const seedSwap = makeFunctionReference('cross_stock_fixture:seedSwap'), applySwap = makeFunctionReference('cross_stock_fixture:applySwap'), inspectSwap = makeFunctionReference('cross_stock_fixture:inspectSwap'), convert = makeFunctionReference('cross_stock_fixture:convert');
@@ -176,7 +176,7 @@ async function main() {
   assert.equal(rejected.requests.find(row => row._id === acquired.result.requestId).state, 'execution_started');
   await managerBackend.client.action(convert, { booking });
   const reconciled = await managerBackend.client.query(inspect, {});
-  assert.ok(!reconciled.claims.some(row => row.requestId === acquired.result.requestId));
+  assert.equal(reconciled.claims.find(row => row.requestId === acquired.result.requestId)?.holdsStock, false, 'Keep the converted claim as an audit receipt after its hold becomes the booking reservation.');
   assert.equal(reconciled.reservations.find(row => row.hygglo_order_id === swap.bookingId).site_item_windows[0].item_id, newManagerId);
   assert.equal(reconciled.requests.find(row => row._id === acquired.result.requestId).state, 'converted');
   assert.equal((await siteBackend.client.action(applySwap, { swapId })).already, true);
