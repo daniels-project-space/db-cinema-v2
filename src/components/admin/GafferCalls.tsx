@@ -72,6 +72,8 @@ type ProviderAgentSettings = {
   turnModel?: string | null;
   speculativeTurn?: boolean | null;
   interruptionsEnabled?: boolean | null;
+  noisyEnvironmentDetection?: boolean | null;
+  noisyEnvironmentMessageConfigured?: boolean | null;
   backgroundVoiceDetection?: boolean | null;
   firstMessageInterruptionsDisabled?: boolean | null;
   updatedAt?: number | null;
@@ -223,7 +225,9 @@ export function AdminGafferCalls({ token }: { token: string }) {
             <span>Turn <b className="text-white/75">{agent.turnEagerness ?? "unknown"}</b></span>
             <span>Interruptions <b className="text-white/75">{agent.interruptionsEnabled === null || agent.interruptionsEnabled === undefined ? "unknown" : agent.interruptionsEnabled ? "on" : "off"}</b></span>
             <span>Silence <b className="text-white/75">{agent.turnTimeoutSeconds === null || agent.turnTimeoutSeconds === undefined ? "unknown" : `${agent.turnTimeoutSeconds}s`}</b></span>
-            <span>Background voices <b className="text-white/75">{agent.backgroundVoiceDetection === null || agent.backgroundVoiceDetection === undefined ? "unknown" : agent.backgroundVoiceDetection ? "on" : "off"}</b></span>
+            <span>ASR speech filter <b className="text-white/75">{agent.backgroundVoiceDetection === null || agent.backgroundVoiceDetection === undefined ? "unknown" : agent.backgroundVoiceDetection ? "on" : "off"}</b></span>
+            <span>Other-voice trigger <b className="text-white/75">{agent.noisyEnvironmentDetection === null || agent.noisyEnvironmentDetection === undefined ? "unknown" : agent.noisyEnvironmentDetection ? "on" : "off"}</b></span>
+            <span>Trigger prompt <b className="text-white/75">{agent.noisyEnvironmentMessageConfigured === null || agent.noisyEnvironmentMessageConfigured === undefined ? "unknown" : agent.noisyEnvironmentMessageConfigured ? "set" : "missing"}</b></span>
             {agent.speculativeTurn !== null && agent.speculativeTurn !== undefined && <span>Speculative <b className="text-white/75">{agent.speculativeTurn ? "on" : "off"}</b></span>}
           </div>}
         </article>)}</div>

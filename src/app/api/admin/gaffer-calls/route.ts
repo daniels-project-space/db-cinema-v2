@@ -114,6 +114,8 @@ export async function POST(req: NextRequest) {
           turnModel: typeof turn.turn_model === "string" ? turn.turn_model.slice(0, 48) : null,
           speculativeTurn: typeof turn.speculative_turn === "boolean" ? turn.speculative_turn : null,
           interruptionsEnabled: Array.isArray(clientEvents) ? clientEvents.includes("interruption") : null,
+          noisyEnvironmentDetection: typeof turn.noisy_environment_detection === "boolean" ? turn.noisy_environment_detection : null,
+          noisyEnvironmentMessageConfigured: typeof turn.noisy_environment_message === "string" ? turn.noisy_environment_message.trim().length > 0 : null,
           backgroundVoiceDetection: typeof config.vad?.background_voice_detection === "boolean" ? config.vad.background_voice_detection : null,
           firstMessageInterruptionsDisabled: typeof config.agent?.disable_first_message_interruptions === "boolean" ? config.agent.disable_first_message_interruptions : null,
           updatedAt: numberOrNull(agent?.metadata?.updated_at_unix_secs),
