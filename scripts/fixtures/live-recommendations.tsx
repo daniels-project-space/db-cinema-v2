@@ -15,7 +15,7 @@ const notify=()=>{version++;for(const f of listeners)f();};
 const subscribe=(f:()=>void)=>{listeners.add(f);return()=>listeners.delete(f);};
 const put=(table:string,data:any)=>{const row={_id:`${table}-${++counter}`,_creationTime:counter,...data};records.set(row._id,row);tables.set(table,[...(tables.get(table)??[]),row]);return row;};
 const unit=(name:string)=>put('inventory_units',{name,quantityOwned:1});
-const listing=(id:string,type:string,title:string,extra:any={})=>put('listings',{_id:id,active:true,itemType:type,category:type,title,slug:id,components:[{inventoryUnitId:unit(title)._id,qty:1}],pricing:{daily:20},depositAmount:500,r2Images:['/placeholder.svg'],...extra});
+const listing=(id:string,type:string,title:string,extra:any={})=>put('listings',{_id:id,active:true,itemType:type,category:type,title,slug:id,components:[{inventoryUnitId:unit(title)._id,qty:1}],pricing:{daily:20},depositAmount:500,r2Images:['/images/home/maintained-cinema-gear-20261028.webp'],...extra});
 const ef=listing('ef-body','camera-body','Blackmagic Pocket 6K + Canon zoom and monitor',{specs:{mount:'EF',coverage:'s35',batteryType:'NP-F570'},inventoryFacts:{owned:true,reviewRequired:false,contents:['Canon EF 24–105mm f/4 L lens','External monitor']}});
 const sony=listing('e-body','camera-body','Sony A7 V + wide zoom',{specs:{mount:'E',coverage:'ff',batteryType:'NP-FZ100'},inventoryFacts:{owned:true,reviewRequired:false,contents:['Sony FE 16–35mm f/2.8 GM (original)']}});
 const fxBody=listing('fx3-body','camera-body','Sony FX3 Body Kit with Cage and Card',{marketingOnly:false,marketingOnlySource:'rental_manager',demandScore:1,specs:{mount:'E',coverage:'ff'},inventoryFacts:{owned:true,reviewRequired:false,contents:['1 × Sony FX3 camera']}});

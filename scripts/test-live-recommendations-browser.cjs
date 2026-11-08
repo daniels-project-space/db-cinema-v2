@@ -12,13 +12,13 @@ module.exports=async function(){
   build.onLoad({filter:/.*/,namespace:'fixture'},args=>({contents:args.path.endsWith('_generated/api')?mockAPI:args.path.endsWith('_generated/server')?'export const query=x=>x,mutation=x=>x,internalQuery=x=>x,internalMutation=x=>x,action=x=>x,internalAction=x=>x;':provider,loader:'tsx',resolveDir:root}));
  }}]});
  const cssDir=root+'/.next/static/chunks',css=fs.existsSync(cssDir)?fs.readdirSync(cssDir).filter(f=>f.endsWith('.css')).map(f=>fs.readFileSync(cssDir+'/'+f,'utf8')).join('\n'):'';
- const server=http.createServer((req,res)=>{if(req.url==='/fixture.js'){res.setHeader('Content-Type','application/javascript');res.end(fs.readFileSync(dir+'/fixture.js'));}else if(req.url==='/fixture.css'){res.setHeader('Content-Type','text/css');res.end(css);}else{res.setHeader('Content-Type','text/html');res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"></head><body><main id="root"></main><script src="/fixture.js"></script></body></html>');}});
+ const server=http.createServer((req,res)=>{if(req.url==='/fixture.js'){res.setHeader('Content-Type','application/javascript');res.end(fs.readFileSync(dir+'/fixture.js'));}else if(req.url==='/fixture.css'){res.setHeader('Content-Type','text/css');res.end(css);}else if(req.url==='/images/home/maintained-cinema-gear-20261028.webp'){res.setHeader('Content-Type','image/webp');res.end(fs.readFileSync(root+'/public/images/home/maintained-cinema-gear-20261028.webp'));}else{res.setHeader('Content-Type','text/html');res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"></head><body><main id="root"></main><script src="/fixture.js"></script></body></html>');}});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+server.address().port;
  let c;const errors=[],wait=ms=>new Promise(r=>setTimeout(r,ms));
  try{
   c=await connect('about:blank');await c.cmd('Page.enable');await c.cmd('Runtime.enable');await c.cmd('Page.bringToFront');c.on(m=>{if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.exception?.description||m.params.exceptionDetails.text);});
   await c.cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await c.cmd('Page.navigate',{url:origin});
-  async function until(expr,label){for(let i=0;i<150;i++){if(await c.evaluate(expr))return;await wait(100);}throw Error(label+': '+await c.evaluate('document.body?.innerText?.slice(-1500)')+' ERRORS '+JSON.stringify(errors));}
+  async function until(expr,label){for(let i=0;i<150;i++){if(await c.evaluate(expr))return;await wait(100);}throw Error(label+': '+await c.evaluate('JSON.stringify({body:document.body?.innerText?.slice(-1500),fixtureError:window.fixture?.error,fixtureReady:!!window.fixture})')+' ERRORS '+JSON.stringify(errors));}
   const has=text=>`document.body?.innerText?.includes(${JSON.stringify(text)})??false`;
   async function click(expr){await until(`!!(${expr})`,'Button exists');await c.evaluate(`(${expr}).scrollIntoView({block:'center',behavior:'instant'});(${expr}).click()`);await wait(30);}
   const exact=text=>`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)})`;
@@ -47,7 +47,8 @@ module.exports=async function(){
   await until(`document.querySelector('a[href="/gear/key-light"]')?.closest('.spot')?.innerText.includes('Add request')`,'Unavailable compatible Gaffer item remains requestable after basket refresh');await click(`document.querySelector('a[href="/gear/key-light"]').closest('.spot').querySelector('button')`);await until(`fixture.getBasket().some(i=>i.listingId==='key-light')`,'Gaffer adds the unavailable listing as a request');
   assert.equal(await c.evaluate('fixture.counts.model'),1,'Inventory/basket changes do not start paid model requests');
   console.log('Live Gaffer: stale stock, alternative price, EF/E basket change and explicit alternative click passed');await c.evaluate(`fixture.reset();fixture.clearBasket();fixture.setMode('assembly')`);await click(exact('Interview'));await click(exact('Small crew'));await click(`document.querySelector('button[aria-label="Next month"]')`);await click(exact('20'));await click(exact('21'));
-  await click(`document.querySelectorAll('[role="combobox"]')[0]`);await click(`[...document.querySelectorAll('[role=option]')].find(o=>o.textContent==='10:00')`);await click(`document.querySelectorAll('[role="combobox"]')[1]`);await click(`[...document.querySelectorAll('[role=option]')].find(o=>o.textContent==='17:00')`);await click(`[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Continue'))`);await click(exact('Build my kit'));
+  assert.equal(await c.evaluate(`[...document.querySelectorAll('[role="option"]')].some(o=>['10:00','17:00'].includes(o.textContent.trim()))`),false,"Assembly date selection leaves exact times for checkout");
+  await click(`[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Continue'))`);await click(exact('Build my kit'));
   await until(has('Blackmagic Pocket 6K'),'Assembly choices loaded');
   await c.evaluate(`fixture.setQueryDelay(400);window.assemblyDisappeared=false;window.assemblyObserver=new MutationObserver(()=>{if(![...document.querySelectorAll('section button')].some(b=>b.textContent.includes('Blackmagic Pocket 6K')))window.assemblyDisappeared=true;});window.assemblyObserver.observe(document.body,{childList:true,subtree:true});`);
   await click(card('Blackmagic Pocket 6K'));await wait(200);
@@ -56,8 +57,9 @@ module.exports=async function(){
   await c.evaluate(`window.assemblyObserver.disconnect();fixture.setQueryDelay(0)`);await click(exact('Next'));await until(`(${card('Canon EF 50mm prime')})?.textContent.includes('Pick')`,'EF assembly lens pick');
   await click(card('Canon EF 50mm prime'));await click(exact('Next'));await click(card('Nanlite key light'));await click(`[...document.querySelectorAll('button')].find(b=>/Review kit|Next/.test(b.textContent)&&!b.disabled)`);
   await until(`[...document.querySelectorAll('button')].some(b=>/Add 3 to basket/.test(b.textContent)&&!b.disabled)`,'Complete valid assembly can be added');
-  await c.evaluate(`fixture.patch('key-light',{pricing:{daily:91}})`);await until(has('£182'),'Selected assembly price refreshes');await c.evaluate(`fixture.hold('key-light',60000)`);await until(`[...document.querySelectorAll('button')].some(b=>/Add 3 to basket/.test(b.textContent)&&b.disabled)`,'Changed stock blocks adding an unavailable whole kit');
-  assert.equal(await c.evaluate('fixture.getBasket().length'),0,'Unavailable gear must not enter the basket');
+  await c.evaluate(`fixture.patch('key-light',{pricing:{daily:91}})`);await until(has('£182'),'Selected assembly price refreshes');await c.evaluate(`fixture.hold('key-light',60000)`);await wait(250);
+  assert.equal(await c.evaluate(`[...document.querySelectorAll('button')].some(b=>/Add 3 to basket/.test(b.textContent)&&!b.disabled)`),true,'A basket selection does not reserve stock; exact availability is checked at checkout');
+  assert.equal(await c.evaluate('fixture.getBasket().length'),0,'The selected kit is not added until the renter chooses to add it');
   await c.evaluate(`fixture.release()`);await until(`[...document.querySelectorAll('button')].some(b=>/Add 3 to basket/.test(b.textContent)&&!b.disabled)`,'Restored stock enables the whole kit');
   await c.evaluate(`fixture.patch('key-light',{marketingOnly:true})`);await until(`[...document.querySelectorAll('button')].some(b=>/Add 3 to basket/.test(b.textContent)&&b.disabled)`,'Marketing-only switch blocks a previously selected item');
   assert(!await c.evaluate(`!!(${card('Nanlite key light')})`),'Marketing-only item is removed from choices');
@@ -65,31 +67,31 @@ module.exports=async function(){
   await click(exact('Add 3 to basket'));await until(`fixture.getBasket().length===3`,'The available assembly adds the complete selected kit');
   assert.equal(await c.evaluate('fixture.counts.model'),2,'Assembly stays deterministic after its initial model request');
   await c.evaluate(`fixture.reset();fixture.clearBasket();fixture.setMode('assembly-constraint')`);await click(exact('Interview'));await click(exact('Small crew'));await click(`document.querySelector('button[aria-label="Next month"]')`);await click(exact('20'));await click(exact('21'));
-  await click(`document.querySelectorAll('[role="combobox"]')[0]`);await click(`[...document.querySelectorAll('[role=option]')].find(o=>o.textContent==='10:00')`);await click(`document.querySelectorAll('[role="combobox"]')[1]`);await click(`[...document.querySelectorAll('[role=option]')].find(o=>o.textContent==='17:00')`);await click(`[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Continue'))`);await click(exact('Build my kit'));
+  assert.equal(await c.evaluate(`[...document.querySelectorAll('[role="option"]')].some(o=>['10:00','17:00'].includes(o.textContent.trim()))`),false,"Exact times are deferred to checkout");await click(`[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Continue'))`);await click(exact('Build my kit'));
   await until(`(${card('Sony FX3 Body Kit')})?.textContent.includes('Pick')`,'Exact camera body is the live pick');
   assert(!await c.evaluate(`(${card('Sony FX3 with 24–70mm GM Lens')})?.textContent.includes('Pick')`),'a lens bundle is not the body-only pick');
   await c.evaluate(`fixture.hold('fx3-body',60000)`);
-  await until(`(${card('Sony FX3 Body Kit')})?.textContent.includes('Unavailable')`,'Changed stock updates the body');
+  await until(`(${card('Sony FX3 Body Kit')})?.textContent.includes('Time check at checkout')`,'Exact stock status is deferred until checkout');
   assert(!await c.evaluate(`(${card('Sony FX3 with 24–70mm GM Lens')})?.textContent.includes('Pick')`),'a stock change must not replace a body-only request with a lens bundle');
   assert(!await c.evaluate(`(${card('Sony A7 V')})?.textContent.includes('Pick')`),'a stock change must not replace the requested camera model');
   assert.equal(await c.evaluate('fixture.counts.model'),3,'Live stock changes do not rerun the assembly model');
   await c.evaluate(`fixture.reset();fixture.clearBasket();fixture.setMode('assembly-lens-constraint')`);await click(exact('Interview'));await click(exact('Small crew'));await click(`document.querySelector('button[aria-label="Next month"]')`);await click(exact('20'));await click(exact('21'));
-  await click(`document.querySelectorAll('[role="combobox"]')[0]`);await click(`[...document.querySelectorAll('[role=option]')].find(o=>o.textContent==='10:00')`);await click(`document.querySelectorAll('[role="combobox"]')[1]`);await click(`[...document.querySelectorAll('[role=option]')].find(o=>o.textContent==='17:00')`);await click(`[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Continue'))`);await click(exact('Build my kit'));
+  assert.equal(await c.evaluate(`[...document.querySelectorAll('[role="option"]')].some(o=>['10:00','17:00'].includes(o.textContent.trim()))`),false,"Exact times are deferred to checkout");await click(`[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Continue'))`);await click(exact('Build my kit'));
   await until(`(${card('Blackmagic URSA PL Camera')})?.textContent.includes('Pick')`,'Named PL lens anchors a compatible camera');
   assert(!await c.evaluate(`(${card('Sony FX3 Body Kit')})?.textContent.includes('Pick')`),'an incompatible camera cannot be the pick for the requested lens');
   await click(card('Blackmagic URSA PL Camera'));await click(exact('Next'));
   await until(`(${card('Blazar Remus 45mm PL Lens')})?.textContent.includes('Pick')`,'Requested lens remains the live pick');
   await c.evaluate(`fixture.hold('remus-45',60000)`);
-  await until(`(${card('Blazar Remus 45mm PL Lens')})?.textContent.includes('Unavailable')`,'Requested lens stock refreshes');
+  await until(`(${card('Blazar Remus 45mm PL Lens')})?.textContent.includes('Time check at checkout')`,'Requested lens availability is checked at checkout');
   assert(!await c.evaluate(`(${card('Sony FE 90mm')})?.textContent.includes('Pick')`),'an unrelated lens is not substituted after stock changes');
   assert.equal(await c.evaluate('fixture.counts.model'),4,'The named-lens stock refresh does not rerun the model');
   await c.evaluate(`fixture.reset();fixture.clearBasket();fixture.hold('fx3-body',60000);fixture.setMode('assembly-constraint-empty')`);await click(exact('Interview'));await click(exact('Small crew'));await click(`document.querySelector('button[aria-label="Next month"]')`);await click(exact('20'));await click(exact('21'));
-  await click(`document.querySelectorAll('[role="combobox"]')[0]`);await click(`[...document.querySelectorAll('[role=option]')].find(o=>o.textContent==='10:00')`);await click(`document.querySelectorAll('[role="combobox"]')[1]`);await click(`[...document.querySelectorAll('[role=option]')].find(o=>o.textContent==='17:00')`);await click(`[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Continue'))`);await click(exact('Build my kit'));
-  await until(`(${card('Sony FX3 Body Kit')})?.textContent.includes('Unavailable')`,'Initially unavailable requested body remains visible');
-  await until(has('No matching option is currently verified'),'The stage explains the current shortfall');
+  assert.equal(await c.evaluate(`[...document.querySelectorAll('[role="option"]')].some(o=>['10:00','17:00'].includes(o.textContent.trim()))`),false,"Exact times are deferred to checkout");await click(`[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Continue'))`);await click(exact('Build my kit'));
+  await until(`(${card('Sony FX3 Body Kit')})?.textContent.includes('Pick')`,'Requested body remains the recommendation while exact times are pending');
+  await until(`(${card('Sony FX3 Body Kit')})?.textContent.includes('Time check at checkout')`,'The card labels its pending availability check');
   await c.evaluate(`fixture.release()`);
   await until(`(${card('Sony FX3 Body Kit')})?.textContent.includes('Pick')`,'Requested body becomes the pick when stock returns');
-  await until(has('A matching option is available for your selected dates and times'),'The stage explanation updates with restored stock');
+  await until(`(${card('Sony FX3 Body Kit')})?.textContent.includes('Time check at checkout')`,'Availability remains pending until exact times are selected');
   assert.equal(await c.evaluate('fixture.counts.model'),5,'Restocking does not rerun the model');
   assert.deepEqual(errors,[]);console.log('PASS native actual React/query integration: new inventory, price changes, expiring holds, EF/E basket edits, stale Gaffer actions and explicit alternatives, and whole-assembly stock fencing; no model reruns or provider writes.');
  }finally{if(c){c.close();await fetch(process.env.DBC_CDP_URL+'/json/close/'+c.tabId).catch(()=>{});}await new Promise(r=>server.close(r));fs.rmSync(dir,{recursive:true,force:true});}
