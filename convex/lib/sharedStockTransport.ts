@@ -1,6 +1,6 @@
 type Item = { itemId: string; start: number; returnAt: number; quantity: number };
 export type StockRequest =
-  | { operation: "acquire"; args: { requestId: string; items: Item[] } }
+  | { operation: "acquire"; args: { requestId: string; bookingId?: string; items: Item[] } }
   | { operation: "acquireZero"; args: { requestId:string; bookingId:string; oldItems:Item[]; newItems:Item[] } }
   | { operation: "beginExecution"; args: { id: string; fingerprint: string; executionKey: string } }
   | { operation: "checkExecution"; args: { id: string; fingerprint: string; executionKey: string } }
@@ -47,7 +47,8 @@ function validReceipt(request: StockRequest, receipt: any): boolean {
   if (!receipt || receipt.version !== 1 || receipt.operation !== request.operation || !receipt.request || receipt.request.source !== "website" || !receipt.result || typeof receipt.result !== "object" || typeof receipt.result.replayed !== "boolean") return false;
   const actual = receipt.request;
   if (request.operation === "acquire") {
-    if (Object.keys(actual).sort().join(",") !== "items,requestId,source" || actual.requestId !== request.args.requestId || !Array.isArray(actual.items) || actual.items.length !== request.args.items.length || !actual.items.every((line: any, index: number) => {
+    const expectedKeys = request.args.bookingId === undefined ? "items,requestId,source" : "bookingId,items,requestId,source";
+    if (Object.keys(actual).sort().join(",") !== expectedKeys || actual.requestId !== request.args.requestId || actual.bookingId !== request.args.bookingId || !Array.isArray(actual.items) || actual.items.length !== request.args.items.length || !actual.items.every((line: any, index: number) => {
       const expected = request.args.items[index];
       return line && Object.keys(line).sort().join(",") === "itemId,quantity,returnAt,start" && line.itemId === expected.itemId && line.start === expected.start && line.returnAt === expected.returnAt && line.quantity === expected.quantity;
     })) return false;
@@ -68,7 +69,7 @@ function validReceipt(request: StockRequest, receipt: any): boolean {
     }
   }
   const result = receipt.result;
-  if(request.operation === "checkCompensatedRelease")return result.state === "unconfirmed" || result.state === "compensated_released";
+  if(request.operation === "checkCompensatedRelease")return result.state === "compensated_released";
   if(request.operation === "checkConversion" && typeof result.stockRisk !== "boolean")return false;
   if(request.operation === "acquireZero") {
     const normalize=(items:Item[])=>items.map(line=>[line.itemId,line.start,line.returnAt,line.quantity]);

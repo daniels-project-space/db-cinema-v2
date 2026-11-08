@@ -4,7 +4,7 @@ import { swapAuthorityAvailable } from "./lib/rentalSwapAuthority";
 import { sendSharedStockRequest } from "./lib/sharedStockTransport";
 
 const request = v.union(
-  v.object({ operation: v.literal("acquire"), args: v.object({ requestId: v.string(), items: v.array(v.object({ itemId: v.string(), start: v.number(), returnAt: v.number(), quantity: v.number() })) }) }),
+  v.object({ operation: v.literal("acquire"), args: v.object({ requestId: v.string(), bookingId: v.optional(v.string()), items: v.array(v.object({ itemId: v.string(), start: v.number(), returnAt: v.number(), quantity: v.number() })) }) }),
   v.object({ operation: v.literal("acquireZero"), args: v.object({ requestId:v.string(),bookingId:v.string(),oldItems:v.array(v.object({itemId:v.string(),start:v.number(),returnAt:v.number(),quantity:v.number()})),newItems:v.array(v.object({itemId:v.string(),start:v.number(),returnAt:v.number(),quantity:v.number()})) }) }),
   v.object({ operation: v.literal("beginExecution"), args: v.object({ id: v.string(), fingerprint: v.string(), executionKey: v.string() }) }),
   v.object({ operation: v.literal("checkExecution"), args: v.object({ id: v.string(), fingerprint: v.string(), executionKey: v.string() }) }),
