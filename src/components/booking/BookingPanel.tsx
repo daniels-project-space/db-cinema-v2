@@ -12,7 +12,6 @@ import { rentalPricingDays } from "../../../shared/rentalDuration";
 import { useCart } from "@/components/cart/CartProvider";
 import { IconCheck, IconX } from "@/components/icons";
 
-import {TimeSlotPicker} from "../checkout/TimeSlotPicker";
 
 function WaitlistForm({ listingId, start, end }: { listingId: string; start: number; end: number }) {
   const account = useAccount();
@@ -101,11 +100,10 @@ export function BookingPanel({
 }) {
   const cart = useCart();
   const policy = useQuery(api.settings.get, {});
-  const [pickupTime,setPickupTime]=useState(""),[returnTime,setReturnTime]=useState("");
   const calendarStock=useCalendarStock(listing._id,month,cart.items,!!listing.marketingOnly,start&&!end?start:null);
-  const validOrder = start !== end || !pickupTime || !returnTime || returnTime > pickupTime;
+  const validOrder = !start || !end || start <= end;
   const blockedDays=new Set([...unavailable,...calendarStock.unavailable]);
-  const days = start && end && validOrder ? rentalPricingDays(dayMs(start), dayMs(end), pickupTime, returnTime) : 0;
+  const days = start && end && validOrder ? rentalPricingDays(dayMs(start), dayMs(end)) : 0;
   const q = useMemo(
     () => (days ? computeQuote(listing.pricing, days) : null),
     [listing.pricing, days],
@@ -123,21 +121,18 @@ export function BookingPanel({
     start && end
       ? [
           ...cart.items.map((i) => ({ listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime })),
-          { listingId: listing._id as any, start: startMs, end: endMs,pickupTime:pickupTime||undefined,returnTime:returnTime||undefined },
+          { listingId: listing._id as any, start: startMs, end: endMs },
         ]
       : [];
   const fit = useQuery(
     api.availability.forCart,
-    start && end && pickupTime && returnTime && validOrder && !listing.marketingOnly ? { items: prospective } : "skip",
+    start && end && validOrder && !listing.marketingOnly ? { items: prospective } : "skip",
   );
-  const slots=useQuery(api.availability.forTimeSlots,start&&end&&!listing.marketingOnly?{listingId:listing._id as any,start:startMs,end:endMs,pickupTime:pickupTime||undefined,returnTime:returnTime||undefined,items:prospective.slice(0,-1)}:"skip");
   const cand: any = fit ? (fit as any)[listing._id] : undefined;
   // Marketing requests are recorded by cart.add; the basket checks stock and
   // offers replacements before checkout rather than blocking demand collection.
-  const haveTimes = !!(pickupTime && returnTime);
-  const timesAllowed = !!(slots?.pickupSlots.includes(pickupTime) && slots?.returnSlots.includes(returnTime));
-  const needsRequestReview = !!(listing.marketingOnly || listing.bookable === false || (fit !== undefined && !cand?.ok) || (slots !== undefined && slots.available === 0));
-  const canAdd = !!(start && end && q && haveTimes && validOrder);
+  const needsRequestReview = !!(listing.marketingOnly || listing.bookable === false || (fit !== undefined && !cand?.ok));
+  const canAdd = !!(start && end && q && validOrder);
 
   function addToKit() {
     if (!canAdd || !q || !start || !end) return;
@@ -148,7 +143,6 @@ export function BookingPanel({
       heroImage: listing.heroImage,
       start,
       end,
-      pickupTime:pickupTime||undefined,returnTime:returnTime||undefined,
       days,
       perDay: q.perDay,
       total: q.total,
@@ -172,10 +166,7 @@ export function BookingPanel({
 
       {!calendarStock.ready && <div role="status" className="text-sm text-white/70">{calendarStock.error ? <>Couldn’t check these dates. <button type="button" className="underline text-accent-300" onClick={()=>void calendarStock.retry()}>Retry availability</button></> : "Checking available dates…"}</div>}
 
-      {start&&end&&<div className="grid grid-cols-2 gap-3">
-        <TimeSlotPicker id={`gear-${listing._id}-pickup`} label="Pickup time" value={pickupTime} onChange={setPickupTime} allowedSlots={slots?.available ? slots.pickupSlots : undefined}/>
-        <TimeSlotPicker id={`gear-${listing._id}-return`} label="Return time" value={returnTime} onChange={setReturnTime} allowedSlots={slots?.available ? slots.returnSlots : undefined}/>
-      </div>}
+      {start&&end&&<p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-2.5 text-xs text-white/50">Exact pickup and return times are chosen at checkout.</p>}
       {start&&end&&needsRequestReview&&<p role="status" className="rounded-xl border border-amber-300/20 bg-amber-300/[.05] p-3 text-xs leading-5 text-amber-100/80">{listing.bookable === false ? "Stock matching for this item isn't confirmed yet. Add it as a request; checkout blocks payment until the live stock check passes." : "This item is not confirmed available for these dates. Add it as a request to see matching alternatives in your kit; payment stays blocked until the full kit passes the stock check."}</p>}
       <div className="spot gradient-border rounded-2xl p-5">
         {/* base rate row */}
@@ -221,7 +212,7 @@ export function BookingPanel({
               </div>
             )}
             <p className="mt-2 text-right text-[11px] text-white/40">
-              Gear rental only. Delivery and collection are priced separately by postcode in your kit.
+              Date-based estimate. Confirm exact times and final price at checkout; delivery is quoted separately.
             </p>
             <div className="mt-3 rounded-xl bg-white/[0.03] p-3 text-xs text-white/55">
               <p className="font-medium text-white/75">{policy?.setupIntentSecurityEnabled?"Saved-card future-claim ceiling":"Rental security shown at checkout"}</p>
@@ -244,23 +235,17 @@ export function BookingPanel({
         {/* availability (unit-aware, whole-cart) */}
         {start && end && !listing.marketingOnly && (
           <div className="mt-3 flex justify-center text-xs">
-            {!haveTimes ? (
-              <span className="text-amber-200">Choose pickup and return times to check availability.</span>
-            ) : !validOrder ? (
-              <span className="text-amber-200">Return time must be later than pickup on the same day.</span>
-            ) : fit === undefined || !calendarStock.ready || slots === undefined ? (
+            {!validOrder ? (
+              <span className="text-amber-200">Choose a valid date range.</span>
+            ) : fit === undefined || !calendarStock.ready ? (
               <span className="text-white/30">Checking availability…</span>
-            ) : !timesAllowed && slots.available > 0 ? (
-              <span className="text-amber-200">Choose available pickup and return times for these dates.</span>
-            ) : !timesAllowed ? (
-              <span className="text-amber-200">No stock currently matches these dates and times. You can still add a request to see alternatives.</span>
             ) : cand?.ok ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-300">
-                <IconCheck className="h-3 w-3" /> Available for these dates and times
+                <IconCheck className="h-3 w-3" /> Available for these dates
               </span>
             ) : cand && cand.available === 0 ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-rec-500/10 px-3 py-1 text-red-300">
-                <IconX className="h-3 w-3" /> Not available for these dates and times
+                <IconX className="h-3 w-3" /> Not available for these dates
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-amber-300">
@@ -270,7 +255,7 @@ export function BookingPanel({
           </div>
         )}
 
-        {start && end && haveTimes && !listing.marketingOnly && listing.bookable !== false && cand && cand.available === 0 && (
+        {start && end && !listing.marketingOnly && listing.bookable !== false && cand && cand.available === 0 && (
           <WaitlistForm listingId={listing._id} start={startMs} end={endMs} />
         )}
 
@@ -279,7 +264,7 @@ export function BookingPanel({
           disabled={!canAdd}
           className="btn-primary mt-5 w-full py-3"
         >
-          {!start || !end ? "Choose rental dates" : !haveTimes ? "Choose pickup and return times" : needsRequestReview ? "Add request to kit" : "Add to kit"}
+          {!start || !end ? "Choose rental dates" : needsRequestReview ? "Add request to kit" : "Add to kit"}
         </button>
 
         <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-white/40">

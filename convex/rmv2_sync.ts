@@ -95,6 +95,14 @@ export function mapBookingForSync(
     id: String(b._id),
     revision: b.rmv2Revision ?? 0,
     status: b.status,
+    // This timestamp is written only after the server verifies Stripe's
+    // completed Checkout Session; Manager uses it with the Didit status to
+    // distinguish a paid verification hold from an unpaid basket marker.
+    checkoutPaidAt: typeof b.checkoutPaidAt === "number" && Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt > 0 ? b.checkoutPaidAt : null,
+    // This is written only when the paid booking is actually confirmed. It
+    // remains the attestation for older/confirmed reservations and is never a
+    // substitute for checkoutPaidAt while Didit is still pending.
+    paidConfirmedAt: typeof b.paidConfirmedAt === "number" && Number.isSafeInteger(b.paidConfirmedAt) && b.paidConfirmedAt > 0 ? b.paidConfirmedAt : null,
     verification: {
       version: 1,
       provider: b.verificationProvider ?? "stripe",
@@ -114,6 +122,7 @@ export function mapBookingForSync(
     customerName: cust?.name ?? b.guestName ?? null,
     customerEmail: cust?.email ?? b.guestEmail ?? null,
     fulfilment: b.fulfilment,
+    deliveryLegs: b.deliveryLegs,
     pickupTime: b.pickupTime ?? null,
     returnTime: b.returnTime ?? null,
     start: starts.length ? Math.min(...starts) : b._creationTime,
@@ -135,7 +144,10 @@ export function mapBookingForSync(
     // This ledger was allocated at confirmation/change time. Catalogue edits
     // must not re-decompose a booked kit or extend all components to one period.
     ...(reservations?.length ? { physicalReservations: reservations
-      .filter(r => r.source === "site" && ["confirmed", "active", "returned"].includes(r.status))
+      .filter(r => r.source === "site" && (["confirmed", "active", "returned"].includes(r.status) ||
+        b.status === "pending_verification" && b.verificationProvider === "didit" &&
+        typeof b.checkoutPaidAt === "number" && Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt > 0 && b.idVerifyStatus !== "rejected" &&
+        r.status === "hold" && !r.extensionRequestId && !r.externalRef))
       .map(r => {
         const unit = unitById.get(String(r.inventoryUnitId));
         const exportedEnd = r.end + (r.endExclusive && r.turnaroundBufferMinutes !== 60 ? 3600000 : 0);
@@ -163,7 +175,7 @@ export function mapBookingForSync(
           pickupTime, returnTime,
           ...(signedLine ? { pickupDate: new Date(signedLine.start).toISOString().slice(0, 10), returnDate: new Date(signedLine.end).toISOString().slice(0, 10) } : {}),
           listingId: r.listingId ? String(r.listingId) : null,
-          status: r.status, hyggloProductId: unit?.hyggloProductId ?? null };
+          status: r.status === "hold" ? "pending_verification" : r.status, hyggloProductId: unit?.hyggloProductId ?? null };
       }) } : {}),
   };
 }

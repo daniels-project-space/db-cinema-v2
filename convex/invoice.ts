@@ -4,7 +4,8 @@ import { returnStatementEmail } from "../shared/returnStatement";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 
 import { rentalSecurityEmailRows, rentalSecurityEmailNote } from "../shared/rentalSecurityEmail";
-import { internalAction } from "./_generated/server";
+import { initialInvoiceSnapshot } from "./lib/initialInvoiceSnapshot";
+import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { sendMail } from "./lib/mailer";
@@ -32,6 +33,13 @@ export const invoiceEmail = internalAction({
     const b: any = await ctx.runQuery(internal.bookings.receiptContext, { bookingId });
     if (!b || !b.guestEmail) return null;
 
+    let invoice:any=b.invoiceSnapshot;
+    if(!invoice){
+      if(process.env.INVOICE_SECRET)try{invoice=await ctx.runQuery(api.bookings.invoiceData,{bookingId,key:process.env.INVOICE_SECRET});}catch{}
+      if(!invoice)invoice=initialInvoiceSnapshot(b,b.invoiceCustomerName,b.guestEmail);
+      if(ctx.runMutation)invoice=await ctx.runMutation(internal.bookings.saveInitialInvoiceSnapshot,{bookingId,snapshot:invoice});
+    }
+
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const secret = process.env.INVOICE_SECRET;
 
@@ -45,18 +53,18 @@ export const invoiceEmail = internalAction({
       }
     }
 
-    const rows:Array<[string,string]>=rentalBillingLines(b).map((li:any)=>[li.title,amount(li.lineTotal)]);
-    rows.push(["Rental subtotal",amount(b.subtotal)]);
-    if(b.discount>0)rows.push(["Discount",`−${amount(b.discount)}`]);
-    if(b.creditApplied>0)rows.push(["Account credit applied",`−${amount(b.creditApplied)}`]);
-    if(b.deliveryFee>0)rows.push([b.deliveryLegs === "one_way" ? "One-way delivery" : "Delivery and collection",amount(b.deliveryFee)]);
-    rows.push(...rentalSecurityEmailRows(b),["Total paid",amount(b.total)]);
+    const rows:Array<[string,string]>=(invoice.lineItems??[]).map((li:any)=>[li.title,amount(li.lineTotal)]);
+    rows.push(["Rental subtotal",amount(invoice.subtotal)]);
+    if(invoice.discount>0)rows.push(["Discount",`−${amount(invoice.discount)}`]);
+    if(invoice.creditApplied>0)rows.push(["Account credit applied",`−${amount(invoice.creditApplied)}`]);
+    if(invoice.deliveryFee>0)rows.push([invoice.deliveryLegs === "one_way" ? "One-way delivery" : "Delivery and collection",amount(invoice.deliveryFee)]);
+    rows.push(...rentalSecurityEmailRows(invoice),["Total paid",amount(invoice.total)]);
     const url=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
     const payload={
       deliveryKey,
-      to:b.guestEmail,
+      to:invoice.email??b.guestEmail,
       subject:"Your DB Cinema rental invoice",
-      html:rentalEmail({title:"Your paid rental invoice",preview:`Payment received: ${amount(b.total)}. Your rental invoice is ready.`,url,button:"View rental and invoice",body:`<p>Your invoice${attachment?" is attached as a PDF":" is below. You can also download it from your account"}.</p>${emailRows(rows)}${b.membershipCreditApplied?`<p>Account credit above includes ${amount(b.membershipCreditApplied)} from your first subscription month. Subscription charges are itemised separately by Stripe.</p>`:""}${rentalSecurityEmailNote(b)?`<p>${rentalSecurityEmailNote(b)}</p>`:""}<p style="font-size:12px">DB Cinema Rentals Ltd is not VAT registered. No VAT is charged.</p>`}),
+      html:rentalEmail({title:"Your paid rental invoice",preview:`Payment received: ${amount(invoice.total)}. Your rental invoice is ready.`,url,button:"View rental and invoice",body:`<p>Your invoice${attachment?" is attached as a PDF":" is below. You can also download it from your account"}.</p>${emailRows(rows)}${invoice.membershipCreditApplied?`<p>Account credit above includes ${amount(invoice.membershipCreditApplied)} from your first subscription month. Subscription charges are itemised separately by Stripe.</p>`:""}${rentalSecurityEmailNote(invoice)?`<p>${rentalSecurityEmailNote(invoice)}</p>`:""}<p style="font-size:12px">DB Cinema Rentals Ltd is not VAT registered. No VAT is charged.</p>`}),
       attachments:attachment?[attachment]:[],
     };
     return prepareOnly?payload:sendMail(payload);
@@ -90,10 +98,72 @@ export const returnSettlementEmail = internalAction({
   },
 });
 
+const SWAP_ADJUSTMENT_EMAIL_LEASE_MS=5*60_000;
+const poundsFromPence=(pence:number)=>amount(pence/100);
+
+/** Due items remain queryable until a delivery is recorded; the stable delivery key
+ * lets the mail transport deduplicate a retry after an uncertain response. */
+export const dueSwapAdjustmentEmails=internalQuery({args:{},handler:async ctx=>{
+  const rows=await ctx.db.query("rental_swap_adjustment_receipts").withIndex("by_email_state_attempt",q=>q.eq("emailState","pending").lte("lastAttemptAt",Date.now()-SWAP_ADJUSTMENT_EMAIL_LEASE_MS)).take(50);
+  return rows.map(row=>row._id);
+}});
+
+export const claimSwapAdjustmentEmail=internalMutation({args:{receiptId:v.id("rental_swap_adjustment_receipts")},handler:async(ctx,{receiptId})=>{
+  const now=Date.now(),receipt=await ctx.db.get(receiptId);
+  if(!receipt||receipt.emailState!=="pending"||receipt.lastAttemptAt>now-SWAP_ADJUSTMENT_EMAIL_LEASE_MS)return null;
+  const swap=await ctx.db.get(receipt.swapId),booking=await ctx.db.get(receipt.bookingId),account=await ctx.db.get(receipt.accountId);
+  if(!swap||swap.status!=="applied"||!booking||!account||booking._id!==swap.bookingId||swap.accountId!==receipt.accountId)return null;
+  if(receipt.requiresStockAck){
+    if(booking.activeItemSwapId===swap._id)return null;
+    const stock=await ctx.db.query("swap_stock_applied_receipts").withIndex("by_swap",q=>q.eq("swapId",swap._id)).unique();
+    if(!stock||stock.deliveryState!=="acknowledged"||stock.stockRisk===true)return null;
+  }
+  const recipientEmail=receipt.recipientEmail||booking.guestEmail||account.email;
+  if(typeof recipientEmail!=="string"||!recipientEmail.includes("@"))return null;
+  await ctx.db.patch(receipt._id,{recipientEmail,lastAttemptAt:now});
+  return {...receipt,recipientEmail,claimAt:now};
+}});
+
+export const markSwapAdjustmentEmailSent=internalMutation({args:{receiptId:v.id("rental_swap_adjustment_receipts"),claimAt:v.number()},handler:async(ctx,{receiptId,claimAt})=>{
+  const receipt=await ctx.db.get(receiptId);
+  if(!receipt||receipt.emailState==="sent")return false;
+  if(receipt.lastAttemptAt!==claimAt||claimAt<Date.now()-SWAP_ADJUSTMENT_EMAIL_LEASE_MS)throw Error("The equipment adjustment email claim expired.");
+  await ctx.db.patch(receipt._id,{emailState:"sent",sentAt:Date.now()});
+  return true;
+}});
+
+export const swapAdjustmentEmail=internalAction({args:{receiptId:v.id("rental_swap_adjustment_receipts")},handler:async(ctx,{receiptId})=>{
+  const receipt:any=await ctx.runMutation((internal as any).invoice.claimSwapAdjustmentEmail,{receiptId});
+  if(!receipt)return {sent:false,waiting:true};
+  const equipmentRows=receipt.changes.map((change:any)=>`<tr><td style="padding:9px 12px;border-bottom:1px solid #eee">${esc(change.oldTitle)} → ${esc(change.newTitle)}<br><span style="color:#777">Qty ${change.oldQty} to ${change.newQty}</span></td><td style="padding:9px 12px;border-bottom:1px solid #eee;text-align:right">${poundsFromPence(change.oldLineTotalPence)} → ${poundsFromPence(change.newLineTotalPence)}</td></tr>`).join("");
+  const settlements:string[]=[];
+  if(receipt.cardChargePence>0)settlements.push(`<p><strong>Additional card payment:</strong> ${poundsFromPence(receipt.cardChargePence)}</p>`);
+  if(receipt.cardRefundPence>0)settlements.push(`<p><strong>Refund to original payment method:</strong> ${poundsFromPence(receipt.cardRefundPence)}</p>`);
+  if(receipt.accountCreditRestoredPence>0)settlements.push(`<p><strong>Account credit restored:</strong> ${poundsFromPence(receipt.accountCreditRestoredPence)}</p>`);
+  if(!settlements.length)settlements.push("<p>No additional card payment or refund was needed.</p>");
+  const app=process.env.APP_URL??"https://dbcinemarentals.com";
+  const url=`${app}/account?rental=${encodeURIComponent(String(receipt.bookingId))}#chat`;
+  const result=await sendMail({
+    deliveryKey:`swap-adjustment-${receipt._id}`,
+    to:receipt.recipientEmail,
+    subject:`Equipment change adjustment · ${receipt.originalInvoiceNumber}`,
+    html:rentalEmail({
+      title:"Equipment change adjustment",
+      preview:`Your equipment change is recorded against invoice ${receipt.originalInvoiceNumber}.`,
+      url,button:"View rental details",
+      body:`<p>This itemised adjustment applies to rental invoice <strong>${esc(receipt.originalInvoiceNumber)}</strong>. It does not replace the original rental invoice; it records only the accepted equipment change and its settlement.</p><table role="presentation" style="width:100%;border-collapse:collapse"><thead><tr><th align="left" style="padding:8px 12px;border-bottom:1px solid #ddd">Equipment</th><th align="right" style="padding:8px 12px;border-bottom:1px solid #ddd">Rental line</th></tr></thead><tbody>${equipmentRows}</tbody></table><div style="margin-top:14px">${settlements.join("")}</div><p style="font-size:12px;color:#777">Issued ${new Date(receipt.issuedAt).toLocaleDateString("en-GB",{timeZone:"Europe/London",day:"numeric",month:"short",year:"numeric"})}. This is an itemised adjustment, not a second rental charge.</p>`,
+    }),
+  });
+  if(result)await ctx.runMutation((internal as any).invoice.markSwapAdjustmentEmailSent,{receiptId,claimAt:receipt.claimAt});
+  return {sent:result};
+}});
+
 export const retryReturnStatements = internalAction({
   args: {},
   handler: async (ctx) => {
     const ids: any[] = await ctx.runQuery(internal.bookings.dueReturnStatementEmails, {});
     for (const bookingId of ids) await ctx.runAction(internal.invoice.returnSettlementEmail, { bookingId });
+    const adjustmentIds:any[]=await ctx.runQuery((internal as any).invoice.dueSwapAdjustmentEmails,{});
+    for(const receiptId of adjustmentIds)try{await ctx.runAction((internal as any).invoice.swapAdjustmentEmail,{receiptId});}catch(error){console.error("Equipment adjustment email will retry",receiptId,error);}
   },
 });

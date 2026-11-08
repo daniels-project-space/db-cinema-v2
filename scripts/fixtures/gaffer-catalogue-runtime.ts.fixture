@@ -4,7 +4,7 @@ import { v } from "convex/values";
 export const seed = mutation({ args: {}, handler: async ctx => {
   const unit = await ctx.db.insert("inventory_units", { sku: "gaffer-fixture", name: "Synthetic FX3", quantityOwned: 1, replacementCost: 100, active: true });
   const base = { category: "Cameras", active: true, components: [{ inventoryUnitId: unit, qty: 1 }], pricing: { daily: 48 }, depositAmount: 0 };
-  await ctx.db.insert("listings", { ...base, slug: "gaffer-fx3-ok", title: "Sony FX3 camera" });
+  await ctx.db.insert("listings", { ...base, slug: "gaffer-fx3-ok", title: "Sony FX3 camera", sourceImages: ["https://images.example.test/sony-fx3.jpg"] });
   await ctx.db.insert("listings", { ...base, slug: "gaffer-fx3-hidden", title: "Sony FX3 hidden", suppressed: true });
   await ctx.db.insert("listings", { ...base, slug: "gaffer-fx3-unmapped", title: "Sony FX3 unmapped", stockMappingStatus: "incomplete" });
 } });

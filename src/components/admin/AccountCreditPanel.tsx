@@ -1,20 +1,151 @@
 "use client";
-import {useEffect,useRef,useState} from "react";
-import {useMutation,useQuery} from "convex/react";
-import {api} from "@cvx/_generated/api";
-import {AccountCreditReceipts} from "../account/AccountCreditReceipts";
-import {formatGbp} from "@/lib/pricing";
-export function AccountCreditPanel({token,accountId}:{token:string;accountId:string}){
- return <CreditPanel key={JSON.stringify([token,accountId])} token={token} accountId={accountId}/>;
+
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "@cvx/_generated/api";
+import { AccountCreditReceipts } from "../account/AccountCreditReceipts";
+import { formatGbp } from "@/lib/pricing";
+
+type SavedGrant = { id: string; digest: string; amount: string; expectedRevision?: number };
+
+export function AccountCreditPanel({ token, accountId }: { token: string; accountId: string }) {
+  return <CreditPanel key={JSON.stringify([token, accountId])} token={token} accountId={accountId} />;
 }
-function CreditPanel({token,accountId}:{token:string;accountId:string}){
- const grant=useMutation(api.accountCredits.grantAdmin),acknowledge=useMutation(api.accountCredits.acknowledgeGrant),rows=useQuery(api.accountCredits.adminHistory,{token,accountId:accountId as any}),status=useQuery(api.accountCredits.grantStatus,{token,accountId:accountId as any});
- const storageKey=`dbc-credit-request:${accountId}`,busyRef=useRef(false);
- const [pending,setPending]=useState<{id:string;digest:string;revision:number}|null>(null),[storageReady,setStorageReady]=useState(false),[storageError,setStorageError]=useState("");
- const [amount,setAmount]=useState("10"),[note,setNote]=useState(""),[reviewed,setReviewed]=useState(false),[busy,setBusy]=useState(false),[message,setMessage]=useState("");
- useEffect(()=>{try{const raw=sessionStorage.getItem(storageKey);if(raw){const saved=JSON.parse(raw);if(typeof saved.id!=="string"||!/^[a-f0-9-]{36}$/.test(saved.id)||typeof saved.digest!=="string"||!/^[a-f0-9]{64}$/.test(saved.digest)||!Number.isSafeInteger(saved.revision)||saved.revision<0)throw Error("Invalid saved request");setPending(saved);}setStorageReady(true);}catch{setStorageError("Credit recovery is unavailable or a previous request needs manual reconciliation. Check credit history before issuing another grant.");}},[storageKey]);
- function edit(fn:()=>void){fn();setReviewed(false);setMessage("");}
- async function submit(){if(busyRef.current||!reviewed||!storageReady||storageError||!status||status.pending)return;busyRef.current=true;setBusy(true);setMessage("");try{const id=pending?.id??crypto.randomUUID();const input=JSON.stringify([id,accountId,Number(amount),note.trim()||"Administrator account credit"]);const hash=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(input));const digest=Array.from(new Uint8Array(hash),byte=>byte.toString(16).padStart(2,"0")).join("");if(pending&&pending.digest!==digest)throw Error("Enter the same amount and note as the saved request before retrying.");const saved=pending??{id,digest,revision:status.revision};if(!pending){sessionStorage.setItem(storageKey,JSON.stringify(saved));setPending(saved);}const result=await grant({token,accountId:accountId as any,amount:Number(amount),reason:note.trim()||undefined,requestId:id,confirmed:true,expectedRevision:saved.revision});try{sessionStorage.removeItem(storageKey);setPending(null);}catch{setStorageError("Credit was issued, but the saved request could not be cleared. Do not issue another grant in this tab.");}setReviewed(false);setMessage(`${formatGbp(result.amount)} credit issued. Valid until ${new Date(result.expiresAt).toLocaleDateString("en-GB",{timeZone:"Europe/London"})}.`);}catch(e:any){setMessage(e?.data?.message??e.message??"Credit could not be issued. Retry the same request to reconcile its result.");}finally{busyRef.current=false;setBusy(false);}}
- async function acknowledgeReceipt(){if(busyRef.current||!status?.pending)return;busyRef.current=true;setBusy(true);setMessage("");try{await acknowledge({token,accountId:accountId as any,issueId:status.pending.id,expectedRevision:status.revision,confirmed:true});sessionStorage.removeItem(storageKey);setPending(null);setReviewed(false);setMessage("Credit receipt acknowledged.");}catch(e:any){setMessage(e?.data?.message??e.message??"Could not acknowledge this receipt; refresh its status before retrying.");}finally{busyRef.current=false;setBusy(false);}}
- return <section aria-label="Account credit controls" className="space-y-4 rounded-2xl border border-white/10 bg-white/[.03] p-5"><h3 className="text-lg font-medium text-white">Account credit</h3><p className="text-sm text-white/55">Issue non-refundable account credit, valid for 365 days. Existing rentals and card payments are unaffected.</p>{status?.pending&&<div role="status" className="rounded-xl border border-amber-300/30 p-3 text-sm text-amber-100"><p>Review the previous credit before issuing another: <strong>{formatGbp(status.pending.amount)}</strong>, {status.pending.reason}, issued {new Date(status.pending.createdAt).toLocaleString("en-GB",{timeZone:"Europe/London"})}.</p><button type="button" disabled={busy} onClick={()=>void acknowledgeReceipt()} className="mt-3 rounded-lg border border-amber-200/50 px-3 py-2 disabled:opacity-40">I reviewed this receipt</button></div>}{pending&&!status?.pending&&<p role="status" className="text-sm text-amber-200">A previous request may already have issued credit. Enter its exact amount and note to safely retry; do not start another request.</p>}{storageError&&<p role="alert" className="text-sm text-rose-200">{storageError}</p>}<div className="flex flex-wrap gap-3"><label className="text-sm text-white/65">Amount (£)<input aria-label="Credit amount" type="number" min="0.01" step="0.01" value={amount} disabled={busy||!storageReady||!!storageError||!status||!!status.pending} onChange={e=>edit(()=>setAmount(e.target.value))} className="mt-2 block w-36 rounded-xl border border-white/15 bg-black/20 p-3 text-white"/></label><label className="min-w-52 flex-1 text-sm text-white/65">Note (optional)<input value={note} maxLength={500} disabled={busy||!storageReady||!!storageError||!status||!!status.pending} onChange={e=>edit(()=>setNote(e.target.value))} className="mt-2 block w-full rounded-xl border border-white/15 bg-black/20 p-3 text-white"/></label></div><label className="flex gap-2 text-sm text-white/75"><input type="checkbox" checked={reviewed} disabled={busy||!storageReady||!!storageError||!status||!!status.pending} onChange={e=>setReviewed(e.target.checked)}/>I confirm {formatGbp(Number(amount)||0)} for this account.</label><button type="button" disabled={busy||!storageReady||!!storageError||!status||!!status.pending||!reviewed||!Number.isFinite(Number(amount))||Number(amount)<=0||Math.round(Number(amount)*100)/100!==Number(amount)} onClick={()=>void submit()} className="btn-primary px-5 py-2 disabled:opacity-40">{busy?"Working…":pending?"Retry saved credit request":"Issue credit"}</button>{message&&<p role="status" className="text-sm text-white/75">{message}</p>}<div className="space-y-3">{rows?.map(row=><article key={row.id} className="flex flex-wrap justify-between gap-3 border-t border-white/10 pt-3 text-sm"><div><strong className="text-emerald-300">{formatGbp(row.amount)}</strong><p className="mt-1 text-white/60">{row.reason}</p></div><span className="text-xs text-white/50">Expires {new Date(row.expiresAt).toLocaleDateString("en-GB",{timeZone:"Europe/London"})}</span></article>)}</div><AccountCreditReceipts token={token} accountId={accountId}/></section>;
+
+function CreditPanel({ token, accountId }: { token: string; accountId: string }) {
+  const grant = useMutation(api.accountCredits.grantAdmin);
+  const storageKey = `dbc-credit-request:${accountId}`;
+  const busyRef = useRef(false);
+  const [saved, setSaved] = useState<SavedGrant | null>(null);
+  const [ready, setReady] = useState(false);
+  const [amount, setAmount] = useState("10");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<"success" | "attention">("attention");
+  const grantState = useQuery(api.accountCredits.grantStatus, saved
+    ? { token, accountId: accountId as any, requestId: saved.id }
+    : { token, accountId: accountId as any });
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(storageKey);
+      if (raw) {
+        const request = JSON.parse(raw) as SavedGrant;
+        if (typeof request.id === "string" && /^(?:[a-f0-9-]{36}|[a-f0-9]{64})$/.test(request.id)
+          && typeof request.digest === "string" && /^[a-f0-9]{64}$/.test(request.digest)
+          && typeof request.amount === "string"
+          && (request.expectedRevision === undefined || (Number.isSafeInteger(request.expectedRevision) && request.expectedRevision >= 0))) {
+          setSaved(request);
+          setAmount(request.amount);
+        } else {
+          sessionStorage.removeItem(storageKey);
+        }
+      }
+    } catch {
+      setMessage("Retry protection is available for this open tab only.");
+      setMessageTone("attention");
+    } finally {
+      setReady(true);
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!ready || !saved || !grantState) return;
+    const receipt = grantState.receipt;
+    if (receipt?.requestId === saved.id) {
+      try { sessionStorage.removeItem(storageKey); } catch {}
+      setSaved(null);
+      setMessage(`${formatGbp(receipt.amount)} added · available until ${new Date(receipt.expiresAt).toLocaleDateString("en-GB", { timeZone: "Europe/London" })}.`);
+      setMessageTone("success");
+      return;
+    }
+    if (saved.expectedRevision !== undefined && grantState.revision > saved.expectedRevision) {
+      try { sessionStorage.removeItem(storageKey); } catch {}
+      setSaved(null);
+      setMessage("Account credit changed in another tab. Review the latest balance, then try again.");
+      setMessageTone("attention");
+    }
+  }, [ready, saved, grantState, storageKey]);
+
+  async function submit() {
+    const numericAmount = Number(amount);
+    if (busyRef.current || !ready || !grantState || !Number.isFinite(numericAmount) || numericAmount <= 0
+      || Math.round(numericAmount * 100) / 100 !== numericAmount) return;
+
+    busyRef.current = true;
+    setBusy(true);
+    setMessage("");
+    setMessageTone("attention");
+    try {
+      const reason = note.trim() || "Administrator account credit";
+      const digestInput = JSON.stringify([accountId, numericAmount, reason]);
+      const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(digestInput));
+      const digest = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join("");
+      if (saved && saved.digest !== digest) {
+        setMessage("Request may have completed. Retry with the saved amount and same note.");
+        return;
+      }
+
+      const request = saved
+        ? { ...saved, expectedRevision: saved.expectedRevision ?? grantState.revision }
+        : {
+            id: Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([accountId, grantState.revision, numericAmount, reason])))), byte => byte.toString(16).padStart(2, "0")).join(""),
+            digest,
+            amount,
+            expectedRevision: grantState.revision,
+          };
+      setSaved(request);
+      try { sessionStorage.setItem(storageKey, JSON.stringify(request)); }
+      catch { setMessage("Issuing now. Keep this tab open until the result appears."); setMessageTone("attention"); }
+
+      const result = await grant({ token, accountId: accountId as any, amount: numericAmount, reason, requestId: request.id, expectedRevision: request.expectedRevision! });
+      try { sessionStorage.removeItem(storageKey); } catch {}
+      setSaved(null);
+      setMessage(`${formatGbp(result.amount)} added · available until ${new Date(result.expiresAt).toLocaleDateString("en-GB", { timeZone: "Europe/London" })}.`);
+      setMessageTone("success");
+    } catch (error: any) {
+      setMessage(error?.data?.message ?? error.message ?? "Credit was not confirmed. Retry the saved request safely.");
+      setMessageTone("attention");
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  const validAmount = Number.isFinite(Number(amount)) && Number(amount) > 0
+    && Math.round(Number(amount) * 100) / 100 === Number(amount);
+
+  return (
+    <section aria-label="Account credit controls" className="relative isolate space-y-3 overflow-hidden rounded-2xl border border-white/10 bg-[linear-gradient(145deg,rgba(255,255,255,.055),rgba(21,23,25,.96)_45%,rgba(87,61,37,.18))] p-3.5 shadow-[0_14px_42px_rgba(0,0,0,.2)] backdrop-blur-2xl">
+      <div className="flex items-center gap-2.5">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-amber-100/15 bg-amber-100/[.07] text-amber-100">
+          <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3.5" y="6" width="17" height="12" rx="2.5"/><path d="M3.5 10h17M7 14h3"/><circle cx="16.5" cy="14" r="1.5"/></svg>
+        </span>
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold tracking-tight text-white">Issue account credit</h3>
+          <p className="text-[11px] text-white/50">Adds spendable checkout balance · valid 365 days</p>
+        </div>
+      </div>
+
+      {saved && <div role="status" className="rounded-xl border border-sky-200/15 bg-sky-200/[.06] px-3 py-2 text-xs text-sky-50"><strong className="font-medium">Request saved</strong><span className="ml-2 text-sky-100/70">{formatGbp(Number(saved.amount))} · retry with the same note</span></div>}
+
+      <div className="grid gap-2 sm:grid-cols-[minmax(6rem,.38fr)_minmax(0,1fr)]">
+        <label className="text-[10px] font-medium uppercase tracking-[.1em] text-white/45">Amount (£)
+          <input aria-label="Credit amount" type="number" min="0.01" step="0.01" value={amount} disabled={busy || !!saved} onChange={event => setAmount(event.target.value)} className="mt-1.5 block w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm font-medium text-white outline-none transition focus:border-amber-100/35 focus:ring-2 focus:ring-amber-100/[.06] disabled:opacity-60" />
+        </label>
+        <label className="text-[10px] font-medium uppercase tracking-[.1em] text-white/45">Reason <span className="normal-case tracking-normal text-white/30">optional</span>
+          <input aria-label="Credit note" value={note} maxLength={500} disabled={busy} onChange={event => setNote(event.target.value)} placeholder="Add a short note" className="mt-1.5 block w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-amber-100/35 focus:ring-2 focus:ring-amber-100/[.06] disabled:opacity-60" />
+        </label>
+      </div>
+
+      <button type="button" data-testid="account-credit-submit" disabled={busy || !ready || !grantState || !validAmount} onClick={() => void submit()} className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-amber-100/20 bg-gradient-to-r from-amber-200 via-amber-100 to-orange-200 px-3.5 py-2 text-xs font-semibold text-zinc-950 shadow-[0_8px_22px_rgba(207,158,102,.16)] transition hover:-translate-y-px hover:shadow-[0_10px_26px_rgba(207,158,102,.24)] disabled:translate-y-0 disabled:opacity-45">
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+        {busy ? "Adding…" : saved ? `Retry ${formatGbp(Number(saved.amount))}` : `Add ${formatGbp(Number(amount) || 0)}`}
+      </button>
+      {message && <p role="status" className={`rounded-xl border px-3 py-2 text-xs leading-relaxed ${messageTone === "success" ? "border-emerald-200/15 bg-emerald-200/[.06] text-emerald-50" : "border-amber-200/15 bg-amber-200/[.06] text-amber-50"}`}>{message}</p>}
+
+      <AccountCreditReceipts token={token} accountId={accountId} />
+    </section>
+  );
 }

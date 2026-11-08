@@ -5,11 +5,11 @@ import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { rentalsForAccount, belongsToRentalAccount } from "./lib/rentalAccount";
 import { availableCreditRows } from "./lib/checkoutCredit";
-import { listingImages } from "./lib/catalogImages";
+import { listingRentalImages } from "./lib/catalogImages";
 import { paginationOptsValidator } from "convex/server";
 import { accountVerificationReady } from "./lib/accountVerificationReady";
 import { verificationValidUntil } from "../shared/verificationProgress";
-import { customerAdminVisual } from "../shared/customerAdminVisual";
+import { customerAdminVisual, customerSubscriptionTier } from "../shared/customerAdminVisual";
 import { loyaltyProgressWithin } from "./lib/loyalty";
 import { approvedRestrictedIdentitySource, restrictedIdentityMatches } from "./lib/restrictedIdentityMatch";
 import { internal } from "./_generated/api";
@@ -58,6 +58,20 @@ export const possibleRestrictedIdentityMatches = query({
 
 const directoryView = v.optional(v.union(v.literal("all"), v.literal("unread"), v.literal("starred")));
 
+function effectiveAccessTier(account: any) {
+  return membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard";
+}
+
+async function effectiveEncoreTier(ctx: any, account: any) {
+  if (account.adminEncoreLevel != null) return account.adminEncoreLevel;
+  const progress = await loyaltyProgressWithin(ctx, account, 100);
+  return progress?.completed ?? 0;
+}
+
+function tierFilterMatches(filter: string, subscriptionTier: string | null) {
+  return filter === "all" || (filter === "standard" ? subscriptionTier == null : subscriptionTier === filter);
+}
+
 async function belongsToCustomerConversation(ctx: QueryCtx, account: any, conversation: { bookingId?: any }) {
   return !conversation.bookingId || belongsToRentalAccount(await ctx.db.get(conversation.bookingId), account);
 }
@@ -104,6 +118,20 @@ export const billingPortalTarget = internalMutation({
   },
 });
 
+export const billingCustomerPortalTarget = internalMutation({
+  args: { token: v.string(), accountId: v.id("accounts") },
+  handler: async (ctx, { token, accountId }) => {
+    if (process.env.ADMIN_SESSION_BILLING_PORTAL_V2 === "enabled") {
+      if (!adminSessionMigrationReady()) throw Error("Admin session migration is not ready.");
+      await assertAdminScopeSession(ctx, token, "payments:write");
+      await ctx.db.insert("admin_audit_log", { at: Date.now(), success: true, limited: false, fn: `accountAdmin.billingPortal:${accountId}` });
+    } else await assertAdmin(ctx, token, `accountAdmin.billingPortal:${accountId}`);
+    const account = await ctx.db.get(accountId);
+    if (!account?.stripeCustomerId) throw Error("This account does not have a linked Stripe customer.");
+    return { customerId: account.stripeCustomerId };
+  },
+});
+
 export const membershipInvoiceReceipt = internalQuery({
   args:{accountId:v.id("accounts"),customerId:v.string(),subscriptionId:v.string(),invoiceId:v.string()},
   handler:async(ctx,args)=>{
@@ -135,23 +163,32 @@ export const directory = query({
     const result = await ctx.db.query("accounts").order("desc").paginate(args.paginationOpts);
     const search = args.search.trim().toLocaleLowerCase("en-GB");
     const checked=await Promise.all(result.page.map(async account=>({account,readiness:await accountVerificationReady(ctx,account),viewMatch:await matchesDirectoryView(ctx,account,args.view)})));
-    const matches = checked.filter(({account,readiness,viewMatch}) => {
-      const verified = !!readiness;
-      const tier = membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard";
-      const encoreMatch = !args.encore || args.encore === "all" ||
-        (args.encore === "automatic" ? account.adminEncoreLevel == null : String(account.adminEncoreLevel) === args.encore);
+    const baseMatches = checked.filter(({account,viewMatch}) => {
+      const subscriptionTier = customerSubscriptionTier(account);
       return viewMatch && (!search || `${account.name ?? ""} ${account.email}`.toLocaleLowerCase("en-GB").includes(search)) &&
-        (args.tier === "all" || tier === args.tier) &&
-        encoreMatch &&
-        (!args.verification || args.verification === "all" || (args.verification === "verified" ? verified : !verified)) &&
-        (args.filter === "all" || args.filter === "members" && tier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified);
+        tierFilterMatches(args.tier, subscriptionTier);
     });
-    return { ...result, page: await Promise.all(matches.map(async ({account,readiness}) => ({
+    const matches = await Promise.all(baseMatches.map(async row => ({
+      ...row,
+      accessTier: effectiveAccessTier(row.account),
+      effectiveEncore: args.encore && ["1", "2", "3"].includes(args.encore)
+        ? await effectiveEncoreTier(ctx, row.account)
+        : row.account.adminEncoreLevel ?? 0,
+    })));
+    const filtered = matches.filter(({account,readiness,effectiveEncore,accessTier}) => {
+      const verified = !!readiness;
+      const encoreMatch = !args.encore || args.encore === "all" ||
+        (args.encore === "automatic" ? account.adminEncoreLevel == null : String(effectiveEncore) === args.encore);
+      return encoreMatch &&
+        (!args.verification || args.verification === "all" || (args.verification === "verified" ? verified : !verified)) &&
+        (args.filter === "all" || args.filter === "members" && accessTier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified);
+    });
+    return { ...result, page: await Promise.all(filtered.map(async ({account,readiness,accessTier}) => ({
       id: account._id, email: account.email, name: account.name ?? "", createdAt: account.createdAt,
-      tier: membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard",
+      tier: accessTier,
       override: account.adminMembershipTier ?? "automatic", encoreOverride: account.adminEncoreLevel == null ? "automatic" : String(account.adminEncoreLevel), blocked: account.blockedAt != null,
       blockedReason: account.blockedReason ?? "", blockedAt: account.blockedAt ?? null, restrictionRevision: account.restrictionRevision ?? 0, restrictionNoticeId: account.restrictionNoticeId ?? null, hasSubscription: !!account.stripeSubscriptionId, visualTier: customerAdminVisual(account), starred: account.adminStarred === true,
-      subscriptionTier: account.membershipTier ?? null,
+      subscriptionTier: customerSubscriptionTier(account),
       verified: !!readiness, verifiedUntil: readiness?.proofExpiresAt ?? null,
       avatarUrl: account.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
     }))) };
@@ -185,10 +222,14 @@ export const searchMessages = query({
       if (!await matchesDirectoryView(ctx, account, args.view)) continue;
       const readiness = await accountVerificationReady(ctx, account);
       const verified = !!readiness;
-      const tier = membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard";
+      const tier = effectiveAccessTier(account);
+      const subscriptionTier = customerSubscriptionTier(account);
+      const effectiveEncore = args.encore && ["1", "2", "3"].includes(args.encore)
+        ? await effectiveEncoreTier(ctx, account)
+        : account.adminEncoreLevel ?? 0;
       const encoreMatch = !args.encore || args.encore === "all" ||
-        (args.encore === "automatic" ? account.adminEncoreLevel == null : String(account.adminEncoreLevel) === args.encore);
-      if (args.tier !== "all" && tier !== args.tier) continue;
+        (args.encore === "automatic" ? account.adminEncoreLevel == null : String(effectiveEncore) === args.encore);
+      if (!tierFilterMatches(args.tier, subscriptionTier)) continue;
       if (!encoreMatch) continue;
       if (args.verification && args.verification !== "all" && (args.verification === "verified" ? !verified : verified)) continue;
       if (!(args.filter === "all" || args.filter === "members" && tier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified)) continue;
@@ -196,7 +237,7 @@ export const searchMessages = query({
         id: account._id, email: account.email, name: account.name ?? "", createdAt: account.createdAt,
         tier, override: account.adminMembershipTier ?? "automatic", encoreOverride: account.adminEncoreLevel == null ? "automatic" : String(account.adminEncoreLevel),
         blocked: account.blockedAt != null, blockedReason: account.blockedReason ?? "", blockedAt: account.blockedAt ?? null, restrictionRevision: account.restrictionRevision ?? 0, restrictionNoticeId: account.restrictionNoticeId ?? null, hasSubscription: !!account.stripeSubscriptionId, visualTier: customerAdminVisual(account),
-        subscriptionTier: account.membershipTier ?? null, verified, verifiedUntil: readiness?.proofExpiresAt ?? null, starred: account.adminStarred === true,
+        subscriptionTier, verified, verifiedUntil: readiness?.proofExpiresAt ?? null, starred: account.adminStarred === true,
         avatarUrl: account.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
         matchedMessage: message.text.slice(0, 150),
       });
@@ -361,6 +402,66 @@ export const setEncoreLevel = mutation({
     });
   },
 });
+export const updateProfile = mutation({
+  args: {
+    token: v.string(),
+    accountId: v.id("accounts"),
+    name: v.string(),
+    phone: v.string(),
+    address: v.string(),
+    expected: v.object({
+      name: v.union(v.string(), v.null()),
+      phone: v.union(v.string(), v.null()),
+      address: v.union(v.string(), v.null()),
+    }),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await authorizeCustomerWrite(ctx, args.token, "accountAdmin.updateProfile");
+    const account = await ctx.db.get(args.accountId);
+    if (!account) throw Error("Account no longer exists.");
+    const reason = args.reason.trim();
+    if (reason.length < 3 || reason.length > 500) throw Error("Add a short reason for this profile edit.");
+    const current = {
+      name: account.name ?? null,
+      phone: account.phone ?? null,
+      address: account.address ?? null,
+    };
+    if (current.name !== args.expected.name || current.phone !== args.expected.phone || current.address !== args.expected.address)
+      throw Error("Account details changed in another session. Review the current values and try again.");
+
+    const name = args.name.trim().replace(/\s+/g, " ");
+    const phone = args.phone.trim().replace(/\s+/g, " ");
+    const address = args.address.trim().replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ");
+    if (name.length > 120 || /[\u0000-\u001f\u007f]/.test(name)) throw Error("Name must be 120 characters or fewer.");
+    if (phone.length > 40 || (phone && !/^[+0-9(). -]+$/.test(phone))) throw Error("Enter a phone number using digits and standard phone punctuation.");
+    if (address.length > 300 || /[\u0000-\u001f\u007f]/.test(address)) throw Error("Address must be 300 characters or fewer.");
+
+    const next = {
+      name: name || null,
+      phone: phone || null,
+      address: address || null,
+    };
+    const changed = (Object.keys(next) as Array<keyof typeof next>).filter((field) => current[field] !== next[field]);
+    if (!changed.length) return { updated: false };
+    await ctx.db.patch(account._id, {
+      name: next.name ?? undefined,
+      phone: next.phone ?? undefined,
+      address: next.address ?? undefined,
+    });
+    // Keep the audit entry free of contact values; the current account row is
+    // authoritative and the audit records which fields were changed.
+    await ctx.db.insert("account_admin_changes", {
+      accountId: account._id,
+      at: Date.now(),
+      kind: "profile_update",
+      before: changed.join(", "),
+      after: "updated",
+      reason,
+    });
+    return { updated: true };
+  },
+});
 export const setBlocked = mutation({
   args: {
     token: v.string(),
@@ -478,10 +579,14 @@ export const detail = query({
           if (previous) previous.qty += line.qty;
           else grouped.set(key, { listingId: line.listingId, title: line.title, qty: line.qty });
         }
-        const items = await Promise.all([...grouped.values()].map(async item => ({
-          ...item,
-          imageSources: listingImages(item.listingId ? await ctx.db.get(item.listingId) : null),
-        })));
+        const items = await Promise.all([...grouped.values()].map(async item => {
+          const imageSources = listingRentalImages(item.listingId ? await ctx.db.get(item.listingId) : null);
+          return {
+            ...item,
+            heroImage: imageSources[0] ?? null,
+            imageSources,
+          };
+        }));
         return {
           id: booking._id,
           status: booking.status,
@@ -516,8 +621,10 @@ export const detail = query({
     ).filter((t): t is NonNullable<typeof t> => !!t);
     return {
       id: account._id,
+      name: account.name ?? null,
       phone: account.phone ?? null,
       address: account.address ?? null,
+      hasBillingCustomer: !!account.stripeCustomerId,
       createdAt: account.createdAt,
       membershipStatus: account.membershipStatus ?? null,
       membershipActive: membershipActiveNow(account),

@@ -26,6 +26,9 @@ put("sessions", {
 });
 const item = put("listings", {
   title: "Camera",
+  reviewedImageUrls: ["https://images.example.test/camera-reviewed.jpg"],
+  r2Images: ["https://images.example.test/camera-r2.jpg"],
+  sourceImages: ["https://images.example.test/camera-source.jpg"],
   rentalContents: {
     included: ["Camera body"],
     optional: [],
@@ -67,6 +70,18 @@ process.env.ADMIN_TOKEN = "fixture-owner-only";
   assert.equal(ownerThread.renter.phone, "+44 7700 900123", "the booking phone is visible to the owner");
   const renterThread = await rental.messages.handler(ctx, { token: "valid", bookingId: booking._id, paginationOpts: { numItems: 10, cursor: null } });
   assert.equal(renterThread.renter.phone, null, "the owner-only contact is never sent to renter clients");
+  assert.equal(renterThread.caseArchivedAt, null, "the renter chat never receives the admin case-archive marker");
+  const archivedAt=Date.now()-1000;put("chat_threads",{accountId:a._id,bookingId:booking._id,escalated:false,updatedAt:archivedAt,caseArchivedAt:archivedAt});
+  const archivedOwner=await rental.messages.handler(ctx,{token:"fixture-owner-only",admin:true,bookingId:booking._id,paginationOpts:{numItems:10,cursor:null}});
+  const archivedRenter=await rental.messages.handler(ctx,{token:"valid",bookingId:booking._id,paginationOpts:{numItems:10,cursor:null}});
+  assert.equal(archivedOwner.caseArchivedAt,archivedAt,"Admins can see the permanent archive marker on the rental chat");
+  assert.equal(archivedRenter.caseArchivedAt,null,"The archive marker is not exposed to renters");
+  const renterBooking = await rental.getConversation.handler(ctx, { token: "valid", bookingId: booking._id });
+  assert.deepEqual(renterBooking.items[0].imageSources, [
+    "https://images.example.test/camera-reviewed.jpg",
+    "https://images.example.test/camera-r2.jpg",
+  ], "each rental chat item uses its exact listing's approved photo and catalog fallback");
+  assert.equal(renterBooking.items[0].heroImage, "https://images.example.test/camera-reviewed.jpg");
   const generalThread = await rental.messages.handler(ctx, { token: "fixture-owner-only", admin: true, accountId: a._id, paginationOpts: { numItems: 10, cursor: null } });
   assert.equal(generalThread.renter.phone, "+44 20 1234 5678", "general conversations use the account phone");
   assert.equal(await rental.messages.handler(ctx, { token: "invalid", admin: true, bookingId: booking._id, paginationOpts: { numItems: 10, cursor: null } }), null);

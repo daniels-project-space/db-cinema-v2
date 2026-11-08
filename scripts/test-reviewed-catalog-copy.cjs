@@ -41,6 +41,7 @@ for(const [title,includesLens] of [
 for(const [variant,mount] of [['EF','EF'],['PL','PL'],['L-Mount','L']])assert.equal(deriveSpecs('Blackmagic PYXIS 6K '+variant,'camera-body').mount,mount);
 assert.equal(deriveSpecs('Canon EF zoom lens for Blackmagic PYXIS 6K','lens').mount,'EF','Camera rule must not replace a lens mount');
 const copy=h.load('convex/rentalContents.ts'),catalog=h.load('convex/catalog.ts'),{catalogCopyFingerprint}=h.load('shared/catalogCopy.ts');
+const {listingRentalImages}=h.load('convex/lib/catalogImages.ts');
 const listing=h.put('listings',{slug:'copy-fixture',title:'Fixture camera kit',hyggloProductId:100,category:'Cameras',components:[{inventoryUnitId:'inventory_units-fixture',qty:1}],active:true,pricing:{daily:50},depositAmount:1000,sourceImages:['https://fixture.invalid/image.jpg'],knowledge:{summary:'Old summary'}});
 h.put('inventory_units',{_id:'inventory_units-fixture',rmv2ItemId:'fixture-camera',sku:'mi-fixture-camera',name:'Fixture camera',quantityOwned:1,replacementCost:1000,active:true});
 const original={price:structuredClone(listing.pricing),deposit:listing.depositAmount,components:structuredClone(listing.components),images:structuredClone(listing.sourceImages)},contents={included:['1x Camera','2x Batteries'],optional:['Tripod on request'],excluded:['Standard USB charging lead'],notes:['Collect at the agreed time.'],status:'documented',sources:[{account:'diogo',productId:200,url:'https://hygglo.com/uk/i/fixture-camera-kit',checkedAt:Date.now(),excerpt:'In this kit:\n- 1x Camera\n- 2x Batteries\nTripod on request. Standard USB charging lead is not included.'}]};
@@ -56,6 +57,7 @@ const args={token:process.env.ADMIN_TOKEN,requestId:'reviewed-catalog-copy-fixtu
  assert((await catalog.getListingBySlug.handler(ctx,{slug:listing.slug})).gallery.includes(sourcePictures[0]),'Normal galleries retain their source photos');
  await catalog.applyR2Images.handler(ctx,{token:process.env.ADMIN_TOKEN,items:[{...imageInput.items[0],replaceGallery:true}]});
  assert.deepEqual((await catalog.getListingBySlug.handler(ctx,{slug:listing.slug})).gallery,imageInput.items[0].r2Images,'Reviewed pictures exclude incorrect legacy variants from public output');
+ assert.deepEqual(listingRentalImages(listing),imageInput.items[0].r2Images,'Rental cards use the exact reviewed real-product photos shown in the public gallery');
  assert.deepEqual(listing.sourceImages,sourcePictures,'Original pictures are retained privately');
 
  await assert.rejects(catalog.applyR2Images.handler(ctx,{token:process.env.ADMIN_TOKEN,items:Array.from({length:101},()=>imageInput.items[0])}),/batch limit/);
@@ -87,5 +89,5 @@ const args={token:process.env.ADMIN_TOKEN,requestId:'reviewed-catalog-copy-fixtu
  const projector=h.put('listings',{slug:'projector-fixture',hyggloProductId:101,title:'NEBULA Projector Fixture',itemType:'battery',category:'Power',isPackage:false,sizeScore:2,weightKg:1.5,pricing:{daily:30},depositAmount:100,components:[],stockMappingStatus:'not_owned',specs:{includesLens:false},active:true});
  await sync.applyCatalog.handler(ctx,{items:[{...source,hyggloProductId:101,slug:projector.slug,title:projector.title,itemType:'projector',category:'Projectors',sizeScore:4,weightKg:8,pricing:projector.pricing,depositAmount:100,stockComponents:[],stockMappingStatus:'not_owned'}]});
  assert.equal(projector.itemType,'projector');assert.equal(projector.category,'Projectors');assert.equal(projector.sizeScore,2);assert.equal(projector.weightKg,1.5);assert.equal(projector.pricing.daily,30);assert.deepEqual(projector.components,[]);assert.equal(projector.stockMappingStatus,'not_owned');
- console.log('PASS actual reviewed-copy publishing → public listing query → real included/optional/excluded UI: two recorded reviews, exact seller identity, stale-copy rejection, immutable request replay, protected auth, plain escaped text, unknown accessories remain unknown; unchanged prices, stock, images and rentals. Synthetic data only.');
+ console.log('PASS actual reviewed-copy publishing → public listing query → real included/optional/excluded UI: two recorded reviews, exact seller identity, stale-copy rejection, immutable request replay, protected auth, plain escaped text, unknown accessories remain unknown; prices, stock, original source photos and rentals stay intact. Synthetic data only.');
 })().catch(e=>{console.error(e);process.exitCode=1});

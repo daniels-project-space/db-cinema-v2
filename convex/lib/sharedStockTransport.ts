@@ -9,13 +9,18 @@ export type StockRequest =
   | { operation: "checkCompensatedRelease"; args: { id: string; fingerprint: string; executionKey: string; evidence: { swapId:string; bookingId:string; bookingRevision:number; paymentIntentId:string; refundId:string; refundStatus:"succeeded"; amountPence:number; refundAttemptedAt:number; windows:Array<{itemId:string;start:number;end:number;quantity:number}> } } }
   | { operation: "releasePrepared"; args: { id: string; fingerprint: string; reason: "withdrawn_before_execution" | "abandoned_before_execution" } };
 
-export type StockTransportResult = { status: "offline" | "unknown" } | { status: "confirmed"; result: Record<string, unknown> };
+export type StockTransportResult = { status: "offline" | "unknown" | "capacity_conflict" } | { status: "confirmed"; result: Record<string, unknown> };
 const MAX_RESPONSE = 16384;
 
 function endpoint(raw: string): string {
   const url = new URL(raw);
   if (url.protocol !== "https:" || !/^[a-z0-9-]+\.convex\.site$/.test(url.hostname) || url.port || url.username || url.password || url.pathname !== "/dbcinema/booking-sync" || url.search || url.hash) throw Error("Invalid Rental Manager endpoint.");
   return `${url.origin}/dbcinema/shared-stock`;
+}
+
+export function sharedStockTransportConfigured(managerUrl?: string, secret?: string): boolean {
+  if (!managerUrl || !secret || secret.length < 32) return false;
+  try { endpoint(managerUrl); return true; } catch { return false; }
 }
 
 async function boundedText(response: Response): Promise<string> {
@@ -68,12 +73,16 @@ function validReceipt(request: StockRequest, receipt: any): boolean {
   if(request.operation === "acquireZero") {
     const normalize=(items:Item[])=>items.map(line=>[line.itemId,line.start,line.returnAt,line.quantity]);
     const fingerprint=JSON.stringify(["zero-capacity-v1",request.args.bookingId,normalize(request.args.oldItems),normalize(request.args.newItems)]);
-    return typeof result.requestId==="string"&&result.requestId.length>0&&result.requestId.length<256&&result.fingerprint===fingerprint&&(result.state==="prepared"||result.state==="execution_started");
+    const claimReady=result.state==="prepared"||result.state==="execution_started";
+    const alreadyConverted=result.state==="converted"&&typeof result.stockRisk==="boolean";
+    return typeof result.requestId==="string"&&result.requestId.length>0&&result.requestId.length<256&&result.fingerprint===fingerprint&&(claimReady||alreadyConverted);
   }
   if (request.operation === "acquire") {
     const lines = request.args.items.map(line => ({ ...line, end: line.returnAt + 3600000 })).sort((left, right) => left.itemId.localeCompare(right.itemId) || left.start - right.start || left.end - right.end || left.quantity - right.quantity);
     const fingerprint = JSON.stringify(lines.map(line => [line.itemId, line.start, line.end, line.quantity]));
-    return typeof result.requestId === "string" && result.requestId.length > 0 && result.requestId.length < 256 && result.fingerprint === fingerprint && (result.state === "prepared" || result.state === "execution_started");
+    const claimReady=result.state==="prepared"||result.state==="execution_started";
+    const alreadyConverted=result.state==="converted"&&typeof result.stockRisk==="boolean";
+    return typeof result.requestId === "string" && result.requestId.length > 0 && result.requestId.length < 256 && result.fingerprint === fingerprint && (claimReady||alreadyConverted);
   }
   return result.state === (request.operation === "releasePrepared" ? "released" : request.operation === "releaseCompensated" ? "compensated_released" : request.operation === "checkConversion" ? "converted" : "execution_started");
 }
@@ -86,7 +95,18 @@ export async function sendSharedStockRequest(request: StockRequest, config: { en
   if (new TextEncoder().encode(body).length > MAX_RESPONSE) return { status: "offline" };
   try {
     const response = await (config.fetcher ?? fetch)(url, { method: "POST", redirect: "error", headers: { "content-type": "application/json", "x-shared-stock-token": config.secret }, body, signal: AbortSignal.timeout(config.timeoutMs ?? 15000) });
-    if (!response.ok) return { status: "unknown" };
+    if (!response.ok) {
+      if (response.status !== 409) return { status: "unknown" };
+      try {
+        const rejection = JSON.parse(await boundedText(response));
+        if (rejection && Object.keys(rejection).sort().join(",") === "error,operation,version" &&
+          rejection.version === 1 && rejection.operation === request.operation && rejection.error === "capacity_conflict" &&
+          ["acquire", "beginExecution", "checkExecution"].includes(request.operation)) {
+          return { status: "capacity_conflict" };
+        }
+      } catch {}
+      return { status: "unknown" };
+    }
     const receipt = JSON.parse(await boundedText(response));
     return validReceipt(request, receipt) ? { status: "confirmed", result: receipt.result } : { status: "unknown" };
   } catch { return { status: "unknown" }; }

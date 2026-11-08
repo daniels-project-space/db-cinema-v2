@@ -34,6 +34,13 @@ const old = put("listings", {
     title: "Replacement body",
     components: [{ inventoryUnitId: newUnit._id, qty: 1 }],
   });
+const cheaperUnit = put("inventory_units", { name: "Lower-priced replacement", quantityOwned: 1 });
+const cheaper = put("listings", {
+  ...common,
+  title: "Lower-priced replacement",
+  pricing: { daily: 30 },
+  components: [{ inventoryUnitId: cheaperUnit._id, qty: 1 }],
+});
 const b = put("bookings", {
   status: "confirmed",
   guestEmail: "fixture@rental-test.invalid",
@@ -81,6 +88,8 @@ const args = {
   });
   assert.equal(opts.options.length, 1);
   assert.equal(opts.options[0].id, next._id);
+  assert(!opts.options.some(option => option.id === cheaper._id), "A free replacement cannot silently change the agreed rental charge");
+  await assert.rejects(replacements.accept.handler(ctx, { ...args, newListingId: cheaper._id }), /changes the agreed rental price/);
   for (const field of ["activeDeliveryQuoteId", "activePriceAdjustmentId"]) {
     await db.patch(b._id, { [field]: "open-change" });
     const lockedOptions = await replacements.options.handler(ctx, { token, bookingId: b._id, lineIndex: 0 });

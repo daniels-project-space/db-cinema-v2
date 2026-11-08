@@ -43,7 +43,39 @@ type Metrics = {
 };
 
 type Turn = { role: "gaffer" | "caller"; at: number; message: string };
-type Detail = { id: string; summary: string | null; durationSecs: number; turns: Turn[] };
+type GafferTelemetry = {
+  counts: {
+    connected: number;
+    conversationMetadata: number;
+    interruption: number;
+    agentCorrection: number;
+    agentResponseStart: number;
+    agentResponseStop: number;
+    agentSpeakingStart: number;
+    agentSpeakingStop: number;
+    disconnected: number;
+  };
+  events: { sequence: number; kind: string; at: number; providerEventId?: number; agentWasSpeaking?: boolean; originalResponseChars?: number; correctedResponseChars?: number }[];
+  eventCount: number;
+  timelineTruncated: boolean;
+  expiresAt: number;
+};
+type Detail = { id: string; summary: string | null; durationSecs: number; turns: Turn[]; telemetry: GafferTelemetry | null };
+type ProviderAgentSettings = {
+  role: string;
+  agentId: string;
+  name: string | null;
+  available: boolean;
+  providerStatus: number | null;
+  turnEagerness?: string | null;
+  turnTimeoutSeconds?: number | null;
+  turnModel?: string | null;
+  speculativeTurn?: boolean | null;
+  interruptionsEnabled?: boolean | null;
+  backgroundVoiceDetection?: boolean | null;
+  firstMessageInterruptionsDisabled?: boolean | null;
+  updatedAt?: number | null;
+};
 
 const dur = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 const when = (ms: number) =>
@@ -68,6 +100,9 @@ export function AdminGafferCalls({ token }: { token: string }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailBusy, setDetailBusy] = useState(false);
+  const [voiceSettings, setVoiceSettings] = useState<ProviderAgentSettings[] | null>(null);
+  const [voiceSettingsBusy, setVoiceSettingsBusy] = useState(false);
+  const [voiceSettingsError, setVoiceSettingsError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,6 +124,25 @@ export function AdminGafferCalls({ token }: { token: string }) {
   }, [token]);
 
   useEffect(() => { void load(); }, [load]);
+
+  async function loadVoiceSettings() {
+    setVoiceSettingsBusy(true);
+    setVoiceSettingsError(null);
+    try {
+      const r = await fetch("/api/admin/gaffer-calls", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token, action: "settings" }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error ?? `Request failed (${r.status})`);
+      setVoiceSettings(Array.isArray(j?.agents) ? j.agents : []);
+    } catch (e: any) {
+      setVoiceSettingsError(e?.message ?? "Could not read provider settings.");
+    } finally {
+      setVoiceSettingsBusy(false);
+    }
+  }
 
   async function openCall(id: string) {
     if (openId === id) { setOpenId(null); setDetail(null); return; }
@@ -155,7 +209,25 @@ export function AdminGafferCalls({ token }: { token: string }) {
         <button onClick={() => void load()} className="ml-auto text-white/40 underline underline-offset-2 hover:text-white/80">
           Refresh
         </button>
+        <button onClick={() => void loadVoiceSettings()} aria-expanded={voiceSettings !== null} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-[11px] text-white/65 transition hover:border-accent-300/30 hover:text-white">
+          {voiceSettingsBusy ? "Reading…" : "Voice settings"}
+        </button>
       </div>
+
+      {voiceSettingsError && <p role="alert" className="mt-2 text-xs text-rose-300/80">{voiceSettingsError}</p>}
+      {voiceSettings && <section className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3" aria-label="Read-only voice provider settings">
+        <div className="flex flex-wrap items-baseline justify-between gap-2"><strong className="text-xs text-white/80">Voice setup</strong><span className="text-[10px] text-white/35">Provider readback · not an audio test</span></div>
+        <div className="mt-2 grid gap-2 md:grid-cols-2">{voiceSettings.map(agent => <article key={agent.agentId} className="rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2">
+          <div className="flex flex-wrap justify-between gap-x-3 gap-y-1 text-xs"><strong className="text-white/80">{agent.role}</strong><span className="text-white/40">{agent.name ?? agent.agentId}</span></div>
+          {!agent.available ? <p className="mt-2 text-[11px] text-amber-200/80">Provider settings unavailable{agent.providerStatus ? ` · ${agent.providerStatus}` : ""}</p> : <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/45">
+            <span>Turn <b className="text-white/75">{agent.turnEagerness ?? "unknown"}</b></span>
+            <span>Interruptions <b className="text-white/75">{agent.interruptionsEnabled === null || agent.interruptionsEnabled === undefined ? "unknown" : agent.interruptionsEnabled ? "on" : "off"}</b></span>
+            <span>Silence <b className="text-white/75">{agent.turnTimeoutSeconds === null || agent.turnTimeoutSeconds === undefined ? "unknown" : `${agent.turnTimeoutSeconds}s`}</b></span>
+            <span>Background voices <b className="text-white/75">{agent.backgroundVoiceDetection === null || agent.backgroundVoiceDetection === undefined ? "unknown" : agent.backgroundVoiceDetection ? "on" : "off"}</b></span>
+            {agent.speculativeTurn !== null && agent.speculativeTurn !== undefined && <span>Speculative <b className="text-white/75">{agent.speculativeTurn ? "on" : "off"}</b></span>}
+          </div>}
+        </article>)}</div>
+      </section>}
 
       {m.truncated && (
         <p className="mt-2 text-[11px] text-amber-200/70">
@@ -214,6 +286,38 @@ export function AdminGafferCalls({ token }: { token: string }) {
               {open && (
                 <div className="border-t border-white/[0.06] px-4 py-3">
                   {detailBusy && <div className="text-xs text-white/35">Fetching transcript…</div>}
+                  {detail && (
+                    <section className="mb-4 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3">
+                      <div className="text-[10px] uppercase tracking-[0.12em] text-white/40">Voice timing · metadata only</div>
+                      {detail.telemetry ? (
+                        <>
+                          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-white/70">
+                            <span>{detail.telemetry.counts.interruption} interruptions</span>
+                            <span>{detail.telemetry.counts.agentCorrection} corrections</span>
+                            <span>{detail.telemetry.counts.agentResponseStart}/{detail.telemetry.counts.agentResponseStop} response starts/stops</span>
+                            <span>{detail.telemetry.counts.agentSpeakingStart}/{detail.telemetry.counts.agentSpeakingStop} speech starts/stops</span>
+                          </div>
+                          <div className="mt-2 flex flex-col gap-1">
+                            {detail.telemetry.events.slice(-24).map((event) => (
+                              <div key={event.sequence} className="flex items-center gap-2 font-mono text-[10px] text-white/40">
+                                <span>{new Date(event.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+                                <span>{event.kind.replaceAll("_", " ")}</span>
+                                {event.agentWasSpeaking !== undefined && <span>{event.agentWasSpeaking ? "Gaffer speaking" : "Gaffer quiet"}</span>}
+                                {event.originalResponseChars !== undefined && event.correctedResponseChars !== undefined && <span>{event.originalResponseChars} → {event.correctedResponseChars} chars</span>}
+                                {event.providerEventId !== undefined && <span>provider event {event.providerEventId}</span>}
+                              </div>
+                            ))}
+                          </div>
+                          {(detail.telemetry.timelineTruncated || detail.telemetry.events.length > 24) && (
+                            <div className="mt-2 text-[10px] text-white/35">Showing the latest {Math.min(24, detail.telemetry.eventCount)} of {detail.telemetry.eventCount} metadata events.</div>
+                          )}
+                          <div className="mt-2 text-[10px] text-white/30">No audio or transcript content is stored in this diagnostic trace.</div>
+                        </>
+                      ) : (
+                        <div className="mt-2 text-xs text-white/40">No client event trace was recorded for this call.</div>
+                      )}
+                    </section>
+                  )}
                   {detail && detail.turns.length === 0 && (
                     <div className="text-xs text-white/35">No spoken turns recorded on this call.</div>
                   )}

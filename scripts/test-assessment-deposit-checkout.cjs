@@ -90,8 +90,9 @@ StripeFixture.prototype.prices={list:async()=>({data:[{id:'price_fixture',unit_a
   assert.equal((h.tables.get('bookings')??[]).length,bookingsBefore);assert.equal((h.tables.get('accounts')??[]).length,accountsBefore);assert.equal((h.tables.get('membership_checkouts')??[]).length,membershipsBefore);assert.equal(creates,createsBefore);
   const normalMutation=ctx.runMutation;let guardTested=false;
   ctx.runMutation=async(ref,input)=>{if(ref==='bookings.createPending'){guardTested=true;await assert.rejects(normalMutation(ref,{...input,securityWaiverReason:'membership_checkout'}),/deposit exemption/);}return normalMutation(ref,input)};
-  try{await checkout.start.handler(ctx,signup);}finally{ctx.runMutation=normalMutation;}
+  try{await checkout.start.handler(ctx,{...signup,idVerifyStatus:'verified',verificationProvider:'manual'});}finally{ctx.runMutation=normalMutation;}
   assert(guardTested);const params=captured.at(-1),booking=h.tables.get('bookings').at(-1);
+  assert.equal(booking.idVerifyStatus,'required','Every new checkout begins with Didit verification required');assert.equal(booking.verificationProvider,'didit','The pending booking cannot choose an alternate verification provider');
   assert.equal(booking.depositAmount,20);assert.equal(booking.securityWaiverReason,undefined);
   assert.equal(params.line_items.find(item=>item.price_data?.product_data?.name?.startsWith('Refundable security deposit')).price_data.unit_amount,2000);
  }
@@ -113,7 +114,7 @@ StripeFixture.prototype.prices={list:async()=>({data:[{id:'price_fixture',unit_a
   if(kind==='voucher')a.promoCode='DB10OFF';
   if(kind==='threshold'){unit.replacementCost=4000;listing.depositAmount=4000;}
   const quote=await checkout.priceQuote.handler(ctx,{items:a.items,token,customerEmail:account.email,fulfilment:'pickup',promoCode:a.promoCode});
-  const waiver=['member','manual-encore','encore'].includes(kind),cash=waiver?0:kind==='threshold'?100:20;assert.equal(quote.depositAmount,cash);assert.equal(quote.savedCardLimit,0);assert.equal(quote.securityWaiverReason,kind==='member'?'active_membership':waiver?'encore':undefined);
+  const waiver=['member','encore'].includes(kind),cash=waiver?0:kind==='threshold'?100:20;assert.equal(quote.depositAmount,cash);assert.equal(quote.savedCardLimit,0);assert.equal(quote.securityWaiverReason,kind==='member'?'active_membership':waiver?'encore':undefined);
   a.expectedTotalDue=quote.combinedTotalDue;a.expectedSavedCardLimit=quote.savedCardLimit;
   let guardTested=false;const runMutation=ctx.runMutation;
   if(['member-no-history','trial','manual-encore-no-history'].includes(kind))ctx.runMutation=async(ref,input)=>{if(ref==='bookings.createPending'){guardTested=true;await assert.rejects(runMutation(ref,{...input,securityWaiverReason:kind==='manual-encore-no-history'?'encore':'active_membership',depositAmount:0}),/deposit eligibility changed/);}return runMutation(ref,input)};

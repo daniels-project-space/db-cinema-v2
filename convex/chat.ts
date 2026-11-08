@@ -5,6 +5,7 @@ import { accountForToken, ownedBooking, rentalThread, postRentalMessage, schedul
 import { accountForRental } from "./lib/rentalAccount";
 import { bookingCancelKind, cancellationDaysForBooking } from "../src/lib/cancellationPolicy";
 import { contentsText } from "../shared/rentalContents";
+import { listingImages } from "./lib/catalogImages";
 import { verificationExpired } from "../shared/verificationProgress";
 import { gafferBookingStatus } from "./lib/gafferBookingGuidance";
 import { query, mutation, internalQuery, internalMutation, internalAction } from "./_generated/server";
@@ -12,7 +13,7 @@ import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { explicitlyRequestsHuman } from "./lib/gafferHumanIntent";
-import { verifyGafferCompletion } from "../shared/gafferCompletionProof";
+import { verifyGafferReplyProof } from "../shared/gafferCompletionProof";
 import type { Id } from "./_generated/dataModel";
 
 const ADDON_CUTOFF_MS = 60 * 60 * 1000; // no add-ons within 1h of rental start
@@ -104,10 +105,12 @@ export const recordGafferReply = mutation({
       .order("desc")
       .take(1);
     if (latest[0]?._id !== renterMessageId) return { saved: false, handledByHuman: false };
+    const secret=process.env.GAFFER_COMPLETION_PROOF_SECRET??"";
+    const proof=completionProof?await verifyGafferReplyProof(secret,completionProof,String(renterMessageId),answer,Date.now()):null;
+    if(!proof)throw new Error("Gaffer's reply could not be verified. Please try again.");
     const offerHuman = offersHumanHelp(answer);
     const messageId = await postRentalMessage(ctx, { accountId: account._id, sender: "bot", text: answer, ...(offerHuman ? { meta: { offerHuman: true } } : {}) });
-    const secret=process.env.GAFFER_COMPLETION_PROOF_SECRET??"";
-    if(completionProof&&await verifyGafferCompletion(secret,completionProof,String(renterMessageId),answer,Date.now()))await scheduleGafferInquiry(ctx,account._id,undefined,renterMessageId,messageId,thread?.gafferGeneration??0);
+    if(proof.resolved)await scheduleGafferInquiry(ctx,account._id,undefined,renterMessageId,messageId,thread?.gafferGeneration??0);
     return { saved: true, handledByHuman: false, messageId, offerHuman };
   },
 });
@@ -175,10 +178,23 @@ export const _gafferContext = internalQuery({
       if (pick.lineItems.length) catalogueWindow = { start, end, pickupTime: pick.pickupTime ?? null, returnTime: pick.returnTime ?? null };
       // NOTE: the customer's stored delivery/home address is deliberately NOT included here —
       // Gaffer must never be able to read it out. Only the depot pickup address (settings) is shareable.
-      const rentalContents = await Promise.all(pick.lineItems.map(async (li:any) => {
-        const listing = await ctx.db.get(li.listingId);
-        return `${li.title}: ${contentsText(listing)}`;
+      const bookingLines = await Promise.all(pick.lineItems.map(async (li:any, index:number) => {
+        const listing: any = await ctx.db.get(li.listingId);
+        return {
+          listing,
+          item: {
+            index,
+            title: li.title,
+            qty: li.qty,
+            start: iso(li.start),
+            end: iso(li.end),
+            returnTime: li.returnTime === undefined ? pick.returnTime ?? null : li.returnTime,
+            slug: listing?.slug ?? null,
+            imageSources: listingImages(listing),
+          },
+        };
       }));
+      const rentalContents = bookingLines.map(({item, listing}) => `${item.title}: ${contentsText(listing)}`);
       const credit=pick.creditIssuedId?await ctx.db.get(pick.creditIssuedId as Id<"credits">):null;
       const creditIssue=await ctx.db.query("credit_issues").withIndex("by_booking",q=>q.eq("bookingId",pick._id)).unique();
       const operatorChoice=pick.cancellationDecision?.operatorOfferId?await ctx.db.get(pick.cancellationDecision.operatorOfferId as Id<"operator_cancellation_offers">):null;
@@ -188,7 +204,8 @@ export const _gafferContext = internalQuery({
       const extensionRequests=await ctx.db.query("booking_change_requests").withIndex("by_booking",q=>q.eq("bookingId",pick._id)).order("desc").take(20);
       const extension=extensionRequests.find(r=>r.type==="extend"&&["pending","approved","awaiting_payment","refund_pending"].includes(r.status));
       booking = {
-        items:pick.lineItems.map((li:any)=>({title:li.title,qty:li.qty,start:iso(li.start),end:iso(li.end),returnTime:li.returnTime===undefined?pick.returnTime??null:li.returnTime})),
+        items:bookingLines.map(({item})=>item),
+        changeLocked:!!(pick.activeAdditionId || pick.activeDeliveryQuoteId || pick.activeExtensionId || pick.activePriceAdjustmentId || pick.activeItemSwapId || pick.returnDecision || pick.cancellationDecision),
         pendingItemAddition:addition?{title:addition.title,qty:addition.qty,status:addition.status,rentalCharge:addition.lineTotal,securityCharge:addition.securityCharge,updatedHold:addition.holdTotal,applied:false}:null,
         pendingExtension:extension?{status:extension.status,extraDays:extension.extraDays,charge:extension.priceDelta,requestedReturnTime:extension.requestedReturnTime,approvedReturnTime:extension.approvedReturnTime,proposedItems:extension.quoteItems?.map(i=>({title:i.title,qty:i.qty,proposedReturn:iso(i.end)})),applied:false}:null,
         rentalContents,

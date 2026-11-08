@@ -110,6 +110,7 @@ export default function CheckoutPage() {
   const [quoting, setQuoting] = useState(false);
   const [protection, setProtection] = useState<Protection>("verify");
   const allItemTimes=!!items.length&&items.every(i=>i.pickupTime&&i.returnTime);
+  const firstItemNeedingTimes=items.findIndex(i=>!i.pickupTime||!i.returnTime||(i.start===i.end&&!!i.pickupTime&&!!i.returnTime&&i.returnTime<=i.pickupTime));
   const effectivePickupTime=allItemTimes?[...items].sort((a,b)=>(a.start+" "+a.pickupTime).localeCompare(b.start+" "+b.pickupTime))[0].pickupTime!:"";
   const effectiveReturnTime=allItemTimes?[...items].sort((a,b)=>(b.end+" "+b.returnTime).localeCompare(a.end+" "+a.returnTime))[0].returnTime!:"";
   const stock=useCartStockCheck(items),availability=stock.availability;
@@ -432,7 +433,7 @@ export default function CheckoutPage() {
               <div className="flex flex-col gap-2 min-[480px]:flex-row min-[480px]:gap-3">
                 {(
                   [
-                    ["pickup", IconPin, "Pickup", "Trafalgar Square · outside Waterstones"],
+                    ["pickup", IconPin, "Pickup", "In Trafalgar Square"],
                     ["delivery", IconTruck, "Delivery", "quoted by distance"],
                   ] as const
                 ).map(([f, Icon, t, d]) => (
@@ -490,7 +491,7 @@ export default function CheckoutPage() {
               )}
 
               {/* times (both pickup & delivery) */}
-              <div className="mt-3 divide-y divide-white/10">{items.map((item,index)=><CartItemTimes key={`${item.listingId}|${item.start}|${item.end}|${index}`} item={item} delivery={fulfilment==="delivery"}/>)}</div>
+              <div className="mt-3 divide-y divide-white/10">{items.map((item,index)=><CartItemTimes key={`${item.listingId}|${item.start}|${item.end}|${index}`} item={item} delivery={fulfilment==="delivery"} initiallyExpanded={index===firstItemNeedingTimes}/>)}</div>
             </StepCard>
 
             <StepCard n="03" title="Agreements & signature" done={signDone} delay={140}>

@@ -21,7 +21,7 @@ async function cleanup() { if (child?.pid) { try { process.kill(-child.pid, "SIG
   assert.equal(result.availability, "unchecked");
   assert.equal(result.listings.length, 1);
   assert.equal(typeof result.listings[0].listingId, "string");
-  assert.deepEqual({ title: result.listings[0].title, slug: result.listings[0].slug, category: result.listings[0].category, daily: result.listings[0].daily, pricing: result.listings[0].pricing }, { title: "Sony FX3 camera", slug: "gaffer-fx3-ok", category: "Cameras", daily: 48, pricing: { daily: 48 } });
+  assert.deepEqual({ title: result.listings[0].title, slug: result.listings[0].slug, category: result.listings[0].category, daily: result.listings[0].daily, pricing: result.listings[0].pricing, heroImage: result.listings[0].heroImage, imageSources: result.listings[0].imageSources }, { title: "Sony FX3 camera", slug: "gaffer-fx3-ok", category: "Cameras", daily: 48, pricing: { daily: 48 }, heroImage: "https://images.example.test/sony-fx3.jpg", imageSources: ["https://images.example.test/sony-fx3.jpg"] });
   const category = await client.action(makeFunctionReference("gaffer_catalogue_qualify:find"), { category: "Cameras" });
   assert.equal(category.listings.length, 1);
   const absent = await client.action(makeFunctionReference("gaffer_catalogue_qualify:find"), { search: "xyz123none" });

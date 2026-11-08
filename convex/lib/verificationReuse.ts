@@ -30,9 +30,9 @@ export function validReuse(record: any, booking: any, now = Date.now()) {
     record.name === verificationDetail(booking.agreementName);
 }
 export async function saveAccountDiditVerification(ctx: any, booking: any, verifiedAt: number, documentExpiresAt: number | undefined, checks: any, personKey: string | undefined) {
-  if (booking.identityRiskNotice || !await verificationReuseOwnerMatches(ctx,booking) || !booking.diditSessionId || booking.verificationReuseBlockedSessionId === booking.diditSessionId ||
+  if (!await verificationReuseOwnerMatches(ctx,booking) || !booking.diditSessionId || booking.verificationReuseBlockedSessionId === booking.diditSessionId ||
       !["identity", "selfie", "address"].every(key => checks?.[key] === "approved") ||
-      !personKey || !Number.isFinite(verifiedAt) || (documentExpiresAt != null && !Number.isFinite(documentExpiresAt))) return false;
+      !Number.isFinite(verifiedAt) || (documentExpiresAt != null && !Number.isFinite(documentExpiresAt))) return false;
   const name = verificationDetail(booking.agreementName), address = verificationDetail(booking.billingAddress);
   const expiresAt = verifiedAt + VERIFICATION_REUSE_DAYS * 86400000;
   if (!name || !address || expiresAt <= Date.now()) return false;
@@ -62,13 +62,21 @@ export async function verificationUpdateMessage(ctx: any, bookingId: any, previo
   let message=text[status];
   let pickupMap = false;
   if(status==="verified"){
-    const settings=await ctx.db.query("settings").first();
-    if(booking.fulfilment==="pickup"){
-      pickupMap = pickupMapAvailable(settings?.businessAddress);
-      const schedule=bookingStockLines(booking).map((line:any)=>`${line.title}: ${new Date(line.start).toISOString().slice(0,10)}${line.pickupTime ? ` at ${line.pickupTime}` : " (time to be confirmed)"}`).join("\n");
-      message+=`${settings?.businessAddress ? `\n\nPickup location:\n${settings.businessAddress}` : "\n\nThe team will confirm the pickup location here."}${schedule ? `\n\nPickup schedule (London time):\n${schedule}` : ""}`;
+    const handoverReady = ["confirmed", "active"].includes(booking.status) &&
+      Number.isFinite(booking.paidConfirmedAt) && booking.paidConfirmedAt > 0 &&
+      booking.idVerifyStatus === "verified" &&
+      (verificationValidUntil(booking) ?? 0) > Date.now();
+    if (handoverReady) {
+      if(booking.fulfilment==="pickup"){
+        const settings=await ctx.db.query("settings").first();
+        pickupMap = pickupMapAvailable(settings?.businessAddress);
+        const schedule=bookingStockLines(booking).map((line:any)=>`${line.title}: ${new Date(line.start).toISOString().slice(0,10)}${line.pickupTime ? ` at ${line.pickupTime}` : " (time to be confirmed)"}`).join("\n");
+        message+=`${settings?.businessAddress ? `\n\nPickup location:\n${settings.businessAddress}` : "\n\nThe team will confirm the pickup location here."}${schedule ? `\n\nPickup schedule (London time):\n${schedule}` : ""}`;
+      }
+      message+="\n\nIf you have any issues at collection, you can reach Leo on +44 7933 019849. Please keep the conversation here in your rental chat where possible.";
+    } else {
+      message += " Collection details will appear here once payment is complete, verification is current and the booking is confirmed.";
     }
-    message+="\n\nIf you have any issues at collection, you can reach Leo on +44 7933 019849. Please keep the conversation here in your rental chat where possible.";
   }
   await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system", text: message, meta: { kind: "verification_update", status, ...(pickupMap ? { pickupMap: true } : {}) } });
 }

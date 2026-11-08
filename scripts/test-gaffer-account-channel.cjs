@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const { load, db, put, tables, setMock } = require("./lib/rentalTestHarness.cjs");
 
 const chat = load("convex/chat.ts");
+const { signGafferCompletion } = load("shared/gafferCompletionProof.ts");
 const { GAFFER_AUTO_RESUME_MS } = load("convex/lib/rentalChat.ts");
 const scheduled = [];
 const ctx = { db, scheduler: { runAfter: async (...args) => scheduled.push(args) } };
@@ -15,6 +16,12 @@ const account = put("accounts", { email: "account-channel@test.invalid" });
 const otherAccount = put("accounts", { email: "other-channel@test.invalid" });
 put("sessions", { token: "renter", accountId: account._id, expiresAt: now + 60_000 });
 put("sessions", { token: "other", accountId: otherAccount._id, expiresAt: now + 60_000 });
+const proofSecret = "synthetic-only-account-channel-proof-secret";
+process.env.GAFFER_COMPLETION_PROOF_SECRET = proofSecret;
+const saveReply = async (question, text, resolved = false) => {
+  const completionProof = await signGafferCompletion(proofSecret, { messageId: question.messageId, answer: text.trim(), resolved, expiresAt: Date.now() + 120_000 });
+  return chat.recordGafferReply.handler(ctx, { token: "renter", renterMessageId: question.messageId, text, completionProof });
+};
 
 (async () => {
   try {
@@ -53,19 +60,11 @@ put("sessions", { token: "other", accountId: otherAccount._id, expiresAt: now + 
 
     const first = await chat.recordGafferUserMessage.handler(ctx, { token: "renter", text: "Can you help me choose a lens?" });
     assert.equal(first.handledByHuman, false);
-    const answer = await chat.recordGafferReply.handler(ctx, {
-      token: "renter",
-      renterMessageId: first.messageId,
-      text: "Tell me what you are filming and I can recommend one.",
-    });
+    const answer = await saveReply(first, "Tell me what you are filming and I can recommend one.");
     assert.equal(answer.saved, true);
     await assert.rejects(() => chat.requestHuman.handler(ctx, { token: "renter", offerMessageId: answer.messageId }), /Gaffer must offer a team handoff/);
     const offerQuestion = await chat.recordGafferUserMessage.handler(ctx, { token: "renter", text: "I have a complicated booking question." });
-    const offer = await chat.recordGafferReply.handler(ctx, {
-      token: "renter",
-      renterMessageId: offerQuestion.messageId,
-      text: "Would you like me to connect you with a team member?",
-    });
+    const offer = await saveReply(offerQuestion, "Would you like me to connect you with a team member?");
     assert.equal(offer.offerHuman, true, "Gaffer's explicit offer is made available to the chat UI");
     assert.equal((await db.get(offer.messageId)).meta.offerHuman, true, "the human offer survives chat reload");
     const directRequest = await chat.recordGafferUserMessage.handler(ctx, { token: "other", text: "Please connect me with a person." });
@@ -83,11 +82,7 @@ put("sessions", { token: "other", accountId: otherAccount._id, expiresAt: now + 
       renterMessageId: stale.messageId,
       text: "This stale response must not be saved.",
     })).saved, false);
-    const latestAnswer = await chat.recordGafferReply.handler(ctx, {
-      token: "renter",
-      renterMessageId: latest.messageId,
-      text: "Would you like me to connect you with a team member?",
-    });
+    const latestAnswer = await saveReply(latest, "Would you like me to connect you with a team member?");
     assert.equal(latestAnswer.saved, true);
     assert.equal(latestAnswer.offerHuman, true);
     const savedLatestAnswer = await db.get(latestAnswer.messageId);
@@ -122,6 +117,7 @@ put("sessions", { token: "other", accountId: otherAccount._id, expiresAt: now + 
   } finally {
     Date.now = originalNow;
     delete process.env.ADMIN_TOKEN;
+    delete process.env.GAFFER_COMPLETION_PROOF_SECRET;
   }
 })().catch((error) => {
   console.error(error);

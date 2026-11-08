@@ -8,9 +8,10 @@ import { lateFeeQuote } from "./lib/lateFee";
 import { returnInspectionSchedule } from "./lib/returnInspection";
 import { inspectionInput } from "./lib/returnInspectionFields";
 import { normalizeReturnInspection, sameReturnInspection } from "../shared/returnInspection";
-import { listingImages } from "./lib/catalogImages";
+import { listingRentalImages } from "./lib/catalogImages";
 import { accountForRental } from "./lib/rentalAccount";
 import { archiveRetention } from "./verificationArchive";
+import { archiveCaseConversation } from "./lib/chatCaseArchive";
 import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
 import type { InspectionItem } from "../shared/returnInspection";
 
@@ -39,12 +40,12 @@ async function inspectionDisplay(ctx: any, booking: any, items: InspectionItem[]
     let listing: any;
     if (item.inventoryUnitId) {
       const name = item.title.replace(/ · item \d+ of \d+$/, "").trim().toLowerCase();
-      listing = [...listings.values()].find(l => l?.isPackage !== true && l?.title?.trim().toLowerCase() === name && l?.components?.length === 1 && l.components[0].qty === 1 && String(l.components[0].inventoryUnitId) === String(item.inventoryUnitId) && listingImages(l).length);
+      listing = [...listings.values()].find(l => l?.isPackage !== true && l?.title?.trim().toLowerCase() === name && l?.components?.length === 1 && l.components[0].qty === 1 && String(l.components[0].inventoryUnitId) === String(item.inventoryUnitId));
     } else if (item.key.startsWith("legacy:")) {
       const line = booking.lineItems?.[Number(item.key.split(":")[1])];
       listing = line && listings.get(String(line.listingId));
     }
-    return { ...item, imageSources: listingImages(listing) };
+    return { ...item, imageSources: listingRentalImages(listing) };
   });
 }
 
@@ -87,6 +88,7 @@ export const openCase = mutation({ args: { token: v.string(), bookingId: v.id("b
   const prior = await ctx.db.query("rental_damage_cases").withIndex("by_booking_request", q => q.eq("bookingId", args.bookingId).eq("requestId", args.requestId)).unique();
   if (prior) {
     if (prior.itemKey !== args.itemKey || prior.details !== details) throw Error("This case request belongs to different details.");
+    await archiveCaseConversation(ctx, prior);
     return prior._id;
   }
   const records=await ctx.db.query("rental_damage_cases").withIndex("by_booking_item",q=>q.eq("bookingId",args.bookingId).eq("itemKey",args.itemKey)).take(101);
@@ -100,7 +102,9 @@ export const openCase = mutation({ args: { token: v.string(), bookingId: v.id("b
   if (!item) throw Error("The selected rental item is no longer available for a case.");
   await assertCaseRetentionAvailable(ctx,booking);
   const account = await accountForRental(ctx, booking);
-  const id = await ctx.db.insert("rental_damage_cases", { bookingId: booking._id, ...(account ? { accountId: account._id } : {}), itemKey: item.key, title: item.title, ...(item.inventoryUnitId ? { inventoryUnitId: item.inventoryUnitId as any } : {}), details, status: "open", openedAt: Date.now(), requestId: args.requestId });
+  const openedAt = Date.now();
+  const id = await ctx.db.insert("rental_damage_cases", { bookingId: booking._id, ...(account ? { accountId: account._id } : {}), itemKey: item.key, title: item.title, ...(item.inventoryUnitId ? { inventoryUnitId: item.inventoryUnitId as any } : {}), details, status: "open", openedAt, requestId: args.requestId });
+  await archiveCaseConversation(ctx, { _id: id, bookingId: booking._id, ...(account ? { accountId: account._id } : {}), openedAt });
   await queueRmv2Sync(ctx, booking._id);
   return id;
 } });
@@ -153,13 +157,14 @@ export const reopenCase = mutation({args:{token:v.string(),bookingId:v.id("booki
   const reason=args.reason.trim();if(!args.confirmed||reason.length<10||reason.length>2000||!/^[a-zA-Z0-9-]{16,80}$/.test(args.requestId))throw Error("Review and confirm a reopening reason of 10–2000 characters.");
   const record=await ctx.db.get(args.caseId);if(!record||record.bookingId!==args.bookingId)throw Error("Case unavailable.");
   const prior=await ctx.db.query("rental_case_reopens").withIndex("by_case_request",q=>q.eq("caseId",args.caseId).eq("requestId",args.requestId)).unique();
-  if(prior){if(prior.bookingId!==args.bookingId||prior.reason!==reason||prior.previousClosedAt!==args.expectedClosedAt||prior.previousResolution!==args.expectedResolution||prior.previousVersion!==args.expectedVersion)throw Error("This reopening request belongs to different details.");return {status:"replayed" as const};}
+  if(prior){if(prior.bookingId!==args.bookingId||prior.reason!==reason||prior.previousClosedAt!==args.expectedClosedAt||prior.previousResolution!==args.expectedResolution||prior.previousVersion!==args.expectedVersion)throw Error("This reopening request belongs to different details.");await archiveCaseConversation(ctx,record);return {status:"replayed" as const};}
   if(record.status!=="closed"||record.closedAt!==args.expectedClosedAt||record.resolution!==args.expectedResolution||(record.lifecycleVersion??0)!==args.expectedVersion)throw Error("This case changed. Review its current status before reopening.");
   if(!Number.isSafeInteger(args.expectedVersion)||args.expectedVersion<0||args.expectedVersion>=Number.MAX_SAFE_INTEGER)throw Error("Case lifecycle needs review.");
   if(!Number.isFinite(record.openedAt)||record.openedAt<=0||!Number.isFinite(record.closedAt)||record.closedAt!<record.openedAt||record.closedAt!>Date.now()||!record.resolution)throw Error("Case closure needs review before reopening.");
   const booking=await ctx.db.get(args.bookingId);if(!booking||!["confirmed","active","returned"].includes(booking.status))throw Error("This rental cannot have a reopened case.");
   await assertCaseRetentionAvailable(ctx,booking);
   const history=await ctx.db.query("rental_case_reopens").withIndex("by_case",q=>q.eq("caseId",args.caseId)).take(100);if(history.length>=100)throw Error("Case reopening history needs review.");
+  await archiveCaseConversation(ctx,record);
   await ctx.db.insert("rental_case_reopens",{caseId:args.caseId,bookingId:args.bookingId,requestId:args.requestId,reason,previousClosedAt:record.closedAt!,previousResolution:record.resolution,previousVersion:args.expectedVersion,reopenedAt:Date.now()});
   await ctx.db.patch(record._id,{status:"open",closedAt:undefined,resolution:undefined,lifecycleVersion:(record.lifecycleVersion??0)+1});
   await queueRmv2Sync(ctx,record.bookingId);

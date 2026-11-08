@@ -12,12 +12,17 @@ export async function signGafferCompletion(secret:string,payload:Completion):Pro
   return `${encoded}.${encode(new Uint8Array(signature))}`;
 }
 
-export async function verifyGafferCompletion(secret:string,proof:string,messageId:string,answer:string,now:number):Promise<boolean>{
-  if(secret.length<32||proof.length>16000)return false;
+export async function verifyGafferReplyProof(secret:string,proof:string,messageId:string,answer:string,now:number):Promise<{resolved:boolean;expiresAt:number}|null>{
+  if(secret.length<32||proof.length>16000)return null;
   try{
-    const parts=proof.split(".");if(parts.length!==2||!parts.every(part=>/^[A-Za-z0-9_-]+$/.test(part)))return false;
-    if(!await crypto.subtle.verify("HMAC",await key(secret,"verify"),decode(parts[1]),encoder.encode(parts[0])))return false;
+    const parts=proof.split(".");if(parts.length!==2||!parts.every(part=>/^[A-Za-z0-9_-]+$/.test(part)))return null;
+    if(!await crypto.subtle.verify("HMAC",await key(secret,"verify"),decode(parts[1]),encoder.encode(parts[0])))return null;
     const payload=JSON.parse(decoder.decode(decode(parts[0]))) as Completion;
-    return payload.messageId===messageId&&payload.answer===answer&&payload.resolved===true&&Number.isSafeInteger(payload.expiresAt)&&payload.expiresAt>now&&payload.expiresAt<=now+5*60000;
-  }catch{return false;}
+    if(payload.messageId!==messageId||payload.answer!==answer||typeof payload.resolved!=="boolean"||!Number.isSafeInteger(payload.expiresAt)||payload.expiresAt<=now||payload.expiresAt>now+5*60000)return null;
+    return {resolved:payload.resolved,expiresAt:payload.expiresAt};
+  }catch{return null;}
+}
+
+export async function verifyGafferCompletion(secret:string,proof:string,messageId:string,answer:string,now:number):Promise<boolean>{
+  return (await verifyGafferReplyProof(secret,proof,messageId,answer,now))?.resolved===true;
 }

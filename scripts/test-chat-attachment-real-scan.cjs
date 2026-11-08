@@ -8,10 +8,10 @@ const http=h.load('convex/http.ts').default.lookup('/chat-attachment','POST')[0]
 const owner=h.put('accounts',{email:'owner@example.invalid'}),other=h.put('accounts',{email:'other@example.invalid'});h.put('sessions',{token:'owner-token',accountId:owner._id,expiresAt:Date.now()+60000});h.put('sessions',{token:'other-token',accountId:other._id,expiresAt:Date.now()+60000});
 const booking=h.put('bookings',{accountId:owner._id,status:'confirmed'}),blobs=new Map();
 const ctx={db:h.db,scheduler:{runAfter:async()=>{}},storage:{store:async blob=>{const item=h.put('_storage',{size:blob.size,contentType:blob.type,sha256:crypto.createHash('sha256').update(Buffer.from(await blob.arrayBuffer())).digest('base64')});blobs.set(item._id,blob);return item._id},get:async id=>blobs.get(id)??null,delete:async id=>{blobs.delete(id);await h.db.delete(id)}}};
-ctx.runMutation=async(ref,args)=>attachments[ref.split('.')[1]].handler(ctx,args);
+ctx.runQuery=async(ref,args)=>attachments[ref.split('.')[1]].handler(ctx,args);ctx.runMutation=async(ref,args)=>attachments[ref.split('.')[1]].handler(ctx,args);
 (async()=>{try{
  versionInfo(await clamdCommand(socket,'VERSION'));await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const endpoint=`http://127.0.0.1:${server.address().port}/scan`;
- global.fetch=(url,options)=>{if(String(url)!=='https://private-scanner.example.invalid/scan')throw Error('Unexpected network access');return originalFetch(endpoint,options)};
+ global.fetch=(url,options)=>{const requested=new URL(String(url));if(requested.origin!=='https://private-scanner.example.invalid'||!['/scan','/health'].includes(requested.pathname))throw Error('Unexpected network access');return originalFetch(endpoint.replace(/\/scan$/,requested.pathname),options)};
  process.env.CHAT_ATTACHMENT_SCANNER_URL='https://private-scanner.example.invalid/scan';process.env.CHAT_ATTACHMENT_SCANNER_TOKEN=token;
  const pdf=path.join(dir,'safe.pdf');execFileSync('gs',['-q','-dNOPAUSE','-dBATCH','-sDEVICE=pdfwrite',`-sOutputFile=${pdf}`,'-c','/Helvetica findfont 12 scalefont setfont 50 700 moveto (Synthetic chat fixture) show showpage']);const clean=fs.readFileSync(pdf);
  const eicar=Buffer.from(['X5O!P%@AP[4\\PZX54(P^)7CC)7}','$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'].join('')),infected=Buffer.concat([clean,Buffer.from('\n% '),eicar,Buffer.from('\n')]);assert.equal(await clamdCommand(socket,'INSTREAM',infected),'stream: OK','The engine alone does not reliably scan data appended after PDF EOF');

@@ -69,7 +69,7 @@ async function launch(name, source, fixture) {
 
 async function main() {
   const managerBackend = await launch('manager', manager, 'cross-stock-manager.ts.fixture');
-  for (const [key, value] of [['SHARED_STOCK_AUTHORITY_EXPERIMENTAL', 'true'], ['SHARED_STOCK_RECEIPT_CONVERSION_EXPERIMENTAL', 'true'], ['SHARED_STOCK_WEBSITE_SECRET', secret], ['DBCINEMA_WEBHOOK_SECRET', 'synthetic-sync-secret'], ['BETTER_AUTH_SECRET', 'synthetic-auth-secret-12345678901234567890']]) await run(managerBackend.cli, ['env', 'set', key, value], { cwd: managerBackend.dir, env: managerBackend.env });
+  for (const [key, value] of [['SHARED_STOCK_AUTHORITY_EXPERIMENTAL', 'true'], ['SHARED_STOCK_RECEIPT_CONVERSION_EXPERIMENTAL', 'true'], ['DBCINEMA_SHARED_STOCK_SECRET', secret], ['SHARED_STOCK_WEBSITE_SECRET', secret], ['DBCINEMA_WEBHOOK_SECRET', 'synthetic-sync-secret'], ['BETTER_AUTH_SECRET', 'synthetic-auth-secret-12345678901234567890']]) await run(managerBackend.cli, ['env', 'set', key, value], { cwd: managerBackend.dir, env: managerBackend.env });
   const siteBackend = await launch('website', website, 'cross-stock-website.ts.fixture');
   for (const [key, value] of [['ADMIN_TOKEN', 'synthetic-test-admin-only'], ['RENTAL_ITEM_SWAP_ENABLED', 'true'], ['SHARED_STOCK_BRIDGE_EXPERIMENTAL', 'true'], ['RMV2_OUTBOUND_ENABLED', 'false'], ['SYNTHETIC_STOCK_SITE', managerBackend.site]]) await run(siteBackend.cli, ['env', 'set', key, value], { cwd: siteBackend.dir, env: siteBackend.env });
   const testKey = process.env.STRIPE_TEST_SECRET_KEY;
@@ -92,10 +92,10 @@ async function main() {
   const retried = await call(first);
   assert.equal(retried.status, 'confirmed'); assert.equal(retried.result.replayed, true);
   const competing = await call(request('cross-app-swap-00000001'));
-  assert.equal(competing.status, 'unknown');
+  assert.equal(competing.status, 'capacity_conflict');
   const execution = { operation: 'beginExecution', args: { id: retried.result.requestId, fingerprint: retried.result.fingerprint, executionKey: 'booking-execution-000001' } };
   const external = await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:addExternal'), { itemId });
-  assert.equal((await call(execution)).status, 'unknown');
+  assert.equal((await call(execution)).status, 'capacity_conflict');
   assert.equal((await managerBackend.client.query(inspect, {})).requests.find(row => row._id === retried.result.requestId).state, 'prepared');
   await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:removeExternal'), { reservationId: external });
   assert.equal((await call(execution)).status, 'confirmed');
@@ -107,7 +107,7 @@ async function main() {
   const contender = id => ({ operation: 'acquire', args: { requestId: id, items: [{ itemId: concurrentItemId, start, returnAt, quantity: 1 }] } });
   const race = await Promise.all([call(contender('race-booking-00000001')), call(contender('race-swap-000000000001'))]);
   assert.equal(race.filter(result => result.status === 'confirmed').length, 1);
-  assert.equal(race.filter(result => result.status === 'unknown').length, 1);
+  assert.equal(race.filter(result => result.status === 'capacity_conflict').length, 1);
   const afterRace = await managerBackend.client.query(inspect, {});
   assert.equal(afterRace.claims.length, 2);
   const releaseOld = await managerBackend.client.mutation(seed, {}), releaseNew = await managerBackend.client.mutation(seed, {});
@@ -126,7 +126,7 @@ async function main() {
   assert.equal((await call(releaseRequest, true)).status, 'unknown');
   const releaseReplay = await call(releaseRequest); assert.equal(releaseReplay.status, 'confirmed'); assert.equal(releaseReplay.result.replayed, true);
   assert.equal((await call(checkRelease)).result.state,'compensated_released');
-  assert.equal((await call({...checkRelease,args:{...checkRelease.args,evidence:{...releaseEvidence,refundId:'re_other1'}}})).status,'unknown');
+  const changedReleaseCheck=await call({...checkRelease,args:{...checkRelease.args,evidence:{...releaseEvidence,refundId:'re_other1'}}});assert.equal(changedReleaseCheck.status,'unknown','Mismatched compensation evidence must not affirm whether stock was released.');
   assert.equal((await call({ ...releaseRequest, args: { ...releaseRequest.args, evidence: { ...releaseEvidence, refundId: 're_other1' } } })).status, 'unknown');
   const releasedState = await managerBackend.client.query(inspect, {});
   assert.equal(releasedState.requests.find(row => row._id === releaseExecution.id).state, 'compensated_released');
@@ -134,26 +134,51 @@ async function main() {
   console.log('PASS synthetic compensated claim release: stale evidence rejected and a lost response replays the exact original release.');
   const oldManagerId = await managerBackend.client.mutation(seed, {}), newManagerId = await managerBackend.client.mutation(seed, {});
   const seedSwap = makeFunctionReference('cross_stock_fixture:seedSwap'), applySwap = makeFunctionReference('cross_stock_fixture:applySwap'), inspectSwap = makeFunctionReference('cross_stock_fixture:inspectSwap'), convert = makeFunctionReference('cross_stock_fixture:convert');
+  const seedOriginal = makeFunctionReference('cross_stock_fixture:seedOriginal');
+  const createSwap = async args => {
+    const booking = await siteBackend.client.mutation(seedSwap, args);
+    await managerBackend.client.mutation(seedOriginal, { itemId: args.oldManagerId, bookingId: booking.bookingId, start: booking.start, returnAt: booking.returnAt, revision: 0 });
+    return booking;
+  };
   const preview = makeFunctionReference('rentalSwapState:preview'), propose = makeFunctionReference('rentalSwapState:propose'), accept = makeFunctionReference('rentalSwapPayments:accept');
-  const swap = await siteBackend.client.mutation(seedSwap, { oldManagerId, newManagerId });
+  const swap = await createSwap({ oldManagerId, newManagerId });
   const proposalArgs = { token: 'synthetic-test-admin-only', bookingId: swap.bookingId, lineIndex: 0, newListingId: swap.newId };
   const quote = await siteBackend.client.query(preview, proposalArgs); assert.equal(quote.quote.deltaPence, 0);
   const swapId = await siteBackend.client.mutation(propose, { ...proposalArgs, requestId: 'synthetic-swap-request-000001', quoteSnapshot: quote.quoteSnapshot, confirmed: true });
   await assert.rejects(siteBackend.client.action(accept, { token: 'wrong-renter', id: swapId, expectedDeltaPence: 0 }));
   await assert.rejects(siteBackend.client.action(accept, { token: 'synthetic-renter-token', id: swapId, expectedDeltaPence: 1 }));
-  assert.equal((await siteBackend.client.action(accept, { token: 'synthetic-renter-token', id: swapId, expectedDeltaPence: 0 })).applied, true);
+  let zeroSwapResult;
+  try { zeroSwapResult = await siteBackend.client.action(accept, { token: 'synthetic-renter-token', id: swapId, expectedDeltaPence: 0 }); }
+  catch (error) {
+    const siteState=await siteBackend.client.query(inspectSwap,{bookingId:swap.bookingId,swapId});
+    const managerState=await managerBackend.client.query(inspect,{});
+    const pendingAcquire=siteState.operations.find(row=>row.operation==="acquire");
+    const managerDecision=pendingAcquire?await managerBackend.client.action(makeFunctionReference('cross_stock_fixture:debugAcquire'),{request:pendingAcquire.request}):null;
+    console.error("Synthetic zero-price swap diagnostic",JSON.stringify({error:String(error),managerDecision,operations:siteState.operations,managerRequests:managerState.requests,managerClaims:managerState.claims.map(row=>({requestId:row.requestId,itemId:row.itemId,start:row.start,end:row.end,quantity:row.quantity})),managerReservations:managerState.reservations.map(row=>({id:row._id,orderId:row.hygglo_order_id,status:row.status,windows:row.site_item_windows}))}));
+    throw error;
+  }
+  assert.equal(zeroSwapResult.applied,true);
   assert.equal((await siteBackend.client.action(accept, { token: 'synthetic-renter-token', id: swapId, expectedDeltaPence: 0 })).applied, true);
   const settled = await siteBackend.client.query(inspectSwap, { bookingId: swap.bookingId, swapId });
   assert.equal(settled.booking.lineItems[0].listingId, swap.newId); assert.equal(settled.swap.status, 'applied'); assert.ok(settled.receipt);
   assert.equal(settled.booking.activeItemSwapId,swapId);assert.ok(!settled.messages.some(message=>message.text.startsWith('Your equipment change is confirmed:')));
   const receipt = settled.receipt;
   const acquired = { result: { requestId: receipt.managerRequestId } };
-  const booking = { id: swap.bookingId, revision: receipt.bookingRevision, status: 'confirmed', start: swap.start, end: swap.returnAt, total: 10, createdAt: 1, lineItems: [], verification: { version: 1, provider: 'didit', status: 'verified', checks: { identity: 'approved', selfie: 'approved', address: 'approved' }, accountId: 'synthetic', sessionId: 'synthetic', updatedAt: 1, securityReady: true, archiveReady: true, requiresDroneLicence: false, droneLicenceStatus: 'not_required', approved: true }, physicalReservations: receipt.windows.map(window => ({ rmv2ItemId: window.managerItemId, qty: window.quantity, start: window.start, end: window.end, endExclusive: window.endExclusive, stockWindowVersion: 2, turnaroundBufferMinutes: window.turnaroundBufferMinutes })), stockApplicationReceipt: { swapId: receipt.swapId, bookingId: receipt.bookingId, bookingRevision: receipt.bookingRevision, managerRequestId: receipt.managerRequestId, fingerprint: receipt.fingerprint, executionKey: receipt.executionKey, appliedAt: receipt.appliedAt, windows: receipt.windows } };
-  await assert.rejects(managerBackend.client.action(convert, { booking: { ...booking, stockApplicationReceipt: { ...booking.stockApplicationReceipt, fingerprint: 'mismatched' } } }));
+  const booking = await siteBackend.client.query(makeFunctionReference('cross_stock_fixture:getSyncBooking'), { bookingId: swap.bookingId });
+  assert.equal(booking.stockApplicationReceipt.managerRequestId, receipt.managerRequestId);
+  const wrongPhysical = { ...booking, physicalReservations: booking.physicalReservations.map(window => ({ ...window, rmv2ItemId: oldManagerId })) };
+  await assert.rejects(managerBackend.client.action(convert, { booking: wrongPhysical }));
   const rejected = await managerBackend.client.query(inspect, {});
   assert.ok(rejected.claims.some(row => row.requestId === acquired.result.requestId));
-  assert.ok(!rejected.reservations.some(row => row.hygglo_order_id === swap.bookingId));
+  const rejectedBooking = rejected.reservations.find(row => row.hygglo_order_id === swap.bookingId);
+  assert.equal(rejectedBooking.site_revision, 0);
+  assert.equal(rejectedBooking.site_item_windows[0].item_id, oldManagerId);
   assert.equal(rejected.requests.find(row => row._id === acquired.result.requestId).state, 'execution_started');
+  await managerBackend.client.action(convert, { booking });
+  const reconciled = await managerBackend.client.query(inspect, {});
+  assert.ok(!reconciled.claims.some(row => row.requestId === acquired.result.requestId));
+  assert.equal(reconciled.reservations.find(row => row.hygglo_order_id === swap.bookingId).site_item_windows[0].item_id, newManagerId);
+  assert.equal(reconciled.requests.find(row => row._id === acquired.result.requestId).state, 'converted');
   assert.equal((await siteBackend.client.action(applySwap, { swapId })).already, true);
   let downgradeCase;
   if (testKey) {
@@ -162,7 +187,7 @@ async function main() {
     testIntents.add(payment.id);
     assert.equal(payment.livemode, false); assert.equal(payment.status, 'succeeded');
     const downOld = await managerBackend.client.mutation(seed, {}), downNew = await managerBackend.client.mutation(seed, {});
-    const down = await siteBackend.client.mutation(seedSwap, { oldManagerId: downOld, newManagerId: downNew, newPrice: 6, paymentIntentId: payment.id, renterToken: 'synthetic-downgrade-token' });
+    const down = await createSwap({ oldManagerId: downOld, newManagerId: downNew, newPrice: 6, paymentIntentId: payment.id, renterToken: 'synthetic-downgrade-token' });
     const downArgs = { token: 'synthetic-test-admin-only', bookingId: down.bookingId, lineIndex: 0, newListingId: down.newId };
     const downQuote = await siteBackend.client.query(preview, downArgs); assert.equal(downQuote.quote.deltaPence, -400);
     const downId = await siteBackend.client.mutation(propose, { ...downArgs, requestId: 'synthetic-downgrade-request-0001', quoteSnapshot: downQuote.quoteSnapshot, confirmed: true });
@@ -202,7 +227,7 @@ async function main() {
   const providerUrl = `http://127.0.0.1:${syntheticProvider.address().port}/`;
   if(!testKey)for (const [key, value] of [['STRIPE_SECRET_KEY', 'sk_test_synthetic_fixture'], ['SYNTHETIC_PAYMENT_SITE', providerUrl]]) await run(siteBackend.cli, ['env', 'set', key, value], { cwd: siteBackend.dir, env: siteBackend.env });
   const upOld = await managerBackend.client.mutation(seed, {}), upNew = await managerBackend.client.mutation(seed, {});
-  const up = await siteBackend.client.mutation(seedSwap, { oldManagerId: upOld, newManagerId: upNew, newPrice: 15, renterToken: 'synthetic-upgrade-token' });
+  const up = await createSwap({ oldManagerId: upOld, newManagerId: upNew, newPrice: 15, renterToken: 'synthetic-upgrade-token' });
   const upArgs = { token: 'synthetic-test-admin-only', bookingId: up.bookingId, lineIndex: 0, newListingId: up.newId };
   const upQuote = await siteBackend.client.query(preview, upArgs); assert.equal(upQuote.quote.deltaPence, 500);
   const upId = await siteBackend.client.mutation(propose, { ...upArgs, requestId: 'synthetic-upgrade-request-00001', quoteSnapshot: upQuote.quoteSnapshot, confirmed: true });
@@ -229,13 +254,14 @@ async function main() {
   const upState = await siteBackend.client.query(inspectSwap, { bookingId: up.bookingId, swapId: upId });
   assert.equal(upState.booking.lineItems[0].listingId, up.newId); assert.equal(upState.swap.status, 'applied');
   const upReceipt = upState.receipt;
-  let dropNextResponse = true;
+  let dropNextResponse = true, lastSyncResponse;
   syncProxy = http.createServer(async (req, res) => {
     try {
       if (req.method !== 'POST' || req.url !== '/dbcinema/booking-sync') { res.writeHead(404); res.end(); return; }
       let payload = ''; for await (const chunk of req) { payload += chunk; if (payload.length > 100000) throw Error('Synthetic sync request too large.'); }
       const upstream = await fetch(managerBackend.site.replace('/shared-stock', '/booking-sync'), { method: 'POST', headers: { 'content-type': 'application/json', 'x-dbcinema-sync-token': req.headers['x-dbcinema-sync-token'] ?? '' }, body: payload });
       const response = await upstream.text();
+      lastSyncResponse = { status: upstream.status, response };
       if (dropNextResponse) { dropNextResponse = false; res.destroy(); return; }
       res.writeHead(upstream.status, { 'content-type': 'application/json' }); res.end(response);
     } catch { res.writeHead(502); res.end(); }
@@ -243,13 +269,27 @@ async function main() {
   await new Promise(resolve => syncProxy.listen(0, '127.0.0.1', resolve));
   for (const [key, value] of [['RMV2_WEBHOOK_URL', `http://127.0.0.1:${syncProxy.address().port}/dbcinema/booking-sync`], ['RMV2_WEBHOOK_SECRET', 'synthetic-sync-secret'], ['RMV2_OUTBOUND_ENABLED', 'true']]) await run(siteBackend.cli, ['env', 'set', key, value], { cwd: siteBackend.dir, env: siteBackend.env });
   const deliver = makeFunctionReference('cross_stock_fixture:deliver'), expedite = makeFunctionReference('cross_stock_fixture:expedite');
+  const deliverLatest=async(bookingId,swapId)=>{
+    for(let attempt=0;attempt<80;attempt++){
+      const state=await siteBackend.client.query(inspectSwap,{bookingId,swapId}),booking=state.booking;
+      if(booking.rmv2SyncStatus==='delivered'&&booking.rmv2DeliveredRevision===booking.rmv2Revision)return state;
+      if(booking.rmv2SyncStatus==='pending'&&(booking.rmv2SyncLeaseUntil??0)<=Date.now()){
+        try{await siteBackend.client.mutation(expedite,{bookingId});await siteBackend.client.action(deliver,{bookingId});}
+        catch(error){if(!String(error.message).includes('Synthetic delivery is not available for retry'))throw error;}
+      }
+      await sleep(100);
+    }
+    throw Error('The latest synthetic Rental Manager revision was not delivered.');
+  };
   dropNextResponse = false;
   const lateExternal = await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:addExternal'), { itemId: upNew, date: '2031-01-02' });
   assert.equal((await siteBackend.client.action(deliver, { bookingId: up.bookingId })).reason, 'http_500');
   const conflictState = await managerBackend.client.query(inspect, {});
   assert.equal(conflictState.requests.find(row => row._id === upReceipt.managerRequestId).state, 'execution_started');
   assert.ok(conflictState.claims.some(row => row.requestId === upReceipt.managerRequestId));
-  assert.ok(!conflictState.reservations.some(row => row.hygglo_order_id === up.bookingId));
+  const conflictBooking = conflictState.reservations.find(row => row.hygglo_order_id === up.bookingId);
+  assert.equal(conflictBooking.site_revision, 0);
+  assert.equal(conflictBooking.site_item_windows[0].item_id, upOld);
   assert.ok(await siteBackend.client.query(makeFunctionReference('cross_stock_fixture:inspectRisk'), { bookingId: up.bookingId, revision: upState.booking.rmv2Revision }));
   console.log('PASS post-payment external conflict: manager rejects conversion, retains claim, and website alerts the team before retry.');
   await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:removeExternal'), { reservationId: lateExternal });
@@ -284,7 +324,8 @@ async function main() {
     assert.equal((await siteBackend.client.query(inspectSwap, { bookingId: entry.bookingId, swapId: entry.swapId })).receipt.deliveryState, 'pending');
     await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:reorderStoredReceipt'),{id:entry.receipt.managerRequestId});
     await siteBackend.client.mutation(expedite, { bookingId: entry.bookingId });
-    assert.equal((await siteBackend.client.action(deliver, { bookingId: entry.bookingId })).ok, true);
+    const reorderedReceiptDelivery = await siteBackend.client.action(deliver, { bookingId: entry.bookingId });
+    assert.equal(reorderedReceiptDelivery.ok, true, `reordered converted receipt delivery failed: ${JSON.stringify(reorderedReceiptDelivery)}; manager: ${JSON.stringify(lastSyncResponse)}`);
     assert.equal((await siteBackend.client.query(inspectSwap, { bookingId: entry.bookingId, swapId: entry.swapId })).receipt.deliveryState, 'acknowledged');
   }
   const concurrentConflict=await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:addExternal'),{itemId:newManagerId,date:'2031-01-02'});
@@ -325,11 +366,11 @@ async function main() {
   assert.equal(recoveredConfirmed.booking.activeItemSwapId,undefined);assert.equal(recoveredConfirmed.messages.filter(message=>message.text.startsWith('Your equipment change is confirmed:')).length,1);
   console.log('PASS conflict after confirmation: handover blocked until a fresh clear stock check, without duplicate confirmation.');
   const conflicting = { operation: 'acquire', args: { requestId: 'after-conversion-000001', items: [{ itemId: newManagerId, start: swap.start, returnAt: swap.returnAt, quantity: 1 }] } };
-  assert.equal((await call(conflicting)).status, 'unknown');
+  assert.equal((await call(conflicting)).status, 'capacity_conflict');
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','false'],{cwd:siteBackend.dir,env:siteBackend.env});
   for(const raceKind of ['owner-changed','stock-risk']){
     const raceOld=await managerBackend.client.mutation(seed,{}),raceNew=await managerBackend.client.mutation(seed,{}),raceToken=`synthetic-ack-${raceKind}`;
-    const raceBooking=await siteBackend.client.mutation(seedSwap,{oldManagerId:raceOld,newManagerId:raceNew,renterToken:raceToken});
+    const raceBooking=await createSwap({oldManagerId:raceOld,newManagerId:raceNew,renterToken:raceToken});
     const raceArgs={token:'synthetic-test-admin-only',bookingId:raceBooking.bookingId,lineIndex:0,newListingId:raceBooking.newId},raceQuote=await siteBackend.client.query(preview,raceArgs);
     const raceId=await siteBackend.client.mutation(propose,{...raceArgs,requestId:`synthetic-ack-${raceKind}-request`,quoteSnapshot:raceQuote.quoteSnapshot,confirmed:true});
     assert.equal((await siteBackend.client.action(accept,{token:raceToken,id:raceId,expectedDeltaPence:0})).applied,true);
@@ -345,7 +386,7 @@ async function main() {
   }
   console.log('PASS acknowledgement races: changed owner or recorded stock risk keeps the rental fenced and sends no false confirmation.');
   const revokeOld=await managerBackend.client.mutation(seed,{}),revokeNew=await managerBackend.client.mutation(seed,{});
-  const revoke=await siteBackend.client.mutation(seedSwap,{oldManagerId:revokeOld,newManagerId:revokeNew,renterToken:'synthetic-ack-revoke-token'});
+  const revoke=await createSwap({oldManagerId:revokeOld,newManagerId:revokeNew,renterToken:'synthetic-ack-revoke-token'});
   const revokeArgs={token:'synthetic-test-admin-only',bookingId:revoke.bookingId,lineIndex:0,newListingId:revoke.newId};
   const revokeQuote=await siteBackend.client.query(preview,revokeArgs);
   const revokeId=await siteBackend.client.mutation(propose,{...revokeArgs,requestId:'synthetic-ack-revoke-request',quoteSnapshot:revokeQuote.quoteSnapshot,confirmed:true});
@@ -383,28 +424,35 @@ async function main() {
   const pendingPaymentId='pi_synthetic_pending';
   payments.set(pendingPaymentId,{id:pendingPaymentId,status:'succeeded',currency:'gbp',amount_received:1000,metadata:{}});
   const pendingOld=await managerBackend.client.mutation(seed, {}),pendingNew=await managerBackend.client.mutation(seed, {});
-  const pending=await siteBackend.client.mutation(seedSwap,{oldManagerId:pendingOld,newManagerId:pendingNew,newPrice:6,paymentIntentId:pendingPaymentId,renterToken:'synthetic-pending-refund-token'});
+  const pending=await createSwap({oldManagerId:pendingOld,newManagerId:pendingNew,newPrice:6,paymentIntentId:pendingPaymentId,renterToken:'synthetic-pending-refund-token'});
   const pendingArgs={token:'synthetic-test-admin-only',bookingId:pending.bookingId,lineIndex:0,newListingId:pending.newId};
   const pendingQuote=await siteBackend.client.query(preview,pendingArgs);
   const pendingId=await siteBackend.client.mutation(propose,{...pendingArgs,requestId:'synthetic-pending-refund-request',quoteSnapshot:pendingQuote.quoteSnapshot,confirmed:true});
   const pendingAccept={token:'synthetic-pending-refund-token',id:pendingId,expectedDeltaPence:-400};
   assert.equal((await siteBackend.client.action(accept,pendingAccept)).status,'pending');
+  const waitingRefund=await siteBackend.client.query(inspectSwap,{bookingId:pending.bookingId,swapId:pendingId});
+  assert.equal(waitingRefund.swap.stockAppliedAt,undefined,'A pending refund cannot apply the cheaper equipment or price change early');
+  assert.equal(waitingRefund.swap.status,'refund_pending');assert.equal(waitingRefund.booking.activeItemSwapId,pendingId);assert.notEqual(waitingRefund.booking.lineItems[0].listingId,pending.newId);assert.equal(syntheticRefunds.size,1);
+  [...syntheticRefunds.values()][0].status='succeeded';
+  await run(siteBackend.cli,['env','set','SYNTHETIC_STOCK_SITE','http://127.0.0.1:1/dbcinema/shared-stock'],{cwd:siteBackend.dir,env:siteBackend.env});
+  await assert.rejects(siteBackend.client.action(accept,pendingAccept));
+  const outage=await siteBackend.client.query(inspectSwap,{bookingId:pending.bookingId,swapId:pendingId});assert.equal(outage.swap.stockAppliedAt,undefined);assert.notEqual(outage.booking.lineItems[0].listingId,pending.newId);assert.equal(outage.booking.activeItemSwapId,pendingId);
+  await run(siteBackend.cli,['env','set','SYNTHETIC_STOCK_SITE',managerBackend.site],{cwd:siteBackend.dir,env:siteBackend.env});
+  assert.equal((await siteBackend.client.action(accept,pendingAccept)).applied,true);
+  assert.equal((await siteBackend.client.action(accept,pendingAccept)).applied,true);
+  assert.equal(syntheticRefunds.size,1);
   const staged=await siteBackend.client.query(inspectSwap,{bookingId:pending.bookingId,swapId:pendingId});
-  assert.ok(staged.swap.stockAppliedAt);assert.equal(staged.swap.status,'refund_pending');assert.equal(syntheticRefunds.size,1);
+  assert.equal(staged.swap.status,'applied');assert.ok(staged.swap.stockAppliedAt);assert.equal(staged.booking.lineItems[0].listingId,pending.newId);assert.equal(staged.booking.activeItemSwapId,pendingId);
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
   await siteBackend.client.mutation(expedite,{bookingId:pending.bookingId});
   assert.equal((await siteBackend.client.action(deliver,{bookingId:pending.bookingId})).ok,true);
   assert.equal((await managerBackend.client.query(inspect, {})).requests.find(row=>row._id===staged.receipt.managerRequestId).state,'converted');
   const postConversionConflict=await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:addExternal'),{itemId:pendingNew,date:'2031-01-02'});
-  [...syntheticRefunds.values()][0].status='succeeded';
-  await run(siteBackend.cli,['env','set','SYNTHETIC_STOCK_SITE','http://127.0.0.1:1/dbcinema/shared-stock'],{cwd:siteBackend.dir,env:siteBackend.env});
-  assert.equal((await siteBackend.client.action(accept,pendingAccept)).applied,true);
-  assert.equal((await siteBackend.client.action(accept,pendingAccept)).applied,true);
-  await run(siteBackend.cli,['env','set','SYNTHETIC_STOCK_SITE',managerBackend.site],{cwd:siteBackend.dir,env:siteBackend.env});
-  assert.equal(syntheticRefunds.size,1);
-  assert.ok(await siteBackend.client.query(makeFunctionReference('cross_stock_fixture:inspectConvertedRisk'),{swapId:pendingId}));
+  const firstAuditId=await siteBackend.client.mutation(makeFunctionReference('cross_stock_fixture:expediteStockAudit'),{swapId:pendingId});
+  await siteBackend.client.action(makeFunctionReference('cross_stock_fixture:auditStock'),{});
+  assert.ok((await siteBackend.client.query(makeFunctionReference('cross_stock_fixture:inspectStockAudit'),{id:firstAuditId})).alert);
   const conflictRefund=await siteBackend.client.query(inspectSwap,{bookingId:pending.bookingId,swapId:pendingId});
-  assert.equal(conflictRefund.booking.activeItemSwapId,pendingId);assert.ok(conflictRefund.messages.some(message=>message.text.includes('still being checked')));
+  assert.equal(conflictRefund.booking.activeItemSwapId,pendingId);assert.ok(conflictRefund.messages.some(message=>message.text.includes('We are checking availability for your equipment change.')));
   await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:removeExternal'),{reservationId:postConversionConflict});
   assert.equal((await siteBackend.client.query(inspectSwap,{bookingId:pending.bookingId,swapId:pendingId})).swap.status,'applied');
   const auditId=await siteBackend.client.mutation(makeFunctionReference('cross_stock_fixture:expediteStockAudit'),{swapId:pendingId});
@@ -449,33 +497,45 @@ async function main() {
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','false'],{cwd:siteBackend.dir,env:siteBackend.env});
   const refundRevokeOld=await managerBackend.client.mutation(seed,{}),refundRevokeNew=await managerBackend.client.mutation(seed,{}),refundRevokePayment='pi_refundrevoke1';
   payments.set(refundRevokePayment,{id:refundRevokePayment,status:'succeeded',currency:'gbp',amount_received:1000,metadata:{}});
-  const refundRevoke=await siteBackend.client.mutation(seedSwap,{oldManagerId:refundRevokeOld,newManagerId:refundRevokeNew,newPrice:6,paymentIntentId:refundRevokePayment,renterToken:'synthetic-refund-revoke-token'});
+  const refundRevoke=await createSwap({oldManagerId:refundRevokeOld,newManagerId:refundRevokeNew,newPrice:6,paymentIntentId:refundRevokePayment,renterToken:'synthetic-refund-revoke-token'});
   const refundRevokeArgs={token:'synthetic-test-admin-only',bookingId:refundRevoke.bookingId,lineIndex:0,newListingId:refundRevoke.newId};
   const refundRevokeQuote=await siteBackend.client.query(preview,refundRevokeArgs);
   const refundRevokeId=await siteBackend.client.mutation(propose,{...refundRevokeArgs,requestId:'synthetic-refund-revoke-request',quoteSnapshot:refundRevokeQuote.quoteSnapshot,confirmed:true});
   const refundRevokeAccept={token:'synthetic-refund-revoke-token',id:refundRevokeId,expectedDeltaPence:-400};
   assert.equal((await siteBackend.client.action(accept,refundRevokeAccept)).status,'pending');
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
-  await siteBackend.client.mutation(expedite,{bookingId:refundRevoke.bookingId});assert.equal((await siteBackend.client.action(deliver,{bookingId:refundRevoke.bookingId})).ok,true);
+  await siteBackend.client.mutation(expedite,{bookingId:refundRevoke.bookingId});const refundRevokeDelivery=await siteBackend.client.action(deliver,{bookingId:refundRevoke.bookingId});assert.equal(refundRevokeDelivery.ok,true,`refund-revoke booking delivery failed: ${JSON.stringify(refundRevokeDelivery)}; manager: ${JSON.stringify(lastSyncResponse)}`);
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','false'],{cwd:siteBackend.dir,env:siteBackend.env});
   await siteBackend.client.mutation(makeFunctionReference('cross_stock_fixture:revokeVerification'),{bookingId:refundRevoke.bookingId});
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
   await siteBackend.client.mutation(expedite,{bookingId:refundRevoke.bookingId});assert.equal((await siteBackend.client.action(deliver,{bookingId:refundRevoke.bookingId})).ok,true);
   const revokedRefund=[...syntheticRefunds.values()].find(row=>row.payment_intent===refundRevokePayment);assert.ok(revokedRefund);revokedRefund.status='succeeded';
-  assert.equal((await siteBackend.client.action(accept,refundRevokeAccept)).applied,true);
+  await assert.rejects(siteBackend.client.action(accept,refundRevokeAccept));
   const revokedRefundState=await siteBackend.client.query(inspectSwap,{bookingId:refundRevoke.bookingId,swapId:refundRevokeId});
-  assert.equal(revokedRefundState.booking.status,'pending_verification');assert.equal(revokedRefundState.booking.activeItemSwapId,refundRevokeId);
-  assert.ok(revokedRefundState.messages.some(message=>message.text.includes('still being checked')));
+  assert.equal(revokedRefundState.booking.status,'pending_verification');assert.equal(revokedRefundState.booking.activeItemSwapId,refundRevokeId);assert.equal(revokedRefundState.swap.stockAppliedAt,undefined);assert.notEqual(revokedRefundState.booking.lineItems[0].listingId,refundRevoke.newId);
   assert.equal([...syntheticRefunds.values()].filter(row=>row.payment_intent===refundRevokePayment).length,1);
-  console.log('PASS staged refund after verification revocation: original refund completes once while the rental stays fenced.');
-  const restoredConflict=await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:addExternal'),{itemId:refundRevokeNew,date:'2031-01-02'});
+  console.log('PASS verification revocation: a completed refund cannot apply equipment or unlock the unverified rental.');
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','false'],{cwd:siteBackend.dir,env:siteBackend.env});
   await siteBackend.client.mutation(makeFunctionReference('cross_stock_fixture:restoreVerification'),{bookingId:refundRevoke.bookingId});
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
-  await siteBackend.client.mutation(expedite,{bookingId:refundRevoke.bookingId});assert.equal((await siteBackend.client.action(deliver,{bookingId:refundRevoke.bookingId})).ok,true);
-  await siteBackend.client.action(makeFunctionReference('cross_stock_fixture:auditStock'),{});
-  assert.equal((await siteBackend.client.query(inspectSwap,{bookingId:refundRevoke.bookingId,swapId:refundRevokeId})).booking.activeItemSwapId,refundRevokeId);
+  const restoredConflict=await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:addExternal'),{itemId:refundRevokeNew,date:'2031-01-02'});
+  await deliverLatest(refundRevoke.bookingId,refundRevokeId);
+  await assert.rejects(siteBackend.client.action(accept,refundRevokeAccept));
+  const conflictPending=await siteBackend.client.query(inspectSwap,{bookingId:refundRevoke.bookingId,swapId:refundRevokeId});
+  assert.equal(conflictPending.booking.activeItemSwapId,refundRevokeId);assert.notEqual(conflictPending.booking.lineItems[0].listingId,refundRevoke.newId);assert.equal([...syntheticRefunds.values()].filter(row=>row.payment_intent===refundRevokePayment).length,1);
+  assert.ok(!conflictPending.messages.some(message=>message.text.startsWith('Your equipment change is confirmed:')));
   await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:removeExternal'),{reservationId:restoredConflict});
+  assert.equal((await siteBackend.client.action(accept,refundRevokeAccept)).applied,true);
+  assert.equal((await siteBackend.client.action(accept,refundRevokeAccept)).applied,true);
+  await deliverLatest(refundRevoke.bookingId,refundRevokeId);
+  const changedRefund=await siteBackend.client.query(inspectSwap,{bookingId:refundRevoke.bookingId,swapId:refundRevokeId});assert.equal(changedRefund.booking.lineItems[0].listingId,refundRevoke.newId);assert.equal(changedRefund.booking.activeItemSwapId,undefined);assert.equal(changedRefund.messages.filter(message=>message.text.startsWith('Your equipment change is confirmed:')).length,1);
+  const postRefundConflict=await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:addExternal'),{itemId:refundRevokeNew,date:'2031-01-02'});
+  const refundAudit=await siteBackend.client.mutation(makeFunctionReference('cross_stock_fixture:expediteStockAudit'),{swapId:refundRevokeId});
+  await siteBackend.client.action(makeFunctionReference('cross_stock_fixture:auditStock'),{});
+  assert.ok((await siteBackend.client.query(makeFunctionReference('cross_stock_fixture:inspectStockAudit'),{id:refundAudit})).alert);
+  assert.equal((await siteBackend.client.query(inspectSwap,{bookingId:refundRevoke.bookingId,swapId:refundRevokeId})).booking.activeItemSwapId,refundRevokeId);
+  await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:removeExternal'),{reservationId:postRefundConflict});
+  await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','false'],{cwd:siteBackend.dir,env:siteBackend.env});
   await siteBackend.client.mutation(makeFunctionReference('cross_stock_fixture:setSyntheticReservationQty'),{bookingId:refundRevoke.bookingId,qty:2});
   await siteBackend.client.mutation(makeFunctionReference('cross_stock_fixture:expediteStockAudit'),{swapId:refundRevokeId});
   await siteBackend.client.action(makeFunctionReference('cross_stock_fixture:auditStock'),{});
@@ -488,7 +548,7 @@ async function main() {
   console.log('PASS reverified refunded swap: newer synchronized revision recovers only after matching stock is clear.');
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','false'],{cwd:siteBackend.dir,env:siteBackend.env});
   const compOld=await managerBackend.client.mutation(seed,{}),compNew=await managerBackend.client.mutation(seed,{});
-  const comp=await siteBackend.client.mutation(seedSwap,{oldManagerId:compOld,newManagerId:compNew,newPrice:15,renterToken:'synthetic-compensation-token'});
+  const comp=await createSwap({oldManagerId:compOld,newManagerId:compNew,newPrice:15,renterToken:'synthetic-compensation-token'});
   const compArgs={token:'synthetic-test-admin-only',bookingId:comp.bookingId,lineIndex:0,newListingId:comp.newId};
   const compQuote=await siteBackend.client.query(preview,compArgs);
   const compId=await siteBackend.client.mutation(propose,{...compArgs,requestId:'synthetic-compensation-request-001',quoteSnapshot:compQuote.quoteSnapshot,confirmed:true});
@@ -497,12 +557,13 @@ async function main() {
   payments.set(compPaymentId,{id:compPaymentId,status:'succeeded',currency:'gbp',amount_received:500,metadata:{itemSwapId:compId}});
   Object.assign(compSession,{status:'complete',payment_status:'paid',payment_intent:compPaymentId});
   const compConflict=await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:addExternal'),{itemId:compNew,date:'2031-01-02'});
-  assert.equal((await siteBackend.client.action(finalize,{sessionId:compSession.id})).review,true);
-  const refundReview=makeFunctionReference('rentalSwapPayments:refundPaidReview');
-  const refundArgs={token:'synthetic-test-admin-only',id:compId,confirmed:true,reason:'Synthetic stock conflict'};
-  assert.equal((await siteBackend.client.action(refundReview,refundArgs)).status,'pending');
+  const autoCompensation=await siteBackend.client.action(finalize,{sessionId:compSession.id});
+  assert.equal(autoCompensation.status,'pending');
+  assert.equal((await siteBackend.client.query(inspectSwap,{bookingId:comp.bookingId,swapId:compId})).booking.activeItemSwapId,compId);
+  assert.notEqual((await siteBackend.client.query(inspectSwap,{bookingId:comp.bookingId,swapId:compId})).booking.lineItems[0].listingId,comp.newId);
   const compRefund=[...syntheticRefunds.values()].find(row=>row.payment_intent===compPaymentId);assert.ok(compRefund);compRefund.status='succeeded';
-  assert.equal((await siteBackend.client.action(refundReview,refundArgs)).refunded,true);
+  assert.equal((await siteBackend.client.action(finalize,{sessionId:compSession.id})).refunded,true);
+  assert.equal([...syntheticRefunds.values()].filter(row=>row.payment_intent===compPaymentId).length,1);
   const inspectRelease=makeFunctionReference('cross_stock_fixture:inspectCompensatedRelease'),recoverRelease=makeFunctionReference('cross_stock_fixture:recoverCompensatedRelease');
   const releaseJob=await siteBackend.client.query(inspectRelease,{swapId:compId});assert.ok(releaseJob);
   assert.equal((await siteBackend.client.query(inspectSwap,{bookingId:comp.bookingId,swapId:compId})).booking.activeItemSwapId,compId);
@@ -524,12 +585,12 @@ async function main() {
   const confirmedReview=await siteBackend.client.query(inspectRelease,{swapId:compId});
   assert.equal(confirmedReview.state,'review');assert.equal(confirmedReview.receipt.state,'compensated_released');
   assert.equal((await siteBackend.client.query(inspectSwap,{bookingId:comp.bookingId,swapId:compId})).booking.activeItemSwapId,compId);
-  assert.ok(await siteBackend.client.query(makeFunctionReference('cross_stock_fixture:inspectReleaseConfirmed'),{id:releaseJob._id}));
+  assert.ok(await siteBackend.client.query(makeFunctionReference('cross_stock_fixture:inspectStockReview'),{id:releaseJob._id}));
   await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:removeExternal'),{reservationId:compConflict});
   console.log('PASS compensated swap: lost response and verification revocation reconciled read-only without unlocking rental.');
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','false'],{cwd:siteBackend.dir,env:siteBackend.env});
   const raceOld=await managerBackend.client.mutation(seed,{}),raceNew=await managerBackend.client.mutation(seed,{});
-  const revoked=await siteBackend.client.mutation(seedSwap,{oldManagerId:raceOld,newManagerId:raceNew,newPrice:15,renterToken:'synthetic-revocation-token'});
+  const revoked=await createSwap({oldManagerId:raceOld,newManagerId:raceNew,newPrice:15,renterToken:'synthetic-revocation-token'});
   const revokedArgs={token:'synthetic-test-admin-only',bookingId:revoked.bookingId,lineIndex:0,newListingId:revoked.newId};
   const revokedQuote=await siteBackend.client.query(preview,revokedArgs);
   const revokedId=await siteBackend.client.mutation(propose,{...revokedArgs,requestId:'synthetic-revocation-request-001',quoteSnapshot:revokedQuote.quoteSnapshot,confirmed:true});
@@ -538,11 +599,10 @@ async function main() {
   payments.set(revokedPayment,{id:revokedPayment,status:'succeeded',currency:'gbp',amount_received:500,metadata:{itemSwapId:revokedId}});
   Object.assign(revokedSession,{status:'complete',payment_status:'paid',payment_intent:revokedPayment});
   await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:addExternal'),{itemId:raceNew,date:'2031-01-02'});
-  assert.equal((await siteBackend.client.action(finalize,{sessionId:revokedSession.id})).review,true);
-  const revokedRefundArgs={token:'synthetic-test-admin-only',id:revokedId,confirmed:true,reason:'Synthetic stock conflict'};
-  assert.equal((await siteBackend.client.action(refundReview,revokedRefundArgs)).status,'pending');
-  [...syntheticRefunds.values()].find(row=>row.payment_intent===revokedPayment).status='succeeded';
-  assert.equal((await siteBackend.client.action(refundReview,revokedRefundArgs)).refunded,true);
+  assert.equal((await siteBackend.client.action(finalize,{sessionId:revokedSession.id})).status,'pending');
+  const compRevokedRefund=[...syntheticRefunds.values()].find(row=>row.payment_intent===revokedPayment);assert.ok(compRevokedRefund);compRevokedRefund.status='succeeded';
+  assert.equal((await siteBackend.client.action(finalize,{sessionId:revokedSession.id})).refunded,true);
+  assert.equal([...syntheticRefunds.values()].filter(row=>row.payment_intent===revokedPayment).length,1);
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
   await siteBackend.client.mutation(expedite,{bookingId:revoked.bookingId});
   assert.equal((await siteBackend.client.action(deliver,{bookingId:revoked.bookingId})).ok,true);

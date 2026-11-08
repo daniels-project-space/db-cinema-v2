@@ -3,8 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "./account/AccountProvider";
-import { RentalJourney } from "./rentals/RentalJourney";
-import { RentalKit } from "./rentals/RentalKit";
 import chatStyles from "@/components/rentals/RentalConversation.module.css";
 import { RentalConversation } from "./rentals/RentalConversation";
 import { GafferIcon } from "./rentals/ChatIdentity";
@@ -156,9 +154,10 @@ export function RenterChat({
         }
         stage={focus?.status ?? "Support"}
         stageLabel={focus ? rentalStageLabel(focus) : "Support"}
-        bookingSummary={focus ? {image: focus.items[0]?.heroImage, imageSources: focus.items[0]?.imageSources, dates: rentalDate(focus.start, focus.end), count: focus.items.length} : undefined}
+        bookingSummary={focus ? {dates: rentalDate(focus.start, focus.end), count: focus.items.length, items: focus.items.map(item => ({ title: item.title, qty: item.qty, imageSources: item.imageSources?.length ? item.imageSources : item.heroImage ? [item.heroImage] : [] }))} : undefined}
+        handoverDetails={focus?.handoverDetails ?? undefined}
         escalated={focus?.escalated}
-        tools={focus ? <><RentalJourney booking={focus} /><RenterRentalTools token={token} bookingId={focus._id} /><details className="mt-3"><summary className="cursor-pointer text-xs text-white/55">Your kit · {focus.items.length} listings</summary><div className="mt-3"><RentalKit items={focus.items} compact /></div></details></> : undefined}
+        tools={focus ? <RenterRentalTools token={token} bookingId={focus._id} /> : undefined}
       />
     </div>
   );

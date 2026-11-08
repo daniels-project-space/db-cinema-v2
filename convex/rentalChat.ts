@@ -12,7 +12,7 @@ import { v } from "convex/values";
 import { verificationValidUntil } from "../shared/verificationProgress";
 import { paginationOptsValidator } from "convex/server";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
-import { listingImages } from "./lib/catalogImages";
+import { listingRentalImages } from "./lib/catalogImages";
 import {
   createAvailabilityReadCache,
   getAvailabilityListing,
@@ -28,6 +28,7 @@ import {
   droneLicenceStatusForRental,
 } from "./lib/droneVerification";
 import { assertVerificationArchive } from "./verificationArchive";
+import { LEO_SUPPORT_PHONE, TRAFALGAR_PICKUP_ADDRESS, TRAFALGAR_PICKUP_INSTRUCTIONS } from "../shared/pickupLocation";
 import {
   accountForToken,
   ownedBooking,
@@ -50,6 +51,12 @@ async function bookingView(
   account: any,
   options: { includeAvailability?: boolean; thread?: any; availabilityCache?: AvailabilityReadCache } = {},
 ) {
+  const verificationExpiresAt = verificationValidUntil(b);
+  const handoverReady =
+    ["confirmed", "active"].includes(b.status) &&
+    !!b.paidConfirmedAt &&
+    b.idVerifyStatus === "verified" &&
+    (verificationExpiresAt ?? 0) > Date.now();
   let verificationArchiveReady = false;
   if (b.idVerifyStatus === "verified") {
     try {
@@ -76,8 +83,8 @@ async function bookingView(
           : null;
       return {
         ...li,
-        heroImage: listingImages(l)[0] ?? null,
-        imageSources: listingImages(l),
+        heroImage: listingRentalImages(l)[0] ?? null,
+        imageSources: listingRentalImages(l),
         slug: l?.slug ?? null,
         stockAvailability: stock
           ? {
@@ -122,7 +129,16 @@ async function bookingView(
     idVerificationSource: b.idVerificationSource ?? null,
     verificationChecks: b.verificationChecks ?? null,
     verificationArchiveReady,
-    verificationExpiresAt: verificationValidUntil(b),
+    verificationExpiresAt,
+    handoverDetails: handoverReady ? {
+      phone: LEO_SUPPORT_PHONE,
+      pickupAddress: b.fulfilment === "delivery" ? (typeof b.address === "string" ? b.address : null) : TRAFALGAR_PICKUP_ADDRESS,
+      returnAddress: b.fulfilment === "delivery" && b.deliveryLegs !== "one_way"
+        ? (typeof b.address === "string" ? b.address : null)
+        : TRAFALGAR_PICKUP_ADDRESS,
+      pickupInstructions: b.fulfilment === "pickup" || b.deliveryLegs === "one_way" ? TRAFALGAR_PICKUP_INSTRUCTIONS : null,
+      fulfilment: b.fulfilment,
+    } : null,
     documentExpiresAt: b.documentExpiresAt ?? null,
     verificationUpdatedAt: b.verificationUpdatedAt ?? null,
     requiresDroneLicence: await requiresDroneLicence(ctx, b),
@@ -240,6 +256,7 @@ export const messages = query({
       ...page,
       notificationScope: admin ? null : String(a._id),
       escalated: !!thread?.escalated,
+      caseArchivedAt: admin ? thread?.caseArchivedAt ?? null : null,
       replyState: admin ? await conversationReplyState(ctx, a._id, bookingId, !!thread?.escalated) : null,
       quickReplies: admin
         ? rentalReplyTemplates(

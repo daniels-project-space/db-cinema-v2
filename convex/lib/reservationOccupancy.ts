@@ -5,12 +5,21 @@ import { reservationPaymentUnresolved } from "./reservationPayment";
 export async function reservationOccupancy(ctx: any, row: any, now = Date.now()) {
   if (!["confirmed", "active", "hold"].includes(row.status)) return null;
   let booking: any = null;
+  let paidVerificationHold = false;
   if (row.status === "hold" && row.bookingId) {
     booking = await ctx.db.get(row.bookingId);
-    if (booking?.status === "pending_payment" || booking?.status === "pending_verification") return null;
+    const checkoutPaid = Number.isSafeInteger(booking?.checkoutPaidAt) && booking.checkoutPaidAt > 0;
+    const pending = ["pending_payment", "pending_verification"].includes(booking?.status);
+    const verificationFailed = booking?.verificationProvider === "didit" && booking?.idVerifyStatus === "rejected";
+    paidVerificationHold = !!(pending && checkoutPaid && !verificationFailed);
+    // Unpaid baskets and unverified checkout holds remain advisory. A payment
+    // receipt turns the exact physical allocation into a real stock hold while
+    // Didit is processing, waiting for input, or reviewing the documents.
+    if (pending && !paidVerificationHold) return null;
+    if (booking?.status === "cancelled" || verificationFailed) return null;
   }
   if (row.status === "hold" && (row.holdExpiresAt ?? Infinity) <= now) {
-    if (!await reservationPaymentUnresolved(ctx, row)) return null;
+    if (!paidVerificationHold && !await reservationPaymentUnresolved(ctx, row)) return null;
   }
   // A missed return-status update must not extend the rental's forecast
   // indefinitely. This neither marks the rental returned nor settles money.

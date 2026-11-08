@@ -20,7 +20,7 @@ import { quote } from "./lib/pricing";
 import {isSavedCardRental,savedCardConsentText,securityAmendmentConsentText} from "../shared/savedCardSecurity";
 import { securityForPolicy,REFUNDABLE_DEPOSIT_POLICY_VERSION,savedCardChargeLimit } from "../shared/rentalSecurity";
 import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
-import { listingImages } from "./lib/catalogImages";
+import { listingRentalImages } from "./lib/catalogImages";
 
 async function note(ctx: any, b: any, text: string, meta?: any) {
   const a = await ctx.db
@@ -164,7 +164,7 @@ async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
     const membershipFee=membership?membershipParams?.metadata?.membershipFeePence?Number(membershipParams.metadata.membershipFeePence)/100:membership.intro==="trial"?0:tierByKey(membership.tier)?.monthlyGbp:undefined;
     if(membership&&membershipFee===undefined)throw Error("Membership price snapshot is unavailable.");
     return {b,l,line,start,end,holdTotal,securityCharge,membership,membershipFee,value,
-      snapshot:rentalControlsSnapshot(b,jobs), imageSources:listingImages(l)};
+      snapshot:rentalControlsSnapshot(b,jobs), imageSources:listingRentalImages(l)};
 }
 export const preview = query({
   args: {token:v.string(),bookingId:v.id("bookings"),listingId:v.id("listings"),qty:v.number(),

@@ -15,6 +15,7 @@ import { lateFeeQuote } from "./lib/lateFee";
 import { londonStartOfDay } from "../src/lib/cancellationPolicy";
 import { bestBenefit, loyaltyPercent } from "../shared/rentalBenefits";
 import { allocateSaving, membershipActiveNow, membershipTierFor, tierByKey, weekendDays } from "../shared/membership";
+import { listingRentalImages } from "./lib/catalogImages";
 
 import { isAllowedReturnTime, HOURS_LABEL } from "../src/lib/site";
 
@@ -37,7 +38,7 @@ async function mutableRental(ctx: any, b: any, ownRequest?: any) {
 }
 
 function indexes(b: any, selected?: number[]) {
-  const result = selected?.length ? selected : b.lineItems.map((_: any, i: number) => i);
+  const result = selected === undefined ? b.lineItems.map((_: any, i: number) => i) : selected;
   if (!result.length || new Set(result).size !== result.length || result.some((i: number) => !Number.isSafeInteger(i) || !b.lineItems[i])) throw Error("Choose valid rental items.");
   return result as number[];
 }
@@ -95,9 +96,38 @@ export const quote = query({
     const { a, b } = await customer(ctx, args.token, args.bookingId);
     try {
       await mutableRental(ctx, b);
-      const q = await quoteFor(ctx, b, args.extraDays, args.lineItemIndexes, a);
-      return { available: true, items: q.items, priceDelta: q.priceDelta, benefitKind: q.benefitKind, benefitLabel: q.benefitLabel, benefitSaving: q.benefitSaving, baseLines: baseLines(b) };
-    } catch (e: any) { return { available: false, reason: e.message }; }
+      const chosen = indexes(b, args.lineItemIndexes);
+      try {
+        const q = await quoteFor(ctx, b, args.extraDays, chosen, a);
+        return { available: true, partialAvailability: false, availableIndexes: chosen, individuallyAvailableIndexes: chosen, selectionConflictItems: [], unavailableItems: [], items: q.items, priceDelta: q.priceDelta, benefitKind: q.benefitKind, benefitLabel: q.benefitLabel, benefitSaving: q.benefitSaving, baseLines: baseLines(b) };
+      } catch (fullError: any) {
+        const individuallyAvailableIndexes: number[] = [];
+        const unavailableItems: { lineIndex: number; title: string; qty: number; reason: string }[] = [];
+        for (const lineIndex of chosen) {
+          try {
+            await quoteFor(ctx, b, args.extraDays, [lineIndex], a);
+            individuallyAvailableIndexes.push(lineIndex);
+          } catch (itemError: any) {
+            const line = b.lineItems[lineIndex];
+            unavailableItems.push({ lineIndex, title: line.title, qty: line.qty, reason: itemError?.message ?? "This item could not be extended for those dates." });
+          }
+        }
+        const availableIndexes: number[] = [];
+        const selectionConflictItems: { lineIndex: number; title: string; qty: number; reason: string }[] = [];
+        for (const lineIndex of individuallyAvailableIndexes) {
+          try {
+            await quoteFor(ctx, b, args.extraDays, [...availableIndexes, lineIndex], a);
+            availableIndexes.push(lineIndex);
+          } catch {
+            const line = b.lineItems[lineIndex];
+            selectionConflictItems.push({ lineIndex, title: line.title, qty: line.qty, reason: "This item can be extended on its own, but conflicts with another selected item. Change your selection and refresh the quote." });
+          }
+        }
+        if (!availableIndexes.length) return { available: false, partialAvailability: false, availableIndexes, individuallyAvailableIndexes, selectionConflictItems, unavailableItems, reason: fullError?.message ?? "No selected items are available for those dates." };
+        const q = await quoteFor(ctx, b, args.extraDays, availableIndexes, a);
+        return { available: true, partialAvailability: unavailableItems.length > 0 || selectionConflictItems.length > 0, availableIndexes, individuallyAvailableIndexes, selectionConflictItems, unavailableItems, items: q.items, priceDelta: q.priceDelta, benefitKind: q.benefitKind, benefitLabel: q.benefitLabel, benefitSaving: q.benefitSaving, baseLines: baseLines(b) };
+      }
+    } catch (e: any) { return { available: false, partialAvailability: false, availableIndexes: [], individuallyAvailableIndexes: [], selectionConflictItems: [], unavailableItems: [], reason: e.message }; }
   },
 });
 
@@ -118,11 +148,23 @@ export const request = mutation({
     if (previous.some(r => openStatuses.includes(r.status))) throw Error("You already have an open change request for this rental.");
     const q = await quoteFor(ctx, b, args.extraDays, chosen, a);
     if (args.expectedBase !== baseLines(b) || args.expectedAmount !== q.priceDelta) throw Error("The rental or quote changed. Review the fresh quote before requesting.");
+    const chatItems = await Promise.all(q.items.map(async (item) => {
+      const line = b.lineItems[item.lineIndex];
+      const listing = line ? await ctx.db.get(line.listingId) : null;
+      return {
+        lineIndex: item.lineIndex,
+        title: item.title,
+        qty: item.qty,
+        end: item.end,
+        lineTotal: item.lineTotal,
+        imageSources: listingRentalImages(listing).slice(0, 4),
+      };
+    }));
     const requestId = await ctx.db.insert("booking_change_requests", { bookingId: b._id, accountId: a._id, type: "extend", requestedReturnTime: args.requestedReturnTime, requestKey: args.requestKey, lineItemIndexes: chosen, extraDays: args.extraDays, baseLines: baseLines(b), quoteItems: q.items, priceDelta: q.priceDelta, benefitKind: q.benefitKind, benefitLabel: q.benefitLabel, benefitSaving: q.benefitSaving, status: "pending", createdAt: Date.now() });
     const thread = await rentalThread(ctx, a._id, b._id);
     if (thread) await ctx.db.patch(thread._id, { escalated: true });
     else await ctx.db.insert("chat_threads", { accountId: a._id, bookingId: b._id, escalated: true, updatedAt: Date.now(), unreadOwner: 0, unreadRenter: 0 });
-    await postRentalMessage(ctx, { accountId: a._id, bookingId: b._id, sender: "renter", text: `Extension request · ${args.extraDays} extra day${args.extraDays === 1 ? "" : "s"} · £${q.priceDelta.toFixed(2)}${q.benefitSaving > 0 ? `\n${q.benefitLabel} · saving £${q.benefitSaving.toFixed(2)}` : ""}\n${q.items.map(i => `${i.qty}× ${i.title} → ${iso(i.end)} at ${args.requestedReturnTime} London time`).join("\n")}\nPlease approve this request. The team may adjust the proposed time. The original return deadlines remain in place until approval and payment.`, meta: { kind: "extension_request", requestId } });
+    await postRentalMessage(ctx, { accountId: a._id, bookingId: b._id, sender: "renter", text: `Extension request · awaiting team approval. Original return times stay in place until approval and payment.`, meta: { kind: "extension_request", requestId, amount: q.priceDelta, extraDays: args.extraDays, returnTime: args.requestedReturnTime, benefitSaving: q.benefitSaving, benefitLabel: q.benefitLabel, items: chatItems } });
     await ctx.scheduler.runAfter(0, internal.notify.renterChat, { email: a.email, bookingId: b._id, text: "Rental extension requested — owner approval required." });
     return { ok: true, requestId };
   },
@@ -136,7 +178,11 @@ export const state = query({
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
     const rows = await ctx.db.query("booking_change_requests").withIndex("by_booking", q => q.eq("bookingId", bookingId)).order("desc").take(20);
-    return { status: b.status, locked: !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId || b.activePriceAdjustmentId || b.activeItemSwapId || b.returnDecision || b.cancellationDecision), items: b.lineItems.map((li, i) => ({ index: i, title: li.title, qty: li.qty, end: li.end, returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime })), requests: rows.filter(r => r.type === "extend").map(r => ({ id: r._id, status: r.status, items: r.quoteItems ?? [], amount: r.priceDelta ?? null, benefitKind: r.benefitKind, benefitLabel: r.benefitLabel, benefitSaving: r.benefitSaving ?? 0, days: r.extraDays, requestedReturnTime: r.requestedReturnTime, approvedReturnTime: r.approvedReturnTime, url: r.status === "awaiting_payment" ? r.paymentLinkUrl : undefined, expiresAt: r.expiresAt, reason: r.approvalReason, createdAt: r.createdAt })), paymentsEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" || /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") };
+    const items = await Promise.all(b.lineItems.map(async (li, i) => {
+      const listing = await ctx.db.get(li.listingId);
+      return { index: i, listingId: li.listingId, slug: listing?.slug ?? null, title: li.title, qty: li.qty, start: li.start, end: li.end, returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime, imageSources: listingRentalImages(listing) };
+    }));
+    return { status: b.status, locked: !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId || b.activePriceAdjustmentId || b.activeItemSwapId || b.returnDecision || b.cancellationDecision), pickupTime: b.pickupTime ?? null, returnTime: b.returnTime ?? null, items, requests: rows.filter(r => r.type === "extend").map(r => ({ id: r._id, status: r.status, items: r.quoteItems ?? [], amount: r.priceDelta ?? null, benefitKind: r.benefitKind, benefitLabel: r.benefitLabel, benefitSaving: r.benefitSaving ?? 0, days: r.extraDays, requestedReturnTime: r.requestedReturnTime, approvedReturnTime: r.approvedReturnTime, url: r.status === "awaiting_payment" ? r.paymentLinkUrl : undefined, expiresAt: r.expiresAt, reason: r.approvalReason, createdAt: r.createdAt })), paymentsEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" || /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") };
   },
 });
 
@@ -190,8 +236,19 @@ export const bindPayment = internalMutation({
     const r = await ctx.db.get(requestId);
     if (!r || !["approved", "awaiting_payment"].includes(r.status)) throw Error("The extension approval is closed.");
     if (r.stripePaymentLinkId) { if (r.stripePaymentLinkId !== sessionId) throw Error("Payment session mismatch."); return; }
+    const chatItems = await Promise.all((r.quoteItems ?? []).map(async (item: any) => {
+      const listing = item.listingId ? await ctx.db.get(item.listingId as Id<"listings">) : null;
+      return {
+        lineIndex: item.lineIndex,
+        title: item.title,
+        qty: item.qty,
+        end: item.end,
+        lineTotal: item.lineTotal,
+        imageSources: listingRentalImages(listing).slice(0, 4),
+      };
+    }));
     await ctx.db.patch(requestId, { status: "awaiting_payment", stripePaymentLinkId: sessionId, paymentLinkUrl: url });
-    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `The team approved your extension.\n${r.quoteItems?.map(i => `${i.title} → return ${iso(i.end)} at ${r.approvedReturnTime} London time`).join("\n")}${r.benefitSaving ? `\n${r.benefitLabel} · saving £${r.benefitSaving.toFixed(2)}` : ""}\nPay £${r.priceDelta!.toFixed(2)} to confirm ${r.extraDays} extra day${r.extraDays === 1 ? "" : "s"}. Your original return dates still apply until payment succeeds. This payment link expires in 24 hours.`, meta: { kind: "extension_payment", requestId, url, amount: r.priceDelta } });
+    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Extension approved · pay to confirm. Your original return times stay in place until payment succeeds. Link expires in 24 hours.`, meta: { kind: "extension_payment", requestId, url, amount: r.priceDelta, extraDays: r.extraDays, returnTime: r.approvedReturnTime, benefitSaving: r.benefitSaving ?? 0, benefitLabel: r.benefitLabel, items: chatItems } });
   },
 });
 

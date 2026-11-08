@@ -538,6 +538,22 @@ async function confirmPaidBookingWithLiveStock(ctx: any, bookingId: any, session
     throw Error("The paid checkout has no identifiable payment. Review it before confirming the rental.");
   const receipt = await ctx.runMutation(internal.bookings.recordPaidCheckoutReceipt, { bookingId, sessionId: session.id, paymentIntentId });
   if (receipt.closed) return receipt;
+  if (receipt.awaitingVerification) {
+    // A successful Didit checkout must reach Rental Manager before the payer
+    // leaves the paid-pending state. The local reservation is already durable;
+    // a failed remote write is retried by rmv2Delivery rather than treated as
+    // an available booking in the Manager UI.
+    let delivered: any;
+    try { delivered = await ctx.runAction(internal.rmv2_webhook.push, { bookingId }); }
+    catch { delivered = { ok: false, reason: "push_failed" }; }
+    if (!delivered?.ok) {
+      let state: any;
+      try { state = await ctx.runQuery(internal.rmv2Delivery.internalStatus, { bookingId }); } catch {}
+        if (!state || state.deliveredRevision !== state.revision || state.status !== "delivered") {
+        throw new ConvexError({ code: "STOCK_SYNC_UNAVAILABLE", message: "Payment was received, but Rental Manager has not confirmed the pending verification reservation yet. The rental is held on this site and we are retrying; please do not pay again." });
+      }
+    }
+  }
   let stock: any;
   try {
     stock = await ctx.runAction(internal.sync.syncHyggloReservations, { force: true });
@@ -1026,21 +1042,23 @@ export const billingPortal = action({
 export const adminBillingPortal = action({
   args: { token: v.string(), accountId: v.id("accounts") },
   handler: async (ctx, args): Promise<{ url: string }> => {
-    const target: { customerId: string; subscriptionId: string } = await ctx.runMutation(
-      internal.accountAdmin.billingPortalTarget, { ...args, purpose: "portal" },
+    const target: { customerId: string } = await ctx.runMutation(
+      internal.accountAdmin.billingCustomerPortalTarget, args,
     );
     const client = stripe();
-    const subscription = await client.subscriptions.retrieve(target.subscriptionId);
-    const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id;
-    if (subscription.id !== target.subscriptionId || customerId !== target.customerId)
-      throw Error("The Stripe subscription does not match this account. Review the billing link before proceeding.");
+    const customer = await client.customers.retrieve(target.customerId);
+    if (customer.id !== target.customerId || customer.deleted || customer.metadata?.dbcAccountId && customer.metadata.dbcAccountId !== String(args.accountId))
+      throw Error("The Stripe customer does not match this account. Review the billing link before proceeding.");
     const assertCurrentTarget = async () => {
-      const current: { customerId: string; subscriptionId: string } = await ctx.runMutation(internal.accountAdmin.billingPortalTarget, { ...args, purpose: "portal" });
-      if (current.customerId !== target.customerId || current.subscriptionId !== target.subscriptionId)
+      const current: { customerId: string } = await ctx.runMutation(internal.accountAdmin.billingCustomerPortalTarget, args);
+      if (current.customerId !== target.customerId)
         throw Error("The billing link changed while opening Stripe. Review the account and try again.");
     };
     await assertCurrentTarget();
-    const origin = new URL(process.env.APP_URL ?? "https://dbcinemarentals.com").origin;
+    if (!process.env.APP_URL) throw Error("APP_URL is not configured for the Stripe billing portal.");
+    const appUrl = new URL(process.env.APP_URL);
+    if (appUrl.protocol !== "https:") throw Error("APP_URL must use HTTPS for the Stripe billing portal.");
+    const origin = appUrl.origin;
     const session = await client.billingPortal.sessions.create({ customer: target.customerId, return_url: `${origin}/admin` });
     await assertCurrentTarget();
     const url = new URL(session.url);
@@ -1900,9 +1918,10 @@ export const acceptFullCredit = action({
  }
 });
 export const cancelByAdmin = action({
- args:{token:v.string(),bookingId:v.id("bookings"),reason:v.optional(v.string()),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit"),v.literal("no_refund")))},
- handler:async(ctx,{token,bookingId,reason,changeRequestId,expectedCancellationKind}):Promise<{refundAmount:number;creditAmount:number;mode:string}>=>{
+ args:{token:v.string(),bookingId:v.id("bookings"),reason:v.optional(v.string()),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit"),v.literal("no_refund"))),customerChoice:v.optional(v.union(v.literal("refund"),v.literal("credit")))},
+ handler:async(ctx,{token,bookingId,reason,changeRequestId,expectedCancellationKind,customerChoice}):Promise<{refundAmount:number;creditAmount:number;mode:string}>=>{
   await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:"checkout.cancelByAdmin"});
+  if(customerChoice&&!changeRequestId)throw Error("A renter settlement choice must be linked to their approved cancellation request.");
   reason=reason?.trim()||(changeRequestId?"Requested cancellation approved":"Equipment unexpectedly unavailable");
   const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
   if(!changeRequestId&&(b?.cancellationDecision?.operatorOfferId||process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true"&&b?.status==="confirmed")){
@@ -1911,7 +1930,7 @@ export const cancelByAdmin = action({
   }
   if(changeRequestId && b?.status==="cancelled" && b.completedChangeRequestId===changeRequestId && b.cancellationDecision?.quote)return {refundAmount:b.cancellationDecision.quote.refundAmount,creditAmount:b.cancellationDecision.quote.creditAmount,mode:b.cancellationDecision.quote.mode};
   if(!b||!["confirmed","pending_payment"].includes(b.status)||!b.siteOnly)throw Error("Only unstarted direct bookings can be cancelled here");
-  return cancelRental(ctx,bookingId,b,b.accountId??undefined,reason.trim().slice(0,400),undefined,changeRequestId,expectedCancellationKind);
+  return cancelRental(ctx,bookingId,b,b.accountId??undefined,reason.trim().slice(0,400),undefined,changeRequestId,expectedCancellationKind,customerChoice);
  }
 });
 export const refundInventoryConflict = action({
@@ -1951,7 +1970,7 @@ export const cancelByCustomer = action({
   if(!belongsToRentalAccount(b,me))throw Error("unauthorized");
   if(b.status==="cancelled"&&b.cancellationDecision?.quote&&!b.cancellationDecision.operatorOfferId){const quote=b.cancellationDecision.quote;return {ok:true,mode:quote.mode,refundAmount:quote.refundAmount,creditAmount:quote.creditAmount};}
   if(b.cancelledAt||b.status==="cancelled")throw Error("This booking is already cancelled.");
-  if(!["confirmed","pending_payment"].includes(b.status)||!b.siteOnly)throw Error("Please contact us to change this booking.");
+  if(b.status!=="pending_payment"||!b.siteOnly)throw Error("A paid or confirmed rental can only be cancelled after the team reviews your request.");
   return cancelRental(ctx,bookingId,b,me._id,undefined,undefined,undefined,expectedCancellationKind,customerChoice);
  }
 });
@@ -2044,4 +2063,26 @@ export const retryDepositRefund=action({args:{token:v.string(),bookingId:v.id("b
 
 export const resumeRentalRefund=action({args:{token:v.string(),refundId:v.id("rental_refunds"),confirmed:v.boolean()},handler:async(ctx,a):Promise<any>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:a.token,fn:"checkout.resumeRentalRefund"});if(!a.confirmed)throw Error("Confirm resuming the original refund first.");const r:any=await ctx.runQuery(internal.rentalOperations.refundJob,{id:a.refundId});if(!r)throw Error("Refund missing");return ctx.runAction(api.checkout.refundRental,{token:a.token,bookingId:r.bookingId,requestId:r.requestId,amountPence:r.amountPence,reason:r.reason});}});
 
-export const reconcileRentalRefund=internalAction({args:{refundId:v.string()},handler:async(ctx,{refundId}):Promise<any>=>{const refund=await stripe().refunds.retrieve(refundId),id=refund.metadata?.rentalRefundId;if(!id)return {ignored:true};const r:any=await ctx.runQuery(internal.rentalOperations.refundJob,{id:id as any});if(!r)return {ignored:true};const pi=typeof refund.payment_intent==="string"?refund.payment_intent:refund.payment_intent?.id,status=refund.status==="succeeded"?"succeeded":refund.status==="failed"||refund.status==="canceled"?"failed":"pending";if(!pi||refund.currency!=="gbp"||(refund.metadata?.bookingId&&refund.metadata.bookingId!==r.bookingId))throw Error("Rental refund receipt mismatch.");if(r.allocations){const a=r.allocations.find((p:any)=>p.paymentIntentId===pi);if(!a||a.amountPence!==refund.amount||refund.metadata?.rentalPaymentIntent!==pi||refund.metadata?.bookingId!==r.bookingId)throw Error("Rental refund allocation mismatch.");const old=r.refundReceipts?.find((p:any)=>p.paymentIntentId===pi);if(old)await ctx.runMutation(internal.rentalOperations.recordRefundReceipt,{id:r._id,receipt:{...old,stripeRefundId:refund.id,status}});return ctx.runMutation(internal.rentalOperations.recordRefundPart,{id:r._id,paymentIntentId:pi,stripeRefundId:refund.id,status});}if(r.stripeRefundId!==refund.id||r.amountPence!==refund.amount)throw Error("Legacy rental refund receipt mismatch.");return ctx.runMutation(internal.rentalOperations.recordRefund,{id:r._id,stripeRefundId:refund.id,status});}});
+export const reconcileRentalRefund=internalAction({args:{refundId:v.string()},handler:async(ctx,{refundId}):Promise<any>=>{
+  const refund=await stripe().refunds.retrieve(refundId),id=refund.metadata?.rentalRefundId;
+  if(!id)return {ignored:true};
+  const r:any=await ctx.runQuery(internal.rentalOperations.refundJob,{id:id as any});
+  if(!r)return {ignored:true};
+  const pi=typeof refund.payment_intent==="string"?refund.payment_intent:refund.payment_intent?.id;
+  const attemptKey=refund.metadata?.rentalRefundAttempt||undefined;
+  const status=refund.status==="succeeded"?"succeeded":refund.status==="failed"||refund.status==="canceled"?"failed":"pending";
+  if(!pi||refund.currency!=="gbp"||(refund.metadata?.bookingId&&refund.metadata.bookingId!==String(r.bookingId)))throw Error("Rental refund receipt mismatch.");
+  if(r.allocations){
+    const allocation=r.allocations.find((row:any)=>row.paymentIntentId===pi);
+    if(!allocation||allocation.amountPence!==refund.amount||refund.metadata?.rentalPaymentIntent!==pi||refund.metadata?.bookingId!==String(r.bookingId))throw Error("Rental refund allocation mismatch.");
+    let receipt=r.refundReceipts?.find((row:any)=>row.paymentIntentId===pi&&row.attemptKey===attemptKey);
+    if(!receipt&&!attemptKey&&refund.metadata?.rentalRefundAttempt===undefined){
+      receipt={paymentIntentId:pi,amountPence:allocation.amountPence,attemptedAt:r.createdAt,status:"unknown"};
+    }
+    if(!receipt)throw Error("Rental refund attempt is not recorded; no settlement was changed.");
+    await ctx.runMutation(internal.rentalOperations.recordRefundReceipt,{id:r._id,receipt:{...receipt,stripeRefundId:refund.id,status}});
+    return ctx.runMutation(internal.rentalOperations.recordRefundPart,{id:r._id,paymentIntentId:pi,stripeRefundId:refund.id,status,attemptKey});
+  }
+  if(r.stripeRefundId!==refund.id||r.amountPence!==refund.amount||attemptKey)throw Error("Legacy rental refund receipt mismatch.");
+  return ctx.runMutation(internal.rentalOperations.recordRefund,{id:r._id,stripeRefundId:refund.id,status});
+}});

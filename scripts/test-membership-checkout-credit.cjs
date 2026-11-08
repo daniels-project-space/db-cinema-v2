@@ -50,6 +50,9 @@ async function pay(fixture,fee=1900,historical={}) {
  await assert.rejects(billing.grantPaidInvoice.handler(ctx,{...args,invoiceId:'second-'+account._id}),/already settled/);
  return {args,grant:await db.get(id),credit:await db.get((await db.get(id)).creditId)};
 }
+async function passDidit(fixture) {
+ await db.patch(fixture.booking._id,{idVerifyStatus:'verified',idVerificationSource:'didit',idVerifiedAt:now,verificationChecks:{identity:'approved',selfie:'approved',address:'approved'}});
+}
 (async()=>{
  assert(!renderQuotedHook(undefined,null).includes('membership-upsell'),'Initial loading must not show an empty savings card');
  assert.equal(renderQuotedHook(undefined,null),'','No fallback membership chooser before a savings quote');
@@ -160,6 +163,7 @@ async function pay(fixture,fee=1900,historical={}) {
  camera.pricing.daily=100;account=put('accounts',{email:'starter-immediate@example.invalid'});
  const f=await prepare();assert.equal(f.price.membershipCreditApplied,20.9);assert.equal(f.price.membershipSignupOfferSaving,5);assert.equal(f.price.combinedTotalDue,f.price.depositAmount+93.1);
  assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),0,'unpaid credit is unavailable to other rentals');
+ await passDidit(f);
  await assert.rejects(bookings.confirm.handler(ctx,{bookingId:f.booking._id}),/has not settled/);
  assert.equal(f.price.depositAmount,0,"first checkout never takes security money");account.membershipTier='studio';const receipt=await pay(f,1900,{historicalBonusPercent:10,historicalPriceId:'price_fixture',historicalTermsVersion:'fixture'});account.membershipTier='plus';assert.equal(receipt.grant.earnedCreditPence,2090,'first-month checkout uses invoice terms even if the current tier changes');assert.equal(account.membershipPerksPendingBookingId,f.booking._id);assert.equal(load("shared/membership.ts").paidDepositExempt(account),false);assert.equal(receipt.credit.remaining,0);assert.equal(!!account.membershipSignupOfferUsed,true);
  await bookings.confirm.handler(ctx,{bookingId:f.booking._id,paymentIntentId:'pi-fixture'});
@@ -175,7 +179,7 @@ async function pay(fixture,fee=1900,historical={}) {
  assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),41.8,'cancel restores used credit exactly once');
  await billing.revokeRefundedInvoice.handler(ctx,{invoiceId:receipt.args.invoiceId,membershipRefundedPence:1900});
  assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),20.9,'membership refund revokes restored first-month credit but preserves renewal credit');
- account=put('accounts',{email:'reverse-before-cancel@example.invalid'});const second=await prepare();const paid=await pay(second);await bookings.confirm.handler(ctx,{bookingId:second.booking._id});
+ account=put('accounts',{email:'reverse-before-cancel@example.invalid'});const second=await prepare();const paid=await pay(second);await passDidit(second);await bookings.confirm.handler(ctx,{bookingId:second.booking._id});
  await billing.revokeRefundedInvoice.handler(ctx,{invoiceId:paid.args.invoiceId,membershipRefundedPence:1900});assert.equal(account.membershipCreditDebtPence,2090);
  await bookings._finalizeCancellation.handler(ctx,{bookingId:second.booking._id,accountId:account._id,mode:'refund',refundAmount:second.booking.total,creditAmount:second.booking.creditApplied,currency:'GBP'});
  assert.equal(account.membershipCreditDebtPence,0);assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),0,'restoration clears the reversal offset without gifting new credit');
@@ -184,7 +188,7 @@ async function pay(fixture,fee=1900,historical={}) {
  account=put('accounts',{email:'pro-welcome@example.invalid'});camera.pricing.daily=200;const welcome=await prepare('pro');assert.equal(welcome.price.membershipSignupOfferSaving,10);assert.equal(welcome.price.combinedTotalDue,welcome.price.depositAmount+180.2);await pay(welcome,4900);assert.equal(!!account.membershipSignupOfferUsed,true);account.membershipActive=false;account.membershipStatus='canceled';camera.pricing.daily=300;const upgrade=await calculateRentalPrice(ctx,{...input(),customer:{email:account.email},selectedMembership:{tier:'studio',intro:'none'}});assert.equal(upgrade.membershipSignupOfferSaving,0,'switching/rejoining Studio cannot repeat the Pro signup discount');
  account=put('accounts',{email:'weekend-signup@example.invalid'});camera.pricing.daily=300;const weekendInput=input();weekendInput.items[0].start=Date.UTC(2027,0,8);weekendInput.items[0].end=Date.UTC(2027,0,9);const weekend=await calculateRentalPrice(ctx,{...weekendInput,customer:{email:account.email},selectedMembership:{tier:'pro',intro:'none'}});assert.equal(weekend.weekendSaving,0,'checkout-added membership has no weekend perk on its first rental');assert.equal(weekend.membershipSignupOfferSaving,10);assert.equal(weekend.depositAmount,0);assert.equal(weekend.deliveryReduction,0);
  account=put('accounts',{email:'unused-credit@example.invalid'});camera.pricing.daily=50;const partial=await prepare('pro');const partialReceipt=await pay(partial,4900);assert.equal(partial.price.membershipCreditApplied,50);assert.equal(partialReceipt.credit.remaining,8.8,'unused first-month credit survives');
- await bookings.confirm.handler(ctx,{bookingId:partial.booking._id});
+ await passDidit(partial);await bookings.confirm.handler(ctx,{bookingId:partial.booking._id});
  await billing.revokeRefundedInvoice.handler(ctx,{invoiceId:partialReceipt.args.invoiceId,membershipRefundedPence:2450});
  await bookings._finalizeCancellation.handler(ctx,{bookingId:partial.booking._id,accountId:account._id,mode:'refund',refundAmount:0,creditAmount:partial.booking.creditApplied,currency:'GBP'});
  assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),29.4);

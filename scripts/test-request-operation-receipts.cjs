@@ -17,9 +17,8 @@ await assert.rejects(operations.reschedule.handler(ctx,args),/approved request/)
 await requests.review.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id,id:request._id,decision:'approved',note:'We agree to arrange the new dates subject to stock confirmation.'});
 const foreignRequest=put('rental_change_requests',{bookingId:b._id,accountId:other._id,kind:'dates',status:'approved'});
 await assert.rejects(operations.reschedule.handler(ctx,{...args,changeRequestId:foreignRequest._id}),/approved request/);
-const cancelRequest=await create('cancel','cancel-request-receipt-0001');
-await requests.review.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id,id:cancelRequest._id,decision:'approved',note:'Cancellation is agreed under the accepted terms.'});
-await assert.rejects(operations.reschedule.handler(ctx,{...args,changeRequestId:cancelRequest._id}),/approved request/);
+await db.patch(foreignRequest._id,{status:'declined'});
+await assert.rejects(create('cancel','cancel-request-receipt-0001'),/already awaiting the team/,'A second request stays blocked while the approved date change still needs its stock checked and applied.');
 await assert.rejects(operations.reschedule.handler(ctx,{...args,token:'renter'}),/unauthorized/);
 const conflict=put('reservations',{listingId:listing._id,inventoryUnitId:unit._id,start:args.start,end:args.end,qty:3,source:'hygglo',status:'confirmed'});
 await assert.rejects(operations.reschedule.handler(ctx,args),/already reserved/);
@@ -29,7 +28,10 @@ await operations.reschedule.handler(ctx,args);
 assert.equal(b.lineItems[0].start,args.start);assert.equal(b.lineItems[0].end,args.end);assert.equal(b.total,100);
 const reserved=tables.get('reservations').filter(r=>r.bookingId===b._id&&r.status==='confirmed');assert.equal(reserved.length,1);assert.equal(reserved[0].start,args.start);assert.equal(reserved[0].end,args.end);
 assert.equal(request.execution.status,'applied');assert.equal(request.execution.operation,'reschedule');assert(request.execution.appliedAt);
-const reply=tables.get('messages').at(-1);assert.equal(reply.meta.changeRequestId,request._id);assert.equal(reply.accountId,a._id);
+const cancelRequest=await create('cancel','cancel-request-receipt-0001');
+await requests.review.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id,id:cancelRequest._id,decision:'approved',note:'Cancellation is agreed under the accepted terms.'});
+await assert.rejects(operations.reschedule.handler(ctx,{...args,changeRequestId:cancelRequest._id}),/approved request/);
+const reply=tables.get('messages').find(message=>message.meta?.changeRequestId===request._id);assert.equal(reply.accountId,a._id);
 const visible=(await requests.list.handler(ctx,{token:'renter',bookingId:b._id,paginationOpts:{numItems:30,cursor:null}})).page.find(r=>r._id===request._id);
 assert.equal(visible.execution.status,'applied');assert(!('operationKey'in visible.execution));
 const count={messages:tables.get('messages').length,reservations:tables.get('reservations').length,jobs:jobs.length};
@@ -44,16 +46,30 @@ await assert.rejects(bookings.prepareCancellation.handler(ctx,{bookingId:b._id,c
 const actualNow=Date.now;
 try {
  Date.now=()=>args.start-2*86400000;
- await assert.rejects(bookings.prepareCancellation.handler(ctx,{bookingId:b._id,changeRequestId:cancelRequest._id,expectedCancellationKind:'full_refund'}),/eligibility changed/);
- assert.equal(cancelRequest.execution,undefined,'Stale cash-refund consent must not begin cancellation');
- assert.equal(b.cancellationDecision,undefined,'Stale consent must not freeze another policy');
+ const savedAtRequest=await bookings.prepareCancellation.handler(ctx,{bookingId:b._id,changeRequestId:cancelRequest._id,expectedCancellationKind:'full_refund'});
+ assert.equal(savedAtRequest.kind,'full_refund','Team delay cannot downgrade the terms captured when the renter requested cancellation');
+ assert.equal(cancelRequest.execution.status,'processing');
 } finally { Date.now=actualNow; }
-await bookings.prepareCancellation.handler(ctx,{bookingId:b._id,changeRequestId:cancelRequest._id});
+await bookings.prepareCancellation.handler(ctx,{bookingId:b._id,changeRequestId:cancelRequest._id,expectedCancellationKind:'full_refund'});
 assert.equal(cancelRequest.execution.status,'processing');
 await assert.rejects(bookings.prepareCancellation.handler(ctx,{bookingId:b._id,changeRequestId:cancelRequest._id,expectedCancellationKind:'store_credit'}),/eligibility changed/);
 const second=put('rental_change_requests',{bookingId:b._id,accountId:a._id,kind:'cancel',status:'approved'});
 await assert.rejects(bookings.prepareCancellation.handler(ctx,{bookingId:b._id,changeRequestId:second._id}),/Another cancellation request/);
 await assert.rejects(bookings._finalizeCancellation.handler(ctx,{bookingId:b._id,accountId:a._id,mode:'none',refundAmount:0,creditAmount:0,currency:'GBP'}),/not been prepared/);
 assert.equal(cancelRequest.execution.status,'processing');assert.equal(b.status,'confirmed');
+const originalNow=Date.now,now=originalNow(),todayParts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/London',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(now));
+const todayValue=kind=>Number(todayParts.find(part=>part.type===kind).value),futureStart=Date.UTC(todayValue('year'),todayValue('month')-1,todayValue('day')+10,15),cancelBooking=put('bookings',{accountId:a._id,guestEmail:a.email,status:'confirmed',lineItems:[{listingId:listing._id,title:listing.title,start:futureStart,end:futureStart+86400000,qty:1,lineTotal:80}],total:100,subtotal:80,depositAmount:20,pickupTime:'15:00',agreementDocs:[{kind:'cancellation',version:'2026-11-v21'}]});
+const timingRequest=await requests.submit.handler(ctx,{token:'renter',bookingId:cancelBooking._id,requestId:'cancel-timing-request-0001',kind:'cancel',detail:'Please cancel under my accepted terms.',cancellationChoice:'credit'}),timingRow=tables.get('rental_change_requests').find(row=>row.requestId==='cancel-timing-request-0001');
+assert.equal(timingRow.cancellationKindAtRequest,'full_refund');
+await requests.review.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:cancelBooking._id,id:timingRow._id,decision:'approved',note:'Approved under the renter’s chosen settlement.'});
+try {
+ Date.now=()=>futureStart-7*86400000;
+ const currentKind=require('./lib/rentalTestHarness.cjs').load('src/lib/cancellationPolicy.ts').bookingCancelKind(cancelBooking,Date.now());
+ assert.equal(currentKind,'store_credit','current terms move into the credit-only window while staff review is pending');
+ const saved=await bookings.prepareCancellation.handler(ctx,{bookingId:cancelBooking._id,changeRequestId:timingRow._id,expectedCancellationKind:'full_refund',customerChoice:'credit'});
+ assert.equal(saved.kind,'full_refund','the renter’s eligibility is fixed at the recorded request time, not reduced by team review delay');
+ assert.equal(saved.customerChoice,'credit','the selected account-credit settlement reaches the cancellation operation');
+ assert.equal(timingRow.execution.status,'processing');
+} finally { Date.now=originalNow; }
 console.log('PASS actual request execution: approval/account/type fences, stock failure remains unapplied, atomic date receipt and real chat linkage, lost-response/no-inventory-change replay after pickup, changed-payload rejection, cancellation binding and no completion without settlement job. Controlled database; no provider writes.');
 })().catch(e=>{console.error(e);process.exitCode=1});

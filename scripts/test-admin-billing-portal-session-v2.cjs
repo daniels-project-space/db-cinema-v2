@@ -9,13 +9,13 @@ const identity = "https://identity.example|portal-fixture", token = "a".repeat(6
 const hash = value => createHash("sha256").update(value).digest("hex");
 const ctx = { db: harness.db, auth: { getUserIdentity: async () => ({ tokenIdentifier: identity }) } };
 harness.setMock("stripe", { default: class { constructor() {
-  this.subscriptions = { retrieve: async id => ({ id, customer: "cus_fixture" }) };
+  this.customers = { retrieve: async id => ({ id, deleted: false, metadata: {} }) };
   this.billingPortal = { sessions: { create: async () => { portalCalls++; if (revokeDuringCreate) await sessions.revoke.handler(ctx, { tokenDigest: hash(token) }); return { url: "https://billing.stripe.com/p/session/fixture" }; } } };
 } } });
 const accountAdmin = harness.load("convex/accountAdmin.ts"), checkout = harness.load("convex/checkout.ts");
 const account = harness.put("accounts", { email: "portal@example.invalid", createdAt: Date.now(), stripeCustomerId: "cus_fixture", stripeSubscriptionId: "sub_fixture" });
-ctx.runMutation = async (ref, args) => { assert.equal(ref, "accountAdmin.billingPortalTarget"); return accountAdmin.billingPortalTarget.handler(ctx, args); };
-process.env.ADMIN_TOKEN = "legacy-portal-fixture"; process.env.ADMIN_SESSION_BILLING_PORTAL_V2 = "enabled";
+ctx.runMutation = async (ref, args) => { assert.equal(ref, "accountAdmin.billingCustomerPortalTarget"); return accountAdmin.billingCustomerPortalTarget.handler(ctx, args); };
+process.env.ADMIN_TOKEN = "legacy-portal-fixture"; process.env.ADMIN_SESSION_BILLING_PORTAL_V2 = "enabled"; process.env.APP_URL = "https://dbcinemarentals.com";
 process.env.ADMIN_SESSION_SCOPES_V2 = JSON.stringify({ [identity]: ["payments:write"] }); process.env.STRIPE_SECRET_KEY = "sk_test_fixture";
 
 (async () => {

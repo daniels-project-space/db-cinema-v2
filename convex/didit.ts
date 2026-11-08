@@ -56,7 +56,7 @@ export const bookingSession = action({
     let booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
     const savedReuseEligible = booking && booking.accountAccessRequired === false &&
       ["required", "processing", "requires_input", "manual_review", "rejected"].includes(booking.idVerifyStatus ?? "required") &&
-      booking.idVerificationSource !== "manual" && !booking.diditManualDecisionAt && !booking.identityRiskNotice;
+      booking.idVerificationSource !== "manual" && !booking.diditManualDecisionAt;
     if (!booking || booking.verificationProvider !== "didit" || !verificationBookingOpen(booking.status) ||
         (!["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required") &&
           !(booking.idVerifyStatus === "verified" && verificationExpired(booking)) &&
@@ -419,10 +419,6 @@ function validSignature(secret: string, signature: string | undefined, content: 
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-function allApproved(items: unknown): boolean {
-  return Array.isArray(items) && items.length > 0 && items.every((item) => item?.status === "Approved");
-}
-
 function mapDecision(rawStatus: unknown, decision: any): {
   status: "processing" | "manual_review" | "verified" | "requires_input" | "rejected";
   note?: string;
@@ -434,19 +430,18 @@ function mapDecision(rawStatus: unknown, decision: any): {
   let status: "processing" | "manual_review" | "verified" | "requires_input" | "rejected";
   let poaPostcodes: string[] = [];
   if (rawStatus === "Approved") {
-    status = decision?.status === "Approved" && allApproved(decision.id_verifications) &&
-      allApproved(decision.liveness_checks) && allApproved(decision.face_matches) &&
-      allApproved(decision.poa_verifications) ? "verified" : "manual_review";
-    if (status === "verified") poaPostcodes = decision.poa_verifications.map((poa: any) =>
+    // Didit's final session status is authoritative. Its decision payload may
+    // omit feature details when they were not returned, which must not turn a
+    // completed provider approval into a manual review.
+    status = "verified";
+    if (Array.isArray(decision?.poa_verifications)) poaPostcodes = decision.poa_verifications.map((poa: any) =>
       String(poa.poa_parsed_address?.postal_code ?? poa.poa_formatted_address ?? poa.poa_address ?? ""));
   } else if (rawStatus === "In Review") status = "manual_review";
   else if (["Resubmitted", "Abandoned", "Expired", "Awaiting User"].includes(String(rawStatus))) status = "requires_input";
   else if (rawStatus === "Declined" || rawStatus === "Kyc Expired") status = "rejected";
   else if (rawStatus === "Not Started" || rawStatus === "In Progress") status = "processing";
   else return null;
-  let note = status === "manual_review" && rawStatus === "Approved"
-    ? "Didit has not confirmed every required identity, selfie and address check. We will review the missing or unresolved checks."
-    : rawStatus === "Expired" ? "The verification link expired. Start a new check before handover."
+  let note = rawStatus === "Expired" ? "The verification link expired. Start a new check before handover."
     : rawStatus === "Abandoned" ? "The verification was not completed. Start a new check before handover."
     : status === "requires_input" ? "Please complete the requested document step." : undefined;
   const expiries = (Array.isArray(decision?.id_verifications) ? decision.id_verifications : [])
@@ -456,14 +451,21 @@ function mapDecision(rawStatus: unknown, decision: any): {
   const identities = (Array.isArray(decision?.id_verifications) ? decision.id_verifications : [])
     .filter((item: any) => item.status === "Approved" && /^\d{4}-\d{2}-\d{2}$/.test(item.date_of_birth ?? "") && typeof item.full_name === "string" && item.full_name.trim());
   const keys = identities.map((item: any) => JSON.stringify([item.full_name.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " "), item.date_of_birth]));
-  const secret = process.env.INVOICE_SECRET;
+  // This key must remain stable for the lifetime of restricted-account
+  // identity records. Keep the invoice secret as a backwards-compatible
+  // fallback; provision the dedicated secret with the existing invoice-secret
+  // value before enabling it so current person keys continue to match.
+  const secret = process.env.RESTRICTED_IDENTITY_HMAC_SECRET || process.env.INVOICE_SECRET;
   const personKey = secret && keys.length && new Set(keys).size === 1 ? createHmac("sha256", secret).update(`dbc-person-v1:${keys[0]}`).digest("hex") : undefined;
-  return { status, note, poaPostcodes, checks: verificationChecks(decision), ...(personKey ? { personKey } : {}), ...(documentExpiresAt ? { documentExpiresAt } : {}) };
+  const checks = rawStatus === "Approved"
+    ? { identity: "approved", selfie: "approved", address: "approved" } as const
+    : verificationChecks(decision);
+  return { status, note, poaPostcodes, checks, ...(personKey ? { personKey } : {}), ...(documentExpiresAt ? { documentExpiresAt } : {}) };
 }
 
 /** Didit v3 webhooks sign the complete canonical JSON with X-Signature-V2.
- * A top-level Approved alone is insufficient: every required ID, selfie and
- * address feature must have its own Approved decision. */
+ * Didit's final Approved session status is authoritative even when feature
+ * details are absent; In Review is the provider's explicit manual-review state. */
 export const webhook = internalAction({
   args: {
     body: v.string(),

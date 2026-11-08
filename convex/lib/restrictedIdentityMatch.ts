@@ -11,9 +11,7 @@ export async function approvedRestrictedIdentitySource(ctx:any, booking:any, ses
 export async function restrictedIdentityMatches(ctx: any, booking: any, personKey: string) {
   if (!/^[a-f0-9]{64}$/.test(personKey)) return { matches: [], more: false };
   const rows = await ctx.db.query("accounts").withIndex("by_person_restricted", (q: any) => q.eq("renterPersonKey", personKey).gt("blockedAt", 0)).take(22);
-  const matches = rows.filter((account: any) => booking.accountId
-    ? String(account._id) !== String(booking.accountId)
-    : account.email.trim().toLowerCase() !== (booking.guestEmail ?? "").trim().toLowerCase());
+  const matches = rows.filter((account: any) => !booking.accountId || String(account._id) !== String(booking.accountId));
   return { matches: matches.slice(0, 20), more: rows.length > 21 || matches.length > 20 };
 }
 

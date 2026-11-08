@@ -1,5 +1,6 @@
 const assert=require('node:assert/strict'),fs=require('node:fs');const {load,setMock}=require('./lib/rentalTestHarness.cjs');const settings=load('convex/settings.ts');const ctx={db:{query:()=>({first:async()=>null})}};
 const bookingPanel=fs.readFileSync('src/components/booking/BookingPanel.tsx','utf8');
+assert.match(fs.readFileSync('.env.local.example','utf8'),/^SETUP_INTENT_SECURITY_POLICY_ENABLED=true$/m,'New local environments use the current saved-card/SetupIntent policy');
 assert(!bookingPanel.includes('No upfront security payment'),'Gear detail must not deny the refundable deposit charged at checkout');
 assert(bookingPanel.includes('Rental security shown at checkout'),'Gear detail must leave policy-specific security amounts in the final quote');
 let settingsUnavailable=false;

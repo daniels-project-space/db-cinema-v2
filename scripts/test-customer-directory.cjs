@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const { load, db, put } = require("./lib/rentalTestHarness.cjs");
 const admin = load("convex/accountAdmin.ts");
-const { customerAdminVisual } = load("shared/customerAdminVisual.ts");
+const { customerAdminVisual, customerSubscriptionTier } = load("shared/customerAdminVisual.ts");
 const { reviewContext } = load("convex/lib/reviewContext.ts");
 const { reviewSettlementFingerprint } = load("convex/lib/reviewEligibility.ts");
 process.env.ADMIN_TOKEN = "fixture-admin";
@@ -14,10 +14,10 @@ const source=put('bookings',{accountId:old._id,accountAccessRequired:false,statu
 old.rentalVerification={sourceBookingId:source._id,name:'older cinematographer',address:'1 example road',expiresAt:Date.now()+100000};
 const proof=put('verification_archives',{accountId:old._id,bookingId:source._id,sessionId:source.diditSessionId,status:'complete'});require('./lib/verificationFiles.cjs').seedVerificationFiles(put,proof);
 for (let i = 0; i < 220; i++) put("accounts", { email: `customer${i}@example.invalid`, name: `Customer ${i}`, createdAt: i + 2, idVerified: true, ...(i === 3 ? { rentalVerification: { expiresAt: 1 } } : {}) });
-async function find(search, filter = "all", tier = "all", verification = "all") {
+async function find(search, filter = "all", tier = "all", verification = "all", encore = "all") {
  let cursor = null, pageCount = 0; const rows = [];
  do {
-  const result = await admin.directory.handler(ctx, { token: "fixture-admin", search, filter, tier, verification, paginationOpts: { numItems: 100, cursor } });
+  const result = await admin.directory.handler(ctx, { token: "fixture-admin", search, filter, tier, verification, encore, paginationOpts: { numItems: 100, cursor } });
   pageCount++; rows.push(...result.page);
   if (result.isDone) break;
   assert.notEqual(result.continueCursor, cursor); cursor = result.continueCursor;
@@ -36,6 +36,8 @@ async function find(search, filter = "all", tier = "all", verification = "all") 
  assert.equal(customerAdminVisual({ adminEncoreLevel: 1 }, 3), "encore1", "A manual admin tier overrides earned progress");
  assert.equal(customerAdminVisual({ adminMembershipTier: "studio" }), "guest", "An administrative grant is not a subscription");
  const subscriber = { stripeSubscriptionId: "sub_fixture", membershipTier: "plus", membershipActive: true, membershipStatus: "active", membershipPaidThrough: Date.now() + 60000 };
+ assert.equal(customerSubscriptionTier({ adminMembershipTier: "pro" }), null, "A manual access grant is not a subscription");
+ assert.equal(customerSubscriptionTier(subscriber), "plus", "An active Stripe plan has its actual subscription tier");
  assert.equal(customerAdminVisual({ ...subscriber, adminEncoreLevel: 3 }), "subscriber");
  assert.equal(customerAdminVisual({ ...subscriber, membershipPaidThrough: 1 }), "guest");
  assert.equal(customerAdminVisual({ ...subscriber, membershipStatus: "trialing", membershipTrialEnd: Date.now() + 60000 }), "subscriber");
@@ -45,13 +47,23 @@ async function find(search, filter = "all", tier = "all", verification = "all") 
  assert.equal(await admin.directoryAccess.handler(ctx, { token: "wrong" }), false);
  const all = await find(""); assert.equal(all.rows.length, 221); assert.equal(new Set(all.rows.map(a => a.id)).size, 221);
  assert.equal(all.rows.at(-1).id, old._id); assert.equal(all.pageCount, 3);
- const byName = await find("  CINEMATOGRAPHER  ", "members", "pro"); assert.equal(byName.pageCount, 3); assert.equal(byName.rows.length, 1); assert.equal(byName.rows[0].id, old._id);
+ const byName = await find("  CINEMATOGRAPHER  ", "members", "standard"); assert.equal(byName.pageCount, 3); assert.equal(byName.rows.length, 1); assert.equal(byName.rows[0].id, old._id);
+ assert.equal(byName.rows[0].tier, "pro", "The displayed access tier remains the complimentary Pro grant");
+ assert.equal(byName.rows[0].subscriptionTier, null, "The subscription filter does not mislabel complimentary access as paid");
  assert.deepEqual((await find("camera@EXAMPLE")).rows.map(a => a.id), [old._id]);
  assert.equal(JSON.stringify(byName.rows).includes("private-hash"), false); assert.equal(JSON.stringify(byName.rows).includes("private-provider"), false);
  assert.equal((await find("Cinematographer", "pending")).rows.length, 0);
  const pending = await find("", "pending"); assert.equal(pending.rows.length, 220); assert(pending.rows.some(row=>row.email==='customer3@example.invalid'));
- assert.equal((await find("", "members", "pro", "verified")).rows.length, 1);
- assert.equal((await find("", "members", "pro", "pending")).rows.length, 0, "Membership and verification filters must compose");
+ assert.equal((await find("", "members", "standard", "verified")).rows.length, 1);
+ assert.equal((await find("", "members", "standard", "pending")).rows.length, 0, "Subscription and verification filters must compose");
+ const paidPro = put("accounts", { email: "paid-pro@example.invalid", name: "Paid Pro", ...subscriber, membershipTier: "pro" });
+ const trialPlus = put("accounts", { email: "trial-plus@example.invalid", name: "Trial Plus", stripeSubscriptionId: "sub_trial", membershipTier: "plus", membershipActive: true, membershipStatus: "trialing", membershipTrialEnd: Date.now() + 60000 });
+ const expiredPro = put("accounts", { email: "expired-pro@example.invalid", name: "Expired Pro", stripeSubscriptionId: "sub_expired", membershipTier: "pro", membershipActive: true, membershipStatus: "canceled", membershipPaidThrough: 1 });
+ const complimentaryPro = put("accounts", { email: "collective-pro@example.invalid", name: "Collective Pro", stripeSubscriptionId: "sub_collective", membershipTier: "pro", membershipActive: true, membershipStatus: "active", membershipPaidThrough: Date.now() + 60000, membershipSource: "collective-comp" });
+ assert.equal((await find("Paid Pro", "all", "pro")).rows[0].id, paidPro._id);
+ assert.equal((await find("Trial Plus", "all", "plus")).rows[0].id, trialPlus._id, "An active trial retains its plan tier");
+ assert.equal((await find("Expired Pro", "all", "standard")).rows[0].id, expiredPro._id, "Canceled subscriptions are not active plans");
+ assert.equal((await find("Collective Pro", "all", "standard")).rows[0].id, complimentaryPro._id, "Complimentary membership does not appear as a subscription");
  put("messages", { accountId: old._id, sender: "renter", text: "Need a cinema camera for Tuesday", at: 1 });
  put("messages", { accountId: old._id, sender: "owner", text: "Cinema camera details", at: 2 });
  const messageArgs = { token: "fixture-admin", search: "cinema camera", filter: "all", tier: "all", verification: "all" };
@@ -64,7 +76,8 @@ async function find(search, filter = "all", tier = "all", verification = "all") 
  assert.equal(messageResults.items[0].visualTier, "guest");
  assert.equal(messageResults.items[0].matchedMessage, "Need a cinema camera for Tuesday");
  assert.equal(JSON.stringify(messageResults).includes("private-hash"), false);
- assert.equal((await admin.searchMessages.handler(ctx, { ...messageArgs, tier: "standard" })).items.length, 0);
+ assert.equal((await admin.searchMessages.handler(ctx, { ...messageArgs, tier: "standard" })).items.length, 1, "A complimentary Pro grant remains in the no-active-subscription filter");
+ assert.equal((await admin.searchMessages.handler(ctx, { ...messageArgs, tier: "pro" })).items.length, 0, "A complimentary Pro grant is not an active paid subscription");
  assert.equal((await admin.searchMessages.handler(ctx, { ...messageArgs, filter: "verified" })).items.length, 1);
  assert.equal((await admin.searchMessages.handler(ctx, { ...messageArgs, verification: "pending" })).items.length, 0);
  assert.deepEqual(await admin.searchMessages.handler(ctx, { ...messageArgs, search: "x" }), { items: [], truncated: false });
@@ -116,6 +129,12 @@ async function find(search, filter = "all", tier = "all", verification = "all") 
  let earnedMetric = (await admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: [earned._id] }))[0];
  assert.equal(earnedMetric.visualTier, "encore3", "Three clean, paid, reviewed rentals drive the directory glow from live earned history");
  assert.equal(earnedMetric.encoreLevel, 3, "Earned Encore appears as a level, not only a glow");
+ assert((await find("Earned Encore", "all", "all", "all", "3")).rows.some(row => row.id === earned._id), "The Encore III filter includes an earned tier");
+ const assignedEncore = put("accounts", { email: "assigned-encore@example.invalid", name: "Assigned Encore", adminEncoreLevel: 2 });
+ assert((await find("Assigned Encore", "all", "all", "all", "2")).rows.some(row => row.id === assignedEncore._id), "The Encore II filter includes an assigned tier");
+ put("messages", { accountId: earned._id, sender: "renter", text: "Earned Encore search fixture", at: 10 });
+ const earnedMessage = await admin.searchMessages.handler(ctx, { token: "fixture-admin", search: "Earned Encore search", filter: "all", tier: "all", encore: "3", verification: "all" });
+ assert.equal(earnedMessage.items[0]?.id, earned._id, "Message search applies the same earned Encore filter as the directory");
  Object.assign(earned, subscriber);
  earnedMetric = (await admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: [earned._id] }))[0];
  assert.equal(earnedMetric.visualTier, "subscriber", "Subscription retains its distinct glow");
@@ -130,5 +149,5 @@ async function find(search, filter = "all", tier = "all", verification = "all") 
  const customerUi = fs.readFileSync("src/components/admin/AccountAdmin.tsx", "utf8");
  assert.equal((customerUi.match(/type="search"/g) ?? []).length, 1, "The customer page has one search control");
  assert.match(customerUi, /workspaceIdentity=\{\{[^}]*photo:\s*selected\.avatarUrl/, "The selected customer photo is passed into the conversation header");
- console.log("PASS full customer directory: bounded cursors, older name/email matches, sparse pages, live membership/verification filters, no duplicate accounts and admin-only safe projection.");
+ console.log("PASS full customer directory: bounded cursors, older name/email matches, active Stripe-plan filters, earned and assigned Encore filters, verification composition, no duplicate accounts and admin-only safe projection.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

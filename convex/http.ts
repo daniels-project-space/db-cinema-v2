@@ -2,7 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { droneDocumentType, DRONE_DOCUMENT_LIMIT } from "./lib/droneDocument";
-import { chatAttachmentsReady, scanChatAttachment, CHAT_ATTACHMENT_LIMIT } from "./lib/chatAttachmentScanner";
+import { chatAttachmentsReady, chatAttachmentScannerHealthy, scanChatAttachment, CHAT_ATTACHMENT_LIMIT } from "./lib/chatAttachmentScanner";
 import { chatAttachmentName } from "./lib/chatAttachmentName";
 import { adminSessionMigrationReady } from "./adminAccountSessionV2";
 import { isChatImageType } from "../shared/chatAttachmentPolicy";
@@ -144,13 +144,13 @@ http.route({ path: "/chat-attachment", method: "POST", handler: httpAction(async
   const cors = documentCors(req);
   if (!cors) return new Response("Forbidden", { status: 403 });
   const headers = { ...cors, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
-  if (!chatAttachmentsReady()) return new Response("Attachments are temporarily unavailable.", { status: 503, headers });
   const url = new URL(req.url);
+  const download = url.searchParams.get("download");
+  if (!download && !chatAttachmentsReady()) return new Response("Attachments are temporarily unavailable.", { status: 503, headers });
   const admin = url.searchParams.get("admin") === "1";
   let id: any, marker: string | undefined, storageId: any;
   try {
     const scope = { token: adminHttpToken(req, admin && process.env.ADMIN_SESSION_ATTACHMENTS_V2 === "enabled"), admin, bookingId: (url.searchParams.get("bookingId") || undefined) as any, accountId: (url.searchParams.get("accountId") || undefined) as any };
-    const download = url.searchParams.get("download");
     if (download) {
       const file = await ctx.runMutation(internal.chatAttachments.download, { ...scope, id: download as any });
       const stored = await ctx.storage.get(file.storageId);
@@ -162,6 +162,11 @@ http.route({ path: "/chat-attachment", method: "POST", handler: httpAction(async
       if (current.storageId !== file.storageId || current.messageId !== file.messageId || current.sha256 !== file.sha256 || current.size !== file.size || current.name !== file.name) throw Error("File unavailable.");
       return new Response(bytes, { headers: { ...headers, "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${file.name}"` } });
     }
+    // The browser's availability check is only a convenience. Authenticate the
+    // exact upload scope and repeat the scanner self-test at the server edge so
+    // a direct POST cannot skip the UI readiness gate.
+    await ctx.runQuery(internal.chatAttachments.availabilityAccess, scope);
+    if (!await chatAttachmentScannerHealthy()) return new Response("Attachments are temporarily unavailable.", { status: 503, headers });
     const nonce = crypto.randomUUID().replace(/-/g, "");
     marker = `application/vnd.dbcinema.chat-${nonce}`;
     const reservation = await ctx.runMutation(internal.chatAttachments.reserve, { ...scope, marker, requestKey: url.searchParams.get("key") ?? "" });

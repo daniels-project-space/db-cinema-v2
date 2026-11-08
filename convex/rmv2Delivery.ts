@@ -9,6 +9,10 @@ import { internal } from "./_generated/api";
 import { verificationValidUntil } from "../shared/verificationProgress";
 
 export const due = internalQuery({ args: {}, handler: async ctx => ctx.db.query("bookings").withIndex("by_rmv2_sync_due", q => q.eq("rmv2SyncStatus", "pending").lte("rmv2SyncDueAt", Date.now())).take(10) });
+export const internalStatus = internalQuery({ args: { bookingId: v.id("bookings") }, handler: async (ctx, { bookingId }) => {
+  const b = await ctx.db.get(bookingId);
+  return b ? { status: b.rmv2SyncStatus ?? "unknown", revision: b.rmv2Revision ?? 0, deliveredRevision: b.rmv2DeliveredRevision ?? null } : null;
+} });
 export const claim = internalMutation({ args: { bookingId: v.id("bookings"), revision: v.number() }, handler: async (ctx, args) => {
   const b = await ctx.db.get(args.bookingId);
   if (!b || b.rmv2Revision !== args.revision || b.rmv2SyncStatus !== "pending" || (b.rmv2SyncLeaseUntil ?? 0) > Date.now() || (b.rmv2SyncDueAt ?? 0) > Date.now()) return null;

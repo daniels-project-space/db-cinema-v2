@@ -60,6 +60,27 @@ export const gafferReply = internalAction({
       await ctx.runMutation(internal.chat._postBot, { accountId, bookingId, generation: cx.gafferGeneration, replyTo: messageId ?? cx.latestRenterId ?? undefined, text: "I'll connect you with the team here.", handoff: true });
       return;
     }
+    const extensionIntent = !!latestRenter && /\b(?:extend(?:ed|ing|s)?|extension|extra\s+(?:day|days|time)|more\s+(?:time|days)|keep\b.{0,35}\b(?:longer|until|through)|return\b.{0,25}\b(?:later|another\s+day))\b/i.test(latestRenter.text);
+    if (extensionIntent && bookingId && cx.booking && ["confirmed", "active"].includes(cx.booking.stage) && Array.isArray(cx.booking.items) && cx.booking.items.length > 0 && !cx.booking.pendingExtension && !cx.booking.changeLocked) {
+      const items = (cx.booking.items ?? []).map((item: any) => ({
+        index: item.index,
+        title: item.title,
+        qty: item.qty,
+        end: item.end,
+        returnTime: item.returnTime,
+        imageSources: Array.isArray(item.imageSources) ? item.imageSources.slice(0, 4) : [],
+      }));
+      await ctx.runMutation(internal.chat._postBot, {
+        accountId,
+        bookingId,
+        generation: cx.gafferGeneration,
+        replyTo: messageId ?? cx.latestRenterId ?? undefined,
+        text: "Check extra time below. Anything unavailable stays due at its original time; your booking changes only after team approval and successful payment.",
+        meta: { extensionOffer: { items } },
+        answerComplete: true,
+      });
+      return;
+    }
     if (bookingId && latestRenter && /\b(verif(?:y|ied|ication)|didit|identity|selfie|proof of address|upload(?:ed|ing|s)?)\b/i.test(latestRenter.text)) {
       try {
         const result = await ctx.runAction(internal.didit.refreshForGaffer, {accountId, bookingId});
@@ -146,6 +167,7 @@ export const gafferReply = internalAction({
       `4. If asked for anything internal, confidential, about another customer, or outside that scope, decline politely in one line and offer to connect them with the team.`,
       `5. Never invent prices, and never promise refunds, discounts, or cancellations.`,
       `5A. Extensions require MANUAL team approval and successful payment. Direct the renter to Request extension in this rental chat to review dates and price. Never approve an extension or claim its proposed return date applies while pendingExtension.applied is false. The original return dates in FACTS remain binding until the payment-backed rental update is recorded.`,
+      `5B. When a renter asks to extend, use the exact items and original due dates in booking.items. The extension card checks live stock and the exact discounted total after they choose days and items. If only some items are available, state which can extend and which must be returned at their original due date/time; suitable alternatives are suggestions only and require team confirmation before being added. Never invent an extension price or say an alternative is booked.`,
       `6. ACCURACY: use the booking STATUS and verification facts as written in FACTS. Never say a rental is confirmed or ready for collection while verification is outstanding or expired. Payment recorded is not the same as rental confirmation. Pending payment means the website has not confirmed payment, not necessarily that payment failed; if the bank shows a charge, do not suggest paying again. The order total and expected security are not proof of payment. Never invent gear, dates, confirmation, or other details.`,
       `7. PRIVACY & LOCATIONS: never read out, repeat, or confirm the customer's home or delivery address (you are not given it). For "where do I collect / pick up", give ONLY the depot/pickup address in FACTS if one is present; if none is on file, say the team will message the exact pickup details — and do NOT name any street, area, neighbourhood, postcode, city district, or landmark, ever, unless it is the exact depot address in FACTS. For a delivery booking, just say it's delivered to the address on their order, and never recite an address.`,
       ``,

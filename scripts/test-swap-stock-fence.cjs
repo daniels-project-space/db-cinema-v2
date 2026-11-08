@@ -9,6 +9,7 @@ const additions = load("convex/rentalAdditionState.ts");
 const extensions = load("convex/rentalExtensions.ts");
 const ctx = { db, scheduler: { runAfter: async () => {} } };
 const booking = put("bookings", { status: "confirmed", lineItems: [], stripePaymentIntentId: "pi_fixture", total: 100, depositAmount: 0 });
+const account = put("accounts", { email: "swap-fence@example.invalid" });
 const unrelated = put("bookings", { status: "confirmed", lineItems: [] });
 const receipt = put("swap_stock_applied_receipts", { bookingId: booking._id, deliveryState: "pending", stockRisk: false });
 const priorRefund = put("rental_refunds", { bookingId: booking._id, requestId: "fixture-refund-prior", amountPence: 100, reason: "Fixture refund", status: "pending" });
@@ -39,6 +40,44 @@ const extension = put("booking_change_requests", { bookingId: booking._id, type:
   }
   receipt.stockRisk = false;
   await check();
+  const createSwap = status => put("rental_item_swaps", { bookingId: booking._id, accountId: account._id, requestId: `fence-${status}`, baseSnapshot: "{}", quoteSnapshot: "{}", lineIndex: 0, oldListingId: "listing-old", newListingId: "listing-new", oldLine: {}, newLine: {}, quote: { deltaPence: 0 }, status, createdAt: Date.now(), updatedAt: Date.now(), expiresAt: Date.now() + 60000 });
+  for (const status of ["awaiting_acceptance", "accepted", "awaiting_payment", "refund_pending", "refund_compensating", "review"]) {
+    const unresolved = createSwap(status);
+    if (status === "refund_pending") await assertSwapStockReconciled(ctx, booking._id, unresolved._id);
+    await assert.rejects(check(), /equipment change is still settling/);
+    await db.patch(unresolved._id, { status: "applied" });
+    await check();
+  }
+  for (const status of ["refunded", "withdrawn", "expired"]) {
+    const closed = createSwap(status);
+    const acquired = put("swap_stock_operations", { swapId: closed._id, operation: "acquire", state: "confirmed", request: {}, receipt: { requestId: "fixture-claim", fingerprint: "fixture-fingerprint" }, createdAt: Date.now(), updatedAt: Date.now() });
+    const operation = status === "refunded" ? "releaseCompensated" : "releasePrepared";
+    const expectedState = status === "refunded" ? "compensated_released" : "released";
+    await assert.rejects(check(), /stock reconciliation/, `${status} with missing release must remain fenced after marker loss`);
+    const release = put("swap_stock_operations", { swapId: closed._id, operation, state: "pending", request: { args: { id: "fixture-claim", fingerprint: "fixture-fingerprint" } }, createdAt: Date.now(), updatedAt: Date.now() });
+    await assert.rejects(check(), /stock reconciliation/, `${status} with pending release must remain fenced`);
+    await assert.rejects(additions.apply.handler(ctx, { id: addition._id }), /stock reconciliation/);
+    await assert.rejects(bookings.markReturnedStatus.handler(ctx, { bookingId: booking._id }), /stock reconciliation/);
+    await db.patch(release._id, { state: "review" });
+    await assert.rejects(check(), /stock reconciliation/, `${status} with release under review must remain fenced`);
+    await db.patch(release._id, { state: "confirmed", receipt: { state: expectedState, replayed: false } });
+    await check();
+    await db.patch(release._id, { receipt: { state: expectedState } });
+    await assert.rejects(check(), /stock reconciliation/, "A malformed acknowledgement cannot unlock stock");
+    await db.patch(release._id, { receipt: { state: expectedState, replayed: false } });
+    await db.patch(release._id, { request: { args: { id: "other-claim", fingerprint: "fixture-fingerprint" } } });
+    await assert.rejects(check(), /stock reconciliation/, "An acknowledgement for another claim cannot unlock stock");
+    await db.patch(release._id, { request: { args: { id: "fixture-claim", fingerprint: "fixture-fingerprint" } } });
+    await db.patch(acquired._id, { state: "pending" });
+    await assert.rejects(check(), /stock reconciliation/, "An unresolved acquisition cannot be treated as released");
+    await db.delete(release._id); await db.delete(acquired._id); await db.delete(closed._id);
+  }
+  const unclaimed = createSwap("withdrawn");
+  await check();
+  await db.delete(unclaimed._id);
+  const many = Array.from({ length: 101 }, () => createSwap("expired"));
+  await assert.rejects(check(), /history needs stock reconciliation/, "Large terminal histories fail closed instead of ignoring older claims");
+  for (const swap of many) await db.delete(swap._id);
   booking.activeItemSwapId = "swap_fixture";
   await assert.rejects(bookings._finalizeCancellation.handler(ctx, { bookingId: booking._id, mode: "none", refundAmount: 0, creditAmount: 0, currency: "GBP" }), /equipment change and stock reconciliation/);
   booking.activeItemSwapId = undefined;

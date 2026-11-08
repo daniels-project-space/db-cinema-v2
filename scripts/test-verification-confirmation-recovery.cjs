@@ -18,23 +18,26 @@ let inventoryRetries = 0;
 let confirmations = 0;
 let trackedPurchases = 0;
 let stockRefreshes = 0;
+let managerPushSucceeds = true;
+const deliveryOrder = [];
 const booking = { _id: 'bookings-fixture', status: 'pending_verification', verificationProvider: 'didit', idVerifyStatus: 'verified', stripeCheckoutSessionId: 'cs_confirmation_fixture' };
 const ctx = {
   scheduler: { runAfter: async (delay, ref, args) => scheduled.push({ delay, ref, args }) },
-  runQuery: async (ref) => {
-    if (ref === 'bookings.verificationAccess') return booking;
-    if (ref === 'bookings.holdContext') return null;
-    if (ref === 'savedCardState.context') return null;
-    throw new Error(`Unexpected query ${ref}`);
-  },
   runAction: async (ref, args) => {
+    if(ref === 'rmv2_webhook.push') { deliveryOrder.push('manager'); return { ok: managerPushSucceeds }; }
     assert.equal(ref, 'sync.syncHyggloReservations');
     assert.equal(args.force, true, 'paid confirmation must read current Rental Manager stock');
-    stockRefreshes++;
+    deliveryOrder.push('live-stock');stockRefreshes++;
     return { checkedAt: Date.now() };
   },
+  runQuery: async (ref, args) => {
+    if(ref === 'rmv2Delivery.internalStatus') return {status:'pending',revision:2,deliveredRevision:1};
+    if(ref === 'bookings.verificationAccess') return booking;
+    if(ref === 'bookings.holdContext' || ref === 'savedCardState.context') return null;
+    throw new Error(`Unexpected query ${ref}`);
+  },
   runMutation: async (ref) => {
-    if (ref === 'bookings.recordPaidCheckoutReceipt') return { recorded: true };
+    if (ref === 'bookings.recordPaidCheckoutReceipt') return { recorded: true, awaitingVerification:true, checkoutPaidAt:Date.now() };
     if (ref === 'bookings.confirm') { confirmations++; return { awaitingInventoryReview: inventoryRetries > 0 }; }
     if (ref === 'bookings.markVerificationConfirmationFailure') { failures++; return true; }
     if (ref === 'analytics.track') { trackedPurchases++; return true; }
@@ -64,6 +67,14 @@ async function quietExpectedError(run) {
   assert.equal(confirmations, 2);
   assert.equal(stockRefreshes, 2, 'each paid confirmation attempt refreshes live stock first');
   assert.equal(trackedPurchases, 1, 'only a fully confirmed rental records a purchase');
+  assert.deepEqual(deliveryOrder,['manager','live-stock','manager','live-stock'],'Rental Manager records the paid pending Didit window before the live stock check and booking confirmation');
+
+  const beforeGate={confirmations,stockRefreshes};managerPushSucceeds=false;
+  await quietExpectedError(() => checkout.confirmAfterVerification.handler(ctx,{bookingId:booking._id,attempt:0}));
+  assert.equal(confirmations,beforeGate.confirmations);assert.equal(stockRefreshes,beforeGate.stockRefreshes,'Booking confirmation waits for Manager to record the paid pending reservation');
+  assert.equal(scheduled.at(-1).args.attempt,1,'Failed Manager delivery gets a bounded retry; payment remains recorded');
+  managerPushSucceeds=true;await checkout.confirmAfterVerification.handler(ctx,{bookingId:booking._id,attempt:1});
+  assert.equal(confirmations,beforeGate.confirmations+1);assert.equal(trackedPurchases,2);
 
   retrievalFailures = 1;
   await quietExpectedError(() => checkout.confirmAfterVerification.handler(ctx, { bookingId: booking._id, attempt: 3 }));
@@ -72,6 +83,6 @@ async function quietExpectedError(run) {
   wrongSession = true;
   await checkout.confirmAfterVerification.handler(ctx, { bookingId: booking._id, attempt: 0 });
   assert.equal(failures, 2, 'a paid session bound to another booking is alerted, never confirmed');
-  assert.equal(trackedPurchases, 1);
-  console.log('PASS paid Didit confirmation recovery: transient retries, bounded stock retries, no false purchase analytics, exhausted-retry alert and strict Stripe booking binding. Synthetic Stripe fixture only.');
+  assert.equal(trackedPurchases, 2);
+  console.log('PASS paid Didit confirmation recovery: Manager reservation acknowledgement gates live stock confirmation; transient retries, bounded stock retries, no false purchase analytics, exhausted-retry alert and strict Stripe booking binding. Synthetic Stripe fixture only.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -248,7 +248,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   let getMicrophone=async()=>({getTracks:()=>[{stop(){}}]});let getMicState=async()=> 'granted';
   const {GafferSessionProvider,formatLiveCallContext}=load('src/components/gaffer/GafferSession.tsx',{
     react:React,'react/jsx-runtime':{jsx:(_type,props)=>props},
-    'convex/react':{useMutation:()=>async args=>{usageEvents.push(args)}},'@cvx/_generated/api':{api:refs},'@/lib/session':{getSessionId:()=> 'fixture-browser'},
+    'convex/react':{useMutation:reference=>async args=>{if(reference==='analytics:track')usageEvents.push(args)}},'@cvx/_generated/api':{api:refs},'@/lib/session':{getSessionId:()=> 'fixture-browser'},
     'next/navigation':{usePathname:()=>'/gear'},
     '@/components/gaffer/useGafferTools':{useGafferTools:()=>({clientTools:{add_to_basket:async()=> 'Added FX3'},dynamicVariables:variables,noteCustomerMessage:message=>{priceAllowed=asksForBetterPrice(message);},noteAgentAlignment:()=>{alignments++;},noteAgentMessage:()=>{},resetSpokenFocus:()=>{},resetPriceRequest:()=>{priceAllowed=false;}})},
     '@/components/gaffer/callContext':{pageBrief:()=>({intent:'gear',mode:'sales',brief:'Gear page',opening:'Hello there'}),isSignOff:text=>text==='goodbye'},

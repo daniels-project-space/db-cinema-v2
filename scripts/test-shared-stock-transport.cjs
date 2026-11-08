@@ -15,11 +15,30 @@ const body = {version:1,operation:'acquire',request:{source:'website',...request
  assert.equal(calls.length,0);
  assert.deepEqual(await sendSharedStockRequest(request,{...config,fetcher}),{status:'confirmed',result:body.result});
  assert.equal(calls.length,1); assert.equal(calls[0].url,'https://fixture-manager.convex.site/dbcinema/shared-stock'); assert.equal(calls[0].options.redirect,'error'); assert.equal(calls[0].options.headers['x-shared-stock-token'],secret); assert(!calls[0].options.body.includes(secret)); assert(calls[0].options.signal instanceof AbortSignal);
+ const extraFieldReceipt={...body,request:{...body.request,bookingId:'booking-fixture'}};
+ assert.equal((await sendSharedStockRequest(request,{...config,fetcher:async()=>new Response(JSON.stringify(extraFieldReceipt))})).status,'unknown','reject acquire receipts that include fields outside Rental Manager contract');
+ const staleBookingRequest={operation:'acquire',args:{...request.args,bookingId:'booking-fixture'}};
+ assert.equal((await sendSharedStockRequest(staleBookingRequest,{...config,fetcher:async(_url,options)=>{assert.equal(JSON.parse(options.body).args.bookingId,'booking-fixture');return new Response('',{status:409})}})).status,'unknown','manager rejection of a stale acquire payload remains ambiguous and fail-closed');
+ const checkExecution={operation:'checkExecution',args:{id:'claim-fixture',fingerprint,executionKey:'provider-execution-0001'}};
+ const capacityConflict={version:1,operation:'checkExecution',error:'capacity_conflict'};
+ assert.deepEqual(await sendSharedStockRequest(checkExecution,{...config,fetcher:async()=>new Response(JSON.stringify(capacityConflict),{status:409})}),{status:'capacity_conflict'},'only the manager’s explicit, operation-matched capacity conflict is classified');
+ for(const altered of [
+   {...capacityConflict,operation:'beginExecution'},
+   {...capacityConflict,error:'stock_request_not_accepted'},
+   {...capacityConflict,extra:'untrusted'},
+   {...capacityConflict,version:2},
+ ]) assert.deepEqual(await sendSharedStockRequest(checkExecution,{...config,fetcher:async()=>new Response(JSON.stringify(altered),{status:409})}),{status:'unknown'},'malformed or mismatched conflicts remain ambiguous');
  for(const altered of [{...body,operation:'releasePrepared'}, {...body,result:{...body.result,fingerprint:'other'}}, {...body,result:{...body.result,state:'released'}}, {...body,result:{...body.result,replayed:'false'}}, {...body,request:{...body.request,source:'hygglo'}}, {...body,request:{...body.request,requestId:'different-website-request'}}, {...body,request:{...body.request,items:[{...request.args.items[0],quantity:2}]}}, {...body,request:{...body.request,untrusted:true}}]) assert.deepEqual(await sendSharedStockRequest(request,{...config,fetcher:async()=>new Response(JSON.stringify(altered))}),{status:'unknown'});
  const zero={operation:'acquireZero',args:{requestId:'swap_0123456789abcdef',bookingId:'booking-fixture',oldItems:request.args.items,newItems:request.args.items}};
  const zeroFingerprint=JSON.stringify(['zero-capacity-v1',zero.args.bookingId,[['camera-fixture',1000,2000,1]],[['camera-fixture',1000,2000,1]]]);
  const zeroReceipt={version:1,operation:'acquireZero',request:{source:'website',...zero.args},result:{requestId:'zero-claim',fingerprint:zeroFingerprint,state:'prepared',replayed:false}};
  assert.equal((await sendSharedStockRequest(zero,{...config,fetcher:async()=>new Response(JSON.stringify(zeroReceipt))})).status,'confirmed');
+ const convertedZero={...zeroReceipt,result:{...zeroReceipt.result,state:'converted',replayed:true,stockRisk:false}};
+ assert.deepEqual(await sendSharedStockRequest(zero,{...config,fetcher:async()=>new Response(JSON.stringify(convertedZero))}),{status:'confirmed',result:convertedZero.result},'the original zero-delta acquisition remains replayable after conversion');
+ assert.equal((await sendSharedStockRequest(zero,{...config,fetcher:async()=>new Response(JSON.stringify({...convertedZero,result:{...convertedZero.result,stockRisk:undefined}}))})).status,'unknown','a converted replay requires an explicit stock-risk result');
+ assert.equal((await sendSharedStockRequest(zero,{...config,fetcher:async()=>new Response(JSON.stringify({...convertedZero,result:{...convertedZero.result,fingerprint:'other'}}))})).status,'unknown','a converted replay remains bound to its original fingerprint');
+ const convertedAcquire={...body,result:{...body.result,state:'converted',replayed:true,stockRisk:true}};
+ assert.deepEqual(await sendSharedStockRequest(request,{...config,fetcher:async()=>new Response(JSON.stringify(convertedAcquire))}),{status:'confirmed',result:convertedAcquire.result},'the original positive-delta acquisition remains replayable after conversion');
  for(const changed of [{bookingId:'other'}, {oldItems:[{...request.args.items[0],quantity:2}]}, {newItems:[{...request.args.items[0],quantity:2}]}])assert.equal((await sendSharedStockRequest(zero,{...config,fetcher:async()=>new Response(JSON.stringify({...zeroReceipt,request:{...zeroReceipt.request,...changed}}))})).status,'unknown');
  const conversion={operation:'checkConversion',args:{id:'claim-fixture',fingerprint,executionKey:'provider-execution-0001',receipt:{bookingId:'synthetic',windows:[{quantity:1}]}}};
  const converted={version:1,operation:'checkConversion',request:{source:'website',...conversion.args},result:{state:'converted',replayed:true,stockRisk:false}};

@@ -15,7 +15,6 @@ import { rentalDate } from "@/lib/rentalPresentation";
 import { RentalRequestHistory } from "@/components/rentals/RentalRequestHistory";
 import { SavedCardCharges } from "@/components/rentals/SavedCardCharges";
 import {OperatorCancellationStatus} from "./OperatorCancellationStatus";
-import { CompactRentalImages } from "./CompactRentalImages";
 import { RentalDeliveryQuotePanel } from "./RentalDeliveryQuotePanel";
 import { RentalReviewRequest } from "./RentalReviewRequest";
 import { RentalCasePanel } from "./RentalCasePanel";
@@ -241,7 +240,6 @@ export function RentalOrderTools({
       <OperatorCancellationStatus key={bookingId} token={token} bookingId={bookingId}/>
       <section className={chatStyles.bookingFacts} aria-label="Booked equipment and handover">
         <div className={chatStyles.factsIdentity}><div className="min-w-0"><h5>{rentalTitle(b.lineItems[0]?.title ?? "Rental kit")}</h5><p>DBC-{bookingId.slice(-8).toUpperCase()} · {b.lineItems.length} listings</p></div></div>
-        <CompactRentalImages items={b.lineItems} />
         <dl><div><dt>Rental dates</dt><dd>{b.lineItems.length ? rentalDate(Math.min(...b.lineItems.map(l => l.start)), Math.max(...b.lineItems.map(l => l.end))) : "Dates need review"}</dd></div><div><dt>{b.fulfilment === "delivery" ? "Delivery" : "Collection"}</dt><dd>{rentalHandoverLabel(b,"pickup")}</dd></div><div><dt>Return</dt><dd>{rentalHandoverLabel(b,"return")}</dd></div><div><dt>Customer</dt><dd>{b.guestName || b.guestEmail}</dd></div><div><dt>Verification</dt><dd data-verified={b.idVerifyStatus === "verified"}>{b.idVerifyStatus === "verified" ? "✓ Verified" : (b.idVerifyStatus ?? "Required").replaceAll("_", " ")}</dd></div></dl>
       </section>
       {b.fulfilment === "delivery" && b.deliveryLegs === "one_way" && <p className="mt-2 rounded-lg border border-sky-200/10 bg-sky-300/[0.04] px-3 py-2 text-xs text-sky-100/70">One-way delivery · renter returns the kit to the Trafalgar Square collection point.</p>}

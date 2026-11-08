@@ -20,10 +20,10 @@ const account = put("accounts", {
 });
 const other = put("accounts", { email: "other@example.invalid", createdAt: 1 });
 const listing = put("listings", {
-  r2Images: ["https://example.invalid/camera.png"],
-  sourceImages: ["https://example.invalid/source.png"],
+  r2Images: ["https://example.invalid/camera-art.png"],
+  sourceImages: ["https://example.invalid/camera-source.png"],
 });
-const secondListing = put("listings", { r2Images: ["https://example.invalid/lens.png"] });
+const secondListing = put("listings", { r2Images: ["https://example.invalid/lens-art.png"], sourceImages: ["https://example.invalid/lens-source.png"] });
 const lineItems = [
   {
     listingId: listing._id,
@@ -160,14 +160,14 @@ put("bookings", {
   assert.deepEqual(
     detail.rentals.find((r) => r.id === owned._id).imageSources,
     [
-      "https://example.invalid/camera.png",
-      "https://example.invalid/source.png",
+      "https://example.invalid/camera-art.png",
+      "https://example.invalid/camera-source.png",
     ],
   );
   assert.equal(detail.rentals.find((r) => r.id === owned._id).quantity, 4);
   assert.deepEqual(detail.rentals.find((r) => r.id === owned._id).items.map(item => [item.title, item.qty, item.imageSources[0]]), [
-    ["Actual camera", 2, "https://example.invalid/camera.png"],
-    ["Lens", 2, "https://example.invalid/lens.png"],
+    ["Actual camera", 2, "https://example.invalid/camera-art.png"],
+    ["Lens", 2, "https://example.invalid/lens-art.png"],
   ]);
   assert.deepEqual(
     detail.conversations.map((t) => t.lastMessage),

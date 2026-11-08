@@ -23,10 +23,11 @@ import {
 import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
-import { listingImages } from "./lib/catalogImages";
+import { listingRentalImages } from "./lib/catalogImages";
 import { stream, mergedStream } from "convex-helpers/server/stream";
 import schema from "./schema";
 import { accountAuthError, validAccountEmail } from "../shared/accountAuth";
+import { LEO_SUPPORT_PHONE, TRAFALGAR_PICKUP_ADDRESS, TRAFALGAR_PICKUP_INSTRUCTIONS } from "../shared/pickupLocation";
 
 // ── crypto helpers (Web Crypto, available in Convex actions) ──────
 const toHex = (b: Uint8Array) =>
@@ -573,7 +574,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
     };
     const heroOf = (l: any): string | null => {
       if (!l) return null;
-      const imgs = listingImages(l);
+      const imgs = listingRentalImages(l);
       return imgs?.[0] ?? null;
     };
 
@@ -602,16 +603,31 @@ async function enrichBookings(ctx:any,rows:any[]) {
           returnTime: li.returnTime ?? null,
           slug: (l as any)?.slug ?? null,
           heroImage: heroOf(l),
-          imageSources: listingImages(l),
+          imageSources: listingRentalImages(l),
           category: (l as any)?.category ?? null,
           tip: (l as any)?.knowledge?.summary ?? null,
         });
       }
       const starts = b.lineItems.map((li: any) => li.start);
       const ends = b.lineItems.map((li: any) => li.end);
+      const verificationExpiresAt = verificationValidUntil(b);
+      const handoverReady = ["confirmed", "active"].includes(b.status) && !!b.paidConfirmedAt &&
+        b.idVerifyStatus === "verified" && (verificationExpiresAt ?? 0) > Date.now();
       out.push({
         _id: b._id,
         status: b.status,
+        idVerifyStatus: b.idVerifyStatus ?? "required",
+        paidConfirmedAt: b.paidConfirmedAt ?? null,
+        verificationExpiresAt,
+        handoverDetails: handoverReady ? {
+          phone: LEO_SUPPORT_PHONE,
+          pickupAddress: b.fulfilment === "delivery" ? (typeof b.address === "string" ? b.address : null) : TRAFALGAR_PICKUP_ADDRESS,
+          returnAddress: b.fulfilment === "delivery" && b.deliveryLegs !== "one_way"
+            ? (typeof b.address === "string" ? b.address : null)
+            : TRAFALGAR_PICKUP_ADDRESS,
+          pickupInstructions: b.fulfilment === "pickup" || b.deliveryLegs === "one_way" ? TRAFALGAR_PICKUP_INSTRUCTIONS : null,
+          fulfilment: b.fulfilment,
+        } : null,
         lineItems: lines,
         total: b.total,
         subtotal: b.subtotal,
@@ -639,10 +655,8 @@ async function enrichBookings(ctx:any,rows:any[]) {
         address: b.address ?? null,
         pickupTime: b.pickupTime ?? null,
         returnTime: b.returnTime ?? null,
-        idVerifyStatus: b.idVerifyStatus ?? "required",
         verificationNote: renterVerificationNote(b.verificationNote),
         verificationArchiveReady,
-        verificationExpiresAt: verificationValidUntil(b),
         documentExpiresAt: b.documentExpiresAt ?? null,
         verificationChecks: b.verificationChecks ?? null,
         idVerificationSource: b.idVerificationSource ?? null,

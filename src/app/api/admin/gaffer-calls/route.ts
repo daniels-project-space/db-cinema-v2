@@ -19,7 +19,8 @@ import { api } from "@cvx/_generated/api";
  *   { token, conversationId }      → full transcript for one call
  */
 
-const AGENT_ID = "agent_4601kvk2pfznfrws6ah700jnxvfv";
+const AGENT_ID = process.env.NEXT_PUBLIC_GAFFER_AGENT_ID || "agent_4601kvk2pfznfrws6ah700jnxvfv";
+const SUPPORT_AGENT_ID = process.env.NEXT_PUBLIC_GAFFER_SUPPORT_AGENT_ID || AGENT_ID;
 const EL = "https://api.elevenlabs.io/v1/convai";
 const MAX_PAGES = 10; // 10 x 100 conversations — bounds a cold admin load
 
@@ -80,6 +81,50 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (body?.action === "settings") {
+    const rolesById = new Map<string, string[]>();
+    for (const entry of [
+      { role: "Sales", agentId: AGENT_ID },
+      { role: "Support", agentId: SUPPORT_AGENT_ID },
+    ]) {
+      const roles = rolesById.get(entry.agentId) ?? [];
+      if (!roles.includes(entry.role)) roles.push(entry.role);
+      rolesById.set(entry.agentId, roles);
+    }
+    const agents = await Promise.all([...rolesById.entries()].map(async ([agentId, roles]) => {
+      const role = roles.length > 1 ? `${roles.join(" · ")} (shared)` : roles[0];
+      try {
+        const response = await el(`/agents/${encodeURIComponent(agentId)}`, key);
+        if (!response.ok) {
+          return { role, agentId, name: null, available: false, providerStatus: response.status };
+        }
+        const agent: any = await response.json();
+        const config = agent?.conversation_config ?? {};
+        const turn = config.turn ?? {};
+        const clientEvents = config.conversation?.client_events;
+        const numberOrNull = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
+        return {
+          role,
+          agentId,
+          name: typeof agent?.name === "string" ? agent.name.slice(0, 120) : null,
+          available: true,
+          providerStatus: response.status,
+          turnEagerness: typeof turn.turn_eagerness === "string" ? turn.turn_eagerness.slice(0, 32) : null,
+          turnTimeoutSeconds: numberOrNull(turn.turn_timeout),
+          turnModel: typeof turn.turn_model === "string" ? turn.turn_model.slice(0, 48) : null,
+          speculativeTurn: typeof turn.speculative_turn === "boolean" ? turn.speculative_turn : null,
+          interruptionsEnabled: Array.isArray(clientEvents) ? clientEvents.includes("interruption") : null,
+          backgroundVoiceDetection: typeof config.vad?.background_voice_detection === "boolean" ? config.vad.background_voice_detection : null,
+          firstMessageInterruptionsDisabled: typeof config.agent?.disable_first_message_interruptions === "boolean" ? config.agent.disable_first_message_interruptions : null,
+          updatedAt: numberOrNull(agent?.metadata?.updated_at_unix_secs),
+        };
+      } catch {
+        return { role, agentId, name: null, available: false, providerStatus: null };
+      }
+    }));
+    return NextResponse.json({ agents });
+  }
+
   // ── one conversation → full transcript ──
   if (typeof body.conversationId === "string" && body.conversationId) {
     const r = await el(`/conversations/${encodeURIComponent(body.conversationId)}`, key);
@@ -90,6 +135,12 @@ export async function POST(req: NextRequest) {
       );
     }
     const d: any = await r.json();
+    const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+    const telemetry = convexUrl
+      ? await new ConvexHttpClient(convexUrl)
+        .query(api.analytics.gafferCallTelemetryForAdmin, { token: body.token, conversationId: body.conversationId })
+        .catch(() => null)
+      : null;
     return NextResponse.json({
       id: body.conversationId,
       status: d.status ?? "unknown",
@@ -97,6 +148,7 @@ export async function POST(req: NextRequest) {
       durationSecs: d.metadata?.call_duration_secs ?? 0,
       summary: d.analysis?.transcript_summary ?? null,
       callSuccessful: d.analysis?.call_successful ?? "unknown",
+      telemetry,
       // tool calls and empty system turns are noise for a human reading a transcript
       turns: (Array.isArray(d.transcript) ? d.transcript : [])
         .filter((t: any) => typeof t?.message === "string" && t.message.trim())

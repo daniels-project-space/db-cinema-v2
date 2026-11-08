@@ -27,43 +27,32 @@ function creditDescription(reason:string){
  return ({late_cancellation:"Rental cancellation credit",restored_credit:"Previously used credit restored",consented_full_credit:"Rental payment converted to account credit",operator_cancellation_credit:"Cancelled rental · account credit",operator_cancellation_bonus:"Cancelled rental · 30% extra credit"} as Record<string,string>)[type]??reason;
 }
 const amountPence=(amount:number)=>{const p=Math.round(amount*100);if(!Number.isFinite(amount)||!Number.isSafeInteger(p)||p<=0||p/100!==amount)throw Error("Enter a positive credit amount in pounds and pence.");return p;};
-const nextRevision=(revision:number)=>{if(!Number.isSafeInteger(revision)||revision<0||revision>=Number.MAX_SAFE_INTEGER)throw Error("Credit controls need manual reconciliation before another change.");return revision+1;};
-export const grantAdmin=mutation({args:{token:v.string(),accountId:v.id("accounts"),amount:v.number(),requestId:v.string(),reason:v.optional(v.string()),confirmed:v.boolean(),expectedRevision:v.number()},handler:async(ctx,a)=>{
+export const grantAdmin=mutation({args:{token:v.string(),accountId:v.id("accounts"),amount:v.number(),requestId:v.string(),expectedRevision:v.number(),reason:v.optional(v.string())},handler:async(ctx,a)=>{
  await creditAdminWrite(ctx,a.token,"accountCredits.grantAdmin");
- if(!a.confirmed)throw Error("Review and confirm this account credit grant.");
  if(!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId))throw Error("Invalid credit request identity.");
  const pence=amountPence(a.amount),reason=a.reason?.trim()||"Administrator account credit";if(reason.length>500)throw Error("Credit note is too long.");
- const prior=await ctx.db.query("credit_issues").withIndex("by_request",q=>q.eq("requestId",a.requestId)).unique();
- if(prior){if(prior.accountId!==a.accountId||prior.amountPence!==pence||prior.reason!==reason)throw Error("This credit request was already used for different particulars.");return {creditId:prior.creditId,amount:prior.amountPence/100,expiresAt:prior.expiresAt,replayed:true};}
- const state=await ctx.db.query("admin_credit_grant_states").withIndex("by_account",q=>q.eq("accountId",a.accountId)).unique();
- if(state?.pendingIssueId)throw Error("Review and acknowledge the previous credit receipt before issuing another grant.");
- if(!Number.isSafeInteger(a.expectedRevision)||a.expectedRevision!==(state?.revision??0))throw Error("Credit controls changed. Review the latest receipt and try again.");
- const revision=nextRevision(state?.revision??0);
  const account=await ctx.db.get(a.accountId);if(!account)throw Error("Account no longer exists.");
+ const state=await ctx.db.query("admin_credit_grant_states").withIndex("by_account",q=>q.eq("accountId",account._id)).unique(),revision=state?.revision??0;
+ const prior=await ctx.db.query("credit_issues").withIndex("by_request",q=>q.eq("requestId",a.requestId)).unique();
+ if(prior){if(prior.accountId!==a.accountId||prior.amountPence!==pence||prior.reason!==reason)throw Error("This credit request was already used for different particulars.");return {creditId:prior.creditId,amount:prior.amountPence/100,expiresAt:prior.expiresAt,revision,replayed:true};}
+ if(!Number.isSafeInteger(a.expectedRevision)||a.expectedRevision!==revision)throw Error("Credits changed in another tab. Review the latest balance, then retry.");
  const now=Date.now(),expiresAt=now+YEAR;
  const creditId=await ctx.db.insert("credits",{accountId:account._id,kind:"earned",currency:"GBP",amount:pence/100,remaining:pence/100,reason:"admin_grant:"+reason,createdAt:now,expiresAt,status:"active"});
- const issueId=await ctx.db.insert("credit_issues",{requestId:a.requestId,accountId:account._id,creditId,amountPence:pence,reason,createdAt:now,expiresAt});
- if(state)await ctx.db.patch(state._id,{revision,pendingIssueId:issueId});else await ctx.db.insert("admin_credit_grant_states",{accountId:account._id,revision,pendingIssueId:issueId});
+ await ctx.db.insert("credit_issues",{requestId:a.requestId,accountId:account._id,creditId,amountPence:pence,reason,createdAt:now,expiresAt});
+ const nextRevision=revision+1;
+ if(state)await ctx.db.patch(state._id,{revision:nextRevision,pendingIssueId:undefined});else await ctx.db.insert("admin_credit_grant_states",{accountId:account._id,revision:nextRevision});
  await ctx.db.insert("account_admin_changes",{accountId:account._id,kind:"credit_grant",before:"",after:"GBP "+(pence/100).toFixed(2),reason,at:now});
- return {creditId,amount:pence/100,expiresAt,replayed:false};
+ return {creditId,amount:pence/100,expiresAt,revision:nextRevision,replayed:false};
 }});
-export const grantStatus=query({args:{token:v.string(),accountId:v.id("accounts")},handler:async(ctx,a)=>{
+export const grantStatus=query({args:{token:v.string(),accountId:v.id("accounts"),requestId:v.optional(v.string())},handler:async(ctx,a)=>{
  if(!await creditAdminRead(ctx,a.token))throw Error("Unauthorized");
- const state=await ctx.db.query("admin_credit_grant_states").withIndex("by_account",q=>q.eq("accountId",a.accountId)).unique();
- const issue=state?.pendingIssueId?await ctx.db.get(state.pendingIssueId):null;
- if(state?.pendingIssueId&&(!issue||issue.accountId!==a.accountId))throw Error("Credit receipt is unavailable. Contact the team before issuing more credit.");
- return {revision:state?.revision??0,pending:issue?{id:issue._id,amount:issue.amountPence/100,reason:issue.reason,createdAt:issue.createdAt,expiresAt:issue.expiresAt}:null};
-}});
-export const acknowledgeGrant=mutation({args:{token:v.string(),accountId:v.id("accounts"),issueId:v.id("credit_issues"),expectedRevision:v.number(),confirmed:v.boolean()},handler:async(ctx,a)=>{
- await creditAdminWrite(ctx,a.token,"accountCredits.acknowledgeGrant");
- if(!a.confirmed)throw Error("Confirm that you reviewed the credit receipt.");
- const state=await ctx.db.query("admin_credit_grant_states").withIndex("by_account",q=>q.eq("accountId",a.accountId)).unique();
- if(!state||state.revision!==a.expectedRevision||state.pendingIssueId!==a.issueId)throw Error("The credit receipt changed. Review the latest status.");
- const issue=await ctx.db.get(a.issueId);if(!issue||issue.accountId!==a.accountId)throw Error("Credit receipt is unavailable.");
- const revision=nextRevision(state.revision);
- await ctx.db.patch(state._id,{revision,pendingIssueId:undefined});
- await ctx.db.insert("account_admin_changes",{accountId:a.accountId,kind:"credit_grant_acknowledged",before:String(issue._id),after:"acknowledged",reason:"Credit receipt reviewed",at:Date.now()});
- return {ok:true};
+ const account=await ctx.db.get(a.accountId);if(!account)throw Error("Account no longer exists.");
+ const state=await ctx.db.query("admin_credit_grant_states").withIndex("by_account",q=>q.eq("accountId",account._id)).unique();
+ const receipt=a.requestId?await ctx.db.query("credit_issues").withIndex("by_request",q=>q.eq("requestId",a.requestId!)).unique():null;
+ if(receipt&&receipt.accountId!==account._id)throw Error("Credit request belongs to another account.");
+ const latest=(await ctx.db.query("credit_issues").withIndex("by_account_created",q=>q.eq("accountId",account._id)).order("desc").take(1))[0];
+ const summarize=(row:any)=>row?{id:row._id,requestId:row.requestId,creditId:row.creditId,amount:row.amountPence/100,createdAt:row.createdAt,expiresAt:row.expiresAt}:null;
+ return {revision:state?.revision??0,latest:summarize(latest),receipt:summarize(receipt)};
 }});
 export const adminHistory=query({args:{token:v.string(),accountId:v.id("accounts")},handler:async(ctx,a)=>{
  if(!await creditAdminRead(ctx,a.token))throw Error("Unauthorized");

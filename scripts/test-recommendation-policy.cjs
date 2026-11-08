@@ -126,21 +126,24 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  setMock('@/lib/ai',{botModel:()=>({})});
  let plannedStages=[{key:'camera',recommend:'FX3'},{key:'lens',recommend:'24-70 GM'}];
  setMock('ai',{generateObject:async()=>({object:{reply:'Unverified camera and lens claims',stages:plannedStages}})});
- let selectedCamera=fx3;
+ let selectedCamera=fx3,assemblyStockRequests=[],assemblyAvailabilityRequests=[];
  let lensOptions=[{...containedZoom,demandScore:9999},lens,wide];
  const nd={_id:'nd82',itemType:'nd-filter',title:'82mm variable ND',specs:{filterThreadMm:82},pricing:{daily:10}};
  const monitor={_id:'monitor',itemType:'monitor',title:'External monitor',pricing:{daily:15}};
  const extraTypes=['recorder','dj-deck','mixer','headphones','projector','accessory'];
- setMock('convex/browser',{ConvexHttpClient:class {async action(name){if(name==='sync.refreshCartStock')return {ok:true};throw Error(name);} async query(name,args){
+ setMock('convex/browser',{ConvexHttpClient:class {async action(name,args){if(name==='sync.refreshCartStock'){assemblyStockRequests.push(args);return {ok:true};}throw Error(name);} async query(name,args){
    if(name==='catalog.compatibilityKits')return [];
    if(name==='catalog.byItemType')return extraTypes.includes(args.types[0])?[{_id:args.types[0],itemType:args.types[0],title:'Owned '+args.types[0],pricing:{daily:5}}]:args.types.includes('camera-body')?[{...selectedCamera,pricing:{daily:100}}]:args.types.includes('nd-filter')?[nd]:args.types.includes('monitor')?[monitor]:lensOptions;
-   if(name==='availability.forListing')return {available:1};throw Error(name);
+   if(name==='availability.forListing'){assemblyAvailabilityRequests.push(args);return {available:1};}throw Error(name);
  }}});
  process.env.OPENROUTER_API_KEY='isolated-fixture-no-provider-call';
  const assemble=load('src/app/api/assemble/route.ts');
  async function assembleKit(extra={}){return (await assemble.POST({json:async()=>({...window,size:'Small crew',...extra})})).json();}
+ assemblyStockRequests=[];assemblyAvailabilityRequests=[];
  let incomplete=await assemble.POST({json:async()=>({start:window.start,end:window.end})});
- assert.equal(incomplete.status,400,'availability must not be claimed before times are provided');
+ assert.equal(incomplete.status,200,'date-only gear recommendations are allowed before checkout asks for exact times');
+ assert(assemblyStockRequests.length&&assemblyStockRequests.every(request=>request.items.every(item=>item.pickupTime===undefined&&item.returnTime===undefined)),'basket planning does not invent pickup or return times');
+ assert(assemblyAvailabilityRequests.length&&assemblyAvailabilityRequests.every(request=>request.pickupTime===undefined&&request.returnTime===undefined),'date-only stock checks use the conservative whole-day window');
  let assembled=await assembleKit();
  let lensStage=assembled.stages.find(s=>s.key==='lens');
  assert.equal(lensStage.recommendedId,wide._id,'model hint must not override documented bundled glass');

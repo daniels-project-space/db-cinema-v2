@@ -34,9 +34,10 @@ export async function POST(req: NextRequest) {
       verifiedMessageId=String(latest._id);
       body={...body,channel:"chat",messages:messages.map(message=>({role:message.sender==="renter"?"user":"assistant",content:message.text}))};
     }
-    const out = await handleChat(body);
     const secret=process.env.GAFFER_COMPLETION_PROOF_SECRET??"";
-    const completionProof=verifiedMessageId&&out.resolvedInquiry===true&&secret.length>=32?await signGafferCompletion(secret,{messageId:verifiedMessageId,answer:out.reply.trim(),resolved:true,expiresAt:Date.now()+120000}):undefined;
+    if(verifiedMessageId&&secret.length<32)return NextResponse.json({reply:"Gaffer couldn't save that reply securely. Please try again.",cards:[],suggestions:[]},{status:503,headers:{"cache-control":"no-store"}});
+    const out = await handleChat(body);
+    const completionProof=verifiedMessageId?await signGafferCompletion(secret,{messageId:verifiedMessageId,answer:out.reply.trim(),resolved:out.resolvedInquiry===true,expiresAt:Date.now()+120000}):undefined;
     return NextResponse.json({...out,...(completionProof?{completionProof}:{})},{headers:{"cache-control":"no-store"}});
   } catch (e) {
     console.error("[bot] handleChat failed:", e);

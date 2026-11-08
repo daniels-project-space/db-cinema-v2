@@ -2,6 +2,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const ts = require("typescript");
+const { load } = require("./lib/rentalTestHarness.cjs");
+const { swapAuthorityAvailable } = load("convex/lib/rentalSwapAuthority.ts");
 
 const root = path.resolve(__dirname, "..");
 const expected = [
@@ -25,6 +27,12 @@ const expected = [
   "convex/rentalReplacements.ts:acceptBasket",
   "convex/sync.ts:applySharedStock",
 ];
+
+const gateKeys = ["SHARED_STOCK_AUTHORITY_READY", "SHARED_STOCK_BRIDGE_EXPERIMENTAL", "RMV2_WEBHOOK_URL", "SHARED_STOCK_WEBSITE_SECRET"];
+const savedGate = Object.fromEntries(gateKeys.map(key => [key, process.env[key]]));
+function restoreGate() {
+  for (const key of gateKeys) savedGate[key] === undefined ? delete process.env[key] : process.env[key] = savedGate[key];
+}
 
 function inventory(directory) {
   const found = [];
@@ -57,8 +65,18 @@ function inventory(directory) {
 }
 
 assert.deepEqual(inventory("convex").sort(), expected.sort(), "Reservation insertion sites changed: review every writer before changing the shared-stock gate.");
-const gate = fs.readFileSync(path.join(root, "convex/lib/rentalSwapAuthority.ts"), "utf8");
-const source = ts.createSourceFile("rentalSwapAuthority.ts", gate, ts.ScriptTarget.Latest, true);
-const available = source.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "swapAuthorityAvailable");
-assert.ok(available && available.body && available.body.statements.length === 1 && ts.isReturnStatement(available.body.statements[0]) && available.body.statements[0].expression?.kind === ts.SyntaxKind.FalseKeyword, "Do not enable the swap gate until all stock writers and external sources are integrated and the gate tests are replaced with end-to-end evidence.");
-console.log("PASS shared stock writer inventory: direct reservation inserts are reviewed and swap authority stays disabled.");
+try {
+  for (const key of gateKeys) delete process.env[key];
+  assert.equal(swapAuthorityAvailable(), false, "No settings must keep swap authority closed.");
+  process.env.SHARED_STOCK_AUTHORITY_READY = "enabled";
+  assert.equal(swapAuthorityAvailable(), false, "Readiness alone cannot enable an incomplete bridge.");
+  process.env.SHARED_STOCK_BRIDGE_EXPERIMENTAL = "true";
+  process.env.RMV2_WEBHOOK_URL = "https://fixture-manager.convex.site/dbcinema/booking-sync";
+  process.env.SHARED_STOCK_WEBSITE_SECRET = "synthetic-stock-secret-at-least-32-characters";
+  assert.equal(swapAuthorityAvailable(), true, "A fully configured, explicitly enabled Manager bridge may be activated.");
+  process.env.RMV2_WEBHOOK_URL = "https://fixture-manager.convex.site.evil.test/dbcinema/booking-sync";
+  assert.equal(swapAuthorityAvailable(), false, "An untrusted Manager hostname must fail closed.");
+} finally {
+  restoreGate();
+}
+console.log("PASS shared stock writer inventory and explicit, fail-closed authority configuration.");

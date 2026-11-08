@@ -32,17 +32,22 @@ async function main() {
     scannerTmp = fs.mkdtempSync("/dev/shm/dbc-scanner-runtime-");
     scannerServer = require("../services/chat-scanner/scanner.cjs").createScannerServer({ token: "synthetic-isolated-scanner-token-32-characters", socketPath: socket, tmpDir: scannerTmp });
     await new Promise(resolve => scannerServer.listen(0, "127.0.0.1", resolve));
-    const source = fs.readFileSync(scanner, "utf8"), call = "(options.fetcher ?? fetch)(endpoint, {";
-    if (!source.includes("return false;") || !source.includes(call)) throw Error("The isolated scanner bridge no longer matches the application.");
-    fs.writeFileSync(scanner, source.replace("return false;", "return true;").replace(call, `(options.fetcher ?? fetch)("http://127.0.0.1:${scannerServer.address().port}/scan", {`));
-  } else fs.writeFileSync(scanner, `export const CHAT_ATTACHMENT_LIMIT=10*1024*1024;\nexport function chatAttachmentsReady(){return true;}\nexport async function scanChatAttachment(){return {engine:'synthetic',signatureVersion:'fixture',signatureUpdatedAt:Date.now()};}\n`);
+    let source = fs.readFileSync(scanner, "utf8");
+    const calls = [
+      ["(options.fetcher ?? fetch)(endpoint, {", `(options.fetcher ?? fetch)("http://127.0.0.1:${scannerServer.address().port}/scan", {`],
+      ["(config.fetcher ?? fetch)(endpoint, {", `(config.fetcher ?? fetch)("http://127.0.0.1:${scannerServer.address().port}/health", {`],
+    ];
+    if (calls.some(([call]) => !source.includes(call))) throw Error("The isolated scanner bridge no longer matches the application.");
+    for (const [call, replacement] of calls) source = source.replace(call, replacement);
+    fs.writeFileSync(scanner, source);
+  } else fs.writeFileSync(scanner, `export const CHAT_ATTACHMENT_LIMIT=10*1024*1024;\nexport function chatAttachmentsReady(){return true;}\nexport async function chatAttachmentScannerHealthy(){return true;}\nexport async function scanChatAttachment(){return {engine:'synthetic',signatureVersion:'fixture',signatureUpdatedAt:Date.now()};}\n`);
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, CONVEX_AGENT_MODE: "anonymous", XDG_CONFIG_HOME: path.join(workspace, "config") };
   child = spawn(path.join(root, "node_modules/.bin/convex"), ["dev", "--typecheck", "disable", "--codegen", "disable", "--tail-logs", "disable"], { cwd: workspace, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
   let output = ""; child.stdout.on("data", data => output += data); child.stderr.on("data", data => output += data);
   for (let attempt = 0; attempt < 180 && !output.includes("Convex functions ready!") && child.exitCode === null && child.signalCode === null; attempt++) await sleep(1000);
   const match = output.match(/http:\/\/127\.0\.0\.1:(\d+)/);
   if (!match || !output.includes("Convex functions ready!") || !(output.includes("[Local]") || output.includes("Configured a local deployment"))) throw Error(`Isolated backend did not start: ${output.slice(-1200)}`);
-  if (socket) for (const [key, value] of [["CHAT_ATTACHMENT_SCANNER_URL", "https://scanner.example.invalid/scan"], ["CHAT_ATTACHMENT_SCANNER_TOKEN", "synthetic-isolated-scanner-token-32-characters"]]) execFileSync(path.join(root, "node_modules/.bin/convex"), ["env", "set", key, value], { cwd: workspace, env, stdio: "ignore" });
+  if (socket) for (const [key, value] of [["CHAT_ATTACHMENT_SCANNER_URL", "https://scanner.example.invalid/scan"], ["CHAT_ATTACHMENT_SCANNER_TOKEN", "synthetic-isolated-scanner-token-32-characters"], ["CHAT_ATTACHMENTS_RELEASE_ENABLED", "enabled"]]) execFileSync(path.join(root, "node_modules/.bin/convex"), ["env", "set", key, value], { cwd: workspace, env, stdio: "ignore" });
   const client = new ConvexHttpClient(match[0]), seed = makeFunctionReference("chat_attachment_qualify:seed"), inspect = makeFunctionReference("chat_attachment_qualify:inspect");
   const fixture = await client.mutation(seed, {}), endpoint = `http://127.0.0.1:${Number(match[1]) + 1}/chat-attachment`;
   const png = await require("sharp")({ create: { width: 2, height: 2, channels: 3, background: "#abcdef" } }).png().toBuffer();

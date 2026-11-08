@@ -9,6 +9,9 @@ type RentalLine = {
 type RentalRecord = {
   status?: unknown;
   idVerifyStatus?: unknown;
+  paidConfirmedAt?: unknown;
+  verificationExpiresAt?: unknown;
+  handoverDetails?: { pickupAddress?: unknown; returnAddress?: unknown; phone?: unknown; pickupInstructions?: unknown } | null;
   lineItems?: unknown;
   pickupTime?: unknown;
   returnTime?: unknown;
@@ -95,7 +98,12 @@ export function buildGafferRenterBookingFacts(bookings: unknown): string[] {
       ? ` Times: pickup ${pickupTime ?? "not listed"}; return ${returnTime ?? "not listed"}.`
       : "";
     const identity = ` Verification state: ${verificationStatus(booking.idVerifyStatus)}.`;
-    return `Signed-in renter's rental record ${index + 1}: status ${status}.${items.length ? ` Items: ${items.join("; ")}.` : " Items are not listed in this record."}${times}${identity} Do not infer payment, refund, or deposit outcomes from this record.`;
+    const handover = booking.handoverDetails && typeof booking.paidConfirmedAt === "number" &&
+      booking.idVerifyStatus === "verified" && typeof booking.verificationExpiresAt === "number" && booking.verificationExpiresAt > Date.now() &&
+      ["confirmed", "active"].includes(String(booking.status).toLowerCase())
+      ? ` Approved handover details: pickup ${safeText(booking.handoverDetails.pickupAddress, 240) || "not listed"}; return ${safeText(booking.handoverDetails.returnAddress, 240) || "not listed"}; contact Leo ${safeText(booking.handoverDetails.phone, 32) || "not listed"}.${safeText(booking.handoverDetails.pickupInstructions, 240) ? ` ${safeText(booking.handoverDetails.pickupInstructions, 240)}` : ""}`
+      : " Exact handover address and Leo's phone must remain hidden until payment, current verification and booking confirmation are all recorded.";
+    return `Signed-in renter's rental record ${index + 1}: status ${status}.${items.length ? ` Items: ${items.join("; ")}.` : " Items are not listed in this record."}${times}${identity}${handover} Do not infer payment, refund, or deposit outcomes from this record.`;
   });
 }
 

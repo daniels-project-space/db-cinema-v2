@@ -27,12 +27,14 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     for (let attempt = 0; attempt < 100 && !await client.evaluate('!!document.querySelector("[aria-label=\\"Rental verification progress\\"]")'); attempt++) await wait(100);
     assert.match(await client.evaluate('document.body.textContent'), /Verification needs review/);
     assert.match(await client.evaluate('document.body.textContent'), /synthetic-session-123/);
-    assert.match(await client.evaluate('document.body.textContent'), /Do not approve until Didit confirms it/);
+    assert.match(await client.evaluate('document.body.textContent'), /Approve only after Didit confirms/);
     assert.equal(await client.evaluate('document.documentElement.scrollWidth > innerWidth'), false);
+    assert.equal(await client.evaluate(`(()=>{const labels=[...document.querySelectorAll('[aria-label="Document checks"] span:first-child')].map(node=>node.textContent);return labels.includes('Selfie & face match')&&labels.includes('Proof of address')})()`), true, 'Long check labels remain fully visible');
+    assert.equal(await client.evaluate(`(()=>[...document.querySelectorAll('[aria-label="Document checks"] > div')].every(node=>node.scrollWidth<=node.clientWidth))()`), true, 'Check chips do not clip at 320px');
     const screenshot = await client.cmd("Page.captureScreenshot", { format: "png" }); fs.writeFileSync("/tmp/dbc-verification-review-320.png", Buffer.from(screenshot.data, "base64"));
-    await client.evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent.includes('Refresh Didit decision')).click()`); await wait(80);
+    await client.evaluate(`document.querySelector('[aria-label="Refresh Didit decision"]').click()`); await wait(80);
     assert.deepEqual(await client.evaluate('window.refreshCalls'), [{ bookingId: "synthetic-rental", accountToken: "admin-fixture", admin: true }]);
-    assert.match(await client.evaluate('document.body.textContent'), /No update recorded/);
+    assert.match(await client.evaluate('document.body.textContent'), /No change yet/);
     assert.equal(await client.evaluate('document.querySelector("a[href=\\"https://business.didit.me\\"]").getAttribute("rel")'), "noopener noreferrer");
     console.log("PASS verification review visual and refresh control at 320px; synthetic data only.");
   } finally { if (client) client.close(); if (chrome.exitCode === null) { const done = new Promise(resolve => chrome.once("exit", resolve)); chrome.kill(); await done; } server.close(); await wait(200); await fs.promises.rm(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }

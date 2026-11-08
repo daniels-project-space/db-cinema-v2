@@ -1,9 +1,10 @@
 const assert=require("node:assert/strict");
 const {load,db,put,tables,setMock}=require("./lib/rentalTestHarness.cjs");
-process.env.ADMIN_TOKEN="member-swap-owner";process.env.RENTAL_ITEM_SWAP_ENABLED="true";
+process.env.ADMIN_TOKEN="member-swap-owner";process.env.RENTAL_ITEM_SWAP_ENABLED="true";process.env.SHARED_STOCK_BRIDGE_EXPERIMENTAL="true";
 setMock("./lib/rentalChat",{...load("convex/lib/rentalChat.ts"),postRentalMessage:async()=>{}});
-setMock("./lib/rentalSwapAuthority",{assertSwapAuthorityAvailable:()=>{},swapAuthorityAvailable:()=>false});
+setMock("./lib/rentalSwapAuthority",{assertSwapAuthorityAvailable:()=>{},swapAuthorityAvailable:()=>true});
 const state=load("convex/rentalSwapState.ts"),ctx={db,scheduler:{runAfter:async()=>{}}};
+async function markRefundSucceeded(id,refund){const paymentIntentId=`pi_refund_${id}`;await db.patch(refund._id,{allocations:[{paymentIntentId,amountPence:refund.amountPence}],parts:[{paymentIntentId,stripeRefundId:`re_${id}`,amountPence:refund.amountPence,status:"succeeded"}],status:"succeeded"});}
 const account=put("accounts",{email:"member-swap@example.invalid"});
 put("sessions",{accountId:account._id,token:"member-renter",expiresAt:Date.now()+86400000});
 put("rmv2_sync_state",{key:"shared-stock-v1",status:"ok",lastSyncedAt:Date.now(),cursor:JSON.stringify({checkedAt:Date.now()})});
@@ -23,15 +24,19 @@ for(const entry of [first,old])put("reservations",{bookingId:booking._id,listing
  const id=await state.propose.handler(ctx,{...args,requestId:"member-multiline-swap-fixture",quoteSnapshot:preview.quoteSnapshot,confirmed:true});
  await state.accept.handler(ctx,{token:"member-renter",id,expectedDeltaPence:-5500});
  require('./lib/rentalTestHarness.cjs').confirmSyntheticSwapStock(id);
- assert.equal((await state.prepareRefund.handler(ctx,{id})).amountPence,5500);
- assert((await state.apply.handler(ctx,{id,stageRefund:true})).staged);
- assert.equal(booking.membershipCreditApplied,15);assert.equal(booking.creditApplied,15);assert.equal(booking.refundCreditApplied,0);assert.equal(booking.earnedCreditApplied,0);
+ const refundJob=await state.prepareRefund.handler(ctx,{id});assert.equal(refundJob.amountPence,5500);
+ await assert.rejects(state.apply.handler(ctx,{id,stageRefund:true}),/cannot be applied before its refund succeeds/);
+ assert.deepEqual(booking.lineItems.map(row=>row.listingId),[first.item._id,old.item._id]);
+ assert.equal(booking.membershipCreditApplied,20);assert.equal(booking.creditApplied,45);assert.equal(tables.get("credits").filter(row=>row.reason===`swap_restored_credit:${id}`).length,0);
+ await markRefundSucceeded(id,refundJob);
+ assert((await state.apply.handler(ctx,{id})).applied);
+ assert.equal(booking.membershipCreditApplied,15);assert.equal(booking.total,55,"The original charged total remains immutable; its downgrade refund is recorded separately");assert.equal(booking.creditApplied,15);assert.equal(booking.refundCreditApplied,0);assert.equal(booking.earnedCreditApplied,0);
  assert.deepEqual(booking.checkoutLineFunding.map(row=>[row.membershipCredit,row.accountCredit,row.card]),[[10,0,0],[5,0,0]]);
  assert.deepEqual(booking.checkoutLineCreditSources,[]);
  const issued=tables.get("credits").filter(row=>row.reason===`swap_restored_credit:${id}`);
  assert.deepEqual(issued.map(row=>[row.kind,row.amount]).sort(),[["earned",5],["earned",15],["refund",10]].sort());
  assert(issued.filter(row=>row.kind==="earned").every(row=>row.membershipGrantId===grant._id));
- assert((await state.apply.handler(ctx,{id,stageRefund:true})).already);
+ assert((await state.apply.handler(ctx,{id})).already);
  assert.equal(tables.get("credits").filter(row=>row.reason===`swap_restored_credit:${id}`).length,3);
- console.log("PASS multi-line member settlement: grant, earned/refund credit, staged card refund and idempotent restoration");
+ console.log("PASS multi-line member settlement: grant, earned/refund credit, refund-first commit and idempotent restoration");
 })().catch(error=>{console.error(error);process.exitCode=1});

@@ -22,7 +22,7 @@ function sameRequest(left:any,right:any):boolean {
 }
 
 function safeToRelease(swap:any) {
-  return swap && ["withdrawn", "expired"].includes(swap.status) && !swap.sessionId && !swap.paymentIntentId && !swap.refundJobId && !swap.stockAppliedAt && !swap.compensationStartedAt && !swap.compensationReceipt;
+  return swap && ["withdrawn", "declined", "expired"].includes(swap.status) && !swap.sessionId && !swap.paymentIntentId && !swap.refundJobId && !swap.stockAppliedAt && !swap.compensationStartedAt && !swap.compensationReceipt;
 }
 
 async function notifyStockReview(ctx:any,row:any,releaseConfirmed=false) {
@@ -31,14 +31,15 @@ async function notifyStockReview(ctx:any,row:any,releaseConfirmed=false) {
 }
 
 export async function releaseClosedClaim(ctx:any, swap:any) {
-  if (!swap || !["withdrawn", "expired"].includes(swap.status)) return;
+  if (!swap || !["withdrawn", "declined", "expired"].includes(swap.status)) return;
   const find=(kind:string)=>ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",(q:any)=>q.eq("swapId",swap._id).eq("operation",kind)).unique();
   const acquire=await find("acquire");
   if (!acquire || acquire.state!=="confirmed" || !acquire.receipt?.requestId || !acquire.receipt?.fingerprint) return;
   if (!safeToRelease(swap) || await find("beginExecution")) { await notifyStockReview(ctx,acquire); return; }
   if (await find("releasePrepared")) return;
   const now=Date.now();
-  await ctx.db.insert("swap_stock_operations",{swapId:swap._id,operation:"releasePrepared",request:{operation:"releasePrepared",args:{id:acquire.receipt.requestId,fingerprint:acquire.receipt.fingerprint,reason:swap.status==="withdrawn"?"withdrawn_before_execution":"abandoned_before_execution"}},state:"pending",createdAt:now,updatedAt:now,reconcileAfter:now,reconcileAttempts:0});
+  const reason=swap.status==="withdrawn"?"withdrawn_before_execution":swap.status==="declined"?"renter_declined_before_execution":"abandoned_before_execution";
+  await ctx.db.insert("swap_stock_operations",{swapId:swap._id,operation:"releasePrepared",request:{operation:"releasePrepared",args:{id:acquire.receipt.requestId,fingerprint:acquire.receipt.fingerprint,reason}},state:"pending",createdAt:now,updatedAt:now,reconcileAfter:now,reconcileAttempts:0});
 }
 
 export async function queueCompensatedRelease(ctx:any,swapId:any) {
@@ -72,6 +73,44 @@ async function compensatedRequest(ctx:any,swapId:any) {
   return {operation:"releaseCompensated",args:{id:claim.receipt.requestId,fingerprint:claim.receipt.fingerprint,executionKey:execution.request.args.executionKey,evidence:{swapId:String(swapId),bookingId:String(booking._id),bookingRevision:booking.rmv2Revision,paymentIntentId:swap.paymentIntentId,refundId:swap.compensationReceipt.stripeRefundId,refundStatus:"succeeded",amountPence:swap.quote.deltaPence,refundAttemptedAt:swap.compensationStartedAt,windows}}};
 }
 
+async function finalizeCompensatedRelease(ctx:any,row:any,receipt:any) {
+  const now=Date.now();
+  if(receipt?.state!=="compensated_released"||typeof receipt.replayed!=="boolean"){
+    await ctx.db.patch(row._id,{state:"review",receipt:undefined,leaseToken:undefined,leaseUntil:undefined,reconcileAfter:undefined,updatedAt:now});
+    await notifyStockReview(ctx,row,true);
+    return "review";
+  }
+  let current:any;
+  try { current=await compensatedRequest(ctx,row.swapId); }
+  catch {
+    await ctx.db.patch(row._id,{state:"review",receipt,leaseToken:undefined,leaseUntil:undefined,reconcileAfter:undefined,updatedAt:now});
+    await notifyStockReview(ctx,row,true);
+    return "review";
+  }
+  if(!current){
+    const attempts=(row.reconcileAttempts??0)+1;
+    await ctx.db.patch(row._id,{state:"review",receipt,leaseToken:undefined,leaseUntil:undefined,reconcileAttempts:attempts,reconcileAfter:attempts>=16?undefined:now+Math.min(60,2**Math.min(attempts,6))*60000,updatedAt:now});
+    if(attempts>=16)await notifyStockReview(ctx,row,true);
+    return "pending";
+  }
+  if(!sameRequest(current,row.request)){
+    await ctx.db.patch(row._id,{state:"review",receipt,leaseToken:undefined,leaseUntil:undefined,reconcileAfter:undefined,updatedAt:now});
+    await notifyStockReview(ctx,row,true);
+    return "review";
+  }
+  const swap=await ctx.db.get(row.swapId),booking=swap?await ctx.db.get(swap.bookingId):null;
+  if(!booking||booking.activeItemSwapId!==row.swapId){
+    await ctx.db.patch(row._id,{state:"review",receipt,leaseToken:undefined,leaseUntil:undefined,reconcileAfter:undefined,updatedAt:now});
+    await notifyStockReview(ctx,row,true);
+    return "review";
+  }
+  const reservations=await ctx.db.query("reservations").withIndex("by_booking",(q:any)=>q.eq("bookingId",booking._id)).collect();
+  for(const reservation of reservations)if(reservation.status==="hold"&&reservation.externalRef===`swap:${row.swapId}`)await ctx.db.patch(reservation._id,{status:"cancelled"});
+  await ctx.db.patch(booking._id,{activeItemSwapId:undefined});
+  await ctx.db.patch(row._id,{state:"confirmed",receipt,leaseToken:undefined,leaseUntil:undefined,reconcileAfter:undefined,updatedAt:now});
+  return "confirmed";
+}
+
 async function prepareOperation(ctx:any,args:any) {
     const swap=await ctx.db.get(args.swapId);
     if(!swap)throw Error("Swap not found.");
@@ -81,6 +120,9 @@ async function prepareOperation(ctx:any,args:any) {
     let request:any;
     if(args.operation==="acquire"){
       if(args.reason!==undefined||!args.items?.length||args.items.length>64||args.items.some((line:any)=>!line.itemId||line.itemId.length>255||!Number.isSafeInteger(line.start)||!Number.isSafeInteger(line.returnAt)||!Number.isSafeInteger(line.returnAt+3600000)||line.returnAt<=line.start||line.returnAt-line.start>365*86400000||!Number.isSafeInteger(line.quantity)||line.quantity<1||line.quantity>100))throw Error("Invalid stock claim.");
+      // The Rental Manager acquire endpoint identifies this idempotent claim
+      // by requestId and items. Booking association stays in this site's swap
+      // operation row; the manager's acquire contract does not accept bookingId.
       request={operation:"acquire",args:{requestId:`swap_${args.swapId}`,items:args.items}};
     }else{
       if(args.items!==undefined||!acquire||acquire.state!=="confirmed"||!acquire.receipt?.requestId||!acquire.receipt?.fingerprint)throw Error("A confirmed stock claim is required.");
@@ -255,15 +297,7 @@ export const record = internalMutation({
       return "review";
     }
     if(row.operation==="releaseCompensated"){
-      try{
-        const current=await compensatedRequest(ctx,row.swapId);
-        if(!current||!sameRequest(current,row.request))throw Error("The original stock release evidence changed.");
-        const swap=await ctx.db.get(row.swapId),booking=await ctx.db.get(swap!.bookingId);
-        if(!booking||booking.activeItemSwapId!==row.swapId)throw Error("The original rental fence changed.");
-        const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",booking._id)).collect();
-        for(const reservation of reservations)if(reservation.status==="hold"&&reservation.externalRef===`swap:${row.swapId}`)await ctx.db.patch(reservation._id,{status:"cancelled"});
-        await ctx.db.patch(booking._id,{activeItemSwapId:undefined});
-      }catch{await ctx.db.patch(row._id,{state:"review",receipt,leaseToken:undefined,leaseUntil:undefined,reconcileAfter:undefined,updatedAt:Date.now()});await notifyStockReview(ctx,row,true);return "review";}
+      return finalizeCompensatedRelease(ctx,row,receipt);
     }
     if(row.operation==="releasePrepared"){
       const swap=await ctx.db.get(row.swapId);
@@ -286,20 +320,22 @@ export const due = internalQuery({args:{},handler:async(ctx)=>ctx.db.query("swap
 export const reviewDue = internalQuery({args:{},handler:async(ctx)=>ctx.db.query("swap_stock_operations").withIndex("by_state_due",q=>q.eq("state","review").gte("reconcileAfter",0).lte("reconcileAfter",Date.now())).take(20)});
 export const recordReviewCheck = internalMutation({args:{id:v.id("swap_stock_operations"),request:v.any(),result:v.any(),expectedDue:v.number(),expectedAttempts:v.number()},handler:async(ctx,args)=>{
   const row=await ctx.db.get(args.id);
-  if(!row||row.state!=="review"||row.operation!=="releaseCompensated"||row.receipt||row.reconcileAfter!==args.expectedDue||(row.reconcileAttempts??0)!==args.expectedAttempts||!row.request.args||!sameRequest(row.request.args,args.request.args))return;
+  if(!row||row.state!=="review"||row.operation!=="releaseCompensated"||row.reconcileAfter!==args.expectedDue||(row.reconcileAttempts??0)!==args.expectedAttempts||!row.request.args||!sameRequest(row.request.args,args.request.args))return;
   const attempts=(row.reconcileAttempts??0)+1,now=Date.now();
-  if(args.result?.status==="confirmed"&&args.result.result?.state==="compensated_released"){
-    await ctx.db.patch(row._id,{receipt:args.result.result,reconcileAfter:undefined,reconcileAttempts:attempts,updatedAt:now});
-    const swap=await ctx.db.get(row.swapId);
-    if(swap)await queueOwnerNotification(ctx,{eventKey:`swap-stock-release-confirmed:${row._id}`,kind:"checkout_failure",accountId:swap.accountId,bookingId:swap.bookingId,title:"Swap stock release confirmed",body:"The manager released the compensated swap claim. The rental remains locked; check verification and stock before changing it."});
+  const savedReceipt=row.receipt;
+  if(savedReceipt&& (savedReceipt.state!=="compensated_released"||typeof savedReceipt.replayed!=="boolean"||args.result?.status!=="confirmed"||!sameRequest(savedReceipt,args.result.result)))return;
+  if(savedReceipt||args.result?.status==="confirmed"&&args.result.result?.state==="compensated_released"&&typeof args.result.result?.replayed==="boolean"){
+    return finalizeCompensatedRelease(ctx,row,savedReceipt??args.result.result);
   }else await ctx.db.patch(row._id,{reconcileAttempts:attempts,reconcileAfter:attempts>=16?undefined:now+Math.min(60,2**Math.min(attempts,6))*60000,updatedAt:now});
 }});
 export const checkReview = internalAction({args:{id:v.id("swap_stock_operations")},handler:async(ctx,args):Promise<void>=>{
   const row=await ctx.runQuery(internal.swapStockOperations.read,{id:args.id});
-  if(!row||row.state!=="review"||row.operation!=="releaseCompensated"||!row.request.args||row.receipt||typeof row.reconcileAfter!=="number"||row.reconcileAfter>Date.now())return;
+  if(!row||row.state!=="review"||row.operation!=="releaseCompensated"||!row.request.args||typeof row.reconcileAfter!=="number"||row.reconcileAfter>Date.now())return;
   const request={operation:"checkCompensatedRelease" as const,args:row.request.args};
   let result:any;
-  try{result=await ctx.runAction(internal.sharedStockBridge.send,{request});}
+  if(row.receipt?.state==="compensated_released"&&typeof row.receipt.replayed==="boolean")result={status:"confirmed",result:row.receipt};
+  else if(row.receipt)return;
+  else try{result=await ctx.runAction(internal.sharedStockBridge.send,{request});}
   catch{result={status:"unavailable"};}
   await ctx.runMutation(internal.swapStockOperations.recordReviewCheck,{id:args.id,request,result,expectedDue:row.reconcileAfter,expectedAttempts:row.reconcileAttempts??0});
 }});

@@ -28,6 +28,7 @@ crons.interval("restricted-identity-alerts", { minutes: 1 }, internal.restricted
 crons.interval("retry-owner-telegram-alerts", { minutes: 2 }, internal.ownerTelegram.retryDue, {});
 crons.interval("recover-gaffer-inquiry-alerts", { minutes: 5 }, internal.chat.recoverGafferAlerts, {});
 crons.interval("purge-gaffer-inquiry-alerts", { hours: 1 }, internal.chat.purgeGafferAlerts, {});
+crons.interval("purge-gaffer-call-telemetry", { hours: 24 }, internal.analytics.purgeGafferCallTelemetry, {});
 crons.interval("retry-rental-account-links", { minutes: 5 }, internal.accountAccess.retryRentalAccess, {});
 
 // Lapse membership perks with the real Stripe subscription (deactivates cancelled/unpaid members).
@@ -55,6 +56,10 @@ crons.interval("reconcile-rental-verifications", { hours: 1 }, internal.diditSwe
 crons.interval("archive-verification-documents", { minutes: 5 }, internal.verificationArchiveWorker.retryDue, {});
 crons.interval("retry-rental-manager-delivery", { minutes: 1 }, internal.rmv2_webhook.retryDue, {});
 crons.interval("purge-expired-verification-documents", { hours: 24 }, internal.verificationArchive.purgeExpired, {});
+crons.daily("auto-close-inactive-support-chats", { hourUTC: 3, minuteUTC: 20 }, internal.chatAttachments.closeInactiveSupportThreads, {});
+crons.interval("purge-expired-chat-attachments", { hours: 1 }, internal.chatAttachments.purgeExpired, {});
+crons.interval("purge-chat-attachment-audit-history", { hours: 24 }, internal.chatAttachments.purgeExpiredActionAudits, {});
+crons.interval("backfill-legacy-case-chat-archives", { hours: 24 }, (internal as any).chatCaseArchive.backfillLegacyCaseArchives, {});
 
 crons.interval("expire-rental-verifications", { hours: 1 }, internal.bookings.expireRentalVerifications, {});
 

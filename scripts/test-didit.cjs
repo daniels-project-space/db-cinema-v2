@@ -72,6 +72,12 @@ function signed(event) {
   assert.equal(await webhook.handler(ctx, signed(event)), true);
   assert.equal(result.status, 'verified');
   assert.deepEqual(result.poaPostcodes, ['SW1A 1AA']);
+  const identity = JSON.stringify(['test rental customer', '1990-01-01']);
+  assert.equal(result.personKey, createHmac('sha256', process.env.INVOICE_SECRET).update(`dbc-person-v1:${identity}`).digest('hex'), 'legacy invoice secret remains the default identity key');
+  process.env.RESTRICTED_IDENTITY_HMAC_SECRET = 'dedicated-stable-restricted-identity-key';
+  await webhook.handler(ctx, signed({...event, event_id:'event-dedicated-identity-key'}));
+  assert.equal(result.personKey, createHmac('sha256', process.env.RESTRICTED_IDENTITY_HMAC_SECRET).update(`dbc-person-v1:${identity}`).digest('hex'), 'dedicated stable key is used when configured');
+  delete process.env.RESTRICTED_IDENTITY_HMAC_SECRET;
   const flagged = {...event.decision, id_verifications: [{...event.decision.id_verifications[0], warnings: [{risk: 'FRAME_INJECTION_SUSPECTED', log_type: 'information'}]}]};
   assert.equal(await webhook.handler(ctx, signed({...event, event_id:'event-warning', decision:flagged})), true);
   assert.equal(result.status, 'verified', 'an informational warning does not override Didit approval');
@@ -84,7 +90,8 @@ function signed(event) {
   assert.equal(await webhook.handler(ctx, {...rawSignature, signature: '0'.repeat(64), rawSignature: createHmac('sha256', process.env.DIDIT_WEBHOOK_SECRET).update(rawSignature.body).digest('hex')}), true,
     'a valid full-body raw signature is accepted when V2 is unavailable');
   assert.equal(await webhook.handler(ctx, signed({...event, event_id: 'event-2', decision: {...event.decision, poa_verifications: []}})), true);
-  assert.equal(result.status, 'manual_review', 'top-level approval cannot bypass PoA');
+  assert.equal(result.status, 'verified', 'Didit final approval auto-approves even when feature details are omitted');
+  assert.deepEqual(result.checks, {identity:'approved',selfie:'approved',address:'approved'}, 'the final provider approval backs all verification stages');
   result = null;
   assert.equal(await webhook.handler(ctx, {...signed(event), signature: '0'.repeat(64)}), false);
   assert.equal(result, null, 'forged callback must not change booking');
@@ -137,7 +144,7 @@ function signed(event) {
   }
   const reviewCase = {_id:'booking-1',status:'confirmed',lineItems:[],verificationProvider:'didit',diditSessionId:'session-1',idVerifyStatus:'manual_review',verificationNote:'Old note'};
   const reviewDb = {get:async()=>reviewCase,patch:async()=>{},query:()=>({withIndex:()=>({first:async()=>null,collect:async()=>[],take:async()=>[]})})};
-  await setDiditResult.handler({db:reviewDb,scheduler:{runAfter:async()=>{}}}, {bookingId:'booking-1',sessionId:'session-1',eventId:'new-warning',eventAt:now*1000,status:'manual_review',note:'Didit flagged a possible camera capture integrity issue.',poaPostcodes:[]});
+  await setDiditResult.handler({db:reviewDb,scheduler:{runAfter:async()=>{}}}, {bookingId:'booking-1',sessionId:'session-1',eventId:'new-warning',eventAt:now*1000,status:'manual_review',providerStatus:'In Review',note:'Didit flagged a possible camera capture integrity issue.',poaPostcodes:[]});
   assert.equal(reviewNotices.at(-1)?.kind, 'verification_failure');
   assert.match(reviewNotices.at(-1)?.body, /camera capture integrity/);
   const manuallyApproved = {status:'confirmed',verificationProvider:'didit',diditSessionId:'session-1',
@@ -306,8 +313,8 @@ function signed(event) {
     report.poa_verifications = [];
     recovered.length = 0;
     await bookingSession.handler(completedCtx,{bookingId:'booking-1',accountToken:'account-token'});
-    assert.equal(recovered[0].args.status,'manual_review','top-level approval cannot bypass the address check');
-    assert.match(recovered[0].args.note,/not confirmed every required/,'missing checks are not reported as a failed verification');
+    assert.equal(recovered[0].args.status,'verified','a final Didit approval auto-approves when feature details are omitted');
+    assert.deepEqual(recovered[0].args.checks,{identity:'approved',selfie:'approved',address:'approved'});
     report.vendor_data = 'dbc-booking-another';
     recovered.length = 0;
     await assert.rejects(bookingSession.handler(completedCtx,{bookingId:'booking-1',accountToken:'account-token'}),/does not match/);

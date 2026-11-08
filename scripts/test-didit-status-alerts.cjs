@@ -30,14 +30,16 @@ const update = (eventId, eventAt, status, extra = {}) => bookings.setDiditResult
   const riskAlerts = (harness.tables.get('admin_notifications') ?? []).filter(row => row.bookingId === risk._id);
   assert.equal(riskAlerts.length,1,'An identity-risk warning is not accompanied by a second success alert');assert.equal(riskAlerts[0].title,'Booking identity or allocation notice');
   const missing = harness.put('bookings', { status:'confirmed',verificationProvider:'didit',diditSessionId:'missing-session',idVerifyStatus:'processing',guestEmail:'missing@example.invalid',lineItems:[] });
-  await bookings.setDiditResult.handler(ctx, { bookingId:missing._id,sessionId:'missing-session',eventId:'missing-address',eventAt:106,status:'manual_review',providerStatus:'Approved',checks:{identity:'approved',selfie:'approved',address:'waiting'},poaPostcodes:[] });
+  const mismatchedApproval = await bookings.setDiditResult.handler(ctx, { bookingId:missing._id,sessionId:'missing-session',eventId:'missing-address',eventAt:106,status:'manual_review',providerStatus:'Approved',checks:{identity:'approved',selfie:'approved',address:'waiting'},poaPostcodes:[] });
   const missingAlerts = (harness.tables.get('admin_notifications') ?? []).filter(row => row.bookingId === missing._id);
-  assert.equal(missingAlerts.length,1);assert.equal(missingAlerts[0].title,'Verification needs review');assert(!missingAlerts.some(row=>row.kind==='verification_update'),'Provider approval with missing required checks never emits a success alert');
+  assert.equal(mismatchedApproval,false,'a website-side manual hold cannot contradict Didit Approved');
+  assert.equal(missing.idVerifyStatus,'processing','an inconsistent result cannot put the booking in manual review');
+  assert.equal(missingAlerts.length,0,'an inconsistent result cannot create a manual-review alert');
   const review = harness.put('bookings', { status:'confirmed',verificationProvider:'didit',diditSessionId:'review-session',idVerifyStatus:'processing',guestEmail:'review@example.invalid',lineItems:[] });
   await bookings.setDiditResult.handler(ctx, { bookingId:review._id,sessionId:'review-session',eventId:'manual-review',eventAt:107,status:'manual_review',providerStatus:'In Review',poaPostcodes:[] });
   const reviewAlert = (harness.tables.get('admin_notifications') ?? []).find(row => row.bookingId === review._id);
   assert.equal(reviewAlert.title,'Verification needs review');
-  for(const alert of [missingAlerts[0],reviewAlert]){const body=presentation.adminPushPresentation(alert).body;assert.match(body,/Check the provider status and required checks/);assert(!body.includes('Didit requested a manual review'));}
+  const body=presentation.adminPushPresentation(reviewAlert).body;assert.match(body,/Check the provider status and required checks/);assert(!body.includes('Didit requested a manual review'));
   assert.equal(presentation.adminNotificationCategory('verification_update'), 'Verification');
   console.log('PASS synthetic Didit approval, input and decline alerts: authenticated session binding, transition deduplication, stale rejection, privacy and truthful archive caveat. No external push.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

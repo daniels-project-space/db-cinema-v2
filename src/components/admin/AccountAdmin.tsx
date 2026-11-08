@@ -23,9 +23,9 @@ const LEVELS = [
 ] as const;
 const ENCORE_LEVELS = [
   ["automatic", "Automatic · earned progress"],
-  ["1", "Encore I · 2% rental saving"],
-  ["2", "Encore II · 4% rental saving"],
-  ["3", "Encore III · 10% rental saving"],
+  ["1", "Encore I · 2%"],
+  ["2", "Encore II · 4%"],
+  ["3", "Encore III · 10%"],
 ] as const;
 const label = (value: string) =>
   LEVELS.find(([key]) => key === value)?.[1] ?? value;
@@ -36,7 +36,15 @@ const billingStatus = (status: string | null | undefined) => ({
   active: "Active", trialing: "Free trial", past_due: "Payment overdue", unpaid: "Unpaid",
   canceled: "Canceled", incomplete: "Incomplete", incomplete_expired: "Expired", paused: "Paused", provider_missing: "Stripe record needs review",
 } as Record<string, string>)[status ?? ""] ?? (status ? status.replaceAll("_", " ") : "Status unavailable");
-type MembershipInvoiceInspection = {invoice:null|{id:string;status:string|null;amountPaidPence:number;currency:string;createdAt:number};receipt:null|{creditPence:number;bonusPence:number;revokedPence:number;paidMembershipPence:number;createdAt:number};tierCheck?:{state:string;tier?:string;earnedCreditPence?:number;reason?:string}};
+function subscriptionSummary(detail: { hasBillingCustomer: boolean; membershipStatus?: string | null }) {
+  if (!detail.hasBillingCustomer) return { label: "Not linked", tone: "muted" as const };
+  if (!detail.membershipStatus) return { label: "No plan", tone: "muted" as const };
+  if (detail.membershipStatus === "active" || detail.membershipStatus === "trialing")
+    return { label: detail.membershipStatus === "trialing" ? "Trial" : "Active", tone: "ready" as const };
+  if (["past_due", "unpaid", "incomplete", "incomplete_expired", "provider_missing"].includes(detail.membershipStatus ?? ""))
+    return { label: detail.membershipStatus === "provider_missing" ? "Check Stripe" : "Payment due", tone: "attention" as const };
+  return { label: billingStatus(detail.membershipStatus), tone: "muted" as const };
+}
 const actionPaths: Record<string, string> = {
   overview: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21v-2a8 8 0 0 1 16 0v2",
   rentals: "M4 5h16v15H4zM4 9h16M8 3v4m8-4v4",
@@ -44,6 +52,8 @@ const actionPaths: Record<string, string> = {
   verification: "M12 3 4 6v5c0 5 3 8 8 10 5-2 8-5 8-10V6l-8-3Zm-3 9 2 2 4-4",
   documents: "M6 3h8l4 4v14H6zM14 3v5h4M9 12h6m-6 4h6",
   invoices: "M4 6h16v13H4zM4 10h16m-12 5h4",
+  billing: "M3 6h18v12H3zM3 10h18m-14 4h3",
+  membership: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21v-2a8 8 0 0 1 16 0v2m-5-8 2 2 4-4",
   credits: "M3 7h18v12H3zM3 10h18m-4 4h1",
   access: "m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z",
   notes: "m5 19 1-4L17 4l3 3L9 18l-4 1zM14 7l3 3",
@@ -55,10 +65,18 @@ function ActionIcon({name}: {name: string}) {
 function PossibleIdentityMatch({ token, bookingId }: { token: string; bookingId: string }) {
   const result = useQuery(api.accountAdmin.possibleRestrictedIdentityMatches, { token, bookingId: bookingId as any });
   if (!result?.matches.length) return null;
-  return <section className={styles.identityWarning} role="status"><strong>Possible match — compare manually</strong><p>A restricted account shares the verified name and date of birth. This is not proof of identity and does not automatically block this booking.</p>{result.matches.map((match: {id: string; name: string | null; email: string; blockedReason: string | null}) => <p key={match.id}>{match.name || "Unnamed customer"} · {match.email}{match.blockedReason ? ` · ${match.blockedReason}` : ""}</p>)}{result.more && <p>More matches exist; review the full customer directory.</p>}</section>;
+  return <section className={styles.identityWarning} role="status"><strong>Possible identity match</strong><p>Compare verified details manually. This never blocks a rental.</p>{result.matches.map((match: {id: string; name: string | null; email: string; blockedReason: string | null}) => <p key={match.id}>{match.name || "Unnamed customer"} · {match.email}{match.blockedReason ? ` · ${match.blockedReason}` : ""}</p>)}{result.more && <p>More matches · open customer directory.</p>}</section>;
 }
 type Level = (typeof LEVELS)[number][0];
 type EncoreLevel = (typeof ENCORE_LEVELS)[number][0];
+type ProfileDraft = {
+  accountId: string;
+  name: string;
+  phone: string;
+  address: string;
+  reason: string;
+  expected: { name: string | null; phone: string | null; address: string | null };
+};
 
 export function AccountAdmin({
   token,
@@ -75,8 +93,7 @@ export function AccountAdmin({
   const verificationRef = useRef<HTMLSelectElement>(null);
   const membershipRef = useRef<HTMLSelectElement>(null);
   const encoreRef = useRef<HTMLSelectElement>(null);
-  const subscriptionRef = useRef<HTMLDivElement>(null);
-  const [accessTarget, setAccessTarget] = useState<{ target: "membership" | "encore" | "subscription"; sequence: number } | null>(null);
+  const [accessTarget, setAccessTarget] = useState<{ sequence: number } | null>(null);
   const [input, setInput] = useState(""),
     [email, setEmail] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -86,7 +103,6 @@ export function AccountAdmin({
   const [busy, setBusy] = useState(false),
     [confirmBlock, setConfirmBlock] = useState<{ blockedAt: number | null; noticeId: Id<"account_restriction_notices"> | null; reason: string; revision: number } | null>(null);
   const [message, setMessage] = useState("");
-  const [invoiceInspectionState,setInvoiceInspection]=useState<{scope:{token:string;accountId:string|undefined;panelClosed:boolean};data:MembershipInvoiceInspection;selection:"latest"|"paid"}|null>(null);
   const filter = "all" as const;
   const [tierFilter, setTierFilter] = useState<"all" | "standard" | "plus" | "pro" | "studio">("all"),
     [page, setPage] = useState(0);
@@ -94,6 +110,7 @@ export function AccountAdmin({
   const [directoryView, setDirectoryView] = useState<"all" | "unread" | "starred">("all");
   const [selecting, setSelecting] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [mobilePane, setMobilePane] = useState<"directory" | "conversation" | "profile">("directory");
   const [verificationFilter, setVerificationFilter] = useState<"all" | "verified" | "pending">("all");
   const [checked, setChecked] = useState<string[]>([]);
   const [section, setSection] = useState("closed"),
@@ -101,27 +118,30 @@ export function AccountAdmin({
   useEffect(() => {
     setReason("");
     setConfirmBlock(null);
+    setMessage("");
   }, [section]);
   useEffect(() => {
     if (section !== "access" || !accessTarget) return;
     const frame = requestAnimationFrame(() => {
-      const target = accessTarget.target === "membership" ? membershipRef.current : accessTarget.target === "encore" ? encoreRef.current : subscriptionRef.current;
+      const target = membershipRef.current;
       target?.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-      if (target instanceof HTMLSelectElement) target.focus({ preventScroll: true });
+      target?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [section, accessTarget]);
-  const openAccess = (target: "membership" | "encore" | "subscription") => {
-    if (section === "access" && accessTarget?.target === target) {
+  const openAccess = () => {
+    if (section === "access") {
       setSection("closed");
       return;
     }
     setSection("access");
-    setAccessTarget(current => ({ target, sequence: (current?.sequence ?? 0) + 1 }));
+    setAccessTarget(current => ({ sequence: (current?.sequence ?? 0) + 1 }));
   };
   const [note, setNote] = useState(""),
     [noteBusy, setNoteBusy] = useState(false);
+  const [profileDraft, setProfileDraft] = useState<ProfileDraft | null>(null);
   const addNote = useMutation(api.accountAdmin.addNote);
+  const updateProfile = useMutation(api.accountAdmin.updateProfile);
   useEffect(() => {
     const timer = setTimeout(() => setEmail(input), 200);
     return () => clearTimeout(timer);
@@ -166,14 +186,11 @@ export function AccountAdmin({
   const starInFlight = useRef(new Set<string>());
   const [pendingStars, setPendingStars] = useState<Set<string>>(() => new Set());
   const [starState, setStarState] = useState<{ scope: typeof currentScope; pending: boolean; error?: string } | null>(null);
-  const invoiceInspection=invoiceInspectionState?.scope===currentScope?invoiceInspectionState.data:null;
   const detail = useQuery(
     api.accountAdmin.detail,
     selected && !panelClosed ? { token, accountId: selected.id } : "skip",
   );
   const reviewQueue = useQuery(api.accountAdmin.verificationReviews, selected && !panelClosed ? {token,accountId:selected.id as any} : "skip");
-  const invoiceReviews = useQuery(api.membershipInvoiceReviews.adminList, selected?.hasSubscription && !panelClosed && section === "access" ? {token,accountId:selected.id as any} : "skip");
-  const refundReviews = useQuery(api.membershipRefundJobs.adminList, selected && !panelClosed && section === "access" ? {token,accountId:selected.id as any} : "skip");
   const history = useQuery(
     api.accountAdmin.history,
     selected ? { token, accountId: selected.id } : "skip",
@@ -183,20 +200,18 @@ export function AccountAdmin({
   const setBlocked = useMutation(api.accountAdmin.setBlocked);
   const setStarred = useMutation(api.accountAdmin.setStarred);
   const openStripeBilling = useAction(api.checkout.adminBillingPortal);
-  const refreshStripeMembership = useAction(api.checkout.adminRefreshMembership);
-  const inspectStripeInvoice = useAction(api.checkout.adminInspectMembershipInvoice);
-  const retryStripeInvoice = useAction(api.checkout.adminRetryMembershipInvoice);
-  useEffect(()=>{setInvoiceInspection(null);},[selected?.id,token,panelClosed]);
   useEffect(() => {
     setLevel((selected?.override ?? "automatic") as Level);
     setEncoreLevel((selected?.encoreOverride ?? "automatic") as EncoreLevel);
     setReason("");
     setConfirmBlock(null);
+    setProfileDraft(null);
   }, [selected?.id, selected?.override, selected?.encoreOverride, selected?.blocked, selected?.blockedAt, selected?.restrictionNoticeId, selected?.blockedReason, selected?.restrictionRevision, token, panelClosed]);
   useEffect(() => {
     setMessage("");
     setSection("closed");
     setNote("");
+    setProfileDraft(null);
     setBusy(false);
     setNoteBusy(false);
   }, [currentScope]);
@@ -238,13 +253,15 @@ export function AccountAdmin({
     setSelectedId(id);
     setActiveConversationId(null);
     setPanelClosed(false);
-    if (window.matchMedia("(max-width:1100px)").matches)
+    if (window.matchMedia("(max-width:1100px)").matches) {
+      setMobilePane("conversation");
       requestAnimationFrame(() =>
         profileRef.current?.scrollIntoView({
           block: "start",
           behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
         }),
       );
+    }
   }
   async function saveNote() {
     if (!selected || panelClosed || searchPending || noteBusy || !note.trim()) return;
@@ -258,6 +275,31 @@ export function AccountAdmin({
       if (scope.current === origin) setMessage(e instanceof Error ? e.message : "Could not save note.");
     } finally {
       if (scope.current === origin) setNoteBusy(false);
+    }
+  }
+  async function saveProfile() {
+    if (!selected || !detail || panelClosed || searchPending || busy || !profileDraft || profileDraft.accountId !== selected.id) return;
+    const origin = scope.current;
+    setBusy(true);
+    setMessage("");
+    try {
+      await updateProfile({
+        token,
+        accountId: selected.id as any,
+        name: profileDraft.name,
+        phone: profileDraft.phone,
+        address: profileDraft.address,
+        expected: profileDraft.expected,
+        reason: profileDraft.reason,
+      });
+      if (scope.current === origin) {
+        setProfileDraft(null);
+        setMessage("Account details saved.");
+      }
+    } catch (error) {
+      if (scope.current === origin) setMessage(error instanceof Error ? error.message : "Could not save account details.");
+    } finally {
+      if (scope.current === origin) setBusy(false);
     }
   }
   async function toggleStar() {
@@ -326,6 +368,10 @@ export function AccountAdmin({
   }
   async function openBilling() {
     if (!selected || panelClosed || busy || searchPending) return;
+    if (!detail?.hasBillingCustomer) {
+      setMessage("No linked Stripe customer is available for this account.");
+      return;
+    }
     const popup = window.open("about:blank", "_blank");
     if (!popup) {
       setMessage("Allow pop-ups to open Stripe billing settings.");
@@ -347,36 +393,6 @@ export function AccountAdmin({
       if (scope.current === origin) setBusy(false);
     }
   }
-  async function refreshBillingStatus() {
-    if (!selected || panelClosed || busy || searchPending) return;
-    const origin = scope.current;
-    setBusy(true);setMessage("");
-    try {
-      await refreshStripeMembership({token,accountId:selected.id});
-      if (scope.current === origin) setMessage("Stripe subscription status refreshed. Billing and credits were not changed.");
-    } catch (error) {
-      if (scope.current === origin) setMessage(error instanceof Error ? error.message : "Could not refresh Stripe status. No billing changes were made.");
-    } finally { if (scope.current === origin) setBusy(false); }
-  }
-  async function inspectBillingInvoice(selection:"latest"|"paid", inspectTier = false) {
-    if (!selected || panelClosed || busy || searchPending) return;
-    const origin=scope.current;setBusy(true);setMessage("");setInvoiceInspection(null);
-    try {const result=await inspectStripeInvoice({token,accountId:selected.id,selection,...(inspectTier?{inspectTier:true}:{})});if(scope.current===origin)setInvoiceInspection({scope:origin,data:result,selection});}
-    catch(error){if(scope.current===origin)setMessage(error instanceof Error?error.message:"Could not check the Stripe invoice.");}
-    finally{if(scope.current===origin)setBusy(false);}
-  }
-  async function retryInvoiceReview(invoiceId: string) {
-    if (!selected || panelClosed || busy || searchPending) return;
-    if (!window.confirm("Retry this invoice? Verified subscription credit may be added to this account.")) return;
-    const origin = scope.current;
-    setBusy(true); setMessage("");
-    try {
-      const result = await retryStripeInvoice({ token, accountId: selected.id, invoiceId });
-      if (scope.current === origin) setMessage(result.state === "resolved" ? "Invoice credit has a matching receipt." : "Invoice still needs review. No unverified credit was issued.");
-    } catch (error) {
-      if (scope.current === origin) setMessage(error instanceof Error ? error.message : "Could not retry this invoice.");
-    } finally { if (scope.current === origin) setBusy(false); }
-  }
   function rentalRows(limit = 100) {
     return !detail?.rentals.length ? (
       <p className={styles.empty}>No rental requests linked to this account.</p>
@@ -390,12 +406,15 @@ export function AccountAdmin({
           disabled={!onRental}
         >
           <div className={styles.kitPhotos} aria-label="Booked equipment">
-            {(rental.items?.length ? rental.items : [{ title: rental.title, qty: rental.quantity, imageSources: rental.imageSources }]).map((item, index) => (
-              <div className={styles.kitPhotoWrap} key={index} title={`${item.title}${item.qty > 1 ? ` ×${item.qty}` : ""}`}>
-                <SmartImage fit="contain" src={item.imageSources[0]} fallbackSources={item.imageSources.slice(1)} alt={item.title} className={styles.kitPhoto} />
-                {item.qty > 1 && <span className={styles.kitQuantity}>×{item.qty}</span>}
-              </div>
-            ))}
+            {(rental.items?.length ? rental.items.map(item => ({ ...item, imageSources: item.imageSources?.length ? item.imageSources : item.heroImage ? [item.heroImage] : rental.items?.length === 1 ? rental.imageSources ?? [] : [] })) : [{ title: rental.title, qty: rental.quantity, imageSources: rental.imageSources }]).map((item, index) => {
+              const imageSources = Array.isArray(item.imageSources) ? item.imageSources : [];
+              return (
+                <div className={styles.kitPhotoWrap} key={index} title={`${item.title}${item.qty > 1 ? ` ×${item.qty}` : ""}`}>
+                  <SmartImage fit="contain" src={imageSources[0]} fallbackSources={imageSources.slice(1)} alt={item.title} className={styles.kitPhoto} />
+                  {item.qty > 1 && <span className={styles.kitQuantity}>×{item.qty}</span>}
+                </div>
+              );
+            })}
           </div>
           <span className={styles.rentalTitle}>
             <strong>{rental.title}</strong>
@@ -424,14 +443,20 @@ export function AccountAdmin({
     ["rental-actions", "Rental actions"],
     ...(reviewRentals.length ? [["verification", "Verification needs review"]] : []),
     ["documents", "Documents"],
+    ["billing", "Billing"],
     ["invoices", "Invoices"],
     ["credits", "Credits"],
     ["restriction", selected?.blocked ? "Unblock account" : "Restrict account"],
     ["notes", "Notes"],
   ];
   return (
-    <section data-testid="admin-accounts" className={styles.root}>
+    <section data-testid="admin-accounts" className={styles.root} data-mobile-pane={mobilePane}>
       <h1 className={styles.srOnly}>Customers &amp; Members</h1>
+      <nav className={styles.mobileWorkspaceNav} data-testid="admin-mobile-workspace-nav" aria-label="Customer workspace views">
+        <button type="button" aria-pressed={mobilePane === "directory"} onClick={() => setMobilePane("directory")}>Customers</button>
+        <button type="button" disabled={!selected} aria-pressed={mobilePane === "conversation"} onClick={() => setMobilePane("conversation")}>Chat{selected && unreadMessagesFor(selected.id) > 0 ? <span>{unreadMessagesFor(selected.id) > 99 ? "99+" : unreadMessagesFor(selected.id)}</span> : null}</button>
+        <button type="button" disabled={!selected} aria-pressed={mobilePane === "profile"} onClick={() => { setPanelClosed(false); setMobilePane("profile"); }}>Profile</button>
+      </nav>
       {checked.length > 0 && <div className={styles.pageTools}>
         <button type="button" className={styles.filterButton} onClick={() => {
           const csvValue = (value: string) => '"' + (/^[=+@\-\t\r]/.test(value) ? "'" : "") + value.replaceAll('"', '""') + '"';
@@ -446,13 +471,14 @@ export function AccountAdmin({
         </div>
         <div className={styles.filters}>
           <label>
-            <span className={styles.filterLabel}>Membership</span>
+            <span className={styles.filterLabel}>Subscription</span>
             <select
               value={tierFilter}
               onChange={(e) => { setTierFilter(e.target.value as typeof tierFilter); setPage(0); setSelectedId(null); }}
             >
-              <option value="all">All memberships</option>
-              {LEVELS.filter(([key]) => key !== "automatic").map(
+              <option value="all">All subscriptions</option>
+              <option value="standard">No active subscription</option>
+              {LEVELS.filter(([key]) => key !== "automatic" && key !== "standard").map(
                 ([key, name]) => (
                   <option key={key} value={key}>
                     {name}
@@ -466,9 +492,9 @@ export function AccountAdmin({
             <select aria-label="Encore Tier" value={encoreFilter} onChange={e => { setEncoreFilter(e.target.value as typeof encoreFilter); setPage(0); setSelectedId(null); }}>
               <option value="all">All Encore tiers</option>
               <option value="automatic">Automatic / earned tier</option>
-              <option value="1">Assigned Encore I</option>
-              <option value="2">Assigned Encore II</option>
-              <option value="3">Assigned Encore III</option>
+              <option value="1">Encore I</option>
+              <option value="2">Encore II</option>
+              <option value="3">Encore III</option>
             </select>
           </label>
           <div className={styles.filterActions} data-testid="admin-account-filter-actions"><button className={styles.clearFilters} type="button" onClick={() => { setTierFilter("all"); setEncoreFilter("all"); setVerificationFilter("all"); setDirectoryView("all"); setInput(""); setSelectedId(null); }}>Clear filters</button><details><summary>Verification{verificationFilter !== "all" ? ` · ${verificationFilter}` : ""}</summary><label><span className={styles.srOnly}>Verification filter</span><select ref={verificationRef} aria-label="Verification status" value={verificationFilter} onChange={e => { setVerificationFilter(e.target.value as typeof verificationFilter); setPage(0); setSelectedId(null); }}><option value="all">All verification status</option><option value="verified">Verified</option><option value="pending">Pending</option></select></label></details></div>
@@ -492,6 +518,7 @@ export function AccountAdmin({
                       <span className={`${styles.directoryAvatar} ${isCurrentlyVerified(account) ? styles.directoryAvatarVerified : ""}`} role="img" aria-label={isCurrentlyVerified(account) ? "Verification current" : "Not currently verified"}>
                       {account.avatarUrl ? (
                         <SmartImage
+                          fit="cover"
                           src={account.avatarUrl}
                           alt=""
                           className={styles.avatarSmall}
@@ -565,7 +592,11 @@ export function AccountAdmin({
       </div>
       {selected && !panelClosed ? (
         <section ref={profileRef} className={styles.conversationPane} data-testid="admin-customer-conversation-pane" aria-label={`${selected.name || selected.email} conversation`}>
-          <nav className={styles.threadTabs} aria-label="Customer conversations">
+          <div className={styles.mobileConversationTools} data-testid="admin-mobile-conversation-tools">
+            <button type="button" onClick={() => setMobilePane("directory")}>‹ Customers</button>
+            <button type="button" onClick={() => { setPanelClosed(false); setMobilePane("profile"); }}>Profile</button>
+          </div>
+          <nav className={styles.threadTabs} aria-label="Customer conversations" aria-description="Scroll horizontally to see every rental">
             <button type="button" aria-pressed={!activeConversationId} onClick={() => setActiveConversationId(null)}>
               Account support
               {supportConversation?.unread ? <span>{supportConversation.unread}</span> : null}
@@ -583,7 +614,7 @@ export function AccountAdmin({
             key={`${selected.id}:${activeConversation?.id ?? "account-support"}`}
             token={token}
             admin
-            workspaceIdentity={{ name: selected.name || selected.email, photo: selected.avatarUrl, privatePortrait: !selected.avatarUrl ? <PrivateVerificationPortrait token={token} accountId={selected.id} className={styles.privatePortrait} /> : undefined, verified: isCurrentlyVerified(selected), membershipLabel: label(selected.tier), encoreLabel: effectiveEncoreFor(selected) ? encoreName(effectiveEncoreFor(selected)!) : undefined }}
+            workspaceIdentity={{ name: selected.name || selected.email, phone: detail?.phone, photo: selected.avatarUrl, privatePortrait: !selected.avatarUrl ? <PrivateVerificationPortrait token={token} accountId={selected.id} className={styles.privatePortrait} /> : undefined, verified: isCurrentlyVerified(selected), membershipLabel: label(selected.tier), encoreLabel: effectiveEncoreFor(selected) ? encoreName(effectiveEncoreFor(selected)!) : undefined }}
             starred={selected.starred}
             starDisabled={searchPending || pendingStars.has(JSON.stringify([token, selected.id]))}
             onStar={() => void toggleStar()}
@@ -593,10 +624,14 @@ export function AccountAdmin({
             stage={activeRental?.status ?? "support"}
             stageLabel={activeRental?.status.replaceAll("_", " ") ?? "Account support"}
             bookingSummary={activeRental ? {
-              image: activeRental.imageSources[0] ?? null,
-              imageSources: activeRental.imageSources,
+              items: (activeRental.items ?? []).map(item => ({
+                title: item.title,
+                qty: item.qty,
+                heroImage: item.heroImage ?? item.imageSources?.[0] ?? null,
+                imageSources: item.imageSources?.length ? item.imageSources : item.heroImage ? [item.heroImage] : [],
+              })),
               dates: `${date(activeRental.start)} – ${date(activeRental.end)}`,
-              count: activeRental.quantity,
+              count: activeRental.items?.length || activeRental.quantity,
             } : undefined}
           />
           {onConversation && <button type="button" className={styles.openFullInbox} onClick={() => onConversation(selected.id, activeConversation?.bookingId ?? null)}>Open in full inbox ↗</button>}
@@ -613,53 +648,7 @@ export function AccountAdmin({
           aria-label="Customer profile"
         >
           <header className={styles.profileHeader}>
-            <span
-              className={`${styles.profileAvatar} ${isCurrentlyVerified(selected) ? styles.profileAvatarVerified : ""}`}
-              data-testid="admin-profile-avatar"
-              role="img"
-              aria-label={`${selected.name || "Customer"} profile photo${isCurrentlyVerified(selected) ? ", verified" : ""}`}
-            >
-              <span className={styles.profileAvatarCrop}>
-                {selected.avatarUrl ? (
-                  <SmartImage src={selected.avatarUrl} alt="" className={styles.profileAvatarImage} />
-                ) : (
-                  <>
-                    <span className={styles.profileAvatarInitial} aria-hidden="true">
-                      {(selected.name || selected.email).slice(0, 1).toUpperCase()}
-                    </span>
-                    {privatePortraitsAvailable && <PrivateVerificationPortrait token={token} accountId={selected.id} className={styles.privatePortrait} />}
-                  </>
-                )}
-              </span>
-              {isCurrentlyVerified(selected) && <span className={styles.profileVerificationCheck} aria-label="Verification active for 90 days">✓</span>}
-            </span>
-            <h2 className={styles.managementHeading}>Account Management</h2>
-            {selected.avatarUrl ? (
-              <SmartImage
-                src={selected.avatarUrl}
-                alt=""
-                className={styles.avatarLarge}
-              />
-            ) : (
-              <span className={styles.avatarLargeInitial}>
-                {(selected.name || selected.email).slice(0, 1).toUpperCase()}
-              </span>
-            )}
-            <div>
-              <div className={styles.profileIdentity}>
-              <h2>{selected.name || "DB Cinema renter"}</h2>
-              <span
-                className={isCurrentlyVerified(selected) ? styles.verified : styles.pending}
-              >
-                {isCurrentlyVerified(selected) ? "✓ Verified" : "Verification pending"}
-              </span>
-              </div>
-              <div className={styles.contacts}>
-              <p><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 5h18v14H3z M3 5l9 7 9-7"/></svg> {selected.email}</p>
-              {detail?.phone && <p><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M5 3h4l2 5-3 2c2 3 3 4 6 6l2-3 5 2v4c0 2-3 3-5 2C9 19 5 15 3 8 2 6 3 3 5 3Z"/></svg> {detail.phone}</p>}
-              </div>
-              {detail?.address && <p className={styles.address}>{detail.address}</p>}
-            </div>
+            <h2 className={styles.managementHeading} data-testid="admin-account-management-heading">Account management</h2>
             <button
               type="button"
               aria-label="Close customer profile"
@@ -672,21 +661,28 @@ export function AccountAdmin({
               ×
             </button>
           </header>
-          <div className={styles.summary}>
+          <div className={styles.summary} data-testid="admin-account-summary">
             <button type="button" onClick={() => setSection("overview")}><span><ActionIcon name="overview"/> Account</span><strong className={selected.blocked ? styles.blocked : styles.verified}>{selected.blocked ? "Restricted" : "Active"}</strong></button>
-            <button type="button" aria-expanded={section === "access" && accessTarget?.target !== "encore"} aria-controls="customer-action-content" onClick={() => openAccess(selected.hasSubscription ? "subscription" : "membership")}><span><ActionIcon name="invoices"/> Membership</span><strong>{label(selected.tier)} · {selected.hasSubscription ? detail ? billingStatus(detail.membershipStatus) : "Loading…" : "No paid plan"} ﹀</strong></button>
-            <button type="button" aria-expanded={section === "access" && accessTarget?.target === "encore"} aria-controls="customer-action-content" onClick={() => openAccess("encore")}><span><ActionIcon name="access"/> Encore tier</span><strong>{effectiveEncoreFor(selected) ? `${selected.encoreOverride !== "automatic" ? "Assigned" : "Earned"} ${encoreName(effectiveEncoreFor(selected)!).replace("Encore ", "")}` : selected.encoreOverride === "automatic" && !metrics?.some(metric => metric.id === selected.id) ? "Loading…" : effectiveEncoreFor(selected) === null ? "Progress needs review" : "No Encore tier"} ﹀</strong></button>
-            <button type="button" onClick={() => setSection("credits")}><span><ActionIcon name="credits"/> Available credit</span><strong>{detail ? formatGbp(detail.credit) : "…"}</strong></button>
+            <button type="button" data-testid="admin-membership-summary" aria-label="Manage membership and Encore tier" aria-expanded={section === "access"} aria-controls="customer-action-content" onClick={openAccess}>
+              <span><ActionIcon name="membership"/> Membership</span>
+              <strong>
+                {section === "access" ? "Editing" : `${label(selected.tier)} · ${effectiveEncoreFor(selected) ? `${selected.encoreOverride === "automatic" ? "Earned" : "Assigned"} ${encoreName(effectiveEncoreFor(selected)!)}` : selected.encoreOverride === "automatic" && !metrics?.some(metric => metric.id === selected.id) ? "Loading Encore…" : "No Encore"}`}
+                <span aria-hidden="true">{section === "access" ? "↑" : "↗"}</span>
+              </strong>
+            </button>
           </div>
           {activeRental && <PossibleIdentityMatch key={activeRental.id} token={token} bookingId={activeRental.id}/>}
           <nav
             className={styles.profileTabs}
+            data-testid="admin-account-profile-sections"
             aria-label="Customer profile sections"
           >
             {profileSections.map(([key, name], index) => (
               <button
                 type="button"
                 key={key}
+                data-testid={key === "billing" ? "admin-billing-controls" : undefined}
+                aria-label={key === "billing" ? "Open recurring billing controls" : undefined}
                 style={{order: index * 2 + 2}}
                 aria-pressed={section === key}
                 aria-expanded={section === key}
@@ -694,7 +690,12 @@ export function AccountAdmin({
                 onClick={() => setSection(current => current === key ? "closed" : key)}
                 className={`${section === key ? styles.active : ""} ${key === "restriction" ? styles.dangerAction : ""} ${key === "verification" ? styles.verificationAttention : ""}`}
               >
-                <span className={styles.actionLabel}><ActionIcon name={key}/>{name}{key === "rentals" && detail ? ` (${detail.rentals.length}${detail.rentalsMore ? "+" : ""})` : ""}</span>
+                <span className={styles.actionLabel}><ActionIcon name={key}/>{key === "verification" ? <>{name}<span className={styles.reviewCount}>{reviewRentals.length}</span></> : <>{name}{key === "rentals" && detail ? ` · ${detail.rentals.length}${detail.rentalsMore ? "+" : ""}` : ""}</>}</span>
+                {key === "billing" && detail && (() => {
+                  const status = subscriptionSummary(detail);
+                  return <span className={`${styles.actionStatus} ${status.tone === "ready" ? styles.actionStatusReady : status.tone === "attention" ? styles.actionStatusAttention : styles.actionStatusMuted}`} data-testid="admin-subscription-summary" aria-label={`Recurring subscription: ${status.label}`}>{status.label}</span>;
+                })()}
+                {key === "credits" && detail && <span className={styles.actionBalance}>{formatGbp(detail.credit)}</span>}
                 <span aria-hidden>{section === key ? "−" : "+"}</span>
               </button>
             ))}
@@ -708,8 +709,18 @@ export function AccountAdmin({
               <>
                 {section === "invoices" && <AdminInvoiceLibrary key={selected.id} token={token} accountId={selected.id}/>}
                 {section === "documents" && <AccountDocuments embedded key={selected.id} token={token} accountId={selected.id} verificationExpiresAt={detail.verificationExpiresAt ?? null} customer={{name:selected.name || "DB Cinema renter",email:selected.email,avatarUrl:selected.avatarUrl,verified:isCurrentlyVerified(selected)}} onBack={() => setSection("overview")} onSection={setSection} onRental={onRental} />}
-                {section==="credits"&&<AccountCreditPanel token={token} accountId={selected.id}/>}
-                {section === "overview" && <section className={`${styles.card} ${styles.accountDetails}`}><h3>Account details</h3><dl><dt>Name</dt><dd>{selected.name || "Not supplied"}</dd><dt>Email</dt><dd><a href={`mailto:${selected.email}`}>{selected.email}</a></dd><dt>Phone</dt><dd>{detail.phone || "Not supplied"}</dd><dt>Address</dt><dd>{detail.address || "Not supplied"}</dd><dt>Account created</dt><dd>{date(detail.createdAt)}</dd></dl></section>}
+                {section === "credits" && <AccountCreditPanel token={token} accountId={selected.id}/>}
+                {section === "overview" && <section className={`${styles.card} ${styles.accountDetails}`} aria-label="Account details">
+                  <header className={styles.accountDetailsHeader}><h3>Contact</h3>{!profileDraft && <button type="button" className={styles.billingPortalButton} disabled={!detail || busy} onClick={() => setProfileDraft({accountId:selected.id,name:detail.name ?? "",phone:detail.phone ?? "",address:detail.address ?? "",reason:"",expected:{name:detail.name ?? null,phone:detail.phone ?? null,address:detail.address ?? null}})}>Edit</button>}</header>
+                  {profileDraft?.accountId === selected.id ? <form className={styles.profileEditForm} onSubmit={(event) => { event.preventDefault(); void saveProfile(); }}>
+                    <label>Name<input autoComplete="off" maxLength={120} className="input mt-1 w-full" value={profileDraft.name} disabled={busy} onChange={event => setProfileDraft(current => current?.accountId === selected.id ? {...current,name:event.target.value} : current)}/></label>
+                    <label>Phone<input autoComplete="off" inputMode="tel" maxLength={40} className="input mt-1 w-full" value={profileDraft.phone} disabled={busy} onChange={event => setProfileDraft(current => current?.accountId === selected.id ? {...current,phone:event.target.value} : current)}/></label>
+                    <label>Address<input autoComplete="street-address" maxLength={300} className="input mt-1 w-full" value={profileDraft.address} disabled={busy} onChange={event => setProfileDraft(current => current?.accountId === selected.id ? {...current,address:event.target.value} : current)}/></label>
+                    <label>Reason<textarea maxLength={500} className="input mt-1 min-h-14 w-full" value={profileDraft.reason} disabled={busy} onChange={event => setProfileDraft(current => current?.accountId === selected.id ? {...current,reason:event.target.value} : current)} placeholder="Saved to account history"/></label>
+                    <p className={styles.profileEditHint}>Login email is managed separately.</p>
+                    <div className={styles.profileEditActions}><button type="submit" className="btn-primary px-4 py-2 text-xs" disabled={busy || profileDraft.reason.trim().length < 3}>{busy ? "Saving…" : "Save details"}</button><button type="button" className={styles.profileCancel} disabled={busy} onClick={() => setProfileDraft(null)}>Cancel</button></div>
+                  </form> : <dl><dt>Name</dt><dd>{detail.name || "Not supplied"}</dd><dt>Email</dt><dd><a href={`mailto:${selected.email}`}>{selected.email}</a></dd><dt>Phone</dt><dd>{detail.phone ? <a href={`tel:${detail.phone.replace(/[^\d+]/g, "")}`}>{detail.phone}</a> : "Not supplied"}</dd><dt>Address</dt><dd>{detail.address || "Not supplied"}</dd><dt>Account created</dt><dd>{date(detail.createdAt)}</dd></dl>}
+                </section>}
                 {section === "rentals" && (
                   <section className={styles.card}>
                     <header>
@@ -728,46 +739,29 @@ export function AccountAdmin({
                 {section === "verification" && reviewQueue?.more && <p className={styles.empty}>More than 20 cases need review. Resolve the displayed cases to see the rest.</p>}
                 {section === "notes" && (
                   <section className={styles.card}>
-                    <header>
-                      <h3>Internal customer notes</h3>
-                    </header>
-                    <label className={styles.noteLabel}>
-                      Add a note
-                      <textarea
-                        maxLength={2000}
-                        disabled={noteBusy}
-                        value={note}
-                        onChange={(e) => setNote(e.target.value)}
-                        placeholder="Visible to admins only"
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      disabled={!note.trim() || noteBusy}
-                      onClick={() => void saveNote()}
-                      className="btn-primary mt-3 px-4 py-2 text-xs"
-                    >
-                      {noteBusy ? "Saving…" : "Save note"}
-                    </button>
-                    {detail.notes.map((n) => (
-                      <article key={n.id} className={styles.noteEntry}>
-                        <p>{n.text}</p>
-                        <small>Added {date(n.at)}</small>
-                      </article>
-                    ))}
+                    <header><h3>Internal customer notes</h3></header>
+                    <label className={styles.noteLabel}>Add a note<textarea maxLength={2000} disabled={noteBusy} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Visible to admins only" /></label>
+                    <button type="button" disabled={!note.trim() || noteBusy} onClick={() => void saveNote()} className="btn-primary mt-3 px-4 py-2 text-xs">{noteBusy ? "Saving…" : "Save note"}</button>
+                    {detail.notes.map((n) => <article key={n.id} className={styles.noteEntry}><p>{n.text}</p><small>Added {date(n.at)}</small></article>)}
                   </section>
                 )}
                 {section === "access" && (
                   <section className={`${styles.card} ${styles.accessPanel}`}>
                     <div className={styles.accessCloseHeader}>
-                      <button type="button" className={styles.accessClose} onClick={() => setSection("closed")} aria-label="Close membership and Encore controls">Close controls ×</button>
+                      <div><h3>Membership &amp; Encore</h3><p>Rental tier · loyalty level</p></div>
+                      <button type="button" className={styles.accessClose} onClick={() => setSection("closed")} aria-label="Close rental access controls">×</button>
+                    </div>
+                    <div className={styles.accessCurrent} data-testid="admin-current-access">
+                      <span>Current</span>
+                      <strong>{label(selected.tier)}</strong>
+                      <span>{effectiveEncoreFor(selected) ? `${selected.encoreOverride === "automatic" ? "Earned" : "Assigned"} ${encoreName(effectiveEncoreFor(selected)!)}` : selected.encoreOverride === "automatic" && !metrics?.some(metric => metric.id === selected.id) ? "Encore loading" : "No Encore"}</span>
                     </div>
                     {selected.blocked && (
                       <p className="mt-3 rounded-xl bg-rose-500/10 p-3 text-xs text-rose-200">
                         Blocked · {selected.blockedReason}
                       </p>
                     )}
-                    <label className="mt-5 block text-xs text-white/65">
+                    <label className="mt-3 block text-xs text-white/65">
                       Membership level
                       <select
                         ref={membershipRef}
@@ -787,10 +781,9 @@ export function AccountAdmin({
                         ))}
                       </select>
                     </label>
-                    <p className={styles.accessHelp}>Manual access does not change Stripe billing or award subscription credit.</p>
-                    <details className={styles.accessExplanation}><summary>How access works</summary><p>Standard removes membership access. Automatic restores the subscription or existing grant. Manual grants do not qualify for the paid security waiver.</p></details>
-                    <label className="mt-5 block text-xs text-white/65">
-                      Encore rental-saving level
+                    <p className={styles.accessHelp}>Rental benefits only · does not change billing.</p>
+                    <label className="mt-3 block text-xs text-white/65">
+                      Encore tier
                       <select
                         ref={encoreRef}
                         value={encoreLevel}
@@ -807,36 +800,17 @@ export function AccountAdmin({
                         ))}
                       </select>
                     </label>
-                    <p className={styles.accessHelp}>An assigned Encore level changes rental savings, not first-rental security.</p>
-                    <details className={styles.accessExplanation}><summary>How Encore works</summary><p>Assign Encore I, II or III, or restore Automatic earned progress. An override alone never waives security on a first rental.</p></details>
-                    {!!refundReviews?.length && <div className="mt-3 rounded-xl border border-amber-200/30 bg-black/20 p-3 text-xs leading-5" aria-label="Subscription refund reviews"><p className="font-semibold text-amber-100">Refund needs review</p><p className="text-white/60">Credit remains on hold. Review the payment and refunds in Stripe; this cannot be cleared here yet.</p>{refundReviews.map(review => <div key={review.invoiceId} className="mt-2 min-w-0 break-all text-white/75">{review.invoiceId} · {review.refundId}</div>)}</div>}
-                    {selected.hasSubscription && (
-                      <div ref={subscriptionRef} className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/[.04] p-3 text-xs leading-5 text-amber-100/80">
-                        <p>{label(selected.subscriptionTier ?? "Stripe")} subscription · {detail ? billingStatus(detail.membershipStatus) : "Loading status…"}</p>
-                        {detail?.trialEnd && detail.membershipStatus === "trialing" ? <p>Trial ends {date(detail.trialEnd)}.</p> : null}
-                        {detail?.paidThrough ? <p>Paid through {date(detail.paidThrough)}{detail.cancelAtPeriodEnd ? " · renewal canceled" : ""}.</p> : null}
-                        <p>Access changes and blocking do not change Stripe billing. Status reflects the last received update.</p>
-                        {!!invoiceReviews?.length && <div className="mt-3 rounded-xl border border-amber-200/30 bg-black/20 p-3" aria-label="Subscription credit reviews"><p className="font-semibold text-amber-100">Credit needs review</p><p className="text-white/60">A historical plan could not be confirmed automatically.</p>{invoiceReviews.map(review => <div key={review.invoiceId} className="mt-2 flex flex-wrap items-center justify-between gap-2"><span className="min-w-0 break-all text-white/75">{review.invoiceId}</span><button type="button" disabled={busy || searchPending} onClick={() => void retryInvoiceReview(review.invoiceId)} className="rounded-full border border-amber-200/35 px-3 py-1 text-amber-100 disabled:opacity-40">Retry safely</button></div>)}</div>}
-                        {detail?.membershipStatus === "provider_missing" && <p role="status">Stripe could not find this subscription. Check the Stripe account and subscription before changing billing; this does not confirm cancellation.</p>}
-                        <button type="button" onClick={openBilling} disabled={busy || searchPending || !detail} className="mt-2 rounded-full border border-amber-200/35 px-3 py-1.5 text-amber-100 disabled:opacity-40">{busy ? "Opening…" : "Manage subscription in Stripe ↗"}</button>
-                        <button type="button" onClick={refreshBillingStatus} disabled={busy || searchPending || !detail} className="mt-2 ml-2 rounded-full border border-amber-200/35 px-3 py-1.5 text-amber-100 disabled:opacity-40">Refresh Stripe status</button>
-                        <button type="button" onClick={()=>void inspectBillingInvoice("latest")} disabled={busy || searchPending || !detail} className="mt-2 rounded-full border border-amber-200/35 px-3 py-1.5 text-amber-100 disabled:opacity-40">Check latest invoice & credit</button>
-                        <button type="button" onClick={()=>void inspectBillingInvoice("paid")} disabled={busy || searchPending || !detail} className="mt-2 rounded-full border border-amber-200/35 px-3 py-1.5 text-amber-100 disabled:opacity-40">Check latest paid invoice</button>
-                        <button type="button" onClick={()=>void inspectBillingInvoice("paid",true)} disabled={busy || searchPending || !detail} className="mt-2 rounded-full border border-amber-200/35 px-3 py-1.5 text-amber-100 disabled:opacity-40">Check historical plan credit</button>
-                        {invoiceInspection?.tierCheck && <p role="status" className="mt-2 text-white/65">{invoiceInspection.tierCheck.state === "ready" ? `Historical price mapping: ${label(invoiceInspection.tierCheck.tier ?? "")} · calculated earned credit ${formatGbp((invoiceInspection.tierCheck.earnedCreditPence ?? 0)/100)}. Verify the recorded terms and any refunds before taking action.` : invoiceInspection.tierCheck.state === "not_applicable" ? "This invoice is not eligible for this check." : "Historical price evidence needs review. No credit has been changed."}</p>}
-                        {invoiceInspection && <div aria-label="Latest subscription invoice" className="mt-3 rounded-lg border border-amber-200/20 bg-black/20 p-3 text-amber-50/85"><p className="font-semibold">{invoiceInspectionState?.selection === "paid" ? "Most recently created paid invoice" : "Latest invoice"}</p>{invoiceInspection.invoice ? <><p className="mt-1 break-all">Invoice {invoiceInspection.invoice.id} · {invoiceInspection.invoice.status ?? "status unavailable"}</p><p className="mt-1">Whole invoice paid: {formatGbp(invoiceInspection.invoice.amountPaidPence/100)} · created {date(invoiceInspection.invoice.createdAt)}</p><p className="text-white/55">Stripe’s paid amount may not reflect refunds.</p>{invoiceInspection.receipt ? <><p className="mt-1">Membership payment: {formatGbp(invoiceInspection.receipt.paidMembershipPence/100)} · credit recorded: {formatGbp(invoiceInspection.receipt.creditPence/100)}</p><p>Bonus: {formatGbp(invoiceInspection.receipt.bonusPence/100)} · reversed: {formatGbp(invoiceInspection.receipt.revokedPence/100)}</p><p className="mt-1 text-white/55">Receipt amounts are not the current available balance.</p></> : <p className="mt-1">No credit receipt is recorded for this invoice. A free trial or non-membership invoice may not create one.</p>}</> : <p>{invoiceInspectionState?.selection === "paid" ? "Stripe has no paid invoice with a positive payment in the checked history." : "Stripe has no latest invoice for this subscription."}</p>}<p className="mt-2 text-white/55">Read-only check. No payment or credit was changed.</p></div>}
-                      </div>
-                    )}
+                    <p className={styles.accessHelp}>Rental savings only · no first-rental waiver.</p>
                     <label className="mt-4 block text-xs text-white/65">
-                      Reason for this change
+                      Admin reason
                       <textarea
                         value={reason}
                         disabled={busy}
                         maxLength={500}
                         onChange={(e) => setReason(e.target.value)}
                         data-testid="admin-account-reason"
-                        className="input mt-2 min-h-20 w-full"
-                        placeholder="Recorded in the account’s admin history"
+                        className="input mt-2 min-h-14 w-full"
+                        placeholder="Saved to account history"
                       />
                     </label>
                     <div className="mt-4 flex flex-wrap gap-2">
@@ -852,7 +826,7 @@ export function AccountAdmin({
                         onClick={() => apply("level")}
                         className="btn-primary px-5 py-2 text-xs disabled:opacity-40"
                       >
-                        {busy ? "Saving…" : "Apply level"}
+                        {busy ? "Saving…" : "Apply membership"}
                       </button>
                       <button
                         type="button"
@@ -894,6 +868,8 @@ export function AccountAdmin({
                                     ? `Credit issued · ${change.after}`
                                   : change.kind === "credit_grant_acknowledged"
                                     ? "Credit receipt reviewed"
+                                  : change.kind === "profile_update"
+                                    ? `Profile details updated · ${change.before}`
                                   : change.after === "blocked"
                                     ? "Account blocked"
                                     : "Account unblocked"}
@@ -911,15 +887,48 @@ export function AccountAdmin({
                     )}
                   </section>
                 )}
+                {section === "billing" && (
+                    <section className={`${styles.card} ${styles.billingCard}`} aria-label="Billing">
+                    <header className={styles.billingHeader}>
+                      <div><h3>Recurring billing</h3><p>Subscription · Stripe</p></div>
+                      <span className={`${styles.billingChip} ${detail.hasBillingCustomer ? styles.billingChipReady : styles.billingChipMuted}`}>
+                        <span aria-hidden="true">{detail.hasBillingCustomer ? "✓" : "–"}</span>
+                        {detail.hasBillingCustomer ? "Linked" : "Not linked"}
+                      </span>
+                    </header>
+                    {detail.hasBillingCustomer ? (
+                      <button type="button" aria-label="Manage subscription billing in Stripe" onClick={openBilling} disabled={busy || searchPending} className={styles.billingPortalButton}>
+                        <ActionIcon name="billing"/><span>{busy ? "Opening Stripe…" : "Manage subscription"}</span><span aria-hidden="true">↗</span>
+                      </button>
+                    ) : (
+                      <div role="status" className={styles.billingNotice}><ActionIcon name="billing"/><span>No Stripe customer linked</span></div>
+                    )}
+                    {selected.hasSubscription ? (
+                      <div className={styles.billingStatusCard}>
+                        <div className={styles.billingStatusTitle}>
+                          <span>Recurring subscription</span>
+                          <strong>{billingStatus(detail.membershipStatus)}</strong>
+                        </div>
+                        <div className={styles.billingDates}>
+                          {detail.trialEnd && detail.membershipStatus === "trialing" ? <div><span>Trial ends</span><strong>{date(detail.trialEnd)}</strong></div> : null}
+                          {detail.paidThrough ? <div><span>{detail.cancelAtPeriodEnd ? "Ends" : "Paid through"}</span><strong>{date(detail.paidThrough)}</strong></div> : null}
+                        </div>
+                        {detail.membershipStatus === "provider_missing" && <div role="status" className={styles.billingNotice}><span className={styles.billingNoticeGlyph}>!</span><span>Subscription not found in Stripe</span></div>}
+                      </div>
+                    ) : (
+                      <div className={styles.billingNotice}><ActionIcon name="membership"/><span>No subscription linked</span></div>
+                    )}
+                  </section>
+                )}
                 {section === "restriction" && (
                   <section className={styles.card}>
                     <h3>{selected.blocked ? "Account restricted" : "Restrict account"}</h3>
-                    <p className="mt-2 text-xs leading-5 text-white/65">{selected.blocked ? "This account cannot sign in or create bookings." : "This signs the customer out and prevents new bookings. Existing rentals, balances and refund controls remain available."} A restriction notice is queued for a verified email address; if it cannot be confirmed, the team is alerted.</p>
-                    {selected.blocked && detail.restrictionNotice && <p role="status" className="mt-2 text-xs text-white/70">{detail.restrictionNotice.state === "sent" ? "Restriction email accepted by the mail service; delivery is not guaranteed." : detail.restrictionNotice.state === "attention" ? "Restriction email needs attention. Check the recipient and contact them manually if appropriate." : detail.restrictionNotice.state === "skipped" ? "Restriction email was not sent because the account changed." : "Restriction email is queued or being processed."}</p>}
+                    <p className="mt-2 text-xs leading-5 text-white/65">{selected.blocked ? "Sign-in and new bookings are blocked. Existing rentals and balances remain." : "Signs out and blocks new bookings. Existing rentals remain."} Email notice is sent when possible.</p>
+                    {selected.blocked && detail.restrictionNotice && <p role="status" className="mt-2 text-xs text-white/70">{detail.restrictionNotice.state === "sent" ? "Notice accepted · delivery unconfirmed." : detail.restrictionNotice.state === "attention" ? "Notice needs attention." : detail.restrictionNotice.state === "skipped" ? "Notice skipped · account changed." : "Notice queued."}</p>}
                     {selected.blockedReason && <p className="mt-2 text-xs text-rose-200">Current reason: {selected.blockedReason}</p>}
                     <label className="mt-4 block text-xs text-white/65">Reason for this change<textarea value={reason} disabled={busy} maxLength={500} onChange={e => { setReason(e.target.value); setConfirmBlock(null); }} data-testid="admin-account-reason" className="input mt-2 min-h-20 w-full" placeholder="Recorded in the account’s admin history" /></label>
                     <button type="button" data-testid="admin-account-block" disabled={busy || searchPending || !reason.trim()} onClick={() => setConfirmBlock({blockedAt:selected.blockedAt ?? null,noticeId:selected.restrictionNoticeId ?? null,reason:selected.blockedReason,revision:selected.restrictionRevision ?? 0})} className="mt-3 rounded-lg border border-rose-300/35 px-4 py-2 text-xs text-rose-200 disabled:opacity-40">{selected.blocked ? "Review unblocking" : "Review restriction"}</button>
-                    {confirmBlock && <div className="mt-4 rounded-xl border border-rose-300/25 p-4 text-xs leading-5 text-white/65" role="group" aria-label="Confirm account change"><p>{selected.blocked ? "Unblock" : "Restrict"} {selected.name || "customer"} ({selected.email})? {selected.blocked ? "They can sign in again; previously revoked sessions stay signed out." : "They will be signed out and cannot create new bookings."}</p><p className="mt-2 break-words">Reason: {reason.trim()}</p><div className="mt-3 flex gap-3"><button type="button" data-testid="admin-account-confirm-block" onClick={() => apply("block")} disabled={busy || searchPending || !reason.trim()} className="text-rose-200">{selected.blocked ? "Confirm unblocking" : "Confirm restriction"}</button><button type="button" onClick={() => setConfirmBlock(null)}>Cancel</button></div></div>}
+                    {confirmBlock && <div className="mt-4 rounded-xl border border-rose-300/25 p-4 text-xs leading-5 text-white/65" role="group" aria-label="Confirm account change"><p>{selected.blocked ? "Restore access for" : "Restrict"} {selected.name || "customer"}?</p><p className="mt-2">{selected.blocked ? "Restores sign-in; old sessions stay signed out." : "Blocks sign-in and new bookings; active rentals stay."}</p><p className="mt-2 break-words">Reason: {reason.trim()}</p><div className="mt-3 flex gap-3"><button type="button" data-testid="admin-account-confirm-block" onClick={() => apply("block")} disabled={busy || searchPending || !reason.trim()} className="text-rose-200">{selected.blocked ? "Confirm restore" : "Confirm restriction"}</button><button type="button" onClick={() => setConfirmBlock(null)}>Cancel</button></div></div>}
                   </section>
                 )}
               </>

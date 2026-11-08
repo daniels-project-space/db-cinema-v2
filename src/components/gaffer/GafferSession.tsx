@@ -143,8 +143,13 @@ export function formatLiveCallContext(pathname: string | null | undefined, varia
   return `[Voice turn guidance — not caller speech] Gather required tool results before conclusions; deliver one settled, concise answer and never revise or restart it mid-speech. [Current page and basket — not caller speech] Page: ${pathname ?? "/"}. ${JSON.stringify(variables)}. At cart/checkout, explain any unavailable item and offer only its actual same-date alternatives. Use check_basket before promising availability. Mention Show more replacements if the first two do not suit. Ask before switching. For emailed carts use email_checkout_cart; for account setup collect name, phone and email then setup_account. Never ask for a code or password.`;
 }
 
+function responseLength(value: unknown) {
+  return typeof value === "string" ? Math.min(value.length, 200_000) : undefined;
+}
+
 export function GafferSessionProvider({ children }: { children: ReactNode }) {
   const trackUsage=useMutation(api.analytics.track);
+  const recordCallTelemetry=useMutation(api.analytics.recordGafferCallTelemetry);
   const [state, setState] = useState<CallState>("idle");
   const [speaking, setSpeaking] = useState(false);
   const [secs, setSecs] = useState(0);
@@ -168,6 +173,14 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   /** Has the caller taken a turn yet? Until they have, dead air isn't dead air. */
   const hasSpoken = useRef(false);
   const agentTalking = useRef(false);
+  /** Keep only the newest page/basket snapshot while speech is active. */
+  const pendingContextSnapshot = useRef<string | null>(null);
+  /** Tool results are events, so retain a small bounded queue beside that snapshot. */
+  const pendingContextEvents = useRef<string[]>([]);
+  const contextUpdatesReady = useRef(false);
+  const interruptionAwaitingCaller = useRef(false);
+  const agentResponsePending = useRef(false);
+  const agentResponseSpeechFinished = useRef(false);
   /**
    * How many client tools are mid-flight.
    *
@@ -243,6 +256,12 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     signingOff.current = false;
     agentTalking.current = false;
     awaitingAgent.current = false;
+    pendingContextSnapshot.current = null;
+    pendingContextEvents.current = [];
+    contextUpdatesReady.current = false;
+    interruptionAwaitingCaller.current = false;
+    agentResponsePending.current = false;
+    agentResponseSpeechFinished.current = false;
     toolsInFlight.current = 0;
     autoReconnectTried.current = false;
     try { await conv.current?.endSession?.(); } catch { /* already gone */ }
@@ -267,7 +286,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
        * that prompted this. Hanging up there punishes them for the agent's
        * latency. Dead air is only dead air once Gaffer has had its say.
        */
-      if (agentTalking.current || signingOff.current || toolsInFlight.current > 0 || awaitingAgent.current) {
+      if (agentTalking.current || signingOff.current || toolsInFlight.current > 0 || awaitingAgent.current ||
+          (agentResponsePending.current && !agentResponseSpeechFinished.current)) {
         lastActivity.current = Date.now();
         return;
       }
@@ -321,6 +341,12 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
 
     callGeneration.current++;
     memory.current.clear();
+    pendingContextSnapshot.current = null;
+    pendingContextEvents.current = [];
+    contextUpdatesReady.current = false;
+    interruptionAwaitingCaller.current = false;
+    agentResponsePending.current = false;
+    agentResponseSpeechFinished.current = false;
     resetPriceRequest();
     setSecs(0);
     setState("connecting");
@@ -333,6 +359,39 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     lastActivity.current = Date.now();
     const { intent, mode, brief, opening } = pageBrief(pathname ?? "/", topic);
     const agentId = mode === "support" ? SUPPORT_AGENT_ID : SALES_AGENT_ID;
+
+    const flushContextUpdates = (beforeResponse = false) => {
+      // ElevenLabs contextual updates are background context, not user turns:
+      // they do not interrupt speech or start a response. When a caller has
+      // just spoken, send the fresh page/basket state before the next answer
+      // can be generated instead of waiting until that answer has finished.
+      if ((!contextUpdatesReady.current && !beforeResponse) || agentTalking.current ||
+          (!beforeResponse && (awaitingAgent.current ||
+            (agentResponsePending.current && !agentResponseSpeechFinished.current))) ||
+          interruptionAwaitingCaller.current || signingOff.current) return;
+      const session = conv.current;
+      if (!session?.sendContextualUpdate) return;
+      const updates = [
+        ...pendingContextEvents.current,
+        ...(pendingContextSnapshot.current ? [pendingContextSnapshot.current] : []),
+      ];
+      if (!updates.length) return;
+      try {
+        // Send a single coherent update so Gaffer cannot reconsider one answer
+        // several times from stale and then refreshed context snapshots.
+        session.sendContextualUpdate(updates.join("\n"));
+        pendingContextEvents.current = [];
+        pendingContextSnapshot.current = null;
+      } catch { return; /* retry on the next safe mode change */ }
+    };
+    const queueContextUpdate = (update: string) => {
+      pendingContextSnapshot.current = update;
+      flushContextUpdates();
+    };
+    const queueContextEvent = (update: string) => {
+      pendingContextEvents.current = [...pendingContextEvents.current.slice(-7), update];
+      flushContextUpdates();
+    };
 
     const preflightGeneration = generation.current;
     let Conversation: any;
@@ -374,10 +433,42 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       const myCall = callGeneration.current;
       const mine = () => generation.current === myGen;
       const startedAt = Date.now();
+      let telemetryCallKey: string | null = null;
+      try { telemetryCallKey = globalThis.crypto?.randomUUID?.() ?? null; } catch { /* telemetry is optional */ }
+      let telemetrySequence = 0;
+      let telemetryConversationId: string | undefined;
+      const recordTelemetry = (
+        kind: "connected" | "conversation_metadata" | "interruption" | "agent_correction" |
+          "agent_response_start" | "agent_response_stop" | "agent_speaking_start" |
+          "agent_speaking_stop" | "disconnected",
+        providerEventId?: unknown,
+        conversationId?: string,
+        metadata?: { agentWasSpeaking?: boolean; originalResponseChars?: number; correctedResponseChars?: number },
+      ) => {
+        if (!telemetryCallKey) return;
+        if (conversationId) telemetryConversationId = conversationId;
+        const args = {
+          callKey: telemetryCallKey,
+          kind,
+          sequence: ++telemetrySequence,
+          occurredAt: Date.now(),
+          ...(telemetryConversationId ? { conversationId: telemetryConversationId } : {}),
+          ...(typeof providerEventId === "number" && Number.isSafeInteger(providerEventId) && providerEventId >= 0
+            ? { providerEventId } : {}),
+          ...(metadata?.agentWasSpeaking !== undefined ? { agentWasSpeaking: metadata.agentWasSpeaking } : {}),
+          ...(metadata?.originalResponseChars !== undefined ? { originalResponseChars: metadata.originalResponseChars } : {}),
+          ...(metadata?.correctedResponseChars !== undefined ? { correctedResponseChars: metadata.correctedResponseChars } : {}),
+        };
+        void recordCallTelemetry(args).catch(() => {});
+      };
       const continuity = memory.current.context();
       const firstMessage = continuity ? "I'm back — let's carry on where we left off." : opening;
       setState("connecting");
       agentTalking.current = false;
+      contextUpdatesReady.current = false;
+      interruptionAwaitingCaller.current = false;
+      agentResponsePending.current = false;
+      agentResponseSpeechFinished.current = false;
       setSpeaking(false);
       endedDeliberately.current = false;
 
@@ -399,7 +490,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
                 const outcome = JSON.stringify({ name: k, args, result });
                 memory.current.add("tool", outcome);
                 if (!mine()) {
-                  try { conv.current?.sendContextualUpdate?.("[Previous connection tool completed] " + outcome); } catch { /* included in the handover if still connecting */ }
+                  queueContextEvent("[Previous connection tool completed] " + outcome);
                 }
               }
               return result;
@@ -420,14 +511,40 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           audioConcatProcessor: "/voice-worklets/audioConcatProcessor.js?v=1.12.0",
         },
         onAudioAlignment: (alignment: any) => { if (mine()) noteAgentAlignment(alignment); },
-        onInterruption: () => {
+        onConversationMetadata: (metadata: { conversation_id?: unknown }) => {
           if (!mine()) return;
+          const id = metadata?.conversation_id;
+          if (typeof id !== "string" || !/^[A-Za-z0-9_-]{4,180}$/.test(id)) return;
+          recordTelemetry("conversation_metadata", undefined, id);
+        },
+        onInterruption: (event: { event_id?: unknown }) => {
+          if (!mine()) return;
+          const agentWasSpeaking = agentTalking.current;
+          recordTelemetry("interruption", event?.event_id, undefined, { agentWasSpeaking });
+          // The caller transcript can race this callback. If that turn has
+          // already arrived, do not wait for a second caller event before
+          // releasing its queued context after speech stops.
+          if (agentWasSpeaking && !awaitingAgent.current) interruptionAwaitingCaller.current = true;
           resetSpokenFocus();
           if (signingOff.current) {
             signingOff.current = false;
             if (farewell.current) { clearTimeout(farewell.current); farewell.current = null; }
             lastActivity.current = Date.now();
           }
+        },
+        onAgentResponseCorrection: (event: { event_id?: unknown; original_agent_response?: unknown; corrected_agent_response?: unknown }) => {
+          if (mine()) recordTelemetry("agent_correction", event?.event_id, undefined, {
+            originalResponseChars: responseLength(event?.original_agent_response),
+            correctedResponseChars: responseLength(event?.corrected_agent_response),
+          });
+        },
+        onAgentChatResponsePart: (event: { type?: unknown; event_id?: unknown }) => {
+          if (!mine()) return;
+          if (event?.type === "start") {
+            agentResponsePending.current = true;
+            agentResponseSpeechFinished.current = false;
+            recordTelemetry("agent_response_start", event.event_id);
+          } else if (event?.type === "stop") recordTelemetry("agent_response_stop", event.event_id);
         },
         clientTools: tools,
         dynamicVariables: {
@@ -441,6 +558,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         },
         onConnect: () => {
           if (!mine()) return;
+          recordTelemetry("connected");
           setState("live");
           setError(null);
           lastActivity.current = Date.now();
@@ -458,6 +576,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           // why it cannot be sent from here.
         },
         onDisconnect: () => {
+          recordTelemetry("disconnected");
           if (!mine()) return;
           // An override the agent doesn't allow is not a thrown error: ElevenLabs
           // accepts the socket, then closes the conversation. startSession has
@@ -502,6 +621,12 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           signingOff.current = false;
           agentTalking.current = false;
           awaitingAgent.current = false;
+          pendingContextSnapshot.current = null;
+          pendingContextEvents.current = [];
+          contextUpdatesReady.current = false;
+          interruptionAwaitingCaller.current = false;
+          agentResponsePending.current = false;
+          agentResponseSpeechFinished.current = false;
           toolsInFlight.current = 0;
           memory.current.clear();
           resetPriceRequest();
@@ -514,9 +639,16 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         },
         onMessage: ({ message, source }: { message: string; source: "user" | "ai" }) => {
           if (!mine()) return;
+          const responseWasActive = agentTalking.current || awaitingAgent.current || interruptionAwaitingCaller.current ||
+            (agentResponsePending.current && !agentResponseSpeechFinished.current);
           memory.current.add(source, message);
           if (source === "user") {
-            try { conv.current?.sendContextualUpdate?.(formatLiveCallContext(pathnameRef.current, variablesRef.current)); } catch { /* non-fatal */ }
+            const currentPage = pageBrief(pathnameRef.current ?? "/", topic).brief;
+            queueContextUpdate([
+              currentPage,
+              continuity ? memory.current.context() : "",
+              formatLiveCallContext(pathnameRef.current, variablesRef.current),
+            ].filter(Boolean).join("\n"));
             noteCustomerMessage(message);
             resetSpokenFocus();
           }
@@ -524,7 +656,10 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           if (source === "ai") {
             noteAgentMessage(message);
             awaitingAgent.current = false;
+            interruptionAwaitingCaller.current = false;
+            agentResponsePending.current = true;
             lastActivity.current = Date.now();
+            flushContextUpdates();
             return;
           }
           // Only the *caller* speaking counts as activity. Resetting on Gaffer's
@@ -533,6 +668,9 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           if (source !== "user") return;
           lastActivity.current = Date.now();
           hasSpoken.current = true;
+          interruptionAwaitingCaller.current = false;
+          agentResponsePending.current = false;
+          agentResponseSpeechFinished.current = false;
           // They've asked for something; the clock is on Gaffer until it replies.
           awaitingAgent.current = true;
 
@@ -548,10 +686,17 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
             signingOff.current = false;
             if (farewell.current) { clearTimeout(farewell.current); farewell.current = null; }
           }
+          // Flush all state accumulated during the previous answer now that
+          // this caller turn is known. `sendContextualUpdate` is non-interrupting
+          // and cannot trigger a second Gaffer response.
+          flushContextUpdates(true);
           if (!isSignOff(message)) return;
           // Let Gaffer say goodbye properly rather than cutting it dead.
           signingOff.current = true;
-          try {
+          // If a response is already underway, the caller's transcript itself
+          // carries the sign-off. Injecting another instruction here made the
+          // provider revise or restart the utterance being heard.
+          if (!responseWasActive) try {
             conv.current?.sendContextualUpdate?.(
               "[Context] The caller has signalled they're finished. Say one short, warm goodbye " +
                 "and stop — do not ask another question or offer anything else.",
@@ -574,6 +719,15 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         onModeChange: (m: any) => {
           if (!mine()) return;
           const talking = m?.mode === "speaking";
+          contextUpdatesReady.current = true;
+          if (talking !== agentTalking.current)
+            recordTelemetry(talking ? "agent_speaking_start" : "agent_speaking_stop");
+          if (talking) {
+            agentResponsePending.current = true;
+            agentResponseSpeechFinished.current = false;
+          } else if (agentResponsePending.current) {
+            agentResponseSpeechFinished.current = true;
+          }
 
           // Signing off: hang up when the goodbye is actually finished, not on a
           // fixed timer. A short beat after the last word so the audio tail
@@ -591,6 +745,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           hint.current.noteTalking(talking);
           agentTalking.current = talking;
           setSpeaking(talking);
+          if (!talking) flushContextUpdates(awaitingAgent.current);
         },
       };
 
@@ -634,8 +789,12 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         // null there and the update went nowhere.
         try {
           const currentBrief = continuity ? pageBrief(pathnameRef.current ?? "/").brief : brief;
-          session.sendContextualUpdate?.(currentBrief);
-          session.sendContextualUpdate?.((continuity ? memory.current.context() + "\n" : "") + formatLiveCallContext(pathnameRef.current, variablesRef.current));
+          queueContextUpdate([
+            currentBrief,
+            continuity ? memory.current.context() : "",
+            formatLiveCallContext(pathnameRef.current, variablesRef.current),
+          ].filter(Boolean).join("\n"));
+          flushContextUpdates(awaitingAgent.current);
         } catch { /* non-fatal */ }
       } catch (err: any) {
         if (!mine()) return;
@@ -672,6 +831,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => () => {
     generation.current++;
     if (farewell.current) clearTimeout(farewell.current);
+    pendingContextSnapshot.current = null;
+    pendingContextEvents.current = [];
     hint.current.reset();
     void conv.current?.endSession?.().catch?.(() => {});
   }, []);

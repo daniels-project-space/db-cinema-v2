@@ -75,6 +75,9 @@ export const processOne = internalMutation({ args: { id: v.id("restricted_identi
   const job = await ctx.db.get(args.id);
   if (!job || job.state !== "pending" || job.eventId !== args.eventId || job.generation !== args.generation || job.attempts !== args.attempt || job.dueAt > Date.now()) return;
   const booking = await ctx.db.get(job.bookingId);
+  if (booking?.idVerifyStatus === "verified" && booking.idVerificationSource === "didit" && booking.diditSessionId === job.sessionId &&
+      !["identity", "selfie", "address"].every(key => booking.verificationChecks?.[key as "identity" | "selfie" | "address"] === "approved"))
+    throw Error("Verified identity checks are inconsistent; review the provider decision");
   if (booking?.idVerifyStatus === "verified" && ["The verified person could not be linked to the rental identity record.", "Didit approved the identity, but cross-account identity matching is unavailable."].includes(booking.identityRiskNotice ?? "")) throw Error("Verified identity signal unavailable");
   if (booking?.idVerifyStatus === "verified" && ["didit","reused_didit"].includes(booking.idVerificationSource ?? "") && !booking.renterPersonKey) throw Error("Verified identity signal unavailable");
   if (!booking || !await approvedRestrictedIdentitySource(ctx,booking,job.sessionId)) {

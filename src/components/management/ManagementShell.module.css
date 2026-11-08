@@ -123,6 +123,13 @@
 .shell[data-management-role=renter] .sidebarBottom .locations { font-size:9px; }
 .shell[data-management-role=renter] .locations i { margin:0 3px; }
 
+@media(max-width:640px) {
+ .shell[data-management-role=renter][data-management-screen=messages] { height:calc(100dvh - var(--management-site-header-height)); min-height:0; overflow:hidden; }
+ .shell[data-management-role=renter][data-management-screen=messages] .workspace { height:100%; min-height:0; overflow:hidden; }
+ .shell[data-management-role=renter][data-management-screen=messages] .content { display:flex; flex-direction:column; height:100%; min-height:0; padding:0; overflow:hidden; }
+ .shell[data-management-role=renter][data-management-screen=messages] .content > :not(.heading) { flex:1; min-height:0; margin:0; }
+}
+
 @media(min-width:1000px) { .shell[data-management-role=admin][data-management-screen=overview] .heading h1 { font-family:var(--font-inter,Arial),sans-serif; font-weight:600; } .shell[data-management-role=admin][data-management-screen=overview] .content { padding-top:17px; } }
 
 .sidebarActions { margin-top:16px; font-size:12px; color:#c1ae9e; }

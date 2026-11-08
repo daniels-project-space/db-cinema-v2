@@ -1,14 +1,20 @@
-import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
+import { internal } from "./_generated/api";
 import { accountForToken, ownedBooking, postRentalMessage } from "./lib/rentalChat";
 import { accountForRental } from "./lib/rentalAccount";
-import { chatAttachmentsReady } from "./lib/chatAttachmentScanner";
+import { chatAttachmentScannerHealthy, chatAttachmentsReady } from "./lib/chatAttachmentScanner";
 import { deletePrivateFile } from "./lib/privateStorage";
+import { bookingHasCaseArchive } from "./lib/chatCaseArchive";
 import { bump } from "./rateLimit";
 import { chatAttachmentName } from "./lib/chatAttachmentName";
 import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
 import { isChatImageType, CHAT_IMAGE_LIMIT } from "../shared/chatAttachmentPolicy";
+
+const CHAT_FILE_RETENTION_MS = 90 * 24 * 60 * 60_000;
+const SUPPORT_IDLE_CLOSE_MS = 90 * 24 * 60 * 60_000;
+const CHAT_AUDIT_RETENTION_MS = 90 * 24 * 60 * 60_000;
 
 async function attachmentAdminRead(ctx: QueryCtx, token: string): Promise<boolean> {
   if (process.env.ADMIN_SESSION_ATTACHMENTS_V2 === "enabled") {
@@ -26,8 +32,6 @@ async function attachmentAdminMutation(ctx: MutationCtx, token: string, scope: "
   await assertAdmin(ctx, token, fn);
 }
 
-export const availability = query({ args: {}, handler: async () => chatAttachmentsReady() });
-
 const scope = { token: v.string(), admin: v.boolean(), bookingId: v.optional(v.id("bookings")), accountId: v.optional(v.id("accounts")) };
 const markerPattern = /^application\/vnd\.dbcinema\.chat-[a-f0-9]{32}$/;
 
@@ -44,6 +48,18 @@ async function resolveScope(ctx: any, args: any) {
   if (args.bookingId) await ownedBooking(ctx, account, args.bookingId);
   return account;
 }
+
+export const availabilityAccess = internalQuery({args:scope,handler:async(ctx,args)=>{
+  if(args.admin&&!await attachmentAdminRead(ctx,args.token))throw Error("Unauthorized.");
+  await resolveScope(ctx,args);
+  return true;
+}});
+
+export const availability = action({args:scope,handler:async(ctx,args)=>{
+  await ctx.runQuery(internal.chatAttachments.availabilityAccess,args);
+  if(!chatAttachmentsReady())return false;
+  return chatAttachmentScannerHealthy();
+}});
 
 export const reserve = internalMutation({ args: { ...scope, marker: v.string(), requestKey: v.string() }, handler: async (ctx, args) => {
   if (args.admin) await attachmentAdminMutation(ctx, args.token, "customers:write", "chatAttachments.reserve");
@@ -126,15 +142,51 @@ async function openCases(ctx:any,attempt:any) {
   return [...cases.values()].filter((item:any)=>item.status!=="closed").length;
 }
 
+async function attachmentRetentionWindow(ctx:any,attempt:any) {
+  let closedAt:number|undefined;
+  if(attempt.bookingId){
+    if(await bookingHasCaseArchive(ctx,attempt.bookingId))return {closedAt:null,expiresAt:null,needsReview:false,caseArchived:true};
+    const booking=await ctx.db.get(attempt.bookingId);
+    if(!booking)return {closedAt:null,expiresAt:null,needsReview:true,caseArchived:false};
+    if(booking.status==="returned")closedAt=booking.returnedAt;
+    else if(booking.status==="cancelled")closedAt=booking.cancelledAt;
+    else if(booking.status!=="returned"&&booking.status!=="cancelled")return {closedAt:null,expiresAt:null,needsReview:false,caseArchived:false};
+  }else{
+    const thread=await ctx.db.query("chat_threads").withIndex("by_account_booking",(q:any)=>q.eq("accountId",attempt.accountId).eq("bookingId",undefined)).unique();
+    if(!thread)return {closedAt:null,expiresAt:null,needsReview:true,caseArchived:false};
+    if(thread.closedAt===undefined)return {closedAt:null,expiresAt:null,needsReview:false,caseArchived:false};
+    closedAt=thread.closedAt;
+  }
+  if(closedAt===undefined)return {closedAt:null,expiresAt:null,needsReview:true,caseArchived:false};
+  if(!Number.isSafeInteger(closedAt)||closedAt<=0||closedAt>Date.now())return {closedAt:null,expiresAt:null,needsReview:true,caseArchived:false};
+  return {closedAt,expiresAt:closedAt+CHAT_FILE_RETENTION_MS,needsReview:false,caseArchived:false};
+}
+
+async function removePublishedBytes(ctx:any,attempt:any,reason:string,action:"removed"|"retention_removed") {
+  const message=await ctx.db.get(attempt.messageId);
+  if(!message||message.accountId!==attempt.accountId||message.bookingId!==attempt.bookingId||message.meta?.attachmentId!==attempt._id)return false;
+  const actionHistory=await ctx.db.query("chat_attachment_actions").withIndex("by_attachment",(q:any)=>q.eq("attachmentId",attempt._id)).take(101);
+  if(actionHistory.length>100)return false;
+  const metadata=await ctx.db.system.get(attempt.storageId),hash=attempt.sha256&&/^[a-f0-9]{64}$/.test(attempt.sha256)?btoa(String.fromCharCode(...attempt.sha256.match(/../g)!.map((byte:string)=>parseInt(byte,16)))):null;
+  if(metadata&&(!hash||metadata.contentType!==attempt.marker||metadata.size!==attempt.size||(metadata.sha256!==attempt.sha256&&metadata.sha256!==hash)))return false;
+  await deletePrivateFile(ctx,attempt.storageId);
+  const removedAt=Date.now(),purgeAfter=removedAt+CHAT_AUDIT_RETENTION_MS;
+  await ctx.db.patch(message._id,{text:"Attachment removed",meta:{kind:"attachment_removed"}});
+  await ctx.db.patch(attempt._id,{status:"removed",removedAt,storageId:undefined,sha256:undefined,contentType:undefined,size:undefined,name:undefined,engine:undefined,signatureVersion:undefined,signatureUpdatedAt:undefined,retentionNeedsReview:undefined});
+  for(const row of actionHistory)await ctx.db.patch(row._id,{purgeAfter});
+  await ctx.db.insert("chat_attachment_actions",{attachmentId:attempt._id,accountId:attempt.accountId,...(attempt.bookingId?{bookingId:attempt.bookingId}:{}),action,reason,at:removedAt,purgeAfter});
+  return true;
+}
+
 export const retention=query({args:{token:v.string(),id:v.id("chat_attachment_attempts")},handler:async(ctx,args)=>{
-  if(!await attachmentAdminRead(ctx,args.token)||!chatAttachmentsReady())return null;
+  if(!await attachmentAdminRead(ctx,args.token))return null;
   const attempt=await ctx.db.get(args.id);if(!attempt||attempt.status!=="published")return null;
-  try{return {holdReason:attempt.retentionHoldReason??null,holdRevision:attempt.retentionHoldRevision??0,openCases:await openCases(ctx,attempt),needsReview:false};}
+  try{const window=await attachmentRetentionWindow(ctx,attempt);return {holdReason:attempt.retentionHoldReason??null,holdRevision:attempt.retentionHoldRevision??0,openCases:await openCases(ctx,attempt),closedAt:window.closedAt,expiresAt:window.expiresAt,expired:window.expiresAt!==null&&window.expiresAt<=Date.now(),needsReview:attempt.retentionNeedsReview===true||window.needsReview,caseArchived:window.caseArchived};}
   catch{return {holdReason:attempt.retentionHoldReason??null,holdRevision:attempt.retentionHoldRevision??0,openCases:0,needsReview:true};}
 }});
 
 export const setRetentionHold=mutation({args:{token:v.string(),id:v.id("chat_attachment_attempts"),hold:v.boolean(),reason:v.string(),confirmed:v.boolean(),expectedRevision:v.number()},handler:async(ctx,args)=>{
-  await attachmentAdminMutation(ctx,args.token,"customers:write","chatAttachments.setRetentionHold");if(!chatAttachmentsReady())throw Error("Attachments are unavailable.");
+  await attachmentAdminMutation(ctx,args.token,"customers:write","chatAttachments.setRetentionHold");
   const reason=args.reason.trim();if(!args.confirmed||reason.length<10||reason.length>500)throw Error("Confirm and record a reason of 10–500 characters.");
   const attempt=await ctx.db.get(args.id);if(!attempt||attempt.status!=="published")throw Error("Attachment unavailable.");
   if(!Number.isSafeInteger(args.expectedRevision)||args.expectedRevision<0||args.expectedRevision>=Number.MAX_SAFE_INTEGER||args.expectedRevision!==(attempt.retentionHoldRevision??0))throw Error("The retention hold changed. Review it and confirm again.");
@@ -144,19 +196,15 @@ export const setRetentionHold=mutation({args:{token:v.string(),id:v.id("chat_att
 }});
 
 export const removePublished=mutation({args:{token:v.string(),id:v.id("chat_attachment_attempts"),reason:v.string(),confirmed:v.boolean(),expectedRevision:v.number()},handler:async(ctx,args)=>{
-  await attachmentAdminMutation(ctx,args.token,"customers:write","chatAttachments.removePublished");if(!chatAttachmentsReady())throw Error("Attachments are unavailable.");
+  await attachmentAdminMutation(ctx,args.token,"customers:write","chatAttachments.removePublished");
   const reason=args.reason.trim();if(!args.confirmed||reason.length<10||reason.length>500)throw Error("Confirm and record a reason of 10–500 characters.");
   const attempt=await ctx.db.get(args.id);if(!attempt)throw Error("Attachment unavailable.");if(attempt.status==="removed")return;
   if(attempt.status!=="published"||!attempt.storageId||!attempt.messageId)throw Error("Attachment unavailable.");
+  if(attempt.retentionNeedsReview)throw Error("The file needs a retention review before removal.");
   if(!Number.isSafeInteger(args.expectedRevision)||args.expectedRevision!==(attempt.retentionHoldRevision??0))throw Error("The retention hold changed. Review it and confirm again.");
+  if(attempt.bookingId&&await bookingHasCaseArchive(ctx,attempt.bookingId))throw Error("This rental conversation is preserved in the permanent case archive.");
   if(attempt.retentionHoldReason||await openCases(ctx,attempt))throw Error("This attachment is protected by an open case or retention hold.");
-  const message=await ctx.db.get(attempt.messageId);if(!message||message.accountId!==attempt.accountId||message.bookingId!==attempt.bookingId||message.meta?.attachmentId!==attempt._id)throw Error("The attachment conversation needs review.");
-  const metadata=await ctx.db.system.get(attempt.storageId),hash=attempt.sha256&&/^[a-f0-9]{64}$/.test(attempt.sha256)?btoa(String.fromCharCode(...attempt.sha256.match(/../g)!.map(byte=>parseInt(byte,16)))):null;
-  if(metadata&&(!hash||metadata.contentType!==attempt.marker||metadata.size!==attempt.size||(metadata.sha256!==attempt.sha256&&metadata.sha256!==hash)))throw Error("The stored attachment needs review before removal.");
-  await deletePrivateFile(ctx,attempt.storageId);
-  await ctx.db.patch(message._id,{text:"Attachment removed",meta:{kind:"attachment_removed"}});
-  await ctx.db.patch(attempt._id,{status:"removed",removedAt:Date.now(),storageId:undefined,sha256:undefined,contentType:undefined,size:undefined,name:undefined,engine:undefined,signatureVersion:undefined,signatureUpdatedAt:undefined});
-  await ctx.db.insert("chat_attachment_actions",{attachmentId:attempt._id,accountId:attempt.accountId,...(attempt.bookingId?{bookingId:attempt.bookingId}:{}),action:"removed",reason,at:Date.now()});
+  if(!await removePublishedBytes(ctx,attempt,reason,"removed"))throw Error("The file needs a retention review before removal.");
 }});
 
 export const sweep = internalMutation({ args: {}, handler: async ctx => {
@@ -180,3 +228,79 @@ export const sweep = internalMutation({ args: {}, handler: async ctx => {
     for (const attempt of expired) await ctx.db.delete(attempt._id);
   }
 } });
+
+export const closeInactiveSupportThreads=internalMutation({args:{},handler:async ctx=>{
+  const now=Date.now(),inactiveBefore=now-SUPPORT_IDLE_CLOSE_MS;
+  const rows=await ctx.db.query("chat_threads").withIndex("by_support_open_updated",(q:any)=>q.eq("bookingId",undefined).eq("closedAt",undefined).lt("updatedAt",inactiveBefore)).take(50);
+  let closed=0;
+  for(const row of rows){
+    const current=await ctx.db.get(row._id);
+    if(!current||current.bookingId!==undefined||current.closedAt!==undefined||current.updatedAt>inactiveBefore)continue;
+    await ctx.db.patch(current._id,{closedAt:now});closed++;
+  }
+  if(rows.length===50)await ctx.scheduler.runAfter(0,internal.chatAttachments.closeInactiveSupportThreads,{});
+  return {closed,continued:rows.length===50};
+}});
+
+export const purgeExpired=internalMutation({args:{},handler:async ctx=>{
+  let state=await ctx.db.query("chat_attachment_retention_sweep").withIndex("by_key",(q:any)=>q.eq("key","published")).first();
+  if(!state){const id=await ctx.db.insert("chat_attachment_retention_sweep",{key:"published",updatedAt:Date.now()});state=await ctx.db.get(id);}
+  if(!state)return {scanned:0,removed:0};
+  const now=Date.now();
+  const page=await ctx.db.query("chat_attachment_attempts").withIndex("by_status_created",(q:any)=>q.eq("status","published")).paginate({cursor:state.cursor??null,numItems:10});
+  let removed=0;
+  for(const attempt of page.page){
+    if(attempt.retentionHoldReason||attempt.retentionNeedsReview||!attempt.storageId||!attempt.messageId)continue;
+    let window:{closedAt:number|null;expiresAt:number|null;needsReview:boolean;caseArchived?:boolean};
+    try{window=await attachmentRetentionWindow(ctx,attempt);}catch{window={closedAt:null,expiresAt:null,needsReview:true,caseArchived:false};}
+    if(window.needsReview){await ctx.db.patch(attempt._id,{retentionNeedsReview:true});continue;}
+    if(window.caseArchived)continue;
+    if(window.expiresAt===null||window.expiresAt>now)continue;
+    let open=0;
+    try{open=await openCases(ctx,attempt);}catch{await ctx.db.patch(attempt._id,{retentionNeedsReview:true});continue;}
+    if(open>0)continue;
+    if(await removePublishedBytes(ctx,attempt,"Automatic 90-day retention expiry","retention_removed"))removed++;
+    else await ctx.db.patch(attempt._id,{retentionNeedsReview:true});
+  }
+  await ctx.db.patch(state._id,{cursor:page.isDone?undefined:page.continueCursor,updatedAt:now});
+  if(!page.isDone)await ctx.scheduler.runAfter(0,internal.chatAttachments.purgeExpired,{});
+  return {scanned:page.page.length,removed,continued:!page.isDone};
+}});
+
+export const purgeExpiredActionAudits=internalMutation({args:{},handler:async ctx=>{
+  const now=Date.now();
+  let migration=await ctx.db.query("chat_attachment_retention_sweep").withIndex("by_key",(q:any)=>q.eq("key","action-audit-backfill")).first();
+  if(!migration){const id=await ctx.db.insert("chat_attachment_retention_sweep",{key:"action-audit-backfill",updatedAt:now});migration=await ctx.db.get(id);}
+  let migrated=0,backfillDone=migration?.completedAt!==undefined;
+  if(migration&&!backfillDone){
+    const page=await ctx.db.query("chat_attachment_actions").withIndex("by_at",(q:any)=>q.gte("at",0)).paginate({cursor:migration.cursor??null,numItems:100});
+    for(const row of page.page){
+      if(row.purgeAfter!==undefined)continue;
+      const attempt=await ctx.db.get(row.attachmentId);
+      const removedAt=attempt?.removedAt;
+      if(!attempt||attempt.status!=="removed"||typeof removedAt!=="number"||!Number.isSafeInteger(removedAt))continue;
+      if(attempt.bookingId&&await bookingHasCaseArchive(ctx,attempt.bookingId))continue;
+      await ctx.db.patch(row._id,{purgeAfter:removedAt+CHAT_AUDIT_RETENTION_MS});migrated++;
+    }
+    backfillDone=page.isDone;
+    await ctx.db.patch(migration._id,page.isDone?{cursor:undefined,completedAt:now,updatedAt:now}:{cursor:page.continueCursor,updatedAt:now});
+    if(!page.isDone)await ctx.scheduler.runAfter(0,internal.chatAttachments.purgeExpiredActionAudits,{});
+  }
+  let state=await ctx.db.query("chat_attachment_retention_sweep").withIndex("by_key",(q:any)=>q.eq("key","action-audit-purge")).first();
+  if(!state){const id=await ctx.db.insert("chat_attachment_retention_sweep",{key:"action-audit-purge",updatedAt:now});state=await ctx.db.get(id);}
+  const page=await ctx.db.query("chat_attachment_actions").withIndex("by_purge_after",(q:any)=>q.lte("purgeAfter",now)).paginate({cursor:state?.cursor??null,numItems:100});
+  let deleted=0;
+  for(const row of page.page){
+    const attempt=await ctx.db.get(row.attachmentId);
+    const caseArchived=!!row.bookingId&&await bookingHasCaseArchive(ctx,row.bookingId);
+    if(caseArchived){await ctx.db.patch(row._id,{purgeAfter:undefined});continue;}
+    if(attempt&&attempt.status!=="removed"){await ctx.db.patch(row._id,{purgeAfter:undefined});continue;}
+    const removedAt=attempt?.removedAt;
+    if(attempt&&(typeof removedAt!=="number"||!Number.isSafeInteger(removedAt)||removedAt+CHAT_AUDIT_RETENTION_MS>now)){await ctx.db.patch(row._id,{purgeAfter:undefined});continue;}
+    await ctx.db.delete(row._id);deleted++;
+  }
+  const continued=!page.isDone||!backfillDone;
+  await ctx.db.patch(state!._id,{cursor:page.isDone?undefined:page.continueCursor,updatedAt:now});
+  if(!page.isDone)await ctx.scheduler.runAfter(0,internal.chatAttachments.purgeExpiredActionAudits,{});
+  return {migrated,deleted,continued};
+}});

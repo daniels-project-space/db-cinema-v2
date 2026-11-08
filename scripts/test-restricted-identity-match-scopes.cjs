@@ -17,7 +17,7 @@ const key = "a".repeat(64);
 const renter = harness.put("accounts", { email: "renter@example.invalid", renterPersonKey: key });
 const restricted = harness.put("accounts", { email: "restricted@example.invalid", renterPersonKey: key, blockedAt: 1 });
 const booking = harness.put("bookings", { accountId: renter._id, renterPersonKey: key, diditSessionId: "fixture", idVerifyStatus: "verified", idVerificationSource: "didit", verificationChecks: { identity: "approved", selfie: "approved", address: "approved" } });
-const read = token => admin.possibleRestrictedIdentityMatches.handler(ctx, { token, bookingId: booking._id });
+const read = (token, target = booking) => admin.possibleRestrictedIdentityMatches.handler(ctx, { token, bookingId: target._id });
 
 (async () => {
   process.env.ADMIN_SESSION_IDENTITY_ALERTS_V2 = "enabled";
@@ -37,6 +37,9 @@ const read = token => admin.possibleRestrictedIdentityMatches.handler(ctx, { tok
   await assert.rejects(read(tokens.both), /unauthorized/);
   delete process.env.ADMIN_SESSION_CUSTOMER_READ_V2;
   assert.equal((await read(process.env.ADMIN_TOKEN)).matches.length, 1);
+  const guestBooking = harness.put("bookings", { guestEmail: restricted.email, renterPersonKey: key, diditSessionId: "guest-fixture", idVerifyStatus: "verified", idVerificationSource: "didit", verificationChecks: { identity: "approved", selfie: "approved", address: "approved" } });
+  assert.deepEqual((await read(process.env.ADMIN_TOKEN, guestBooking)).matches.map(row => row.id), [restricted._id], "A guest using the restricted account email still raises a manual-review match");
+  assert.equal((await harness.db.get(guestBooking._id)).blockedAt, undefined, "A possible match never blocks the guest booking");
   assert.deepEqual(await read("wrong"), { matches: [], more: false });
   console.log("PASS restricted identity match requires scoped verification access during either migration and preserves legacy compatibility");
 })().catch(error => { console.error(error); process.exitCode = 1; });

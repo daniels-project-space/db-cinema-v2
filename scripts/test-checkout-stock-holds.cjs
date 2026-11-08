@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const {load, db, put, tables} = require('./lib/rentalTestHarness.cjs');
 const bookings = load('convex/bookings.ts'), availability = load('convex/availability.ts');
 const {assertRentalInventory} = load('convex/lib/rentalInventory.ts');
+const {reservationOccupancy} = load('convex/lib/reservationOccupancy.ts');
 const realNow = Date.now, day = 86400000, now = Date.UTC(2026, 9, 8, 12);
 let clock = now; Date.now = () => clock;
 const ctx = {db,scheduler:{runAfter:async()=>{}}}, start = Date.UTC(2027, 0, 1), end = start + day;
@@ -79,5 +80,19 @@ const reserve = (booking,ttlMs=60000) => bookings.placeHolds.handler(ctx,{bookin
   const guarded=put('bookings',{status:'pending_payment',lineItems:[line(availableListing)],...binding});
   assert.equal(await bookings.expireUnpaidPending.handler(ctx,{bookingId:guarded._id}),false);assert.equal(guarded.status,'pending_payment','A no-session cleanup cannot undo a known provider binding/payment');
  }
- console.log('PASS checkout allocation markers never reserve basket stock; confirmed bookings block inventory; replay/expiry, changed/partial markers, whole-basket validation and live date/component/quantity checks. Synthetic database; no provider writes.');
+ const pendingUnit=put('inventory_units',{name:'Paid pending fixture',active:true,quantityOwned:1});
+ const pendingListing=put('listings',{title:'Paid pending fixture',active:true,components:[{inventoryUnitId:pendingUnit._id,qty:1}]});
+ const pendingLine=line(pendingListing),pendingBooking=put('bookings',{status:'pending_payment',verificationProvider:'didit',idVerifyStatus:'required',stripeCheckoutSessionId:'cs_paid_pending_fixture',lineItems:[pendingLine]});
+ const pendingHold=put('reservations',{bookingId:pendingBooking._id,inventoryUnitId:pendingUnit._id,listingId:pendingListing._id,start:pendingLine.start,end:pendingLine.end,qty:1,source:'site',status:'hold',holdExpiresAt:clock-1});
+ assert.equal(await reservationOccupancy(ctx,pendingHold),null,'Even an expired checkout marker remains advisory until the verified Stripe receipt arrives');
+ assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,1,'An unpaid basket stays available to other renters');
+ await bookings.recordPaidCheckoutReceipt.handler(ctx,{bookingId:pendingBooking._id,sessionId:'cs_paid_pending_fixture',paymentIntentId:'pi_paid_pending_fixture'});
+ assert.equal(Number.isSafeInteger(pendingBooking.checkoutPaidAt),true,'Only the receipt mutation records the payment attestation');assert.equal(pendingBooking.paidConfirmedAt,undefined,'Payment alone does not mark a rental confirmed');
+ assert.equal(pendingBooking.status,'pending_verification');assert.equal(pendingHold.holdExpiresAt,undefined,'A paid Didit hold no longer expires with the pre-payment cart TTL');
+ assert((await reservationOccupancy(ctx,pendingHold)),'Paid pending Didit equipment is occupied across the verification wait');
+ assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,0,'Other renters cannot book stock held by a paid pending verification');
+ await bookings.releaseExpiredHolds.handler(ctx,{});assert(await db.get(pendingHold._id),'The expiry worker preserves a paid pending Didit allocation');
+ pendingBooking.idVerifyStatus='rejected';pendingHold.status='cancelled';
+ assert.equal(await reservationOccupancy(ctx,pendingHold),null);assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,1,'Terminal verification failure releases the inventory');
+ console.log('PASS unpaid checkout markers never reserve stock; verified Stripe receipt makes a durable paid Didit hold; expiry preserves it until rejection; confirmed bookings block inventory. Synthetic database; no provider writes.');
 }finally{Date.now=realNow}})().catch(e=>{console.error(e);process.exitCode=1});

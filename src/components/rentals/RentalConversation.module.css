@@ -18,7 +18,6 @@
 .handoff:disabled { opacity:.6; }
 .main { display:flex; flex-direction:column; min-width:0; grid-column:1; }
 .bookingStrip { display:flex; align-items:center; gap:14px; padding:18px 24px; border-bottom:1px solid #ffffff12; background:#ffffff02; }
-.kitImage { width:84px; height:64px; flex-shrink:0; border-radius:5px; background:#11120f; object-fit:contain; }
 .bookingStrip > div { flex:1; min-width:0; }
 .bookingStrip h4 { font-size:14px; font-weight:600; overflow-wrap:anywhere; }
 .bookingStrip p { margin-top:5px; font-size:11px; line-height:1.7; color:var(--muted); }
@@ -188,6 +187,7 @@
 .workspace .headerActions { gap:4px; }
 .workspaceCall { display:inline-flex; align-items:center; gap:7px; min-height:42px; padding:0 11px; border:1px solid #c59a72; border-radius:9px; background:linear-gradient(#aa7e58,#704b30); box-shadow:inset 0 1px #f5d2ae38; color:#fff0dc; font-size:15px; font-weight:600; }
 .workspaceCall svg { width:16px; height:16px; }
+.workspacePhone { color:#f0e6d9; font-size:11px; line-height:1.2; white-space:nowrap; }
 .starButton { display:grid; place-items:center; width:30px; height:40px; color:#d9ad77; }
 .starButton svg { width:21px; height:21px; }
 .starButton:hover { color:#ffdfa8; }
@@ -202,8 +202,8 @@
 .workspaceCall:focus-visible { outline:2px solid #e5bd92; outline-offset:3px; }
 .workspace .handoff { border-color:#56524c; border-radius:8px; color:#e2d2bd; font-size:14px; }
 .workspace .main { flex:1; min-height:0; }
-.workspace .bookingStrip { position:relative; z-index:1; min-height:0; padding:9px 17px; gap:10px; background:#151515; }
-.workspace .kitImage { width:38px; height:32px; }
+.workspace .bookingStrip { position:relative; z-index:1; min-height:64px; padding:9px 17px; gap:10px; background:#151515; }
+.workspace .kitImage { width:48px; height:42px; }
 .workspace .bookingStrip h4 { font-size:14px; }
 .workspace .bookingStrip p { margin-top:1px; font-size:12px; line-height:1.4; }
 .workspaceRentalDetails { flex-shrink:0; }
@@ -266,9 +266,21 @@
 .workspace .identity > div:last-child { min-width:0; }
 .workspace .header h3 { overflow-wrap:anywhere; }
 .workspace .message :global(.management-conversation-message-copy) { min-width:0; overflow-wrap:anywhere; }
+.handoverDetails { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:14px; padding:12px 18px; border-bottom:1px solid #ffffff12; background:linear-gradient(105deg,#c5966513,#ffffff04 72%); }
+.handoverLocations { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px 18px; min-width:0; }
+.handoverLocations div { min-width:0; }
+.handoverLocations span { display:block; color:#b9a88f; font-size:9px; letter-spacing:.12em; text-transform:uppercase; }
+.handoverLocations strong { display:block; margin-top:3px; color:#eee7dd; font-size:11px; font-weight:550; line-height:1.45; overflow-wrap:anywhere; }
+.handoverLocations p { grid-column:1/-1; margin:2px 0 0; color:#c9c0b4; font-size:10px; line-height:1.45; }
+.handoverDetails > a { display:grid; grid-template-columns:18px auto; align-items:center; gap:2px 8px; min-height:42px; padding:7px 11px; border:1px solid #d5a57455; border-radius:11px; background:#d5a57412; color:#f0d4b5; text-decoration:none; }
+.handoverDetails > a svg { grid-row:1/3; width:17px; height:17px; }
+.handoverDetails > a span { font-size:10px; font-weight:650; }
+.handoverDetails > a strong { font-size:10px; font-weight:500; white-space:nowrap; }
+.renterControls { flex:0 0 auto; padding:10px 20px; border-top:1px solid #ffffff0b; border-bottom:1px solid #ffffff0b; background:#111313; }
 .workspace .composeForm textarea { flex:1 1 0; width:0; }
 @media(max-width:767px) { .workspace .header { gap:8px; padding:12px; flex-wrap:wrap; } .workspaceAvatar { flex-basis:46px; width:46px; height:46px; } .workspace .header h3 { font-size:19px; } .workspace .headerActions { margin-left:auto; } .workspaceCall { min-height:38px; padding:0 10px; } .workspace .handoff { padding:7px; } .workspace .messages { min-height:300px; padding:18px 12px; } .workspace .message :global(.management-conversation-message-row) { max-width:92%; } }
-@media(max-width:360px) { .workspace .header { gap:5px; } .workspace .header .identity { gap:8px; } .workspaceAvatar { flex-basis:40px; width:40px; height:40px; } .workspace .header h3 { font-size:18px; } .workspace .headerActions { gap:1px; } .workspaceCall { justify-content:center; width:38px; padding:0; } .workspaceCallLabel { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); } .starButton { width:26px; } .headerMenu summary { width:24px; } }
+@media(max-width:767px) { .handoverDetails { grid-template-columns:minmax(0,1fr); padding:10px 12px; } .handoverLocations { grid-template-columns:minmax(0,1fr); } .handoverLocations p { grid-column:auto; } .handoverDetails > a { justify-self:start; } .rentalKitGrid { grid-template-columns:minmax(0,1fr); } .renterControls { padding:9px 12px; } }
+@media(max-width:360px) { .workspace .header { gap:5px; } .workspace .header .identity { gap:8px; } .workspaceAvatar { flex-basis:40px; width:40px; height:40px; } .workspace .header h3 { font-size:18px; } .workspace .headerActions { gap:1px; } .workspaceCall { justify-content:center; width:38px; padding:0; } .workspaceCallLabel { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); } .starButton { width:26px; } .headerMenu summary { width:24px; } .workspace .composeForm textarea { min-height:42px; padding:9px 36px 9px 10px; font-size:13px; } .workspace .composeForm button { min-width:40px; min-height:42px; padding:7px; } .workspace .composeForm .emojiControl { right:48px; } .workspace .composeForm .emojiToggle { min-width:38px; min-height:42px; } }
 @media (min-width:1151px) {
   :global([data-management-role=renter][data-management-screen=messages]) .inbox { min-height:calc(100dvh - var(--management-site-header-height)); }
   :global([data-management-role=renter][data-management-screen=messages]) .withTools { height:calc(100dvh - var(--management-site-header-height)); }
@@ -298,6 +310,11 @@
  :global([data-management-role=renter][data-management-screen=messages]) .renterInbox > .workspace { height:100%; min-height:0; }
  :global([data-management-role=renter][data-management-screen=messages]) .renterInbox .workspace .messages { flex:1; height:auto; min-height:220px; }
 }
+@media(min-width:1151px) {
+ :global([data-management-role=renter][data-management-screen=messages]) .renterInbox > .workspace { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+ :global([data-management-role=renter][data-management-screen=messages]) .renterInbox > .workspace > .main { flex:1; min-height:0; overflow:hidden; }
+ :global([data-management-role=renter][data-management-screen=messages]) .renterInbox > .workspace .messages { flex:1 1 auto; height:auto; min-height:80px; }
+}
 @media(max-width:767px) {
  .renterInbox .workspace .messages { min-height:max(300px,calc(100dvh - 425px)); }
 }
@@ -311,4 +328,39 @@
 }
 @media(min-width:768px) and (max-width:1023px) {
  .renterInbox .workspace .messages { min-height:max(300px,calc(100dvh - 455px)); }
+}
+
+@media(min-width:1151px) {
+ .renterInbox .withTools { grid-template-columns:minmax(0,1.8fr) minmax(280px,.72fr); }
+ .renterInbox .tools { padding:16px; }
+ .renterInbox .toolsHeading { margin-bottom:14px; padding-bottom:14px; }
+}
+
+.rentalItemsCard { width:min(100%,720px); padding:10px; border:1px solid #ffffff17; border-radius:16px; background:linear-gradient(145deg,#ffffff0c,#ffffff04 60%,#c79a6810); box-shadow:0 10px 26px #00000018,inset 0 1px #ffffff0a; backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
+.rentalItemsHeading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; color:#f2eadf; }
+.rentalItemsHeading strong { font-size:13px; font-weight:600; }
+.rentalItemsHeading span { color:#aaa39a; font-size:11px; }
+.rentalItemsGrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr)); gap:8px; }
+.rentalItem { display:grid; grid-template-columns:76px minmax(0,1fr); align-items:center; gap:10px; min-width:0; padding:7px; border:1px solid #ffffff12; border-radius:12px; background:#ffffff05; }
+.rentalItemPhoto,.rentalItemPhotoUnavailable { width:76px; height:62px; border:1px solid #ffffff18; border-radius:9px; background:linear-gradient(145deg,#292a27,#171817); }
+.rentalItemPhotoUnavailable { display:grid; place-items:center; padding:8px; color:#a7a198; font-size:10px; line-height:1.4; text-align:center; }
+.rentalItemCopy { display:grid; gap:4px; min-width:0; }
+.rentalItemCopy strong { display:-webkit-box; overflow:hidden; overflow-wrap:anywhere; color:#eee7dd; font-size:12px; font-weight:600; line-height:1.3; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+.rentalItemCopy span { color:#c4b19a; font-size:10px; }
+@media (max-width:767px) {
+ .workspace .rentalItemsCard { padding:8px; border-radius:14px; }
+ .workspace .rentalItemsGrid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+ .workspace .rentalItemsGrid[data-count="1"] { grid-template-columns:minmax(0,1fr); }
+ .workspace .rentalItem { grid-template-columns:48px minmax(0,1fr); gap:6px; padding:6px; border-radius:10px; }
+ .workspace .rentalItemPhoto,.workspace .rentalItemPhotoUnavailable { width:48px; height:48px; border-radius:8px; }
+ .workspace .rentalItemCopy { gap:3px; }
+ .workspace .rentalItemCopy strong { font-size:10px; line-height:1.2; }
+ .workspace .rentalItemCopy span { font-size:9px; }
+}
+@media(max-width:640px) {
+ .renterInbox:not([data-renter-support=true]) { display:flex; flex-direction:column; height:100%; min-height:0; margin:0; padding:0; overflow:hidden; }
+ .renterInbox:not([data-renter-support=true]) > .workspace { display:flex; flex:1; flex-direction:column; height:100%; min-height:0; border-radius:0; overflow:hidden; }
+ .renterInbox:not([data-renter-support=true]) .workspace .main { display:flex; flex:1; flex-direction:column; min-height:0; overflow:hidden; }
+ .renterInbox:not([data-renter-support=true]) .workspace .messages { flex:1 1 auto; height:auto; min-height:80px; overflow-y:auto; }
+ .renterInbox:not([data-renter-support=true]) .workspace .composer { flex:0 0 auto; }
 }

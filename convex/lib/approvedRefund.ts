@@ -48,6 +48,7 @@ async function approvedResult(stripe: Stripe, receipt: RefundReceipt, currency: 
 export async function recoverApprovedRefund(stripe: Stripe, receipt: RefundReceipt, options: {
   currency: string; idempotencyKey: string; metadata?: Record<string, string>; now: number;
   maxRefunds?: number; readOnly?: boolean;
+  beforeCreate?: () => Promise<void>;
   persist: (receipt: RefundReceipt) => Promise<void>;
 }): Promise<RefundReceipt> {
   if (receipt.stripeRefundId) return checkedRefund(await stripe.refunds.retrieve(receipt.stripeRefundId), receipt, options.currency);
@@ -67,6 +68,7 @@ export async function recoverApprovedRefund(stripe: Stripe, receipt: RefundRecei
   // Stripe may prune idempotency keys after 24 hours. Never recreate an ambiguous old request.
   if (options.now - receipt.attemptedAt >= 23 * 60 * 60 * 1000)
     throw new RefundReviewRequired("An older Stripe refund request needs receipt review. No second refund has been issued.");
+  await options.beforeCreate?.();
   try {
     return checkedRefund(await stripe.refunds.create({ payment_intent: receipt.paymentIntentId,
       amount: receipt.amountPence, ...(options.metadata ? { metadata: options.metadata } : {}) },

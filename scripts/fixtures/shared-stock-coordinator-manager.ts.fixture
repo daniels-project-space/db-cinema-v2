@@ -1,0 +1,119 @@
+import { action, mutation, query } from "./_generated/server";
+import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import { insertRevenueReservation } from "./lib/reservation_revenue";
+
+export const seedItem = mutation({
+  args: { quantity: v.number() },
+  handler: async (ctx, args) => ctx.db.insert("items", {
+    name_canonical: "Synthetic shared stock camera",
+    name_input: "Synthetic shared stock camera",
+    slug: `synthetic-shared-stock-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    kind: "camera_body",
+    qty: args.quantity,
+    unit_kind: "unit",
+    is_marketing_only: false,
+    status: "active",
+    created_at: Date.now(),
+    updated_at: Date.now(),
+  }),
+});
+
+export const seedSiteBooking = mutation({
+  args: { itemId: v.id("items"), bookingId: v.string(), start: v.number(), returnAt: v.number() },
+  handler: async (ctx, args) => ctx.db.insert("reservations", {
+    created_at: Date.now(),
+    status: "confirmed",
+    booking_status: "confirmed",
+    account_slug: "dbcinema_web",
+    hygglo_order_id: args.bookingId,
+    order_step: "BOOKED_AFTER_VERIFIED",
+    site_revision: 1,
+    start_date: "2031-01-01",
+    end_date: "2031-01-02",
+    pickup_date: "2031-01-01",
+    return_date: "2031-01-02",
+    site_item_windows: [{
+      item_id: args.itemId,
+      qty: 1,
+      start: args.start,
+      end: args.returnAt + 3600000,
+      stockWindowVersion: 2,
+      endExclusive: true,
+      turnaroundBufferMinutes: 60,
+    }],
+  }),
+});
+
+export const syncSyntheticSiteBooking = action({
+  args: { booking: v.any() },
+  handler: async (ctx, args) => ctx.runMutation(internal.sync_dbcinema_web.upsertSiteBookingsBatch, {
+    bookings: [args.booking],
+    reconcile: false,
+  }),
+});
+
+export const seedUnpaidCheckoutMarker = mutation({
+  args: { itemId: v.id("items"), start: v.number(), returnAt: v.number() },
+  handler: async (ctx, args) => {
+    return ctx.db.insert("storefront_checkout_stock", {
+      key: "website",
+      revision: 1,
+      receivedAt: Date.now(),
+      rows: [{ bookingId: "synthetic_cart_only", item_id: args.itemId, start: args.start, end: args.returnAt + 3600000,
+        qty: 1, expiresAt: Date.now() + 3600000, endExclusive: true, bufferMinutes: 60 }],
+    });
+  },
+});
+
+export const insertSyntheticExternalReservation = mutation({
+  args: { itemId: v.id("items"), start: v.number(), returnAt: v.number(), bookingId: v.string() },
+  handler: async (ctx, args) => {
+    const id = await insertRevenueReservation(ctx, {
+      created_at: Date.now(),
+      status: "confirmed",
+      account_slug: "dbcinema_web",
+      hygglo_order_id: args.bookingId,
+      start_date: "2031-01-01",
+      end_date: "2031-01-02",
+      pickup_date: "2031-01-01",
+      return_date: "2031-01-02",
+      site_item_windows: [{
+        item_id: args.itemId,
+        qty: 1,
+        start: args.start,
+        end: args.returnAt + 3600000,
+        stockWindowVersion: 2,
+        endExclusive: true,
+        turnaroundBufferMinutes: 60,
+      }],
+    });
+    const persisted = await ctx.db.get(id);
+    if (!persisted) throw Error("Synthetic external reservation was not persisted.");
+    return { id, persisted };
+  },
+});
+
+export const inspect = query({
+  args: {},
+  handler: async (ctx) => {
+    const [claims, reservations] = await Promise.all([
+      ctx.db.query("shared_stock_claims").collect(),
+      ctx.db.query("reservations").collect(),
+    ]);
+    return {
+      claims: claims.map(row => ({ request_id: row.request_id, state: row.state, fingerprint: row.fingerprint })),
+      reservations: reservations.map(row => ({
+        hygglo_order_id: row.hygglo_order_id,
+        status: row.status,
+        booking_status: row.booking_status,
+        order_step: row.order_step,
+        is_obsolete: row.is_obsolete,
+        obsolete_reason: row.obsolete_reason,
+        site_checkout_paid_at: row.site_checkout_paid_at,
+        site_verification: row.site_verification,
+        site_item_windows: row.site_item_windows,
+      })),
+    };
+  },
+});

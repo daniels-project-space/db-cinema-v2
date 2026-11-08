@@ -160,7 +160,7 @@ export async function assertVerificationArchive(ctx: any, booking: any) {
   throw Error("Verification document copies must be fully archived and within their retention period before handover. Check account documents or complete a new verification.");
 }
 export const reuseReadCandidate=internalQuery({args:{bookingId:v.id("bookings")},handler:async(ctx,{bookingId})=>{
-  const booking=await ctx.db.get(bookingId);if(!booking?.diditSessionId||booking.identityRiskNotice)return null;
+  const booking=await ctx.db.get(bookingId);if(!booking?.diditSessionId)return null;
   const archives=await ctx.db.query("verification_archives").withIndex("by_booking",query=>query.eq("bookingId",bookingId)).collect();
   for(const archive of archives){
     if(archive.sessionId!==booking.diditSessionId||archive.status!=="complete"||!(await archiveRetention(ctx,archive)).viewable)continue;
@@ -253,7 +253,7 @@ export const resumeReuses=internalMutation({args:{accountId:v.id("accounts"),sou
   for(const booking of page.page)if(booking.accountAccessRequired===false&&booking.verificationProvider==="didit"&&
     ((["required","processing"].includes(booking.idVerifyStatus??"required")&&!booking.diditSessionId)||
       ["requires_input","manual_review","rejected"].includes(booking.idVerifyStatus??"required"))&&
-    booking.idVerificationSource!=="manual"&&!booking.diditManualDecisionAt&&!booking.identityRiskNotice){
+    booking.idVerificationSource!=="manual"&&!booking.diditManualDecisionAt){
     await ctx.scheduler.runAfter(scheduled++*250,internal.didit.reuseVerification,{bookingId:booking._id});
   }
   if(!page.isDone)await ctx.scheduler.runAfter(5000,internal.verificationArchive.resumeReuses,{...args,cursor:`${statusIndex}|${page.continueCursor}`});

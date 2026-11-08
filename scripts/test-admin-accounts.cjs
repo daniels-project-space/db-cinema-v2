@@ -27,6 +27,14 @@ const block = blocked=>admin.setBlocked.handler(ctx,{token:'fixture-admin',accou
   await assert.rejects(change('studio','wrong'),/unauthorized/);
   await assert.rejects(encore(3,'wrong'),/unauthorized/);
   await assert.rejects(encore(2,'fixture-admin',' '),/reason/);
+  const originalProfile={name:account.name??null,phone:account.phone??null,address:account.address??null};
+  await assert.rejects(admin.updateProfile.handler(ctx,{token:session.token,accountId:account._id,name:'Forged',phone:'+44 7700 900555',address:'1 Test Street',expected:originalProfile,reason:'Renter cannot edit admin profile'}),/unauthorized/,'A renter session cannot change customer profile details');
+  await admin.updateProfile.handler(ctx,{token:'fixture-admin',accountId:account._id,name:'  QA Renter Two  ',phone:'+44 7700 900555',address:'  1 Test Street\nLondon  ',expected:originalProfile,reason:'Corrected contact details'});
+  assert.equal(account.name,'QA Renter Two');assert.equal(account.phone,'+44 7700 900555');assert.equal(account.address,'1 Test Street London','Address whitespace is normalized');
+  await assert.rejects(admin.updateProfile.handler(ctx,{token:'fixture-admin',accountId:account._id,name:'Stale edit',phone:'+44 7700 900777',address:'2 Test Street',expected:originalProfile,reason:'Stale profile edit'}),/changed in another session/,'A stale profile editor cannot overwrite newer values');
+  const profileAudit=(tables.get('account_admin_changes')??[]).find(row=>row.accountId===account._id&&row.kind==='profile_update');
+  assert.deepEqual([profileAudit.before,profileAudit.after,profileAudit.reason],['name, phone, address','updated','Corrected contact details'],'Profile changes record an admin audit without copying old PII values');
+  await assert.rejects(admin.updateProfile.handler(ctx,{token:'fixture-admin',accountId:account._id,name:'QA',phone:'call me',address:'1 Test Street',expected:{name:account.name,phone:account.phone,address:account.address},reason:'Invalid phone'}),/phone number/);
   await admin.setLevel.handler(ctx,{token:'fixture-admin',accountId:account._id,level:'plus',expectedLevel:'automatic',reason:'First admin'});
   await assert.rejects(admin.setLevel.handler(ctx,{token:'fixture-admin',accountId:account._id,level:'pro',expectedLevel:'automatic',reason:'Stale admin'}),/changed in another session/);
   assert.equal(account.adminMembershipTier,'plus','Stale membership change cannot overwrite a newer one');
@@ -88,6 +96,8 @@ const block = blocked=>admin.setBlocked.handler(ctx,{token:'fixture-admin',accou
   const rental=put('bookings',{guestEmail:account.email,status:'confirmed',total:100});
   const balance=(tables.get('credits')??[]).map(c=>({...c}));
   const activeSnapshot=restrictionState(account);
+  await assert.rejects(admin.setBlocked.handler(ctx,{token:session.token,accountId:account._id,blocked:true,reason:'Renter cannot restrict accounts',expected:activeSnapshot}),/unauthorized/,'A renter session cannot access the admin restriction action');
+  assert.equal(account.blockedAt,undefined,'Denied renter restriction attempts do not change account state');
   await block(true);assert.equal(docs.has(session._id),false);assert.equal(docs.has(emailLink._id),false);
   const firstRestriction=restrictionState(account);
   await block(false);await block(true);
@@ -117,5 +127,5 @@ const block = blocked=>admin.setBlocked.handler(ctx,{token:'fixture-admin',accou
   const bounded=await admin.search.handler(ctx,{token:'fixture-admin',email:'other'});assert.equal(bounded.items.length,50);assert.equal(bounded.more,true);
   assert((await admin.history.handler(ctx,{token:'fixture-admin',accountId:account._id})).length>0,'Changes retain an account audit history');
   assert((tables.get('account_admin_changes')??[]).some(row=>row.accountId===account._id&&row.kind==='encore_level'),'Encore promotions retain a distinct audit record');
-  console.log('PASS admin accounts: authorized/private email search, level overrides, real rental perks, unchanged billing/credit, password/Google/email/session/guest-booking blocks, revocation, unblocking and audit history.');
+  console.log('PASS admin accounts: authorized profile edits and privacy-safe audit, private email search, level overrides, real rental perks, unchanged billing/credit, password/Google/email/session/guest-booking blocks, revocation and unblocking.');
 })().catch(e=>{console.error(e);process.exitCode=1});

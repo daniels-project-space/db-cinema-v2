@@ -3,8 +3,9 @@ const { load, db, put, tables, setMock } = require("./lib/rentalTestHarness.cjs"
 
 process.env.ADMIN_TOKEN = "duplicate-swap-owner";
 process.env.RENTAL_ITEM_SWAP_ENABLED = "true";
+process.env.SHARED_STOCK_BRIDGE_EXPERIMENTAL = "true";
 setMock("./lib/rentalChat", { ...load("convex/lib/rentalChat.ts"), postRentalMessage: async () => {} });
-setMock("./lib/rentalSwapAuthority", { assertSwapAuthorityAvailable: () => {}, swapAuthorityAvailable: () => false });
+setMock("./lib/rentalSwapAuthority", { assertSwapAuthorityAvailable: () => {}, swapAuthorityAvailable: () => true });
 const state = load("convex/rentalSwapState.ts");
 const ctx = { db, scheduler: { runAfter: async () => {} } };
 const account = put("accounts", { email: "duplicate-swap@example.invalid" });

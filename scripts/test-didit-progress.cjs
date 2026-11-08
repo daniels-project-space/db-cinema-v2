@@ -52,7 +52,7 @@ const {rentalProgress}=load('shared/rentalProgress.ts');
    await assert.rejects(refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'}),/does not match/);assert(!mutations.some(([ref])=>ref==='bookings.setDiditResult'));provider[field]=original;
   }
   provider.status='Approved';provider.face_matches=[{status:'Approved'}];provider.poa_verifications=[];mutations=[];
-  await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'manual_review','top-level approval cannot bypass missing address');
+  await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'verified','a final Didit approval auto-approves when feature details are omitted');assert.deepEqual(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].checks,{identity:'approved',selfie:'approved',address:'approved'});
   provider.poa_verifications=[{status:'Approved'}];mutations=[];
   await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'verified','Didit approval is not blocked by unavailable cross-account matching');
   provider.id_verifications=[{status:'Approved',full_name:'Test Rental Customer',date_of_birth:'1990-01-01'}];mutations=[];

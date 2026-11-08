@@ -116,7 +116,7 @@ assert(guide.includes('Compared with eligible rental value')&&guide.includes('ou
 assert(guide.includes('DB cancels · refund option')&&guide.includes('DB cancels · credit option'));
 const renterTools=fs.readFileSync(path.join(__dirname,'../src/components/rentals/RenterRentalTools.tsx'),'utf8');
 const requestApply=fs.readFileSync(path.join(__dirname,'../src/components/rentals/RentalRequestApply.tsx'),'utf8');
-assert(renterTools.includes('no rental refund and no account credit')&&renterTools.includes('100% account credit'));
+assert(renterTools.includes('no rental refund or account credit')&&renterTools.includes('100% account credit'));
 assert(requestApply.includes('no rental refund and no account credit')&&requestApply.includes('customerChoice'));
 for(const copy of [homeProtection,checkoutProtection,chatPolicy,gafferPolicy])assert(!copy.includes('eligible renters'));
 assert(homeProtection.includes('all accounts can get a full refund')&&checkoutProtection.includes('all accounts can receive a full refund')&&chatPolicy.includes('all accounts can receive a refund'));
