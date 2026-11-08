@@ -57,6 +57,6 @@ export const backfillLegacyCaseArchives = internalMutation({ args: {}, handler: 
   await ctx.db.patch(state._id, page.isDone
     ? { cursor: undefined, completedAt: Date.now(), updatedAt: Date.now() }
     : { cursor: page.continueCursor, updatedAt: Date.now() });
-  if (!page.isDone) await ctx.scheduler.runAfter(0, (internal as any).chatCaseArchive.backfillLegacyCaseArchives, {});
+  if (!page.isDone) await ctx.scheduler.runAfter(0, internal.lib.chatCaseArchive.backfillLegacyCaseArchives, {});
   return { archived, complete: page.isDone };
 } });

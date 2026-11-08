@@ -59,7 +59,7 @@ crons.interval("purge-expired-verification-documents", { hours: 24 }, internal.v
 crons.daily("auto-close-inactive-support-chats", { hourUTC: 3, minuteUTC: 20 }, internal.chatAttachments.closeInactiveSupportThreads, {});
 crons.interval("purge-expired-chat-attachments", { hours: 1 }, internal.chatAttachments.purgeExpired, {});
 crons.interval("purge-chat-attachment-audit-history", { hours: 24 }, internal.chatAttachments.purgeExpiredActionAudits, {});
-crons.interval("backfill-legacy-case-chat-archives", { hours: 24 }, (internal as any).chatCaseArchive.backfillLegacyCaseArchives, {});
+crons.interval("backfill-legacy-case-chat-archives", { hours: 24 }, internal.lib.chatCaseArchive.backfillLegacyCaseArchives, {});
 
 crons.interval("expire-rental-verifications", { hours: 1 }, internal.bookings.expireRentalVerifications, {});
 
