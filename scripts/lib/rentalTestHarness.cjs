@@ -19,7 +19,18 @@ const registered = Object.fromEntries(
 );
 const refs = new Proxy(
   {},
-  { get: (_, g) => new Proxy({}, { get: (_, f) => `${g}.${f}` }) },
+  {
+    get: (_, module) =>
+      module === "lib"
+        ? new Proxy(
+            {},
+            {
+              get: (_, file) =>
+                new Proxy({}, { get: (_, fn) => `${module}.${file}.${fn}` }),
+            },
+          )
+        : new Proxy({}, { get: (_, fn) => `${module}.${fn}` }),
+  },
 );
 function load(file) {
   let filename = path.resolve(root, file);
