@@ -1,0 +1,5 @@
+# Isolated stock confirmation race
+
+Run `node scripts/test-stock-confirmation-runtime.cjs` from this repository after installing its dependencies. The Convex CLI may need network access to download its local backend. The script starts an anonymous local Convex deployment in a new temporary directory, passes no provider credentials, tests five simultaneous pairs of synthetic paid and Didit-approved bookings for one unit, and removes its own process group and temporary files afterwards. The fixture endpoint is copied into the temporary deployment only; it is not part of the website's deployed Convex functions.
+
+Each pair must yield one confirmation and one still-unconfirmed booking with an inventory-review flag and owner notification. This tests the actual website confirmation mutation on a local Convex backend, not a mock database. It does not test authentication, real Didit or Stripe payments, refunds, external stock sources, Rental Manager coordination, or production concurrency. An alerted paid booking still requires a resolution; this test does not establish an automatic refund.

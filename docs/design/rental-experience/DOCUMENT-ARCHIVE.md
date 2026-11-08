@@ -1,6 +1,6 @@
 # Verification document archive
 
-Requirement: preserve Didit-uploaded ID and address evidence under the same DB Cinema account/rental, viewable by admins for insurance. User confirmed 30 days after rental closure.
+Requirement: preserve Didit-uploaded ID and address evidence under the same DB Cinema account/rental, viewable by admins for insurance. The user confirmed 90 days after rental closure.
 
 Copies belong to DB Cinema's Convex storage, not the administrator's browser or VPS. Didit URLs expire, so the worker retrieves a fresh booking/email/workflow-bound decision and copies document bytes. Required ID and address evidence must both exist before archive completion. SHA-256, size and content type are saved with each copy; duplicate retries discard duplicate objects. A replaced file retains its prior archived version within the retention window.
 
@@ -8,9 +8,9 @@ Accepted verification events enqueue copies. A five-minute cron retries failures
 
 The account management panel lists copies per rental. Opening/downloading requires a fresh admin-authorised HTTP request; storage URLs never leave the backend. Access is recorded in the admin audit log and responses use no-store. Browser object URLs are temporary previews. Handover waits for complete archives; identity reuse falls back to fresh verification if its source archive is missing/deleted.
 
-The daily retention job deletes file bytes 30 days after actual return/cancellation. Active rentals, active reuse, or an explicitly recorded insurance/case hold prevent removal. Admins can remove that hold once the case closes. Integrity and archive audit metadata remain after deletion. An unknown closure timestamp fails safely by retaining documents until corrected.
+The daily retention job deletes file bytes after the applicable 90-day period. Active rentals, linked reuse, open cases and an explicitly recorded hold prevent removal. A closed case extends retention for 90 days after case closure. Integrity and archive metadata remain after deletion; a separate audit-reason retention and erasure policy is not yet defined. An unknown closure timestamp fails safely by retaining documents until corrected.
 
-Expiry uses the full 30-day duration from the latest relevant rental closure. The daily cleanup removes expired copies on its next run. Deleted archives are terminal: retry cannot reopen them, and backfill skips rentals returned or cancelled outside the retention window. Regression checks cover the exact expiry boundary, recent reused rentals, missing closure timestamps, insurance holds, and expired-cancellation backfill.
+Expiry uses the full 90-day duration from the latest relevant rental or case closure. The daily cleanup removes expired copies on its next run. Deleted archives are terminal: retry cannot reopen them, and backfill skips rentals returned or cancelled outside the retention window. Regression checks cover the exact expiry boundary, recent reused rentals, missing closure timestamps, insurance holds, and expired-cancellation backfill.
 
 Remaining acceptance: check actual live Didit media host/response shape; copy actual provider evidence; verify saved bytes, authenticated admin preview and download, account mapping, incomplete-state recovery and retention on deployed endpoints. New code is not proof of production completion.
 

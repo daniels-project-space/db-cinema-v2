@@ -22,6 +22,7 @@ for (const status of ["cancelled", "returned"]) assert.ok(!JSON.stringify(rental
 assert.ok(!JSON.stringify(rentalReplyTemplates({ ...booking, status: "confirmed", fulfilment: "delivery" }, settings)).includes(settings.businessAddress));
 assert.match(rentalReplyTemplates({ ...booking, status: "confirmed", pickupTime: undefined, returnTime: undefined }, {})[0].text, /time to be confirmed/);
 assert.deepEqual(listingImages({ r2Images: ["https://assets.example/a", ""], sourceImages: ["https://source.example/a", "https://assets.example/a"], gallery: ["/gear/a.jpg", "javascript:bad"] }), ["https://assets.example/a", "https://source.example/a", "/gear/a.jpg"]);
+assert.deepEqual(listingImages({ reviewedImageUrls: ["https://cdn.example/camera-outline.svg", "https://cdn.example/photo.jpg?format=image%2Fsvg%2Bxml"], r2Images: ["https://cdn.example/fx3.webp?width=640"], sourceImages: ["/gear/lens.svg", "/gear/sony-lens.jpg"] }), ["https://cdn.example/fx3.webp?width=640", "/gear/sony-lens.jpg"], "Renter catalog tiles use raster listing photos, never SVG camera/lens illustrations");
 assert.deepEqual(listingImages({ r2Images: [], sourceImages: [], gallery: ["/gear/a.jpg"] }), ["/gear/a.jpg"]);
 console.log("PASS stage-aware reply templates: no unpaid/cancelled/returned pickup disclosure; no invented times; verification state; real image alternatives preserved.");
 

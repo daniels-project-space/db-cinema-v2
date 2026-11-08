@@ -11,7 +11,7 @@ const stored=new Map();let storageSerial=0;const scheduled=[],ctx={db:h.db,stora
  if(ref==='settings.pickupAddress')return {businessAddress:'Test collection location'};
  if(ref==='rentalOperations.changeRecipient')return h.load('convex/rentalOperations.ts').changeRecipient.handler(ctx,a);
  throw Error('Unexpected query '+ref);
-},runMutation:async(ref,a)=>{if(ref==='rentalEmailDelivery.prepare')return delivery.prepare.handler(ctx,a);assert.equal(ref,'rentalEmailDelivery.finish');return delivery.finish.handler(ctx,a)},runAction:async(ref,a)=>{
+},runMutation:async(ref,a)=>{if(ref==='rentalEmailDelivery.prepare')return delivery.prepare.handler(ctx,a);if(ref==='bookings.saveInitialInvoiceSnapshot')return bookings.saveInitialInvoiceSnapshot.handler(ctx,a);assert.equal(ref,'rentalEmailDelivery.finish');return delivery.finish.handler(ctx,a)},runAction:async(ref,a)=>{
  const [group,name]=ref.split('.');return ({notify,invoice})[group][name].handler(ctx,a);
 }};
 const account=h.put('accounts',{email:'permanent@example.invalid'});

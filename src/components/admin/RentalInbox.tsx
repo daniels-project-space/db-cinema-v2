@@ -3,6 +3,8 @@ import { formatGbp } from "@/lib/pricing";
 import { RentalKit } from "@/components/rentals/RentalKit";
 import { CompactRentalImages } from "./CompactRentalImages";
 import { RentalOrderTools } from "./RentalOrderTools";
+import { RestrictedIdentityAlertFailures } from "./RestrictedIdentityAlertFailures";
+import { PossibleRestrictedIdentityMatch } from "./PossibleRestrictedIdentityMatch";
 import { AccountDocuments } from "./AccountDocuments";
 import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -279,6 +281,14 @@ export function RentalInbox({
       ? (rows.find((r) => r._id === selected) ?? (stage === "general" ? generalDirect : direct))
     : visible[0];
   const selectedAny = isEmailStage ? !!selectedEmail : !!selected;
+  function openMatchedAccountChat(accountId: string) {
+    setSearch("");
+    setStage("general");
+    setSelectedEmail(null);
+    setSelected(accountId);
+    setNavigationRevision(value => value + 1);
+    window.history.replaceState(null, "", ownerConversationUrl({ accountId }));
+  }
   return (
     <section id="messages" className={chatStyles.inboxScreen}>
       <div className={chatStyles.inbox}>
@@ -310,6 +320,7 @@ export function RentalInbox({
         </button>
         </div>
       </div>
+      <RestrictedIdentityAlertFailures token={token} onOpen={bookingId => { setSearch(""); setStage("all"); setSelected(bookingId); setSelectedEmail(null); setNavigationRevision(value => value + 1); window.history.replaceState(null, "", ownerConversationUrl({ bookingId })); }} />
       {!!notifications.length && <div className={chatStyles.attentionPanel}>
         <button type="button" onClick={() => setShowAttention(v => !v)} aria-expanded={showAttention} aria-controls="rental-attention-list" className={chatStyles.attentionToggle}><span>Needs your attention</span><span className="rounded-full bg-[#b98160]/15 px-2 py-1">{notifications.length>=30?"30+":notifications.length}</span></button>
         {showAttention && <div id="rental-attention-list" className={chatStyles.attentionList}>{ADMIN_NOTIFICATION_CATEGORIES.map(category => {
@@ -471,11 +482,11 @@ export function RentalInbox({
               title={rentalTitle(focus.items[0]?.title ?? "General support")}
               stage={focus.status}
               stageLabel={focus.status === "support" ? "Support" : rentalStageLabel(focus)}
-              bookingSummary={{image: focus.items[0]?.heroImage, imageSources: focus.items[0]?.imageSources, dates: focus.start ? rentalDate(focus.start, focus.end) : "Account support", count: focus.items.length}}
+              bookingSummary={{items: focus.items.map(item => ({ title: item.title, qty: item.qty, imageSources: item.imageSources?.length ? item.imageSources : item.heroImage ? [item.heroImage] : [] })), dates: focus.start ? rentalDate(focus.start, focus.end) : "Account support", count: focus.items.length}}
               escalated={focus.escalated}
               tools={
                 focus.status !== "support" ? (
-                  <><div className={chatStyles.rentalContext}><p className={chatStyles.eyebrow}>{rentalStageLabel(focus)}</p><h5>{rentalDate(focus.start, focus.end)}</h5><RentalKit items={focus.items} compact expanded allPhotos /><p className="mt-4 text-xs text-white/55">Rental total <strong className="float-right text-white">{formatGbp(focus.total)}</strong></p></div>{focus.accountId && <details className={chatStyles.operationDetails}><summary>Verification documents</summary><AccountDocuments token={token} accountId={focus.accountId} verified={"idVerifyStatus" in focus && focus.idVerifyStatus === "verified"} embedded /></details>}<details className={chatStyles.operationDetails}><summary>Manage this rental</summary><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} /><AdminDroneLicence key={`licence-${focus._id}`} token={token} bookingId={focus._id} /></details></>
+                  <><div className={chatStyles.rentalContext}><p className={chatStyles.eyebrow}>{rentalStageLabel(focus)}</p><h5>{rentalDate(focus.start, focus.end)}</h5><div className="mt-3 space-y-1">{focus.items.map((item,index) => <p key={`${item.listingId}-${index}`} className="truncate text-xs text-white/65">{item.qty}× {item.title}</p>)}</div><p className="mt-4 text-xs text-white/55">Rental total <strong className="float-right text-white">{formatGbp(focus.total)}</strong></p></div>{"idVerifyStatus" in focus && focus.idVerifyStatus === "verified" && <PossibleRestrictedIdentityMatch token={token} bookingId={focus._id} onOpenAccount={openMatchedAccountChat} />}{focus.accountId && <details className={chatStyles.operationDetails}><summary>Verification documents</summary><AccountDocuments token={token} accountId={focus.accountId} verified={"idVerifyStatus" in focus && focus.idVerifyStatus === "verified"} embedded /></details>}<details className={chatStyles.operationDetails}><summary>Manage this rental</summary><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} /><AdminDroneLicence key={`licence-${focus._id}`} token={token} bookingId={focus._id} /></details></>
                 ) : undefined
               }
             />

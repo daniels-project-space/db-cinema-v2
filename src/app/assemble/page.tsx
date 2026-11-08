@@ -18,7 +18,6 @@ import { tierByKey } from "@/lib/membership";
 import { lensFits, parseMounts } from "@/lib/mount";
 import { kitWarnings, battOk } from "@/lib/compat";
 import { GlowSlider } from "@/components/GlowSlider";
-import { TimeSlotPicker } from "@/components/checkout/TimeSlotPicker";
 import { Calendar, daysInclusive } from "@/components/booking/Calendar";
 import { filterThreadsFor } from "../../../shared/opticalFacts";
 import { compareAssemblyBudget } from "@/lib/kitRank";
@@ -54,8 +53,6 @@ export default function AssemblePage() {
   const [shootType, setShootType] = useState("Interview");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
-  const [pickupTime, setPickupTime] = useState("");
-  const [returnTime, setReturnTime] = useState("");
   const [month, setMonth] = useState(() => new Date());
   function pickDate(d: string) {
     const next = pickRentalDates(start, end, d);
@@ -78,7 +75,7 @@ export default function AssemblePage() {
 
   const rawSelection = Object.values(sel) as any[];
   const liveFresh:any = useLiveRecommendations(data ? {
-    groups:data.stages.map((s:any)=>({key:s.key,types:[STAGE_TYPE[s.key]??s.key],listingId:rawSelection.find(i=>i.stageKey===s.key)?.listingId || (s.key === "camera" || s.briefConstraint ? s.recommendedId || s.briefPreferredId || s.cameraPreferredId : undefined) || undefined,...liveWindow({start,end,pickupTime,returnTime})})),
+    groups:data.stages.map((s:any)=>({key:s.key,types:[STAGE_TYPE[s.key]??s.key],listingId:rawSelection.find(i=>i.stageKey===s.key)?.listingId || (s.key === "camera" || s.briefConstraint ? s.recommendedId || s.briefPreferredId || s.cameraPreferredId : undefined) || undefined,...liveWindow({start,end})})),
     basket:stockLines(cart.items),selectedIds:rawSelection.map(i=>i.listingId),
   } : null);
   const [lastLive, setLastLive] = useState<any>(null);
@@ -173,8 +170,8 @@ export default function AssemblePage() {
   }, [intake, stageIdx, data]);
 
   async function build() {
-    if (!start || !end || !pickupTime || !returnTime) {
-      setErr("Choose your rental dates, pickup time and return time first.");
+    if (!start || !end) {
+      setErr("Choose your rental dates first.");
       return;
     }
     setErr(null);
@@ -183,10 +180,10 @@ export default function AssemblePage() {
       const r = await fetch("/api/assemble", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ shootType, start, end, pickupTime, returnTime, budget, cameras, size, note, categories: gearCats }),
+        body: JSON.stringify({ shootType, start, end, budget, cameras, size, note, categories: gearCats }),
       });
       const d = await r.json();
-      if (!r.ok) throw Error(d.error || "Could not build a kit for those dates and times.");
+      if (!r.ok) throw Error(d.error || "Could not build a kit for those dates.");
       setData(d);
       setStageIdx(0);
     } catch (error) {
@@ -330,23 +327,19 @@ export default function AssemblePage() {
                     unavailable={EMPTY_DATES}
                     onPick={pickDate}
                   />
-                  <div className="mt-3 grid grid-cols-2 gap-3">
-                    <TimeSlotPicker id="assemble-pickup" label="Pickup time" value={pickupTime} onChange={setPickupTime} disabled={!start || !end} />
-                    <TimeSlotPicker id="assemble-return" label="Return time" value={returnTime} onChange={setReturnTime} disabled={!start || !end} />
-                  </div>
                   <button
-                    onClick={() => start && end && pickupTime && returnTime && setIntake(3)}
-                    disabled={!start || !end || !pickupTime || !returnTime}
+                    onClick={() => start && end && setIntake(3)}
+                    disabled={!start || !end}
                     className="btn-primary mt-3 w-full py-2.5 text-sm disabled:opacity-40"
                   >
                     {start && end
                       ? `Continue · ${daysInclusive(start, end)} day${daysInclusive(start, end) > 1 ? "s" : ""} →`
-                      : "Pick your rental dates and times"}
+                      : "Pick your rental dates"}
                   </button>
                 </div>
               </Controls>
             ) : intake > 2 ? (
-              <UserMsg>{start} {pickupTime} → {end} {returnTime}</UserMsg>
+              <UserMsg>{start} → {end}</UserMsg>
             ) : null}
 
             {intake >= 3 && <Ai>Last bit — your budget, how many cameras, and anything else I should know?</Ai>}

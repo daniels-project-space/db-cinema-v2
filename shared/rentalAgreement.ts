@@ -1,4 +1,4 @@
-import { AGREEMENTS, LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, CARD_HOLD_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, agreementsForSecurityPolicy } from "../src/lib/legal";
+import { AGREEMENTS, LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, CARD_HOLD_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS, agreementsForSecurityPolicy } from "../src/lib/legal";
 import { ASSESSMENT_SECURITY_POLICY_VERSION, CARD_HOLD_SECURITY_POLICY_VERSION, isCardHoldSecurityPolicy, isSetupIntentSecurityPolicy } from "./rentalSecurity";
 import { LEGAL_DOCS, LEGAL_ARCHIVE, RENTAL_DRAFT_RELEASE_READY, type LegalDoc } from "./legalDocuments";
 
@@ -77,9 +77,9 @@ export function assertAgreementBeforeRelease(b: any) {
       !b.agreementDocs?.some((d:Accepted)=>d.kind==="rental-agreement" && !!d.version))
     throw Error("Retained agreement acceptance is required before handover; do not backfill or infer consent.");
   const acceptedVersion=b.agreementDocs.find((d:Accepted)=>d.kind==="rental-agreement")?.version??"";
-  if ([LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,"2026-10-v15","2026-10-v16",ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,SETUP_INTENT_LEGAL_VERSION].includes(acceptedVersion)) {
+  if ([LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,"2026-10-v15","2026-10-v16",ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,...SETUP_INTENT_LEGAL_VERSIONS].includes(acceptedVersion)) {
     const s=readAgreementSnapshot(b.agreementSnapshot);
-    const allowedVersions=isSetupIntentSecurityPolicy(b.securityPolicyVersion)?[SETUP_INTENT_LEGAL_VERSION]:b.securityPolicyVersion===CARD_HOLD_SECURITY_POLICY_VERSION?[CARD_HOLD_LEGAL_VERSION]:b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION
+    const allowedVersions=isSetupIntentSecurityPolicy(b.securityPolicyVersion)?SETUP_INTENT_LEGAL_VERSIONS:b.securityPolicyVersion===CARD_HOLD_SECURITY_POLICY_VERSION?[CARD_HOLD_LEGAL_VERSION]:b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION
       ?b.cancellationProtectionEnabled?["2026-10-v16",CANCELLATION_PROTECTION_LEGAL_VERSION]:["2026-10-v15",ASSESSMENT_DEPOSIT_LEGAL_VERSION]
       :b.securityPolicyVersion===REFUNDABLE_DEPOSIT_LEGAL_VERSION?[REFUNDABLE_DEPOSIT_LEGAL_VERSION]:[LEGAL_VERSION];
     if (!s || !allowedVersions.includes(acceptedVersion) || s.version!==acceptedVersion || s.signer!==b.agreementName.trim() || s.acceptedAt!==b.agreementSignedAt ||

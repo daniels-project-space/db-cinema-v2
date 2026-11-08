@@ -1,0 +1,41 @@
+const assert = require("node:assert/strict");
+const { webcrypto, createHash } = require("node:crypto");
+const harness = require("./lib/rentalTestHarness.cjs");
+global.crypto ??= webcrypto;
+const sessionAccess = harness.load("convex/adminAccountSessionV2.ts");
+harness.setMock("./adminAccountSessionV2", { ...sessionAccess, adminSessionMigrationReady: () => true });
+const credits = harness.load("convex/accountCredits.ts");
+const sessions = harness.load("convex/adminSessionsV2.ts");
+const hash = value => createHash("sha256").update(value).digest("hex");
+const identity = "https://identity.example|credit-fixture";
+const readToken = "a".repeat(64), writeToken = "b".repeat(64);
+const account = harness.put("accounts", { email: "credit@example.invalid" });
+const ctx = { db: harness.db, auth: { getUserIdentity: async () => ({ tokenIdentifier: identity }) } };
+process.env.ADMIN_SESSION_CREDIT_V2 = "enabled";
+process.env.ADMIN_SESSION_SCOPES_V2 = JSON.stringify({ [identity]: ["payments:read", "payments:write"] });
+process.env.ADMIN_TOKEN = "legacy-credit-fixture";
+
+(async () => {
+  for (const [token, scopes] of [[readToken, ["payments:read"]], [writeToken, ["payments:write"]]])
+    await sessions.createSession.handler(ctx, { tokenDigest: hash(token), principalId: `admin:${hash(identity)}`, scopes, expiresAt: Date.now() + 60_000 });
+  const grant = { token: writeToken, accountId: account._id, amount: 10, requestId: "fixture-credit-session-12345", expectedRevision: 0 };
+  await assert.rejects(credits.grantAdmin.handler(ctx, { ...grant, token: readToken }), /unauthorized/);
+  await assert.rejects(credits.grantAdmin.handler(ctx, { ...grant, token: process.env.ADMIN_TOKEN }), /unauthorized/);
+  await assert.rejects(credits.grantAdmin.handler({ ...ctx, auth: { getUserIdentity: async () => ({ tokenIdentifier: "other" }) } }, grant), /unauthorized/);
+  const result = await credits.grantAdmin.handler(ctx, grant);
+  const status = await credits.grantStatus.handler(ctx, { token: readToken, accountId: account._id, requestId: grant.requestId });
+  assert.equal(status.revision, 1);
+  assert.equal(status.receipt.amount, 10);
+  assert.equal((await credits.statement.handler(ctx, { token: readToken, creditId: result.creditId })).amount, 10);
+  harness.put("sessions", { token: "fixture-customer", accountId: account._id, expiresAt: Date.now() + 60_000 });
+  assert.equal((await credits.statement.handler(ctx, { token: "fixture-customer", creditId: result.creditId })).amount, 10);
+  const page = await credits.history.handler(ctx, { token: readToken, accountId: account._id, paginationOpts: { cursor: null, numItems: 10 } });
+  assert.equal(page.page.length, 1);
+  await assert.rejects(credits.grantStatus.handler(ctx, { token: writeToken, accountId: account._id }), /unauthorized/);
+  await assert.rejects(credits.grantAdmin.handler(ctx, { ...grant, amount: 5, requestId: "fixture-credit-session-stale-01", expectedRevision: 0 }), /changed in another tab/);
+  assert.equal(credits.acknowledgeGrant, undefined, "Account credit has no receipt-approval gate");
+  assert.equal(harness.tables.get("admin_audit_log").filter(row => row.fn.startsWith("accountCredits.")).length, 2);
+  await sessions.revoke.handler(ctx, { tokenDigest: hash(readToken) });
+  await assert.rejects(credits.grantStatus.handler(ctx, { token: readToken, accountId: account._id }), /unauthorized/);
+  console.log("PASS credit admin session scopes, identity, revocation, revision conflict and read-back receipt fixtures; no approval gate. Readiness is mocked only in this test.");
+})().catch(error => { console.error(error); process.exitCode = 1; });

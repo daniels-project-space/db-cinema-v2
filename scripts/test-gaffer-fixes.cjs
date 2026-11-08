@@ -207,6 +207,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     }})},
     '@cvx/_generated/api':{api:refs},'@cvx/lib/gafferDiscount':{GAFFER_PRICE_CODE:'gaffer10'},
     '@/components/account/useCreditBalance':{useCreditBalance:()=>undefined},
+    '@/components/gaffer/cartSnapshot':load('src/components/gaffer/cartSnapshot.ts'),
     '@/components/cart/CartProvider':{useCart:()=>cart},'@/components/account/AccountProvider':{useAccount:()=>({})},
     '@/lib/pricing':{},'@/lib/voiceDates':{londonToday:()=> '2026-09-13',resolveDate:()=>({ok:true,date:'2026-09-14'}),inclusiveDays:()=>1},'@/lib/dates':{dayMs:()=>0},
     '@/components/gaffer/GafferFocus':{useGafferFocus:()=>({focusedId:null,suggestedIds:[],focus:()=>{},suggest:async()=>false}),scrollToId:async()=>false},
@@ -244,15 +245,15 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     useCallback:f=>f,useMemo:f=>f(),useEffect:()=>{},
   };
   let priceAllowed=false,alignments=0;const usageEvents=[];
-  let getMicrophone=async()=>({getTracks:()=>[{stop(){}}]});
+  let getMicrophone=async()=>({getTracks:()=>[{stop(){}}]});let getMicState=async()=> 'granted';
   const {GafferSessionProvider,formatLiveCallContext}=load('src/components/gaffer/GafferSession.tsx',{
     react:React,'react/jsx-runtime':{jsx:(_type,props)=>props},
-    'convex/react':{useMutation:()=>async args=>{usageEvents.push(args)}},'@cvx/_generated/api':{api:refs},'@/lib/session':{getSessionId:()=> 'fixture-browser'},
+    'convex/react':{useMutation:reference=>async args=>{if(reference==='analytics:track')usageEvents.push(args)}},'@cvx/_generated/api':{api:refs},'@/lib/session':{getSessionId:()=> 'fixture-browser'},
     'next/navigation':{usePathname:()=>'/gear'},
     '@/components/gaffer/useGafferTools':{useGafferTools:()=>({clientTools:{add_to_basket:async()=> 'Added FX3'},dynamicVariables:variables,noteCustomerMessage:message=>{priceAllowed=asksForBetterPrice(message);},noteAgentAlignment:()=>{alignments++;},noteAgentMessage:()=>{},resetSpokenFocus:()=>{},resetPriceRequest:()=>{priceAllowed=false;}})},
     '@/components/gaffer/callContext':{pageBrief:()=>({intent:'gear',mode:'sales',brief:'Gear page',opening:'Hello there'}),isSignOff:text=>text==='goodbye'},
     '@/components/gaffer/hintTiming':{createHintController:()=>({reset(){},noteTalking(){}})},
-    '@/components/gaffer/micPermission':{micState:async()=> 'granted',requestMic:async()=>({ok:true})},
+    '@/components/gaffer/micPermission':{micState:()=>getMicState(),requestMic:async()=>({ok:true})},
     '@elevenlabs/client':{Conversation:{startSession:async cfg=>{const session={cfg,updates:[],ended:false,sendContextualUpdate(text){this.updates.push(text);},async endSession(){this.ended=true;cfg.onDisconnect();}};sessions.push(session);cfg.onConnect();return session;}}},
   },{Date:{now:()=>now},navigator:{mediaDevices:{getUserMedia:()=>getMicrophone()}},localStorage:{getItem:()=>null,removeItem(){},setItem(){}},setTimeout:()=>1,clearTimeout:()=>{},console:{warn(){},error(){}}});
   assert.match(formatLiveCallContext('/gear',{basket_count:'1'}),/one settled, concise answer/i);
@@ -289,5 +290,8 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   assert.equal(render().state,'connecting');await render().end();
   rejectMic(Object.assign(Error('denied'),{name:'NotAllowedError'}));await pending;
   assert.equal(render().state,'idle');assert.equal(render().error,null,'Cancelling preflight must not show a stale error');
+  getMicrophone=async()=>({getTracks:()=>[{stop(){}}]});let resolvePermission;let permissionChecks=0;getMicState=()=>{permissionChecks++;return new Promise(resolve=>{resolvePermission=resolve})};
+  const beforeRace=sessions.length;const firstClick=render().toggle();const secondClick=render().toggle();assert.equal(permissionChecks,1,'Repeated clicks share one preflight instead of starting parallel calls');resolvePermission('granted');await Promise.all([firstClick,secondClick]);assert.equal(sessions.length,beforeRace+1,'Only one provider session starts');await render().end();
+  const cancelled=render().toggle();await render().end();resolvePermission('granted');await cancelled;assert.equal(sessions.length,beforeRace+1,'Ending while permission is checked cannot start a later call');
   console.log('PASS: discount boundaries, retired offer compatibility, explicit requests, authoritative checkout repricing, deposit/delivery exclusion, changed baskets, reconnect history, fresh basket, stale callbacks, deliberate reset and sign-off.');
 })().catch(e=>{console.error(e);process.exitCode=1});

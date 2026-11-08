@@ -1,0 +1,20 @@
+import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
+import { stockWindow } from "./lib/stockWindows";
+
+export const seed = mutation({ args: {}, handler: async ctx => {
+  const unit = await ctx.db.insert("inventory_units", { rmv2ItemId: "synthetic-manager-item" } as any);
+  const listing = await ctx.db.insert("listings", { components: [{ inventoryUnitId: unit, qty: 1 }] } as any);
+  const day = Math.floor(Date.now() / 86400000) * 86400000 + 86400000;
+  const line = { listingId: listing, title: "Synthetic lens", start: day, end: day, qty: 1, pickupTime: "10:00", returnTime: "18:00" };
+  const booking = await ctx.db.insert("bookings", { status: "confirmed", rmv2Revision: 2, lineItems: [line] } as any);
+  const swap = await ctx.db.insert("rental_item_swaps", { bookingId: booking, status: "applied", stockAppliedAt: 100, oldLine: line, newLine: line } as any);
+  const window = stockWindow(line, true);
+  const reservation = await ctx.db.insert("reservations", { bookingId: booking, listingId: listing, inventoryUnitId: unit, ...window, qty: 1, source: "site", status: "confirmed" } as any);
+  const executionKey = `swap_execution_${swap}`;
+  const receipt = await ctx.db.insert("swap_stock_applied_receipts", { bookingId: booking, swapId: swap, bookingRevision: 1, appliedAt: 100, managerRequestId: "claim", fingerprint: "fingerprint", executionKey, windows: [{ reservationId: reservation, inventoryUnitId: unit, managerItemId: "synthetic-manager-item", ...window, quantity: 1 }] } as any);
+  await ctx.db.insert("swap_stock_operations", { swapId: swap, operation: "acquire", state: "confirmed", receipt: { requestId: "claim", fingerprint: "fingerprint" } } as any);
+  await ctx.db.insert("swap_stock_operations", { swapId: swap, operation: "beginExecution", state: "confirmed", request: { args: { id: "claim", fingerprint: "fingerprint", executionKey } } } as any);
+  return { booking, swap, receipt };
+} });
+export const state = query({ args: { booking: v.id("bookings"), receipt: v.id("swap_stock_applied_receipts") }, handler: async (ctx, args) => ({ booking: await ctx.db.get(args.booking), receipt: await ctx.db.get(args.receipt) }) });

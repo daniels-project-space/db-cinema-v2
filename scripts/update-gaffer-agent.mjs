@@ -10,4 +10,4 @@ const result = await gafferAgentUpdater.syncGafferVoiceAgentPrompt({
   prompt: gafferPrompt.GAFFER_VOICE_PROMPT,
   apply,
 });
-console.log(`${result.mode}: Gaffer voice prompt (${result.promptLength} characters); ${result.attachedTools} tools attached, IDs preserved.`);
+console.log(`${result.mode}: Gaffer voice prompt (${result.promptLength} characters); turn eagerness ${result.turnSettings.turn_eagerness}, speculative turns ${result.turnSettings.speculative_turn ? "enabled" : "disabled"}; ${result.attachedTools} tools attached, IDs preserved.`);

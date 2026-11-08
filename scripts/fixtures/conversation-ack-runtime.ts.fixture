@@ -1,0 +1,21 @@
+import { internal } from "./_generated/api";
+import { mutation, query } from "./_generated/server";
+
+export const seed = mutation({ args: {}, handler: async ctx => {
+  const now = Date.now();
+  const accountId = await ctx.db.insert("accounts", { email: "ack-test@example.invalid", createdAt: now });
+  const bookingId = await ctx.db.insert("bookings", { accountId, status: "confirmed", lineItems: [], fulfilment: "pickup", deliveryFee: 0, subtotal: 0, discount: 0, depositAmount: 0, total: 0, currency: "GBP" });
+  for (let index = 0; index < 125; index++) await ctx.db.insert("admin_notifications", { eventKey: `message-${index}`, kind: "renter_message", accountId, bookingId, title: "Test", body: "Test", createdAt: now - 1000 + index, read: false });
+  for (const kind of ["human_request", "gaffer_resumed", "verification_failure", "identity_match", "booking_paid"]) await ctx.db.insert("admin_notifications", { eventKey: kind, kind, accountId, bookingId, title: "Test", body: "Test", createdAt: now - 500, read: false });
+  await ctx.db.insert("admin_notifications", { eventKey: "future", kind: "renter_message", accountId, bookingId, title: "Test", body: "Test", createdAt: now + 1000, read: false });
+  await ctx.db.insert("admin_notifications", { eventKey: "general", kind: "renter_message", accountId, title: "Test", body: "Test", createdAt: now - 500, read: false });
+  return { accountId, bookingId, through: now };
+} });
+
+export const acknowledge = mutation({ args: {}, handler: async ctx => {
+  const notification = await ctx.db.query("admin_notifications").withIndex("by_event", q => q.eq("eventKey", "human_request")).unique();
+  if (!notification?.accountId || !notification.bookingId) throw Error("Fixture missing");
+  await ctx.runMutation(internal.adminNotifications.acknowledgeConversationBatch, { accountId: notification.accountId, bookingId: notification.bookingId, through: notification.createdAt + 500 });
+} });
+
+export const inspect = query({ args: {}, handler: async ctx => await ctx.db.query("admin_notifications").collect() });

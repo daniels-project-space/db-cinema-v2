@@ -6,6 +6,7 @@ import {options} from '../../convex/liveRecommendations';
 import {forContext} from '../../convex/recommendations';
 import {Recommendations} from '../../src/components/Recommendations';
 import {BotBubble} from '../../src/components/BotBubble';
+import {OpenGafferChat} from '../../src/components/gaffer/OpenGafferChat';
 import Assemble from '../../src/app/assemble/page';
 
 let version=0,dbVersion=0,mode='recommendations',counter=0;
@@ -71,5 +72,5 @@ const requestCounts={model:0};const originalFetch=window.fetch;window.fetch=(inp
  reset:()=>{tables.set('reservations',[]);basket=[cartItem(ef),cartItem(bag)];localStorage.clear();dbVersion++;mode='recommendations';notify();},
  ids:{ef:ef._id,e:sony._id,light:light._id,spare:spare._id,efLens:efLens._id,eLens:eLens._id},
 };
-function App(){useSyncExternalStore(subscribe,()=>version,()=>version);return mode.startsWith('assembly')?<Assemble key={mode}/>:mode==='chat'?<BotBubble/>:<Recommendations start={start} end={end} days={2}/>;}
+function App(){useSyncExternalStore(subscribe,()=>version,()=>version);return mode.startsWith('assembly')?<Assemble key={mode}/>:mode==='chat'?<><OpenGafferChat/><BotBubble/></>:<Recommendations start={start} end={end} days={2}/>;}
 createRoot(document.getElementById('root')!).render(<App/>);

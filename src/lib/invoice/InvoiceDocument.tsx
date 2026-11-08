@@ -161,6 +161,17 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
   );
 }
 
+export function AssessmentStatementDocument({ data, assessment }: { data: InvoiceData; assessment: { id: string; kind: string; reason: string; paid: number; refunded: number } }) {
+  return <Document title={`DB Cinema assessment statement ${data.number}`}>
+    <Page size="A4" style={s.page}>
+      <View style={s.topbar}/><View style={s.headRow}><View><Text style={s.brand}>DB CINEMA</Text><Text style={s.brandSub}>RENTALS · LONDON</Text></View><View><Text style={s.docTitle}>ASSESSMENT</Text><Text style={s.meta}>Rental {data.number}</Text><Text style={s.meta}>Assessment {assessment.id.slice(-8).toUpperCase()}</Text></View></View>
+      <View style={s.section}><Text style={s.label}>Customer</Text>{data.customerName&&<Text style={s.strong}>{data.customerName}</Text>}<Text style={s.label}>Supplier</Text><Text style={s.strong}>{COMPANY_NAME}</Text>{COMPANY_ADDRESS.map(line=><Text key={line}>{line}</Text>)}<Text>{CONTACT_EMAIL}</Text></View>
+      <View style={s.section}><Text style={s.label}>{assessment.kind === "late" ? "Late-return assessment" : "Damage or loss assessment"}</Text><Text>{assessment.reason}</Text></View>
+      <View style={s.totals}><View style={s.totRow}><Text>Separate card payment confirmed</Text><Text>{gbp(assessment.paid)}</Text></View>{assessment.refunded>0&&<View style={s.totRow}><Text>Confirmed refund</Text><Text>−{gbp(assessment.refunded)}</Text></View>}<View style={s.grand}><Text style={s.grandTxt}>Net assessment payment</Text><Text style={s.grandTxt}>{gbp(Math.max(0,assessment.paid-assessment.refunded))}</Text></View><Text style={s.note}>This is a separate assessment payment, not a deposit or card hold. It does not replace the original rental invoice. DB Cinema Rentals Ltd is not VAT registered.</Text></View>
+    </Page>
+  </Document>;
+}
+
 const sStyle=StyleSheet.create({page:{padding:40,fontSize:9,lineHeight:1.5,fontFamily:"Helvetica"},heading:{fontSize:16,marginBottom:15},space:{marginTop:10},strong:{fontFamily:"Helvetica-Bold"}});
 
 export function ReturnStatementDocument({ data, draft = false }: { data: ReturnStatementData; draft?: boolean }) {

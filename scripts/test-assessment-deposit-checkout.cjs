@@ -51,8 +51,24 @@ StripeFixture.prototype.prices={list:async()=>({data:[{id:'price_fixture',unit_a
  paidMembership(claimAccount);
  const claimBooking=cleanPriorRental(claimAccount,99);
  assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,claimAccount,99900),'active_membership');
+ assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,claimAccount,400000),undefined,'The waiver does not apply at the £4,000 equipment threshold.');
  h.put('rental_security_charges',{bookingId:claimBooking._id,accountId:claimAccount._id,requestId:'prior-claim-00000001',kind:'damage',amountPence:1000,reason:'Previously claimed item damage',customerId:'cus_claim',paymentMethodId:'pm_claim',consentSnapshot:'{}',state:'voided',createdAt:Date.now(),updatedAt:Date.now()});
  assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,claimAccount,99900),undefined,'A prior rental with any security claim is not issue-free, even if that claim was later voided.');
+ const incompleteAccount=h.put('accounts',{email:'member-incomplete-return@example.invalid',stripeCustomerId:'cus_incomplete',stripeSubscriptionId:'sub_incomplete',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+30*86400000});
+ paidMembership(incompleteAccount);
+ const incompleteBooking=cleanPriorRental(incompleteAccount,98);
+ incompleteBooking.returnStatement=undefined;
+ assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,incompleteAccount,99900),undefined,'A returned booking without its completed return statement is not eligible.');
+ const uncleanAccount=h.put('accounts',{email:'member-unclean-return@example.invalid',stripeCustomerId:'cus_unclean',stripeSubscriptionId:'sub_unclean',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+30*86400000});
+ paidMembership(uncleanAccount);
+ const uncleanBooking=cleanPriorRental(uncleanAccount,97);
+ uncleanBooking.returnDecision.inspection[0].condition='fair';
+ uncleanBooking.returnStatement.inspection[0].condition='fair';
+ assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,uncleanAccount,99900),undefined,'A completed return with any item below good condition is not eligible.');
+ const staleSubscriptionAccount=h.put('accounts',{email:'member-stale-subscription@example.invalid',stripeCustomerId:'cus_stale',stripeSubscriptionId:'sub_current',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+30*86400000});
+ cleanPriorRental(staleSubscriptionAccount,96);
+ h.put('membership_credit_grants',{accountId:staleSubscriptionAccount._id,subscriptionId:'sub_previous',invoiceId:'in-previous',paidMembershipPence:1900,creditPence:1900,earnedCreditPence:1900,bonusPence:0,revokedPence:0,membershipRefundedPence:0,periodEnd:staleSubscriptionAccount.membershipPaidThrough,createdAt:Date.now()});
+ assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,staleSubscriptionAccount,99900),undefined,'A successful payment from an old subscription cannot qualify a different current subscription.');
  for(const [value,deposit] of [[999,20],[1000,50],[4000,100]]){
   listing.depositAmount=value;
   const quote=await checkout.priceQuote.handler(ctx,{items:args.items,customerEmail:'guest-threshold@example.invalid',fulfilment:'pickup',selectedMembership:{tier:'plus',intro:'none'}});
@@ -74,8 +90,9 @@ StripeFixture.prototype.prices={list:async()=>({data:[{id:'price_fixture',unit_a
   assert.equal((h.tables.get('bookings')??[]).length,bookingsBefore);assert.equal((h.tables.get('accounts')??[]).length,accountsBefore);assert.equal((h.tables.get('membership_checkouts')??[]).length,membershipsBefore);assert.equal(creates,createsBefore);
   const normalMutation=ctx.runMutation;let guardTested=false;
   ctx.runMutation=async(ref,input)=>{if(ref==='bookings.createPending'){guardTested=true;await assert.rejects(normalMutation(ref,{...input,securityWaiverReason:'membership_checkout'}),/deposit exemption/);}return normalMutation(ref,input)};
-  try{await checkout.start.handler(ctx,signup);}finally{ctx.runMutation=normalMutation;}
+  try{await checkout.start.handler(ctx,{...signup,idVerifyStatus:'verified',verificationProvider:'manual'});}finally{ctx.runMutation=normalMutation;}
   assert(guardTested);const params=captured.at(-1),booking=h.tables.get('bookings').at(-1);
+  assert.equal(booking.idVerifyStatus,'required','Every new checkout begins with Didit verification required');assert.equal(booking.verificationProvider,'didit','The pending booking cannot choose an alternate verification provider');
   assert.equal(booking.depositAmount,20);assert.equal(booking.securityWaiverReason,undefined);
   assert.equal(params.line_items.find(item=>item.price_data?.product_data?.name?.startsWith('Refundable security deposit')).price_data.unit_amount,2000);
  }
@@ -97,7 +114,7 @@ StripeFixture.prototype.prices={list:async()=>({data:[{id:'price_fixture',unit_a
   if(kind==='voucher')a.promoCode='DB10OFF';
   if(kind==='threshold'){unit.replacementCost=4000;listing.depositAmount=4000;}
   const quote=await checkout.priceQuote.handler(ctx,{items:a.items,token,customerEmail:account.email,fulfilment:'pickup',promoCode:a.promoCode});
-  const waiver=['member','manual-encore','encore'].includes(kind),cash=waiver?0:kind==='threshold'?100:20;assert.equal(quote.depositAmount,cash);assert.equal(quote.savedCardLimit,0);assert.equal(quote.securityWaiverReason,kind==='member'?'active_membership':waiver?'encore':undefined);
+  const waiver=['member','encore'].includes(kind),cash=waiver?0:kind==='threshold'?100:20;assert.equal(quote.depositAmount,cash);assert.equal(quote.savedCardLimit,0);assert.equal(quote.securityWaiverReason,kind==='member'?'active_membership':waiver?'encore':undefined);
   a.expectedTotalDue=quote.combinedTotalDue;a.expectedSavedCardLimit=quote.savedCardLimit;
   let guardTested=false;const runMutation=ctx.runMutation;
   if(['member-no-history','trial','manual-encore-no-history'].includes(kind))ctx.runMutation=async(ref,input)=>{if(ref==='bookings.createPending'){guardTested=true;await assert.rejects(runMutation(ref,{...input,securityWaiverReason:kind==='manual-encore-no-history'?'encore':'active_membership',depositAmount:0}),/deposit eligibility changed/);}return runMutation(ref,input)};

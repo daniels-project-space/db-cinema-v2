@@ -18,6 +18,10 @@ export async function rentalPaymentSources(ctx: any, b: any) {
   if(priceChanges.length>100)throw Error("Rental price history needs manual review.");
   const deliveryQuotes=await ctx.db.query("rental_delivery_quotes").withIndex("by_booking",(q:any)=>q.eq("bookingId",b._id)).take(101);
   if(deliveryQuotes.length>100)throw Error("Rental delivery history needs manual review.");
+  const swaps=await ctx.db.query("rental_item_swaps").withIndex("by_booking",(q:any)=>q.eq("bookingId",b._id)).take(101);
+  if(swaps.length>100)throw Error("Rental equipment change history needs manual review.");
+  const paidSwaps=swaps.filter((row:any)=>row.status==="applied"&&row.quote?.deltaPence>0);
+  if(paidSwaps.some((row:any)=>!row.paymentIntentId||!Number.isSafeInteger(row.quote.deltaPence)))throw Error("An equipment change payment needs manual review.");
   const sources = [
     ...(b.stripePaymentIntentId
       ? [
@@ -37,6 +41,7 @@ export async function rentalPaymentSources(ctx: any, b: any) {
     })),
     ...extensions.filter((r: any) => r.type === "extend" && r.status === "applied" && r.paymentIntentId).map((r: any) => ({ paymentIntentId:r.paymentIntentId, maxPaidPence:Math.round(r.priceDelta*100), securityPence:0 })),
     ...deliveryQuotes.filter((r:any)=>r.status==="paid"&&r.paymentIntentId).map((r:any)=>({paymentIntentId:r.paymentIntentId,maxPaidPence:r.amountPence,securityPence:0})),
+    ...paidSwaps.map((r:any)=>({paymentIntentId:r.paymentIntentId,maxPaidPence:r.quote.deltaPence,securityPence:0})),
   ];
   const seen = new Set<string>();
   return sources.filter((p) => {

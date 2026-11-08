@@ -23,6 +23,7 @@ setMock("./lib/rmv2SyncQueue", { queueRmv2Sync: async () => {} });
 const quoteMath = load("shared/rentalDeliveryQuote.ts");
 const state = load("convex/rentalDeliveryState.ts");
 const paymentSources = load("convex/lib/rentalPaymentSources.ts");
+const rmv2Sync = load("convex/rmv2_sync.ts");
 const account = put("accounts", { email: "delivery-test@rental.invalid", blockedAt: null });
 const listing = put("listings", { title: "Camera kit" });
 const start = Date.UTC(2030, 10, 1);
@@ -92,8 +93,20 @@ async function prepare(booking, requestId, legs = "one_way") {
   assert.equal(tables.get("rental_delivery_quotes").find(row => row._id === quote._id).status, "paid");
   assert(messages.some(message => message.meta?.kind === "paylink"), "the accepted quote payment link is posted inside the rental chat");
   assert(messages.some(message => message.meta?.kind === "delivery_paid"), "payment confirmation is posted inside the rental chat");
+  const oneWayProjection = rmv2Sync.mapBookingForSync(booking, new Map(), new Map(), new Map());
+  assert.equal(oneWayProjection.deliveryLegs, "one_way", "the Rental Manager projection carries the paid one-way choice");
+  assert.equal(oneWayProjection.fulfilment, "delivery");
   const sources = await paymentSources.rentalPaymentSources(context, booking);
   assert(sources.some(source => source.paymentIntentId === "pi_delivery_001" && source.maxPaidPence === 4400), "delivery payment is included in the rental's refundable payment sources");
+
+  const roundTripBooking = makeBooking();
+  const roundTripQuote = await prepare(roundTripBooking, "delivery-round-trip-001", "round_trip");
+  await state.accept.handler(context, { token: "renter-session", id: roundTripQuote._id, accepted: true });
+  await state.bindSession.handler(context, { id: roundTripQuote._id, sessionId: "cs_delivery_round_trip", url: "https://checkout.stripe.test/round-trip", sessionParams: "{}" });
+  await state.markPaid.handler(context, { id: roundTripQuote._id, sessionId: "cs_delivery_round_trip", paymentIntentId: "pi_delivery_round_trip", amountPence: 4400 });
+  const roundTripProjection = rmv2Sync.mapBookingForSync(roundTripBooking, new Map(), new Map(), new Map());
+  assert.equal(roundTripProjection.deliveryLegs, "round_trip", "the Rental Manager projection carries the paid round-trip choice");
+  assert.equal(roundTripProjection.fulfilment, "delivery");
 
   const failedBooking = makeBooking();
   const failedQuote = await prepare(failedBooking, "delivery-failed-001", "round_trip");

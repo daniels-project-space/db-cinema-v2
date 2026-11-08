@@ -6,11 +6,13 @@ const bookings=load('convex/bookings.ts'),catalog=load('convex/catalog.ts'),acco
 const {calculateRentalPrice}=load('convex/lib/rentalPrice.ts');
 const now=Date.now(),DAY=86400000;
 const jobs=[];const ctx={db,storage:{getUrl:async()=>null},scheduler:{runAfter:async(_delay,ref,args)=>jobs.push({ref,args})}};
+function approveDidit(booking){booking.idVerifyStatus='verified';booking.idVerifiedAt=now;booking.verificationExpiresAt=now+90*DAY;booking.documentExpiresAt=now+90*DAY;}
 assert.equal(new Date(threeMonthsAfter(Date.UTC(2026,10,30,12))).toISOString(),'2027-02-28T12:00:00.000Z');
 assert.equal(new Date(threeMonthsAfter(Date.UTC(2027,0,31))).toISOString(),'2027-04-30T00:00:00.000Z');
 assert.equal(bestBenefit([{kind:'promo',savingPence:1000,label:'coupon'},{kind:'earned_credit',savingPence:900,label:'credit'}]).kind,'promo');
 async function account(email,token){const a=put('accounts',{email,emailVerifiedAt:now});put('sessions',{accountId:a._id,token,expiresAt:now+DAY});await referral.ensureMine.handler(ctx,{token});return a;}
-const start=Date.UTC(2027,0,4),camera=put('listings',{title:'Camera',active:true,pricing:{daily:100},depositAmount:2000,components:[]});
+const unit=put('inventory_units',{name:'Camera',quantityOwned:100,active:true});
+const start=Date.UTC(2027,0,4),camera=put('listings',{title:'Camera',active:true,pricing:{daily:100},depositAmount:2000,components:[{inventoryUnitId:unit._id,qty:1}]});
 const input=a=>({items:[{listingId:camera._id,title:'wrong',start,end:start,qty:1,total:1,deposit:1}],token:a.email,customer:{email:a.email},fulfilment:'pickup'});
 const pricing={...ctx,runQuery:async(ref,args)=>{
  if(ref==='accounts._byEmail')return load('convex/accounts.ts')._byEmail.handler({db},args);
@@ -43,7 +45,9 @@ const pendingArgs=(p,a)=>({protection:p.protection,pricingVersion:p.pricingVersi
  await assert.rejects(bookings.createPending.handler(ctx,args),/first rental|claimed/,'a second serializable reservation is rejected');
  assert.equal(await referral.qualify.handler(ctx,{bookingId:b._id}),null,'unpaid cannot earn');
  await bookings.expireUnpaidPending.handler(ctx,{bookingId:b._id});assert.equal((await ledger.referralEligibility(ctx,friend,owner.referralCode)).valid,true,'terminal unpaid claim can retry');
- const second=await bookings.createPending.handler(ctx,args),paid=await db.get(second.bookingId);await bookings.confirm.handler(ctx,{bookingId:paid._id,paymentIntentId:'pi_friend'});
+ const second=await bookings.createPending.handler(ctx,args),paid=await db.get(second.bookingId);
+ approveDidit(paid);
+ await bookings.confirm.handler(ctx,{bookingId:paid._id,paymentIntentId:'pi_friend'});
  const redemption=await db.get(paid.referralRedemptionId);assert.equal(redemption.state,'paid');assert(friend.referralFirstUsedAt);
  await bookings.confirm.handler(ctx,{bookingId:paid._id,paymentIntentId:'pi_friend'});assert.equal((await db.query('referral_redemptions').collect()).filter(r=>r.state==='paid').length,1);
  assert.equal(await referral.qualify.handler(ctx,{bookingId:paid._id}),null,'payment alone is not a completed return');
@@ -57,7 +61,7 @@ const pendingArgs=(p,a)=>({protection:p.protection,pricingVersion:p.pricingVersi
  const rewardArgs=pendingArgs(p,owner),claim=await bookings.createPending.handler(ctx,rewardArgs);
  await assert.rejects(bookings.createPending.handler(ctx,rewardArgs),/no longer available/);
  await bookings.expireUnpaidPending.handler(ctx,{bookingId:claim.bookingId});assert(await ledger.availableReferralReward(ctx,owner));
- const use=await bookings.createPending.handler(ctx,rewardArgs);await bookings.confirm.handler(ctx,{bookingId:use.bookingId,paymentIntentId:'pi_owner'});assert.equal(reward.state,'used');assert(owner.referralRewardUsedAt);
+ const use=await bookings.createPending.handler(ctx,rewardArgs);approveDidit(await db.get(use.bookingId));await bookings.confirm.handler(ctx,{bookingId:use.bookingId,paymentIntentId:'pi_owner'});assert.equal(reward.state,'used');assert(owner.referralRewardUsedAt);
  await bookings._finalizeCancellation.handler(ctx,{bookingId:use.bookingId,accountId:owner._id,mode:'refund',refundAmount:100,creditAmount:0,currency:'GBP'});assert.equal(await ledger.availableReferralReward(ctx,owner),null,'paid cancellation does not reissue');
  reward.state='expired';assert.equal(await ledger.issueReferralReward(ctx,another),reward._id,'expiry cannot reset lifetime limit');
  const expiring=await account('expired-reward@example.invalid','expired-reward@example.invalid'),open=put('bookings',{guestEmail:expiring.email,status:'pending_payment'}),expiringReward=put('referral_rewards',{accountId:expiring._id,redemptionId:another._id,percent:40,state:'available',createdAt:now-1000,expiresAt:now-10,reservedBookingId:open._id});
@@ -68,7 +72,7 @@ const pendingArgs=(p,a)=>({protection:p.protection,pricingVersion:p.pricingVersi
  put('credits',{accountId:mixed._id,kind:'earned',remaining:20,amount:20,status:'active',createdAt:now-1000,expiresAt:now+DAY});
  put('credits',{accountId:mixed._id,kind:'refund',remaining:15,amount:15,status:'active',createdAt:now-1000,expiresAt:now+DAY});
  p=await calculateRentalPrice(pricing,{...input(mixed),promoCode:'SALE'});assert.equal(p.benefitKind,'promo');assert.equal(p.loyaltySaving,0);assert.equal(p.earnedCreditApplied,0);assert.equal(p.refundCreditApplied,15);assert.equal(p.totalDue,55+p.depositAmount);
- const reserve=await bookings.createPending.handler(ctx,pendingArgs(p,mixed));await assert.rejects(bookings.createPending.handler(ctx,pendingArgs(p,mixed)),/available credit changed/);await bookings.confirm.handler(ctx,{bookingId:reserve.bookingId,paymentIntentId:'pi_mixed'});
+ const reserve=await bookings.createPending.handler(ctx,pendingArgs(p,mixed));await assert.rejects(bookings.createPending.handler(ctx,pendingArgs(p,mixed)),/available credit changed/);approveDidit(await db.get(reserve.bookingId));await bookings.confirm.handler(ctx,{bookingId:reserve.bookingId,paymentIntentId:'pi_mixed'});
  assert.equal((await db.query('credits').collect()).find(c=>c.accountId===mixed._id&&c.kind==='earned').remaining,20);
  await bookings._finalizeCancellation.handler(ctx,{bookingId:reserve.bookingId,accountId:mixed._id,mode:'credit',refundAmount:0,creditAmount:70,currency:'GBP'});
  const restored=(await db.query('credits').collect()).filter(c=>c.accountId===mixed._id&&c.bookingId===reserve.bookingId);assert.equal(restored.reduce((n,c)=>n+c.remaining,0),70);assert(restored.every(c=>c.kind==='refund'),'cash and refund origin remain customer money');

@@ -1,5 +1,22 @@
 .management { --management-site-header-height: 80px; }
 .siteNavigation { position: sticky; top: 0; z-index: 50; background: #060608; }
+.managementHeader { min-height: 68px; display: flex; align-items: center; gap: 22px; padding: 10px 24px; border-bottom: 1px solid #ffffff12; }
+.headerLogo { display: inline-flex; align-items: baseline; gap: 5px; flex: none; color: #f4f1ec; font-size: 20px; font-weight: 700; letter-spacing: -.035em; white-space: nowrap; }
+.headerLogo span:nth-child(2) { color: #d8b39a; }
+.headerLogo small { margin-left: 3px; color: #a19c96; font-size: 9px; font-weight: 500; letter-spacing: .2em; }
+.managementHeader .breadcrumb { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
+.managementHeader .breadcrumb button { color: #aaa8a2; }
+.managementHeader .breadcrumb button:hover { color: #fff; }
+.managementHeader .breadcrumb strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.managementHeader .actor { flex: none; }
+.management .shell[data-management-role=admin][data-management-screen=accounts] .heading { display: none; }
+@media (min-width:1351px) { .management .shell[data-management-role=admin][data-management-screen=accounts] { grid-template-columns:200px minmax(0,1fr); } }
+@media (max-width: 640px) { .managementHeader { gap: 9px; padding: 8px 12px; min-height: 60px; } .managementHeader .headerLogo { font-size: 15px; gap: 3px; } .managementHeader .headerLogo small { display: none; } .managementHeader .breadcrumb { gap: 6px; } .managementHeader .breadcrumb i { display: inline; } .managementHeader .actor > span:not(.avatar) { display: none; } .managementHeader .actor { gap: 5px; } .managementHeader .avatar { display: none; } }
+@media (max-width: 640px) {
+  .management:has(.shell[data-management-role=admin][data-management-screen=accounts]) .managementHeader { gap: 6px; padding-inline: 9px; }
+  .management:has(.shell[data-management-role=admin][data-management-screen=accounts]) .managementHeader .headerLogo { font-size: 14px; gap: 2px; }
+  .management:has(.shell[data-management-role=admin][data-management-screen=accounts]) .managementHeader .breadcrumb { gap: 4px; font-size: 10px; }
+}
 .shell { font-family:var(--font-inter, Arial),sans-serif; --management-copper: #bd8d6c; display: grid; grid-template-columns: 237px minmax(0, 1fr); min-height: calc(100dvh - var(--management-site-header-height)); position: relative; isolation: isolate; background: #171817; color: #eeeae4; }
 .sidebar { background: #101213; border-right: 1px solid #ffffff0f; display: flex; flex-direction: column; position: sticky; top: var(--management-site-header-height); height: calc(100dvh - var(--management-site-header-height)); overflow-y: auto; }
 .brand { display: block; padding: 24px 20px 4px; color: var(--management-copper); border-bottom: 0; }
@@ -106,6 +123,13 @@
 .shell[data-management-role=renter] .sidebarBottom .locations { font-size:9px; }
 .shell[data-management-role=renter] .locations i { margin:0 3px; }
 
+@media(max-width:640px) {
+ .shell[data-management-role=renter][data-management-screen=messages] { height:calc(100dvh - var(--management-site-header-height)); min-height:0; overflow:hidden; }
+ .shell[data-management-role=renter][data-management-screen=messages] .workspace { height:100%; min-height:0; overflow:hidden; }
+ .shell[data-management-role=renter][data-management-screen=messages] .content { display:flex; flex-direction:column; height:100%; min-height:0; padding:0; overflow:hidden; }
+ .shell[data-management-role=renter][data-management-screen=messages] .content > :not(.heading) { flex:1; min-height:0; margin:0; }
+}
+
 @media(min-width:1000px) { .shell[data-management-role=admin][data-management-screen=overview] .heading h1 { font-family:var(--font-inter,Arial),sans-serif; font-weight:600; } .shell[data-management-role=admin][data-management-screen=overview] .content { padding-top:17px; } }
 
 .sidebarActions { margin-top:16px; font-size:12px; color:#c1ae9e; }
@@ -137,6 +161,18 @@
 .management .shell[data-management-role=admin] .content { padding:24px; max-width:1720px; }
 .management .shell[data-management-role=admin] .heading { position:static; inset:auto; max-width:none; padding:0; margin-bottom:22px; }
 .shell[data-management-screen=messages] .content { padding:0 0 30px; }
+@media(min-width:1151px) {
+  .shell[data-management-role=renter][data-management-screen=messages] { height:calc(100dvh - var(--management-site-header-height)); min-height:0; overflow:hidden; }
+  .shell[data-management-role=renter][data-management-screen=messages] .workspace { height:100%; min-height:0; overflow:hidden; }
+  .shell[data-management-role=renter][data-management-screen=messages] .content { display:flex; flex-direction:column; height:100%; min-height:0; padding:0; max-width:none; overflow:hidden; }
+  .shell[data-management-role=renter][data-management-screen=messages] .content > :global(#renter-chat) { flex:1; min-height:0; margin:0; }
+}
+@media(max-width:640px) {
+  .shell[data-management-role=renter][data-management-screen=messages]:has(:global(#renter-chat [data-renter-support="true"])) { height:calc(100dvh - var(--management-site-header-height)); min-height:0; overflow:hidden; }
+  .shell[data-management-role=renter][data-management-screen=messages]:has(:global(#renter-chat [data-renter-support="true"])) .workspace { height:100%; min-height:0; overflow:hidden; }
+  .shell[data-management-role=renter][data-management-screen=messages]:has(:global(#renter-chat [data-renter-support="true"])) .content { display:flex; flex-direction:column; height:100%; min-height:0; padding:0; overflow:hidden; }
+  .shell[data-management-role=renter][data-management-screen=messages]:has(:global(#renter-chat [data-renter-support="true"])) .content > :global(#renter-chat) { flex:1; min-height:0; margin:0; }
+}
 .nav { padding-top:18px; }
 .sidebarBottom { padding-top:24px; }
 .sidebarImage { height:170px; }

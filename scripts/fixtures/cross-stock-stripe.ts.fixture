@@ -1,0 +1,24 @@
+import RealStripe from "stripe";
+
+export default class SyntheticStripe {
+  checkout: any;
+  paymentIntents: any;
+  refunds: any;
+  constructor(key: string) {
+    if (key !== "sk_test_synthetic_fixture") return new RealStripe(key) as any;
+    const target = new URL(process.env.SYNTHETIC_PAYMENT_SITE ?? "");
+    if (target.protocol !== "http:" || target.hostname !== "127.0.0.1" || target.pathname !== "/" || target.username || target.password || target.search || target.hash) throw Error("Synthetic payment provider must be loopback-only.");
+    const request = async (path: string, body?: unknown) => {
+      const response = await fetch(new URL(path, target), { method: body ? "POST" : "GET", ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}) });
+      if (!response.ok) throw Error("Synthetic payment provider rejected request.");
+      return response.json();
+    };
+    this.checkout = { sessions: { create: (body: any, options: any) => request("/session", { body, options }), retrieve: (id: string) => request(`/session/${id}`) } };
+    this.paymentIntents = { retrieve: (id: string) => request(`/payment/${id}`) };
+    this.refunds = {
+      list: (args: any) => ({ async *[Symbol.asyncIterator]() { for (const refund of await request(`/refunds/${args.payment_intent}`)) yield refund; } }),
+      create: (body: any, options: any) => request("/refund", { body, options }),
+      retrieve: (id: string) => request(`/refund/${id}`),
+    };
+  }
+}

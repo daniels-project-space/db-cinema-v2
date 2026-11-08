@@ -1,0 +1,71 @@
+import { action, mutation, query } from "./_generated/server";
+import { v } from "convex/values";
+import { sendSharedStockRequest } from "./lib/sharedStockTransport";
+import { internal } from "./_generated/api";
+import { stockWindow } from "./lib/stockWindows";
+import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
+
+export const send = action({ args: { request: v.any(), site: v.string(), loseResponse: v.boolean() }, handler: async (_ctx, args) => {
+  const target = new URL(args.site);
+  if (target.protocol !== "http:" || target.hostname !== "127.0.0.1" || target.pathname !== "/dbcinema/shared-stock" || target.search || target.hash || target.username || target.password) throw Error("Only an isolated loopback fixture is allowed.");
+  return sendSharedStockRequest(args.request, { enabled: true, managerUrl: "https://synthetic.convex.site/dbcinema/booking-sync", secret: "synthetic-stock-secret-12345678901234567890", fetcher: async (_url, init) => {
+    const response = await fetch(target, init);
+    if (args.loseResponse) throw Error("Simulated response loss after manager commit");
+    return response;
+  } });
+} });
+
+export const seedSwap = mutation({ args: { oldManagerId: v.string(), newManagerId: v.string(), newPrice: v.optional(v.number()), paymentIntentId: v.optional(v.string()), renterToken: v.optional(v.string()) }, handler: async (ctx, args) => {
+  const now = Date.now(), date = Date.UTC(2031, 0, 2);
+  await ctx.db.insert("rmv2_sync_state", { key: "shared-stock-v1", status: "ok", lastSyncedAt: now, cursor: JSON.stringify({ version: 2, turnaroundBufferMinutes: 60, checkedAt: now }) });
+  const accountId = await ctx.db.insert("accounts", { email: "synthetic@example.invalid", createdAt: now });
+  await ctx.db.insert("sessions", { token: args.renterToken ?? "synthetic-renter-token", accountId, expiresAt: now + 3600000 });
+  const oldUnit = await ctx.db.insert("inventory_units", { sku: "synthetic-old", name: "Original", quantityOwned: 1, replacementCost: 100, active: true, rmv2ItemId: args.oldManagerId });
+  const newUnit = await ctx.db.insert("inventory_units", { sku: "synthetic-new", name: "Replacement", quantityOwned: 1, replacementCost: 100, active: true, rmv2ItemId: args.newManagerId });
+  const oldId = await ctx.db.insert("listings", { slug: "synthetic-old", title: "Original", category: "camera", pricing: { daily: 10 }, depositAmount: 100, components: [{ inventoryUnitId: oldUnit, qty: 1 }], active: true });
+  const newId = await ctx.db.insert("listings", { slug: "synthetic-new", title: "Replacement", category: "camera", pricing: { daily: args.newPrice ?? 10 }, depositAmount: 100, components: [{ inventoryUnitId: newUnit, qty: 1 }], active: true });
+  const oldLine = { listingId: oldId, title: "Original", start: date, end: date, qty: 1, lineTotal: 10 };
+  const bookingId = await ctx.db.insert("bookings", { accountId, guestEmail: "synthetic@example.invalid", status: "confirmed", fulfilment: "pickup", deliveryFee: 0, subtotal: 10, discount: 0, total: 10, currency: "GBP", depositAmount: 0, idVerifyStatus: "verified", idVerifiedAt: now, verificationProvider: "stripe", verificationChecks: { identity: "approved", selfie: "approved", address: "approved" }, ...(args.paymentIntentId ? { stripePaymentIntentId: args.paymentIntentId } : {}), pricingVersion: "single-benefit-v1", benefitKind: "none", creditAllocations: [], checkoutLineCreditSources: [], checkoutLineFunding: [{ listingId: oldId, start: date, end: date, qty: 1, gross: 10, discount: 0, membershipCredit: 0, accountCredit: 0, card: 10 }], lineItems: [oldLine], replacementValues: [{ listingId: oldId, unitPence: 10000 }] });
+  await ctx.db.insert("reservations", { bookingId, listingId: oldId, inventoryUnitId: oldUnit, ...stockWindow(oldLine, true), qty: 1, source: "site", status: "confirmed" });
+  const window = stockWindow(oldLine, true);
+  return { bookingId, newId, start: window.start, returnAt: window.end - 3600000 };
+} });
+export const applySwap = action({ args: { swapId: v.id("rental_item_swaps") }, handler: async (ctx, args) => ctx.runMutation(internal.rentalSwapState.apply, { id: args.swapId }) });
+export const finalizeSwap = action({ args: { sessionId: v.string() }, handler: async (ctx, args) => ctx.runAction(internal.rentalSwapPayments.finalize, args) });
+export const deliver = action({ args: { bookingId: v.id("bookings") }, handler: async (ctx, args) => ctx.runAction(internal.rmv2_webhook.push, args) });
+export const expedite = mutation({ args: { bookingId: v.id("bookings") }, handler: async (ctx, args) => {
+  const booking = await ctx.db.get(args.bookingId);
+  if (!booking || booking.rmv2SyncStatus !== "pending" || (booking.rmv2SyncLeaseUntil ?? 0) > Date.now()) throw Error("Synthetic delivery is not available for retry.");
+  await ctx.db.patch(args.bookingId, { rmv2SyncDueAt: Date.now() });
+} });
+export const advanceRevision = mutation({ args: { bookingId: v.id("bookings") }, handler: async (ctx, args) => queueRmv2Sync(ctx, args.bookingId) });
+export const inspectSwap = query({ args: { bookingId: v.id("bookings"), swapId: v.id("rental_item_swaps") }, handler: async (ctx, args) => ({ booking: await ctx.db.get(args.bookingId), swap: await ctx.db.get(args.swapId), receipt: await ctx.db.query("swap_stock_applied_receipts").withIndex("by_swap", q => q.eq("swapId", args.swapId)).unique(), operations: await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",q=>q.eq("swapId",args.swapId)).collect(), messages:await ctx.db.query("messages").withIndex("by_booking_at",q=>q.eq("bookingId",args.bookingId)).collect() }) });
+export const getSyncBooking = query({ args: { bookingId: v.id("bookings") }, handler: async (ctx, args) => ctx.runQuery(internal.rmv2_sync.forRmv2SyncOne, { bookingId: args.bookingId }) });
+export const inspectRisk = query({ args: { bookingId: v.id("bookings"), revision: v.number() }, handler: async (ctx, args) => ctx.db.query("admin_notifications").withIndex("by_event", q => q.eq("eventKey", `stock-sync-risk:${args.bookingId}:${args.revision}`)).first() });
+export const inspectConvertedRisk = query({ args: { swapId: v.id("rental_item_swaps") }, handler: async (ctx, args) => ctx.db.query("admin_notifications").withIndex("by_event", q => q.eq("eventKey", `swap-converted-stock-risk:${args.swapId}`)).first() });
+export const inspectCompensatedRelease = query({ args: { swapId: v.id("rental_item_swaps") }, handler: async (ctx, args) => ctx.db.query("swap_stock_operations").withIndex("by_swap_operation", q => q.eq("swapId", args.swapId).eq("operation", "releaseCompensated")).unique() });
+export const recoverCompensatedRelease = action({ args: { id: v.id("swap_stock_operations") }, handler: async (ctx, args) => ctx.runAction(internal.swapStockOperations.recover, args) });
+export const leaseCompensatedRelease = action({ args: { id: v.id("swap_stock_operations"), token: v.string() }, handler: async (ctx, args) => ctx.runMutation(internal.swapStockOperations.lease, args) });
+export const recordCompensatedRelease = action({ args: { id: v.id("swap_stock_operations"), token: v.string(), request: v.any(), receipt: v.any() }, handler: async (ctx, args) => ctx.runMutation(internal.swapStockOperations.record, args) });
+export const revokeVerification = mutation({ args: { bookingId: v.id("bookings") }, handler: async (ctx, args) => { await ctx.db.patch(args.bookingId, { status: "pending_verification", idVerifyStatus: "requires_input" }); await queueRmv2Sync(ctx, args.bookingId); } });
+export const restoreVerification = mutation({ args: { bookingId: v.id("bookings") }, handler: async (ctx, args) => { await ctx.db.patch(args.bookingId, { status: "confirmed", idVerifyStatus: "verified", idVerifiedAt: Date.now() }); await queueRmv2Sync(ctx, args.bookingId); } });
+export const inspectStockReview = query({ args: { id: v.id("swap_stock_operations") }, handler: async (ctx, args) => ctx.db.query("admin_notifications").withIndex("by_event", q => q.eq("eventKey", `swap-stock-review:${args.id}`)).first() });
+export const reconcileStock = action({ args: {}, handler: async (ctx) => ctx.runAction(internal.swapStockOperations.reconcile, {}) });
+export const seedUnscheduledReviews = mutation({ args: { swapId: v.id("rental_item_swaps") }, handler: async (ctx, args) => { for (let index=0; index<25; index++) await ctx.db.insert("swap_stock_operations", { swapId: args.swapId, operation: "acquire", request: {}, state: "review", createdAt: Date.now(), updatedAt: Date.now() }); } });
+export const inspectReleaseConfirmed = query({ args: { id: v.id("swap_stock_operations") }, handler: async (ctx, args) => ctx.db.query("admin_notifications").withIndex("by_event", q => q.eq("eventKey", `swap-stock-release-confirmed:${args.id}`)).first() });
+export const expediteStockAudit = mutation({ args: { swapId: v.id("rental_item_swaps") }, handler: async (ctx, args) => { const receipt=await ctx.db.query("swap_stock_applied_receipts").withIndex("by_swap",q=>q.eq("swapId",args.swapId)).unique(); if(!receipt||receipt.deliveryState!=="acknowledged")throw Error("Synthetic stock audit is not ready."); await ctx.db.patch(receipt._id,{auditDueAt:Date.now()}); return receipt._id; } });
+export const auditStock = action({ args: {}, handler: async ctx => ctx.runAction(internal.swapStockAudit.runDue,{}) });
+export const claimStockAudit = action({ args: { id:v.id("swap_stock_applied_receipts"),token:v.string() }, handler: async (ctx,args) => ctx.runMutation(internal.swapStockAudit.claim,args) });
+export const recordStockAudit = action({ args: { id:v.id("swap_stock_applied_receipts"),token:v.string(),result:v.any() }, handler: async (ctx,args) => ctx.runMutation(internal.swapStockAudit.record,args) });
+export const setSyntheticAuditFingerprint = mutation({ args: { id:v.id("swap_stock_applied_receipts"),fingerprint:v.string() }, handler: async (ctx,args) => ctx.db.patch(args.id,{fingerprint:args.fingerprint}) });
+export const setSyntheticRestriction = mutation({ args: { accountId:v.id("accounts"),blocked:v.boolean() }, handler: async (ctx,args) => ctx.db.patch(args.accountId,{blockedAt:args.blocked?Date.now():undefined}) });
+export const changeSyntheticOwner = mutation({ args: { bookingId:v.id("bookings") }, handler: async (ctx,args) => { const accountId=await ctx.db.insert("accounts",{email:"other-owner@example.invalid",createdAt:Date.now()}); await ctx.db.patch(args.bookingId,{accountId}); } });
+export const markSyntheticReceiptRisk = mutation({ args: { swapId:v.id("rental_item_swaps") }, handler: async (ctx,args) => { const receipt=await ctx.db.query("swap_stock_applied_receipts").withIndex("by_swap",q=>q.eq("swapId",args.swapId)).unique(); if(!receipt)throw Error("Missing synthetic receipt."); await ctx.db.patch(receipt._id,{stockRisk:true}); } });
+export const setSyntheticConcurrentExtension = mutation({ args: { bookingId:v.id("bookings"),enabled:v.boolean() }, handler: async (ctx,args) => { const booking=await ctx.db.get(args.bookingId); if(!booking?.accountId)throw Error("Missing synthetic booking account."); if(args.enabled){const id=await ctx.db.insert("booking_change_requests",{bookingId:booking._id,accountId:booking.accountId,type:"extend",status:"pending",createdAt:Date.now()});await ctx.db.patch(booking._id,{activeExtensionId:id});}else await ctx.db.patch(booking._id,{activeExtensionId:undefined}); } });
+export const setSyntheticReservationQty = mutation({ args: { bookingId:v.id("bookings"),qty:v.number() }, handler: async (ctx,args) => { const rows=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",args.bookingId)).collect(); const row=rows.find(value=>value.source==="site"&&value.status==="confirmed"); if(!row)throw Error("Missing synthetic reservation."); await ctx.db.patch(row._id,{qty:args.qty}); } });
+export const inspectStockAudit = query({ args: { id: v.id("swap_stock_applied_receipts") }, handler: async (ctx,args) => ({receipt:await ctx.db.get(args.id),alert:await ctx.db.query("admin_notifications").withIndex("by_event",q=>q.eq("eventKey",`swap-stock-audit:${args.id}:risk`)).first()}) });
+export const inspectAuditChange = query({ args: { id:v.id("swap_stock_applied_receipts") }, handler: async (ctx,args) => ctx.db.query("admin_notifications").withIndex("by_event",q=>q.eq("eventKey",`swap-stock-audit:${args.id}:changed`)).first() });
+export const inspectAckReview = query({ args: { swapId:v.id("rental_item_swaps") }, handler: async (ctx,args) => ctx.db.query("admin_notifications").withIndex("by_event",q=>q.eq("eventKey",`swap-acknowledgement-review:${args.swapId}`)).first() });
+export const seedAuditBackfill = mutation({ args: { swapId: v.id("rental_item_swaps") }, handler: async (ctx,args) => { const original=await ctx.db.query("swap_stock_applied_receipts").withIndex("by_swap",q=>q.eq("swapId",args.swapId)).unique(); if(!original)throw Error("Missing synthetic receipt."); const {_id,_creationTime,auditDueAt,auditInitializedAt,auditLeaseToken,auditLeaseUntil,auditAttempts,...base}=original; const ids=[]; for(let index=0;index<52;index++)ids.push(await ctx.db.insert("swap_stock_applied_receipts",base)); const settled=await ctx.db.insert("swap_stock_applied_receipts",{...base,auditInitializedAt:1}); return {ids,settled}; } });
+export const runAuditBackfill = action({ args: {}, handler: async ctx => ctx.runMutation(internal.swapStockAudit.backfill,{}) });
+export const inspectAuditBackfill = query({ args: { ids:v.array(v.id("swap_stock_applied_receipts")),settled:v.id("swap_stock_applied_receipts") }, handler: async (ctx,args) => ({state:await ctx.db.query("swap_stock_audit_backfill").withIndex("by_key",q=>q.eq("key","acknowledged-v1")).unique(),rows:await Promise.all(args.ids.map(id=>ctx.db.get(id))),settled:await ctx.db.get(args.settled)}) });

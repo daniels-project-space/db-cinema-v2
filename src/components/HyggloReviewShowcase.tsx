@@ -3,6 +3,7 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { ReviewEye } from "./ReviewEye";
 
 export type VerifiedHyggloHighlight = {
   _id: string;
@@ -72,7 +73,7 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
         <span className="inline-flex max-w-[calc(100%-1.5rem)] min-w-0 truncate whitespace-nowrap items-center gap-1 rounded-full border border-white/20 bg-black/35 px-1.5 py-1 font-mono text-[7px] uppercase tracking-[0.06em] text-white/75 max-[374px]:px-1 max-[374px]:text-[6px] max-[374px]:tracking-[0.04em] sm:gap-2 sm:px-3 sm:text-[9px] sm:tracking-[0.17em]">
           Trust that is earned
         </span>
-        <span data-testid="review-eye-glyph" className="review-eye shrink-0" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d="M2.25 10s2.7-4.75 7.75-4.75S17.75 10 17.75 10s-2.7 4.75-7.75 4.75S2.25 10 2.25 10Z"/><circle className="review-eye-iris" cx="10" cy="10" r="3.25"/><circle cx="10" cy="10" r="1.2"/></svg></span>
+        <ReviewEye />
       </div>
       <div className="hygglo-trust-review-panel min-w-0 rounded-2xl border border-white/15 p-1 sm:p-5">
         <div aria-live="off">

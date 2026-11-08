@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { createElement } from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
-import { InvoiceDocument, ReturnStatementDocument } from "@/lib/invoice/InvoiceDocument";
+import { AssessmentStatementDocument, InvoiceDocument, ReturnStatementDocument } from "@/lib/invoice/InvoiceDocument";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,16 +32,21 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (!data) return new Response("Not found or unauthorized", { status: 403 });
 
   const isReturn = sp.get("phase") === "return";
+  const isAssessment = sp.get("phase") === "assessment";
+  const assessment = isAssessment ? data.assessmentPayments?.find((row: {id:string}) => row.id === sp.get("assessment")) : null;
+  if (isAssessment && !assessment) return new Response("Assessment payment not found", { status: 404 });
   if (isReturn && !data.returnStatement) return new Response("Return statement not issued", { status: 404 });
 
-  const document = isReturn
+  const document = isAssessment
+    ? createElement(AssessmentStatementDocument, { data, assessment })
+    : isReturn
     ? createElement(ReturnStatementDocument, { data: data.returnStatement })
     : createElement(InvoiceDocument, { data });
   const buf = await renderToBuffer(document as Parameters<typeof renderToBuffer>[0]);
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="DbCinema-${isReturn ? "return" : "invoice"}-${id.slice(-8)}.pdf"`,
+      "Content-Disposition": `inline; filename="DbCinema-${isAssessment ? "assessment" : isReturn ? "return" : "invoice"}-${id.slice(-8)}.pdf"`,
       "Cache-Control": "private, no-store",
     },
   });

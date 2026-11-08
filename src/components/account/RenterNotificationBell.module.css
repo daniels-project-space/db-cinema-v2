@@ -1,17 +1,21 @@
 .root { position: relative; }
-.bell { display:flex; align-items:center; gap:8px; padding:9px 12px; border:1px solid #ffffff26; border-radius:4px; color:#d7cabc; font-size:11px; }
+.bell { display:flex; align-items:center; justify-content:center; gap:8px; min-width:44px; min-height:44px; padding:9px 12px; border:1px solid #ffffff26; border-radius:10px; background:#ffffff08; color:#ead9c7; font-size:11px; }
 .bell svg { width:16px; height:16px; }
-.panel { position:absolute; top:calc(100% + 12px); right:0; width:min(390px,calc(100vw - 32px)); max-height:calc(100dvh - 100px); overflow:auto; z-index:60; border:1px solid #ffffff26; border-radius:6px; padding:20px; background:#1b1c1b; box-shadow:0 18px 50px #0008; color:#eae5df; }
-.panel header { display:flex; justify-content:space-between; gap:12px; }
-.panel h2 { font-family:Georgia,serif; font-size:21px; font-weight:400; }
-.panel p { margin-top:12px; font-size:12px; line-height:1.8; color:#b9b7b0; }
+.panel { position:absolute; top:calc(100% + 12px); right:0; width:min(390px,calc(100vw - 32px)); max-height:calc(100dvh - 100px); overflow:auto; z-index:60; border:1px solid #e5c29a38; border-radius:20px; padding:20px; background:linear-gradient(140deg,#44382df2,#212323f5 60%,#191c1ef7); box-shadow:0 22px 65px #0009,inset 0 1px #ffffff12; color:#f0e8df; backdrop-filter:blur(22px); -webkit-backdrop-filter:blur(22px); }
+.panel header { display:flex; align-items:center; gap:12px; }
+.panel header > button { flex:0 0 44px; width:44px; height:44px; margin:-5px -7px -5px 0; border:0; border-radius:12px; background:transparent; color:#d8c9ba; font-size:21px; }
+.panel header > button:hover { background:#ffffff14; color:#fff; }
+.panelIcon { display:grid; place-items:center; flex:0 0 42px; width:42px; height:42px; border:1px solid #edc9994d; border-radius:14px; background:linear-gradient(145deg,#f1c39336,#a6714320); color:#f7d6aa; }
+.panelIcon svg { width:21px; height:21px; }
+.panel h2 { flex:1; margin:0; font-family:Georgia,serif; font-size:21px; font-weight:400; }
+.panel p { margin-top:12px; font-size:13px; line-height:1.55; color:#d8cec3; }
 .panel h3 { font-size:13px; }
-.install { margin-top:16px; padding:14px; border:1px solid #ffffff1f; border-radius:4px; }
+.install { margin-top:16px; padding:14px; border:1px solid #e5c29a30; border-radius:14px; background:#ffffff08; }
 .panel label { display:flex; align-items:center; gap:10px; margin-top:16px; font-size:12px; }
 .panel label input { accent-color:#b98a69; }
-.panel > button, .install button { margin-top:16px; width:100%; padding:11px 14px; background:#966448; border-radius:4px; font-size:12px; }
+.panel > button, .install button { margin-top:16px; width:100%; min-height:44px; padding:11px 14px; border:1px solid #e6bc8b5c; background:linear-gradient(110deg,#c5966540,#b1845820); border-radius:12px; color:#ffe5c7; font-size:12px; font-weight:600; }
 .panel button:disabled { opacity:.5; }
-.panel small { display:block; margin-top:16px; font-size:10px; color:#979991; line-height:1.7; }
+.panel small { display:block; margin-top:16px; font-size:11px; color:#bfb8ae; line-height:1.55; }
 .root button:focus-visible { outline:2px solid #c89e7c; outline-offset:3px; }
 @media(max-width:600px) { .panel { position:fixed; top:76px; right:16px; } }
 

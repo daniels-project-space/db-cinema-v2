@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleChat } from "@/lib/gaffer";
 import { rateLimit } from "@/lib/ratelimit";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "@cvx/_generated/api";
+import { signGafferCompletion } from "../../../../shared/gafferCompletionProof";
 
 // Gaffer v2: thin transport. All intelligence lives in src/lib/gaffer.ts
 // ("engine decides, LLM narrates"). This route only parses the request, calls the
@@ -22,8 +25,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ reply: "Sorry, I didn't catch that.", cards: [], suggestions: [] });
   }
   try {
+    let verifiedMessageId:string|undefined;
+    if(typeof body?.token==="string"&&typeof body?.renterMessageId==="string"){
+      const client=new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+      const messages=await client.query(api.chat.myThread,{token:body.token});
+      const latest=messages?.at(-1);
+      if(!messages||!latest||String(latest._id)!==body.renterMessageId||latest.sender!=="renter")return NextResponse.json({reply:"Your conversation changed. Please try again in Account → Messages.",cards:[],suggestions:[]},{status:409});
+      verifiedMessageId=String(latest._id);
+      body={...body,channel:"chat",messages:messages.map(message=>({role:message.sender==="renter"?"user":"assistant",content:message.text}))};
+    }
+    const secret=process.env.GAFFER_COMPLETION_PROOF_SECRET??"";
+    if(verifiedMessageId&&secret.length<32)return NextResponse.json({reply:"Gaffer couldn't save that reply securely. Please try again.",cards:[],suggestions:[]},{status:503,headers:{"cache-control":"no-store"}});
     const out = await handleChat(body);
-    return NextResponse.json(out);
+    const completionProof=verifiedMessageId?await signGafferCompletion(secret,{messageId:verifiedMessageId,answer:out.reply.trim(),resolved:out.resolvedInquiry===true,expiresAt:Date.now()+120000}):undefined;
+    return NextResponse.json({...out,...(completionProof?{completionProof}:{})},{headers:{"cache-control":"no-store"}});
   } catch (e) {
     console.error("[bot] handleChat failed:", e);
     return NextResponse.json({

@@ -1,6 +1,7 @@
 const assert=require('node:assert/strict');
 const {load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
 const voucher=load('convex/lib/firstOrderVoucher.ts'), chat=load('convex/chat.ts'), bridge=load('convex/managerNotifications.ts');
+const {signGafferCompletion}=load('shared/gafferCompletionProof.ts'), proofSecret='synthetic-only-manager-voucher-proof-secret';process.env.GAFFER_COMPLETION_PROOF_SECRET=proofSecret;
 const scheduled=[],ctx={db,scheduler:{runAfter:async(...a)=>scheduled.push(a)}};
 (async()=>{
  const promo=load('convex/promo.ts');
@@ -21,7 +22,7 @@ const scheduled=[],ctx={db,scheduler:{runAfter:async(...a)=>scheduled.push(a)}};
  const other=put('accounts',{email:'other@test.invalid'});assert.equal(await voucher.firstOrderVoucherReason(ctx,other),null);
  await db.patch(a._id,{firstRentalPaidAt:0});assert.match(await voucher.firstOrderVoucherReason(ctx,a),/first order/);
  put('sessions',{token:'renter',accountId:other._id,expiresAt:Date.now()+60000});
- await chat.requestHuman.handler(ctx,{token:'renter'});
+ const humanQuestion=await chat.recordGafferUserMessage.handler(ctx,{token:'renter',text:'I have a complicated support question'}),humanOfferText='Would you like me to connect you with the team?',completionProof=await signGafferCompletion(proofSecret,{messageId:humanQuestion.messageId,answer:humanOfferText,resolved:false,expiresAt:Date.now()+120000});const humanOffer=await chat.recordGafferReply.handler(ctx,{token:'renter',renterMessageId:humanQuestion.messageId,text:humanOfferText,completionProof});await chat.requestHuman.handler(ctx,{token:'renter',offerMessageId:humanOffer.messageId});
  const t=tables.get('chat_threads').find(t=>t.accountId===other._id),epoch=t.gafferGeneration;
  assert.equal(t.escalated,true);
  await chat.resumeGaffer.handler(ctx,{token:'renter'});assert.equal(t.escalated,false);assert.equal(t.gafferGeneration,epoch+1);
@@ -49,5 +50,5 @@ const scheduled=[],ctx={db,scheduler:{runAfter:async(...a)=>scheduled.push(a)}};
   const failed=put('admin_notifications',{...delivery,_id:undefined,eventKey:'retry-fixture',managerStatus:'queued',managerDueAt:0,managerAttempts:0,managerPayload:undefined});
   global.fetch=async()=>{throw Error('Fixture outage')};for(let i=0;i<3;i++){await db.patch(failed._id,{managerDueAt:0});await bridge.deliver.handler(ctx,{notificationId:failed._id});}assert.equal(failed.managerStatus,'review');assert.equal(failed.managerAttempts,3);
  } finally {global.fetch=priorFetch;delete process.env.RMV2_WEBHOOK_URL;delete process.env.RMV2_WEBHOOK_SECRET;}
- console.log('PASS first-order history/reservation/cancel/refund/account boundaries; human resume and stale AI suppression; durable manager payload/lease/retry/permanent rejection. No external transports.');
+ delete process.env.GAFFER_COMPLETION_PROOF_SECRET;console.log('PASS first-order history/reservation/cancel/refund/account boundaries; human resume and stale AI suppression; durable manager payload/lease/retry/permanent rejection. No external transports.');
 })().catch(e=>{console.error(e);process.exitCode=1});

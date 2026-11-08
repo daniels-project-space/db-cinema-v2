@@ -69,6 +69,7 @@ const popular = Array.from({ length: 40 }, (_, i) => ({ ...a7Bundle, _id: `popul
 const catalogue = [fx3Bundle, ...popular, a7Bundle, fx3, r5, plCamera, komodo, remus, sonyLens, namedLight, otherLight, dji1, dji2];
 let fx3Available = true;
 let remusAvailable = true;
+let expectedRefreshTimes = { pickupTime: "10:00", returnTime: "18:00" };
 
 let refreshed = 0;
 const calls = [];
@@ -80,8 +81,8 @@ setMock("convex/browser", { ConvexHttpClient: class {
     assert(catalogue.some(item => item._id === args.items[0].listingId), "the stock refresh is anchored to a real catalogue candidate");
     assert.equal(args.items[0].start, Date.parse("2030-11-20T00:00:00.000Z"));
     assert.equal(args.items[0].end, Date.parse("2030-11-20T00:00:00.000Z"));
-    assert.equal(args.items[0].pickupTime, "10:00");
-    assert.equal(args.items[0].returnTime, "18:00");
+    assert.equal(args.items[0].pickupTime, expectedRefreshTimes?.pickupTime);
+    assert.equal(args.items[0].returnTime, expectedRefreshTimes?.returnTime);
     return { checkedAt: Date.now(), cached: true };
   }
   async query(name, args) {
@@ -159,6 +160,15 @@ const { POST } = load("src/app/api/assemble/route.ts");
   const micStages = micResult.body.stages.filter(stage => ["lav-mic", "wireless-mic"].includes(stage.key));
   assert(micStages.some(stage => stage.recommendedId === dji1._id), "the owner-verified first generation is offered");
   assert(!micStages.some(stage => stage.recommendedId === dji2._id), "DJI Mic 2 does not replace the requested first generation");
+
+  expectedRefreshTimes = undefined;
+  const dateOnly = await POST({ json: async () => ({ start: "2030-11-20", end: "2030-11-20", note: "FX3 camera body only", cameras: 1 }) });
+  assert.equal(dateOnly.status, 200, "kit recommendations need dates, not exact pickup and return times");
+  assert.equal(refreshed, 12, "each assembly request refreshes the live Rental Manager stock once");
+  assert.equal(dateOnly.body.stages.find(stage => stage.key === "camera").recommendedId, fx3._id, "date-only stock checks still produce a real available recommendation");
+  assert.equal(dateOnly.body.stages.find(stage => stage.key === "camera").options[0].pickupTime, undefined, "assembly candidates do not invent exact pickup times before checkout");
+  const halfTime = await POST({ json: async () => ({ start: "2030-11-20", end: "2030-11-20", pickupTime: "10:00", note: "FX3 camera body only" }) });
+  assert.equal(halfTime.status, 400, "a request cannot submit only one exact time");
   console.log("PASS assembly route: refreshes Rental Manager stock, recovers the exact FX3 from the older catalogue API, and preserves camera-only intent.");
 })().catch(error => {
   console.error(error);

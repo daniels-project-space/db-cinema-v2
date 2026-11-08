@@ -1,0 +1,20 @@
+import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
+export const seed = mutation({ args: {}, handler: async ctx => {
+  const now = Date.now(), accountId = await ctx.db.insert("accounts", { email: "chat-read@example.invalid", createdAt: now });
+  await ctx.db.insert("sessions", { accountId, token: "synthetic-chat-owner", expiresAt: now + 3600000 });
+  const threadId = await ctx.db.insert("chat_threads", { accountId, unreadOwner: 2, unreadRenter: 2, escalated: false, updatedAt: now });
+  return { accountId, threadId };
+} });
+export const message = mutation({ args: { accountId: v.id("accounts"), sender: v.union(v.literal("renter"), v.literal("owner")), at: v.number() }, handler: async (ctx, args) => ctx.db.insert("messages", { ...args, text: "Synthetic message" }) });
+export const thread = query({ args: { threadId: v.id("chat_threads") }, handler: async (ctx, { threadId }) => ctx.db.get(threadId) });
+export const alerts = mutation({ args: { accountId: v.id("accounts"), older: v.id("messages"), newer: v.id("messages") }, handler: async (ctx, { accountId, older, newer }) => {
+  const now = Date.now();
+  for (const messageId of [newer, older]) for (let index = 0; index < 125; index++)
+    await ctx.db.insert("admin_notifications", { eventKey: `renter-message:${messageId}`, kind: "renter_message", accountId, title: "Test", body: "Test", createdAt: now, read: false });
+  await ctx.db.insert("admin_notifications", { eventKey: "historical-handoff", kind: "human_request", accountId, title: "Test", body: "Test", createdAt: now - 10000, read: false });
+  await ctx.db.insert("admin_notifications", { eventKey: "uncertain-handoff", kind: "human_request", accountId, title: "Test", body: "Test", createdAt: now + 1, read: false });
+  await ctx.db.insert("admin_notifications", { eventKey: "verification-alert", kind: "verification_failure", accountId, title: "Test", body: "Test", createdAt: now - 10000, read: false });
+} });
+export const notifications = query({ args: {}, handler: async ctx => await ctx.db.query("admin_notifications").collect() });
+export const advanceThread = mutation({ args: { threadId: v.id("chat_threads"), at: v.number() }, handler: async (ctx, { threadId, at }) => ctx.db.patch(threadId, { updatedAt: at }) });

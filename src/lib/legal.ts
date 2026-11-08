@@ -25,7 +25,9 @@ export const REFUNDABLE_DEPOSIT_LEGAL_VERSION = "2026-10-v14";
 export const ASSESSMENT_DEPOSIT_LEGAL_VERSION = "2026-11-v17";
 export const CANCELLATION_PROTECTION_LEGAL_VERSION = "2026-11-v18";
 export const CARD_HOLD_LEGAL_VERSION = "2026-11-v19";
-export const SETUP_INTENT_LEGAL_VERSION = "2026-11-v20";
+export const PREVIOUS_SETUP_INTENT_LEGAL_VERSION = "2026-11-v20";
+export const SETUP_INTENT_LEGAL_VERSION = "2026-11-v21";
+export const SETUP_INTENT_LEGAL_VERSIONS = [PREVIOUS_SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION];
 export function agreementsForSecurityPolicy(policy?: string | null, cancellationProtection=false) {
   if (!hasCashDepositPolicy(policy) && !isCardHoldSecurityPolicy(policy) && !isSetupIntentSecurityPolicy(policy)) return AGREEMENTS;
   const version=isSetupIntentSecurityPolicy(policy)?SETUP_INTENT_LEGAL_VERSION:isCardHoldSecurityPolicy(policy)?CARD_HOLD_LEGAL_VERSION:policy===ASSESSMENT_SECURITY_POLICY_VERSION?(cancellationProtection?CANCELLATION_PROTECTION_LEGAL_VERSION:ASSESSMENT_DEPOSIT_LEGAL_VERSION):REFUNDABLE_DEPOSIT_LEGAL_VERSION;

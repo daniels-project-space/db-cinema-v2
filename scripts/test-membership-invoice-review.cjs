@@ -1,0 +1,43 @@
+const assert = require('node:assert/strict');
+const { load, db, put, tables } = require('./lib/rentalTestHarness.cjs');
+
+async function main() {
+  process.env.ADMIN_TOKEN = 'fixture-admin';
+  const reviews = load('convex/membershipInvoiceReviews.ts');
+  const account = put('accounts', { stripeSubscriptionId: 'sub_123' });
+  const other = put('accounts', { stripeSubscriptionId: 'sub_other' });
+  const ctx = { db, scheduler: { runAfter: async () => {} } };
+  const args = { accountId: account._id, subscriptionId: 'sub_123', invoiceId: 'in_123', reason: 'price_snapshot' };
+  const id = await reviews.record.handler(ctx, args);
+  assert.equal(await reviews.record.handler(ctx, args), id);
+  assert.equal(tables.get('admin_notifications').length, 1);
+  assert.equal((await reviews.forAccount.handler(ctx, { accountId: account._id })).length, 1);
+  assert.equal(await reviews.mayProcess.handler(ctx, args), false, 'ambiguous evidence does not retry indefinitely');
+  await assert.rejects(reviews.adminList.handler(ctx, { token: 'wrong', accountId: account._id }), /unauthorized/);
+  assert.equal((await reviews.adminList.handler(ctx, { token: 'fixture-admin', accountId: account._id })).length, 1);
+  await assert.rejects(reviews.adminReserveRetry.handler(ctx, { ...args, token: 'wrong' }), /unauthorized/);
+  await reviews.adminReserveRetry.handler(ctx, { ...args, token: 'fixture-admin' });
+  await assert.rejects(reviews.adminReserveRetry.handler(ctx, { ...args, token: 'fixture-admin' }), /wait/);
+  await assert.rejects(reviews.resolve.handler(ctx, args), /receipt/);
+  await assert.rejects(reviews.record.handler(ctx, { ...args, accountId: other._id }), /account changed/);
+  await assert.rejects(reviews.record.handler(ctx, { ...args, reason: 'unsafe free text!' }), /Invalid/);
+  put('membership_credit_grants', { accountId: account._id, subscriptionId: 'sub_123', invoiceId: 'in_123' });
+  await reviews.resolve.handler(ctx, args);
+  assert.equal((await reviews.forAccount.handler(ctx, { accountId: account._id })).length, 0);
+  assert.equal((await db.get(id)).state, 'resolved');
+  await reviews.record.handler(ctx, args);
+  assert.equal((await db.get(id)).state, 'resolved');
+  await reviews.record.handler(ctx, { ...args, reason: 'processing_error' });
+  assert.equal((await db.get(id)).state, 'review', 'a later reconciliation failure reopens the review');
+  assert.equal(tables.get('admin_notifications').length, 2, 'a reopened review generates a fresh owner alert');
+  await reviews.record.handler(ctx, { ...args, reason: 'processing_error' });
+  assert.equal(tables.get('admin_notifications').length, 2, 'retries in the same generation do not spam alerts');
+  const transient = { ...args, invoiceId: 'in_456', reason: 'processing_error' };
+  await reviews.record.handler(ctx, transient);
+  assert.equal(await reviews.mayProcess.handler(ctx, transient), true);
+  await reviews.record.handler(ctx, transient);
+  await reviews.record.handler(ctx, transient);
+  assert.equal(await reviews.mayProcess.handler(ctx, transient), false, 'transient errors stop automatically after three attempts');
+  console.log('PASS membership invoice review: deduplicated alert, account ownership and receipt-gated resolution');
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

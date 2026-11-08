@@ -1,9 +1,12 @@
 import {ASSESSMENT_SECURITY_POLICY_VERSION,depositForBookingPolicy} from "../shared/rentalSecurity";
+import { assertSwapStockReconciled } from "./lib/swapStockFence";
 import { replacementSets } from "./lib/replacementSets";
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { checkAdminToken, assertAdmin } from "./adminAuth";
 import { bookingStockLines } from "../shared/rentalWindow";
+import { rentalPricingDays } from "../shared/rentalDuration";
+import { quote } from "./lib/pricing";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { assertRenterExposure, replacementValues } from "./lib/rentalExposure";
@@ -35,6 +38,15 @@ async function assertReplacementDeposit(ctx:any,b:any,lines:any[]){
  const value=lines.reduce((sum:number,line:any)=>sum+values.find(v=>v.listingId===line.listingId)!.unitPence*line.qty/100,0);
  if(depositForBookingPolicy(b,value)>b.depositAmount)throw Error("This equipment upgrade needs a reviewed deposit update before it can be applied.");
 }
+function preservesAgreedCharge(line:any,candidate:any):boolean{
+ if(!line||!candidate?.pricing||!Number.isSafeInteger(line.qty)||line.qty<1||!Number.isFinite(line.lineTotal)||line.lineTotal<0)return false;
+ try{
+  const days=rentalPricingDays(line.start,line.end,line.pickupTime,line.returnTime);
+  const replacementTotal=quote(candidate.pricing,days).total*line.qty;
+  const originalPence=Math.round(line.lineTotal*100),replacementPence=Math.round(replacementTotal*100);
+  return Math.abs(line.lineTotal*100-originalPence)<0.000001&&Number.isSafeInteger(replacementPence)&&originalPence===replacementPence;
+ }catch{return false;}
+}
 export const options = query({
   args: {
     token: v.string(),
@@ -58,6 +70,7 @@ export const options = query({
     for (const candidate of candidates) {
       if (
         !replacementCompatible(original, candidate,b) ||
+        !preservesAgreedCharge(line,candidate) ||
         b.lineItems.some((l: any) => l.listingId === candidate._id)
       )
         continue;
@@ -87,10 +100,13 @@ export const options = query({
           b.status === "confirmed" &&
           !b.cancellationDecision &&
           !b.activeAdditionId &&
+          !b.activeDeliveryQuoteId &&
           !b.activeExtensionId &&
+          !b.activePriceAdjustmentId &&
+          !b.activeItemSwapId &&
           !b.returnDecision,
         price_note:
-          "Agreed rental charges stay unchanged. No refund or extra payment is made.",
+          "Same agreed charge. No refund or extra payment.",
       });
       if (options.length === 6) break;
     }
@@ -130,12 +146,16 @@ export const accept = mutation({
       b.status !== "confirmed" ||
       b.cancellationDecision ||
       b.activeAdditionId ||
+      b.activeDeliveryQuoteId ||
       b.activeExtensionId ||
+      b.activePriceAdjustmentId ||
+      b.activeItemSwapId ||
       b.returnDecision
     )
       throw Error(
         "Finish the open operation first. Only an upcoming confirmed rental can be changed here.",
       );
+    await assertSwapStockReconciled(ctx, b._id);
     const { original, line } = await context(ctx, a.bookingId, a.lineIndex);
     assertReplacementSnapshot(
       {
@@ -154,6 +174,7 @@ export const accept = mutation({
       b.lineItems.some((l: any) => l.listingId === a.newListingId)
     )
       throw Error("Replacement needs a separate price or equipment review.");
+    if(!preservesAgreedCharge(line,replacement))throw Error("This replacement changes the agreed rental price. Use a priced equipment-change proposal instead.");
     const refunds = await ctx.db
       .query("rental_refunds")
       .withIndex("by_booking", (q) => q.eq("bookingId", b._id))
@@ -310,6 +331,7 @@ async function completeBasketOptions(ctx: any, bookingId: any): Promise<any> {
       .filter(
         (candidate: any) =>
           replacementCompatible(source, candidate,b) &&
+          preservesAgreedCharge(lines[index],candidate) &&
           !lines.some((line: any) => line.listingId === candidate._id),
       )
       .sort(
@@ -398,7 +420,10 @@ async function completeBasketOptions(ctx: any, bookingId: any): Promise<any> {
         b.status === "confirmed" &&
         !b.cancellationDecision &&
         !b.activeAdditionId &&
+        !b.activeDeliveryQuoteId &&
         !b.activeExtensionId &&
+        !b.activePriceAdjustmentId &&
+        !b.activeItemSwapId &&
         !b.returnDecision,
       price_note:
         "All replacements were checked together with the retained kit. Agreed rental charges stay unchanged; no refund or extra payment is made.",
@@ -467,12 +492,16 @@ export const acceptBasket = mutation({
       b.status !== "confirmed" ||
       b.cancellationDecision ||
       b.activeAdditionId ||
+      b.activeDeliveryQuoteId ||
       b.activeExtensionId ||
+      b.activePriceAdjustmentId ||
+      b.activeItemSwapId ||
       b.returnDecision
     )
       throw Error(
         "Finish the open operation first. Only an upcoming confirmed rental can be changed here.",
       );
+    await assertSwapStockReconciled(ctx, b._id);
     const fresh = await completeBasketOptions(ctx, a.bookingId);
     const choice = fresh.options.find(
       (option: any) => option.id === a.replacementId,

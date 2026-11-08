@@ -1,0 +1,5 @@
+# Avatar upload recovery
+
+The hourly cleanup handles only server-created uploads recorded in `avatar_upload_ledger`. It checks all current account avatar references and conservatively defers deletion for missing accounts or any linked damage case. Existing legacy files are not scanned. A crash between storage creation and ledger registration can still leave an untracked blob, as can older ambiguous uploads.
+
+A possible future recovery design would reserve a random upload marker before storage and sweep only storage objects carrying that exact marker, with bounded pagination and conservative case/reference checks. `scripts/test-avatar-marker-browser.cjs` verifies that local Chromium renders JPEG, PNG and WebP served with an image MIME type containing a marker parameter and `nosniff`. This is not evidence that Convex storage preserves and returns that parameter or that Safari and other browsers accept it. Verify real isolated Convex storage metadata and browser responses, ownership, restart/race behavior, and retention before adopting or enabling such a sweep. Never sweep unmarked legacy files.

@@ -12,6 +12,11 @@ const workerContext={storage:{get:async id=>stored.get(id)??null},runQuery:async
 (async()=>{
  job.readVerifiedAt=Date.now()-25*3600000;job.readProofDueAt=0;
  await assert.rejects(()=>archive.assertVerificationArchive(context,booking),/fully archived/,'expired byte proof fails closed');
+ await assert.rejects(()=>archive.assertVerificationArchive(context,{status:'confirmed',verificationProvider:'didit'}),/fully archived/,'a missing Didit session cannot masquerade as an archived verification');
+ await assert.rejects(()=>archive.assertVerificationArchive(context,{status:'confirmed',idVerificationSource:'didit'}),/fully archived/,'a Didit approval without its session fails closed even when the provider field is absent');
+ await assert.rejects(()=>archive.assertVerificationArchive(context,{status:'confirmed',verificationReusedFrom:'missing-booking'}),/fully archived/,'a missing reused source cannot masquerade as an archived verification');
+ await assert.doesNotReject(()=>archive.assertVerificationArchive(context,{status:'confirmed',verificationProvider:'stripe',idVerificationSource:'manual'}),'a legacy non-Didit manual approval is not forced into a Didit archive');
+ await assert.doesNotReject(()=>archive.assertVerificationArchive(context,{status:'confirmed'}),'a legacy non-Didit approval without a provider field retains its existing behavior');
  await archive.scheduleReadProofs.handler(context,{});assert.equal(tasks.length,1);assert.equal(tasks[0].ref,'verificationArchiveWorker.checkReadability');
  const first=tasks[0].args;
  await worker.checkReadability.handler(workerContext,first);assert.ok(job.readVerifiedAt>Date.now()-1000);await archive.assertVerificationArchive(context,booking);

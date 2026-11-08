@@ -1,0 +1,24 @@
+import { action, mutation, query } from './_generated/server';
+import { v } from 'convex/values';
+import { internal } from './_generated/api';
+import { archiveRetention } from './verificationArchive';
+export const seed=mutation({args:{},handler:async ctx=>{
+ const now=Date.now(),accountId=await ctx.db.insert('accounts',{email:`case-${now}-${Math.random()}@example.invalid`,createdAt:now});
+ const unit=await ctx.db.insert('inventory_units',{sku:`case-${now}-${Math.random()}`,name:'Synthetic camera',quantityOwned:1,replacementCost:100,active:true});
+ const listing=await ctx.db.insert('listings',{slug:`case-${now}-${Math.random()}`,title:'Synthetic camera',category:'camera',active:true,components:[{inventoryUnitId:unit,qty:1}],pricing:{daily:10},depositAmount:0});
+ const bookingId=await ctx.db.insert('bookings',{accountId,status:'active',lineItems:[{listingId:listing,title:'Synthetic camera',start:now,end:now+86400000,qty:1,lineTotal:10}],fulfilment:'pickup',deliveryFee:0,subtotal:10,discount:0,depositAmount:0,total:10,currency:'GBP'});
+ await ctx.db.insert('reservations',{bookingId,listingId:listing,inventoryUnitId:unit,start:now,end:now+86400000,qty:1,source:'site',status:'active'});
+ return {bookingId,itemKey:`${unit}:0`};
+}});
+export const inspect=query({args:{bookingId:v.id('bookings')},handler:async(ctx,{bookingId})=>ctx.db.query('rental_damage_cases').withIndex('by_booking',q=>q.eq('bookingId',bookingId)).collect()});
+export const seedRetention=mutation({args:{},handler:async ctx=>{
+ const now=Date.now(),old=now-120*86400000,accountId=await ctx.db.insert('accounts',{email:`retention-${now}@example.invalid`,createdAt:now});
+ const bookingId=await ctx.db.insert('bookings',{accountId,status:'returned',returnedAt:old,lineItems:[],fulfilment:'pickup',deliveryFee:0,subtotal:0,discount:0,depositAmount:0,total:0,currency:'GBP'});
+ const archiveId=await ctx.db.insert('verification_archives',{bookingId,accountId,sessionId:'synthetic',email:'retention@example.invalid',status:'complete',attempts:0,dueAt:now,createdAt:old});
+ const caseId=await ctx.db.insert('rental_damage_cases',{bookingId,accountId,itemKey:'synthetic',title:'Synthetic',details:'Synthetic case',status:'closed',openedAt:now,closedAt:old});
+ return {archiveId,caseId,bookingId};
+}});
+export const retention=query({args:{archiveId:v.id('verification_archives')},handler:async(ctx,{archiveId})=>{const archive=await ctx.db.get(archiveId);return {status:archive?.status,retention:await archiveRetention(ctx,archive)}}});
+export const correctCase=mutation({args:{caseId:v.id('rental_damage_cases')},handler:async(ctx,{caseId})=>{const record=await ctx.db.get(caseId);if(!record?.closedAt)throw Error('Missing synthetic closure');await ctx.db.patch(caseId,{openedAt:record.closedAt-86400000})}});
+export const setReturn=mutation({args:{bookingId:v.id('bookings'),returnedAt:v.number()},handler:async(ctx,{bookingId,returnedAt})=>{await ctx.db.patch(bookingId,{returnedAt})}});
+export const sweep=action({args:{},handler:async ctx=>ctx.runMutation(internal.verificationArchive.purgeExpired,{})});

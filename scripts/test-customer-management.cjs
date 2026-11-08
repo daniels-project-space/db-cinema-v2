@@ -20,9 +20,10 @@ const account = put("accounts", {
 });
 const other = put("accounts", { email: "other@example.invalid", createdAt: 1 });
 const listing = put("listings", {
-  r2Images: ["https://example.invalid/camera.png"],
-  sourceImages: ["https://example.invalid/source.png"],
+  r2Images: ["https://example.invalid/camera-art.png"],
+  sourceImages: ["https://example.invalid/camera-source.png"],
 });
+const secondListing = put("listings", { r2Images: ["https://example.invalid/lens-art.png"], sourceImages: ["https://example.invalid/lens-source.png"] });
 const lineItems = [
   {
     listingId: listing._id,
@@ -31,6 +32,8 @@ const lineItems = [
     start: 123,
     end: 456,
   },
+  { listingId: secondListing._id, title: "Lens", qty: 1, start: 123, end: 456 },
+  { listingId: secondListing._id, title: "Lens", qty: 1, start: 456, end: 789 },
 ];
 const owned = put("bookings", {
   accountId: account._id,
@@ -107,6 +110,12 @@ put("bookings", {
   creditAllocations: [{ creditId: credit._id, amount: 10, kind: "refund" }],
 });
 (async () => {
+  assert.equal(await admin.directoryAccess.handler(ctx, { token: "renter-session" }), false);
+  assert.deepEqual(await admin.directory.handler(ctx, { token: "renter-session", search: "", paginationOpts: { numItems: 10, cursor: null }, filter: "all", tier: "all" }), { page: [], isDone: true, continueCursor: "" });
+  assert.deepEqual(await admin.searchMessages.handler(ctx, { token: "renter-session", search: "Owned", filter: "all", tier: "all" }), { items: [], truncated: false });
+  assert.deepEqual(await admin.directoryMetrics.handler(ctx, { token: "renter-session", accountIds: [account._id] }), []);
+  assert.deepEqual(await admin.possibleRestrictedIdentityMatches.handler(ctx, { token: "renter-session", bookingId: owned._id }), { matches: [], more: false });
+  await assert.rejects(() => admin.setStarred.handler(ctx, { token: "renter-session", accountId: account._id, starred: true }), /unauthorized/);
   await assert.rejects(
     () => admin.detail.handler(ctx, { token: "bad", accountId: account._id }),
     /unauthorized/,
@@ -151,11 +160,15 @@ put("bookings", {
   assert.deepEqual(
     detail.rentals.find((r) => r.id === owned._id).imageSources,
     [
-      "https://example.invalid/camera.png",
-      "https://example.invalid/source.png",
+      "https://example.invalid/camera-art.png",
+      "https://example.invalid/camera-source.png",
     ],
   );
-  assert.equal(detail.rentals.find((r) => r.id === owned._id).quantity, 2);
+  assert.equal(detail.rentals.find((r) => r.id === owned._id).quantity, 4);
+  assert.deepEqual(detail.rentals.find((r) => r.id === owned._id).items.map(item => [item.title, item.qty, item.imageSources[0]]), [
+    ["Actual camera", 2, "https://example.invalid/camera-art.png"],
+    ["Lens", 2, "https://example.invalid/lens-art.png"],
+  ]);
   assert.deepEqual(
     detail.conversations.map((t) => t.lastMessage),
     ["Account support", "Owned message"],

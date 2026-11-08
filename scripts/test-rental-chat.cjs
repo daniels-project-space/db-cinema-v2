@@ -26,6 +26,9 @@ put("sessions", {
 });
 const item = put("listings", {
   title: "Camera",
+  reviewedImageUrls: ["https://images.example.test/camera-reviewed.jpg"],
+  r2Images: ["https://images.example.test/camera-r2.jpg"],
+  sourceImages: ["https://images.example.test/camera-source.jpg"],
   rentalContents: {
     included: ["Camera body"],
     optional: [],
@@ -67,9 +70,24 @@ process.env.ADMIN_TOKEN = "fixture-owner-only";
   assert.equal(ownerThread.renter.phone, "+44 7700 900123", "the booking phone is visible to the owner");
   const renterThread = await rental.messages.handler(ctx, { token: "valid", bookingId: booking._id, paginationOpts: { numItems: 10, cursor: null } });
   assert.equal(renterThread.renter.phone, null, "the owner-only contact is never sent to renter clients");
+  assert.equal(renterThread.caseArchivedAt, null, "the renter chat never receives the admin case-archive marker");
+  const archivedAt=Date.now()-1000;put("chat_threads",{accountId:a._id,bookingId:booking._id,escalated:false,updatedAt:archivedAt,caseArchivedAt:archivedAt});
+  const archivedOwner=await rental.messages.handler(ctx,{token:"fixture-owner-only",admin:true,bookingId:booking._id,paginationOpts:{numItems:10,cursor:null}});
+  const archivedRenter=await rental.messages.handler(ctx,{token:"valid",bookingId:booking._id,paginationOpts:{numItems:10,cursor:null}});
+  assert.equal(archivedOwner.caseArchivedAt,archivedAt,"Admins can see the permanent archive marker on the rental chat");
+  assert.equal(archivedRenter.caseArchivedAt,null,"The archive marker is not exposed to renters");
+  const renterBooking = await rental.getConversation.handler(ctx, { token: "valid", bookingId: booking._id });
+  assert.deepEqual(renterBooking.items[0].imageSources, [
+    "https://images.example.test/camera-reviewed.jpg",
+    "https://images.example.test/camera-r2.jpg",
+  ], "each rental chat item uses its exact listing's approved photo and catalog fallback");
+  assert.equal(renterBooking.items[0].heroImage, "https://images.example.test/camera-reviewed.jpg");
   const generalThread = await rental.messages.handler(ctx, { token: "fixture-owner-only", admin: true, accountId: a._id, paginationOpts: { numItems: 10, cursor: null } });
   assert.equal(generalThread.renter.phone, "+44 20 1234 5678", "general conversations use the account phone");
   assert.equal(await rental.messages.handler(ctx, { token: "invalid", admin: true, bookingId: booking._id, paginationOpts: { numItems: 10, cursor: null } }), null);
+  assert.equal(await rental.messages.handler(ctx, { token: "valid", admin: true, accountId: other._id, paginationOpts: { numItems: 10, cursor: null } }), null, "a renter cannot request the admin view of another account");
+  await assert.rejects(rental.setHandler.handler(ctx, { token: "valid", accountId: other._id, gaffer: false }), /unauthorized/, "a renter cannot take over another customer's conversation");
+  await assert.rejects(rental.sendOwner.handler(ctx, { token: "valid", accountId: other._id, text: "Forged team reply" }), /unauthorized/, "a renter cannot send an owner message");
   assert.equal(await helper.accountForToken(ctx, "expired"), null);
   await assert.rejects(
     chat.send.handler(ctx, {
@@ -135,15 +153,17 @@ process.env.ADMIN_TOKEN = "fixture-owner-only";
   await db.patch(booking._id,{cancellationDecision:undefined});
   assert.equal(cx.booking.stage, "pending_payment");
   assert.match(cx.booking.status, /payment has not yet been confirmed/i);
-  assert.equal(cx.booking.payment.securityPaid, null);
-  assert.equal(cx.booking.payment.securityExpected, 20);
+  assert.equal(cx.booking.payment.securityAmountOnBooking, 20);
+  assert.equal(cx.booking.payment.securityPaid, undefined);
   assert.equal(cx.location, null, "unpaid rental cannot disclose pickup location");
   put("settings", { businessAddress: "Verified collection depot" });
   await db.patch(booking._id, { status: "confirmed", fulfilment: "pickup" });
   const confirmedContext = await chat._gafferContext.handler(ctx, { accountId: a._id, focusBookingId: booking._id });
   assert.equal(confirmedContext.location, null, "a paid but unverified renter cannot receive the pickup location");
   assert.match(confirmedContext.booking.status, /payment recorded.*verification is not yet approved/i);
-  assert.equal(confirmedContext.booking.payment.securityPaid, 20);
+  assert.equal(confirmedContext.booking.payment.securityAmountOnBooking, 20);
+  assert.equal(confirmedContext.booking.payment.securityPaid, undefined, "booking status does not prove security was charged");
+  assert.equal(confirmedContext.accountRentals[0].securityPaid, undefined, "account summaries must not infer a paid deposit");
   await db.patch(booking._id, { idVerifyStatus: "verified" });
   const verifiedContext = await chat._gafferContext.handler(ctx, { accountId: a._id, focusBookingId: booking._id });
   assert.equal(verifiedContext.location, "Verified collection depot");
@@ -153,7 +173,7 @@ process.env.ADMIN_TOKEN = "fixture-owner-only";
   assert.match(expiredContext.booking.status, /verification has expired/i);
   assert.equal(expiredContext.location, null);
   await db.patch(booking._id, { verificationExpiresAt: undefined, status: "cancelled" });
-  assert.equal((await chat._gafferContext.handler(ctx, { accountId: a._id, focusBookingId: booking._id })).booking.payment.securityPaid, null);
+  assert.equal((await chat._gafferContext.handler(ctx, { accountId: a._id, focusBookingId: booking._id })).booking.payment.securityPaid, undefined);
   await db.patch(booking._id, { idVerifyStatus: "required" });
   await db.patch(booking._id, { status: "pending_payment" });
   assert.equal(cx.messages.length, 1);
@@ -238,6 +258,30 @@ process.env.ADMIN_TOKEN = "fixture-owner-only";
   await rental.migrateLegacyUnread.handler(ctx, { cursor: null });
   assert.equal(migrated.unreadOwner, 1, "migration does not double count");
   assert.equal(legacy.threadCounted, true);
+  const scopedIndexes=[];
+  const scopedCtx={...ctx,db:{...db,query(table){const query=db.query(table);if(table==='messages'){const withIndex=query.withIndex.bind(query);query.withIndex=(name,fn)=>{scopedIndexes.push(name);return withIndex(name,fn);};}return query;}}};
+  const generalMessage=await helper.postRentalMessage(ctx,{accountId:a._id,sender:'renter',text:'Private support message'});
+  for(let index=0;index<55;index++)put('messages',{accountId:other._id,sender:'renter',text:'Another account message',at:Date.now()+index});
+  const ownGeneral=await rental.messages.handler(scopedCtx,{token:'valid',paginationOpts:{numItems:10,cursor:null}});
+  assert(ownGeneral.page.some(message=>message.text==='Private support message'));assert(ownGeneral.page.every(message=>message.accountId===a._id));assert.equal(scopedIndexes.at(-1),'by_booking_account_at','General chat reads only the current account index');
+  const forgedGeneral=await rental.messages.handler(scopedCtx,{token:'valid',accountId:other._id,paginationOpts:{numItems:10,cursor:null}});
+  assert(forgedGeneral.page.every(message=>message.accountId===a._id),'A supplied account ID cannot select another customer in renter mode');
+  assert.equal(forgedGeneral.replyState,null,'Owner reply insights are not returned in renter mode');
+  assert.deepEqual(forgedGeneral.quickReplies,[],'Owner quick replies are not returned in renter mode');
+  await assert.rejects(rental.messages.handler(scopedCtx,{token:'foreign',bookingId:booking._id,paginationOpts:{numItems:10,cursor:null}}),/not available/,'A different renter cannot read this booking conversation');
+  await rental.markRead.handler(scopedCtx,{token:'valid',through:generalMessage});assert.equal(scopedIndexes.at(-1),'by_booking_account_at','Read markers count only the current conversation index');
+  const tieAccount=put('accounts',{email:'tie@example.invalid'});put('sessions',{token:'tie-token',accountId:tieAccount._id,expiresAt:Date.now()+600000});
+  const tieThread=put('chat_threads',{accountId:tieAccount._id,escalated:false,unreadOwner:2,unreadRenter:2,updatedAt:100});
+  const olderRenter=put('messages',{accountId:tieAccount._id,sender:'renter',text:'Older',at:100}),newerRenter=put('messages',{accountId:tieAccount._id,sender:'renter',text:'Newer',at:100});
+  await rental.markRead.handler(ctx,{token:'fixture-owner-only',admin:true,accountId:tieAccount._id,through:newerRenter._id});
+  await rental.markRead.handler(ctx,{token:'fixture-owner-only',admin:true,accountId:tieAccount._id,through:olderRenter._id});
+  assert.equal(tieThread.unreadOwner,0,'An older same-time admin marker cannot resurrect unread messages');
+  const olderOwner=put('messages',{accountId:tieAccount._id,sender:'owner',text:'Older',at:101}),newerOwner=put('messages',{accountId:tieAccount._id,sender:'owner',text:'Newer',at:101});
+  await rental.markRead.handler(ctx,{token:'tie-token',through:newerOwner._id});
+  await rental.markRead.handler(ctx,{token:'tie-token',through:olderOwner._id});
+  assert.equal(tieThread.unreadRenter,0,'An older same-time renter marker cannot resurrect unread messages');
+  const generalContext=await chat._gafferContext.handler(scopedCtx,{accountId:a._id});assert(generalContext.messages.some(message=>message.text==='Private support message'));assert(generalContext.messages.every(message=>message.text!=='Another account message'));assert.equal(scopedIndexes.at(-1),'by_booking_account_at','Gaffer reads only the current conversation index');
+  assert.equal(await chat._postBot.handler(scopedCtx,{accountId:a._id,replyTo:generalMessage,text:'I can help.'}),true);assert.equal(scopedIndexes.at(-1),'by_booking_account_at','Reply deduplication uses the same scoped history');
   console.log(
     "PASS rental chat handlers: expired/foreign sessions; legacy forged rows excluded; exact rental context; duplicate replies rejected; human handoff isolated; newer arrivals stay unread; invalid read markers rejected.",
   );

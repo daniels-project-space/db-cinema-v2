@@ -2,8 +2,9 @@ import { queueRenterNotification } from "./renterPush";
 import { queueOwnerNotification } from "./adminPush";
 import { belongsToRentalAccount } from "./rentalAccount";
 import { internal } from "../_generated/api";
+import { bookingHasCaseArchive } from "./chatCaseArchive";
 
-export const GAFFER_AUTO_RESUME_MS = 3 * 60 * 60 * 1000;
+export const GAFFER_AUTO_RESUME_MS = 4 * 60 * 60 * 1000;
 /** Shared boundaries for customer and owner rental conversations. */
 export async function accountForToken(ctx: any, token: string, requireExpiry = false) {
   const s = await ctx.db
@@ -47,19 +48,25 @@ export async function postRentalMessage(
     sender: "renter" | "bot" | "system" | "owner";
     text: string;
     meta?: any;
+    deferOwnerAlert?: boolean;
   },
 ) {
   if (a.bookingId)
     await ownedBooking(ctx, await ctx.db.get(a.accountId), a.bookingId);
   const thread = await rentalThread(ctx, a.accountId, a.bookingId);
   const now = Math.max(Date.now(), (thread?.updatedAt ?? 0) + 1);
+  const caseArchived = thread?.caseArchivedAt ? true : a.bookingId ? await bookingHasCaseArchive(ctx, a.bookingId) : false;
+  const { deferOwnerAlert, ...message } = a;
   const id = await ctx.db.insert("messages", {
-    ...a,
+    ...message,
     at: now,
     readByOwner: a.sender !== "renter",
     threadCounted: true,
   });
+  let threadId=thread?._id;
   const patch = {
+    closedAt: undefined,
+    caseArchivedAt: thread?.caseArchivedAt ?? (caseArchived ? now : undefined),
     updatedAt: now,
     lastMessage: a.text.slice(0, 160),
     lastSender: a.sender,
@@ -67,13 +74,18 @@ export async function postRentalMessage(
     unreadRenter: (thread?.unreadRenter ?? 0) + (a.sender !== "renter" ? 1 : 0),
   };
   if (thread) await ctx.db.patch(thread._id, patch);
-  else
-    await ctx.db.insert("chat_threads", {
+  else {
+    threadId=await ctx.db.insert("chat_threads", {
       accountId: a.accountId,
       bookingId: a.bookingId,
       escalated: false,
       ...patch,
     });
+  }
+  if(caseArchived&&a.bookingId){
+    const archive=await ctx.db.query("chat_case_archives").withIndex("by_booking",(q:any)=>q.eq("bookingId",a.bookingId)).first();
+    if(archive&&!archive.threadId&&threadId)await ctx.db.patch(archive._id,{threadId});
+  }
   if (thread?.escalated) await scheduleGafferAutoResume(ctx, a.accountId, a.bookingId);
   if (a.bookingId)
     await ctx.db.patch(a.bookingId, {
@@ -81,7 +93,7 @@ export async function postRentalMessage(
       chatUnreadOwner: patch.unreadOwner,
       chatUnreadRenter: patch.unreadRenter,
     });
-  if (a.sender === "renter") await queueOwnerNotification(ctx, {
+  if (a.sender === "renter" && (!deferOwnerAlert || thread?.escalated)) await queueOwnerNotification(ctx, {
     eventKey: `renter-message:${id}`, kind: "renter_message", accountId: a.accountId, bookingId: a.bookingId,
     title: a.bookingId ? "New rental message" : "New support message",
     body: a.bookingId ? "A renter replied in a rental conversation. Tap to open it." : "A renter sent a general enquiry. Tap to open it.",

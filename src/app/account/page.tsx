@@ -4,7 +4,7 @@ import { REVIEW_PRIZE_GBP } from "../../../shared/reviewPrize";
 import { ReferralPanel } from "@/components/account/ReferralPanel";
 import { EncoreCrest } from "@/components/account/LoyaltyCelebration";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   useQuery,
   useMutation,
@@ -34,6 +34,7 @@ import { AvatarUpload } from "@/components/account/AvatarUpload";
 import { ManagementShell } from "@/components/management/ManagementShell";
 import { InvoiceLibrary } from "@/components/management/InvoiceLibrary";
 import { accountAuthErrorMessage } from "../../../shared/accountAuth";
+import { PrivatePortraitPreference } from "@/components/account/PrivatePortraitPreference";
 
 export default function AccountPage() {
   const account = useAccount();
@@ -436,6 +437,7 @@ function Dashboard() {
       {tab === "security" && (
         <div className="tab-in mt-6">
           <AccountSecurity />
+          {account.token && <PrivatePortraitPreference key={account.token} token={account.token} />}
         </div>
       )}
     </ManagementShell>
@@ -576,20 +578,30 @@ function Membership() {
   const account = useAccount();
   const portal = useAction(api.checkout.billingPortal);
   const [busy, setBusy] = useState(false);
+  const [billingError,setBillingError]=useState("");
+  const tokenRef=useRef(account.token),mounted=useRef(true);
+  tokenRef.current=account.token;
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
+  useEffect(()=>{setBillingError("");setBusy(false);},[account.token]);
   const tier = account.me?.membershipActive
     ? tierByKey(account.me.membershipTier)
     : null;
+  const hasBillingSubscription = account.me?.membershipHasBillingSubscription ?? !!account.me?.membershipBillingTier;
 
   async function manage() {
+    const token=account.token;if(!token||busy)return;
     setBusy(true);
+    setBillingError("");
     try {
       const { url } = await portal({
-        token: account.token!,
+        token,
         origin: window.location.origin,
       });
-      window.location.href = url;
+      if(mounted.current&&tokenRef.current===token)window.location.href = url;
     } catch {
-      setBusy(false);
+      if(mounted.current&&tokenRef.current===token)setBillingError("We couldn't open billing settings. Please try again or contact the team in chat.");
+    } finally {
+      if(mounted.current&&tokenRef.current===token)setBusy(false);
     }
   }
   async function join(_tierKey: string) { window.location.href = "/membership"; }
@@ -599,8 +611,9 @@ function Membership() {
     return (
       <section>
         <p className="mb-4 font-mono text-[10px] uppercase tracking-[.16em] text-accent-300">Your {tier.name} membership</p>
-        <div className="max-w-md"><MembershipPlanCard tier={tier} compact onSelect={manage} disabled={busy || !!(account.me?.membershipAdminGranted && !account.me?.membershipBillingTier)} label={busy ? "Opening settings…" : account.me?.membershipAdminGranted && !account.me?.membershipBillingTier ? "Granted by DB Cinema" : "Membership settings / cancel"} /></div>
-        {account.me?.membershipAdminGranted && <p className="mt-3 max-w-md text-xs leading-5 text-white/50">DB Cinema has granted this plan’s access. Monthly credit is issued only for paid subscription invoices; this access grant does not waive or authorise rental-security claims. {account.me.membershipBillingTier ? `Your paid ${tierByKey(account.me.membershipBillingTier)?.name ?? "membership"} subscription is managed separately.` : "This grant does not start a subscription or monthly charges."}</p>}
+        <div className="max-w-md"><MembershipPlanCard tier={tier} compact onSelect={manage} disabled={busy || !!(account.me?.membershipAdminGranted && !hasBillingSubscription)} label={busy ? "Opening settings…" : account.me?.membershipAdminGranted && !hasBillingSubscription ? "Granted by DB Cinema" : "Membership settings / cancel"} /></div>
+        {billingError && <p role="alert" className="mt-3 max-w-md rounded-xl border border-amber-200/25 bg-amber-200/5 p-3 text-sm text-amber-100">{billingError}</p>}
+        {account.me?.membershipAdminGranted && <p className="mt-3 max-w-md text-xs leading-5 text-white/50">DB Cinema has granted this plan’s access. Monthly credit is issued only for paid subscription invoices; this access grant does not waive or authorise rental-security claims. {hasBillingSubscription ? `Your ${tierByKey(account.me.membershipBillingTier)?.name ?? "linked"} subscription is managed separately.` : "This grant does not start a subscription or monthly charges."}</p>}
         {account.me?.membershipStatus === "trialing" && <p className="mt-3 text-xs text-amber-200">Free week: membership billing only. Rental-security terms are set separately in each accepted rental agreement.</p>}
         {account.me?.membershipCancelAtPeriodEnd && <p className="mt-3 text-xs text-white/45">Cancellation scheduled. Your plan will not renew.</p>}
       </section>
@@ -610,7 +623,8 @@ function Membership() {
   return (
     <section className="rounded-3xl border border-white/[0.07] bg-[#141414] p-5 sm:p-6">
       <div className="hud-label !text-accent-400/90">Db Cinema Membership</div>
-      {account.me?.membershipBillingTier && <div className="my-4 max-w-md rounded-xl border border-white/10 p-4"><p className="text-xs leading-5 text-white/60">Your {tierByKey(account.me.membershipBillingTier)?.name ?? "paid"} subscription billing can still be managed here, even when membership access is inactive.</p><button type="button" onClick={manage} disabled={busy} className="mt-3 text-xs text-accent-200 underline">{busy ? "Opening settings…" : "Manage / cancel paid subscription"}</button></div>}
+      {hasBillingSubscription && <div className="my-4 max-w-md rounded-xl border border-white/10 p-4"><p className="text-xs leading-5 text-white/60">Your {tierByKey(account.me?.membershipBillingTier)?.name ?? "linked"} subscription billing can still be managed here, even when membership access is inactive.</p><button type="button" onClick={manage} disabled={busy} className="mt-3 text-xs text-accent-200 underline">{busy ? "Opening settings…" : "Manage / cancel paid subscription"}</button></div>}
+      {billingError && <p role="alert" className="mt-3 max-w-md rounded-xl border border-amber-200/25 bg-amber-200/5 p-3 text-sm text-amber-100">{billingError}</p>}
       <h2 className="mt-2 font-display text-3xl font-bold text-white">More room for <span className="serif-accent gradient-text">your next story.</span></h2>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/55">Turn your monthly membership into rental credit, with extra credit on top. Keep it for your next shoot or let it build towards something bigger.</p>
       <div className="mt-6 grid items-stretch gap-4 lg:grid-cols-3" data-testid="account-membership-plans">

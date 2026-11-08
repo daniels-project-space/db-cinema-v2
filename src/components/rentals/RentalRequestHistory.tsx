@@ -43,11 +43,19 @@ function RequestHistory({ token, bookingId, admin = false }: { token: string; bo
         <div className={styles.heading}><h4>{labels[request.kind]}</h4><span className={styles.status} data-status={request.status}>{request.execution?.status === "applied" ? "Completed" : request.execution?.status === "processing" ? "Settlement processing" : request.status === "approved" ? "Approved for arrangement" : request.status === "declined" ? "Declined" : "Awaiting team review"}</span></div>
         <time dateTime={new Date(request.createdAt).toISOString()}>{new Date(request.createdAt).toLocaleString("en-GB", { timeZone: "Europe/London", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })} · London</time>
         <p>{request.detail}</p>
+        {request.kind === "cancel" && request.cancellationKindAtRequest && <p className={styles.explanation}>
+          {request.cancellationKindAtRequest === "full_refund"
+            ? `At request time: ${request.cancellationChoice === "credit" ? "renter chose 100% account credit" : request.cancellationChoice === "refund" ? "renter chose a full refund" : "settlement choice not recorded"}.`
+            : request.cancellationKindAtRequest === "store_credit"
+              ? "At request time: account credit only under the accepted terms."
+              : "At request time: no rental refund or account credit under the accepted terms."}
+        </p>}
+        {admin && request.kind === "cancel" && request.cancellationTermsVersion === "2026-11-v21" && request.cancellationKindAtRequest === "full_refund" && !request.cancellationChoice && <p className={styles.error}>This older request has no recorded renter choice. Ask them to submit a fresh cancellation request before processing.</p>}
         {request.decisionNote && <div className={styles.reply}><strong>Team reply</strong><p>{request.decisionNote}</p></div>}
         {request.execution?.status === "applied" ? <div className={styles.reply}><strong>Completed update</strong><p>{request.execution.detail}</p></div>
           : request.execution?.status === "processing" ? <p className={styles.explanation}>Cancellation and settlement are processing. The rental remains reserved until payment and any security settlement under the accepted terms are complete.</p>
           : request.status === "approved" && <p className={styles.explanation}>Your rental stays unchanged until the team confirms the update and any payment or refund separately.</p>}
-        {admin && request.status === "approved" && !request.execution && (request.kind === "dates" || request.kind === "cancel") && <RentalRequestApply token={token} bookingId={bookingId} id={request._id} kind={request.kind} decisionNote={request.decisionNote} disabled={busy} />}
+        {admin && request.status === "approved" && !request.execution && (request.kind === "dates" || request.kind === "cancel") && <RentalRequestApply token={token} bookingId={bookingId} id={request._id} kind={request.kind} decisionNote={request.decisionNote} cancellationKindAtRequest={request.cancellationKindAtRequest} cancellationTermsVersion={request.cancellationTermsVersion} cancellationChoice={request.cancellationChoice} disabled={busy || request.kind === "cancel" && request.cancellationTermsVersion === "2026-11-v21" && request.cancellationKindAtRequest === "full_refund" && !request.cancellationChoice} />}
         {admin && request.status === "pending" && <div className={styles.actions}>
           <button type="button" disabled={busy} onClick={() => open(request._id, "approved")}>Approve for arrangement</button>
           <button type="button" disabled={busy} onClick={() => open(request._id, "declined")}>Decline request</button>

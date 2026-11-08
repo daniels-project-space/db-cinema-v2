@@ -1,4 +1,5 @@
 import {depositReturnReceipt} from "./lib/depositReturnReceipt";
+import { assertSwapStockReconciled } from "./lib/swapStockFence";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
@@ -8,7 +9,8 @@ import { bookingStockLines, londonRentalInstant, RENTAL_TIME_SLOTS, rentalWindow
 import { handoverScheduleFingerprint, pickupScheduleFingerprint, queueRentalEmail, refreshQueuedVerificationEmail } from "./lib/rentalEmailQueue";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { accountForRental } from "./lib/rentalAccount";
-import { listingImages } from "./lib/catalogImages";
+import { queueOwnerNotification } from "./lib/adminPush";
+import { listingImages, listingRentalImages } from "./lib/catalogImages";
 import {
   requiresDroneLicence,
   droneLicenceStatusForRental,
@@ -27,7 +29,7 @@ import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { assertRenterExposure } from "./lib/rentalExposure";
 import { assertRentalInventory } from "./lib/rentalInventory";
-import { postRentalMessage } from "./lib/rentalChat";
+import { accountForToken, ownedBooking, postRentalMessage } from "./lib/rentalChat";
 import {
   rentalCancellationStart,
   bookingCancelKind,
@@ -41,15 +43,26 @@ import {
 
 /** Minimal server-only address lookup: a linked rental never falls back to a reused mailbox. */
 export const changeRecipient = internalQuery({
-  args: { bookingId: v.id("bookings") },
-  handler: async (ctx, { bookingId }) => {
+  args: { bookingId: v.id("bookings"), expectedAccountId: v.optional(v.id("accounts")), expectedRecipientEmail: v.optional(v.string()) },
+  handler: async (ctx, { bookingId, expectedAccountId, expectedRecipientEmail }) => {
     const booking = await ctx.db.get(bookingId);
     if (!booking) return null;
     const account = await accountForRental(ctx, booking);
+    if (expectedAccountId && account?._id !== expectedAccountId) return null;
     const email = booking.accountId
       ? account?.email
       : (account?.email ?? booking.guestEmail);
+    if (expectedRecipientEmail !== undefined && (!email || email.trim().toLowerCase() !== expectedRecipientEmail)) return null;
     return email ? { email, bookingId } : null;
+  },
+});
+
+export const alertRefundContactChange = internalMutation({
+  args: { bookingId: v.id("bookings"), refundId: v.id("rental_refunds") },
+  handler: async (ctx, { bookingId, refundId }) => {
+    const refund = await ctx.db.get(refundId);
+    if (!refund || refund.bookingId !== bookingId || (!refund.expectedAccountId && refund.expectedRecipientEmail === undefined)) throw Error("Refund notification binding unavailable.");
+    await queueOwnerNotification(ctx,{eventKey:`refund-email-contact-changed:${refundId}`,kind:"checkout_failure",bookingId,title:"Refund email needs review",body:"A refund email was not sent because the rental contact changed or is unavailable. Check the payment and contact before notifying the renter."});
   },
 });
 
@@ -83,13 +96,14 @@ export const details = query({
       lineItems: await Promise.all(
         bookingStockLines(b).map(async (line) => {
           const listing = await ctx.db.get(line.listingId);
-          const imageSources = listingImages(listing);
+          const imageSources = listingRentalImages(listing);
           return { ...line, heroImage: imageSources[0] ?? null, imageSources };
         }),
       ),
       rentalRefunds: refunds,
       controlsSnapshot: rentalControlsSnapshot(b, refunds),
       cancellationKind: bookingCancelKind(b, Date.now()),
+      cancellationTermsVersion: b.agreementDocs?.find((doc: { kind: string; version: string }) => doc.kind === "cancellation")?.version ?? "2026-10-v10",
     };
   },
 });
@@ -111,10 +125,12 @@ async function qualifyReschedule(
   if (!b || b.status !== "confirmed" && !activeReturn)
     throw Error("Only an upcoming rental or an active rental return can change this time");
   const bookingId = b._id;
+  await assertSwapStockReconciled(ctx, bookingId);
   if (
     b.cancellationDecision ||
     b.activeAdditionId ||
     b.activeDeliveryQuoteId ||
+    b.activeItemSwapId ||
     b.activeExtensionId ||
       b.activePriceAdjustmentId ||
     b.returnDecision
@@ -223,6 +239,34 @@ export const previewReschedule = query({
           error instanceof Error
             ? error.message
             : "The date change could not be checked.",
+      };
+    }
+  },
+});
+
+export const renterReschedulePreview = query({
+  args: {
+    token: v.string(),
+    bookingId: v.id("bookings"),
+    start: v.number(),
+    reason: v.string(),
+  },
+  handler: async (ctx, { token, bookingId, start, reason }) => {
+    const account = await accountForToken(ctx, token, true);
+    if (!account) throw Error("Please sign in to check this rental.");
+    const booking = await ownedBooking(ctx, account, bookingId);
+    try {
+      const proposal = await qualifyReschedule(ctx, booking, { start, reason });
+      return {
+        ok: true,
+        start,
+        end: Math.max(...proposal.lines.map((line: any) => line.end)),
+        controlsSnapshot: proposal.controlsSnapshot,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: error instanceof Error ? error.message : "Availability could not be checked.",
       };
     }
   },
@@ -454,10 +498,12 @@ export const removeItem = mutation({
     }
     if (b.status !== "confirmed")
       throw Error("Only an unstarted confirmed rental can have kit removed.");
+    await assertSwapStockReconciled(ctx, b._id);
     if (
       b.cancellationDecision ||
       b.activeAdditionId ||
       b.activeDeliveryQuoteId ||
+      b.activeItemSwapId ||
       b.activeExtensionId ||
       b.activePriceAdjustmentId ||
       b.returnDecision
@@ -582,10 +628,12 @@ export const prepareRefund = internalMutation({
     const b = await ctx.db.get(bookingId);
     if (!b || !["confirmed","active"].includes(b.status) || !b.stripePaymentIntentId)
       throw Error("Only a paid rental can receive a rental refund");
+    await assertSwapStockReconciled(ctx, bookingId);
     if (
       b.cancellationDecision ||
       b.activeAdditionId ||
       b.activeDeliveryQuoteId ||
+      b.activeItemSwapId ||
       b.activeExtensionId ||
       b.activePriceAdjustmentId ||
       b.returnDecision
@@ -623,8 +671,12 @@ export const prepareRefund = internalMutation({
     const amount = amountPence ?? remaining;
     if (!Number.isSafeInteger(amount) || amount <= 0 || amount > remaining)
       throw Error("Refund must be within the remaining rental payment");
+    const recipient = await accountForRental(ctx, b);
+    const recipientEmail = (b.accountId ? recipient?.email : recipient?.email ?? b.guestEmail)?.trim().toLowerCase() ?? "";
     const id = await ctx.db.insert("rental_refunds", {
       bookingId,
+      ...(recipient ? { expectedAccountId: recipient._id } : {}),
+      expectedRecipientEmail: recipientEmail,
       requestId,
       amountPence: amount,
       reason: reason.trim().slice(0, 400),
@@ -662,12 +714,12 @@ export const recordRefund = internalMutation({
     await ctx.db.patch(id, { stripeRefundId, status, updatedAt: Date.now() });
     const b = await ctx.db.get(r.bookingId);
     if (!b) return;
-    const a = await ctx.db
-      .query("accounts")
-      .withIndex("by_email", (q) =>
-        q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()),
-      )
-      .first();
+    const a = await accountForRental(ctx, b);
+    const email = (b.accountId ? a?.email : a?.email ?? b.guestEmail)?.trim().toLowerCase() ?? "";
+    if ((r.expectedAccountId && a?._id !== r.expectedAccountId) || (r.expectedRecipientEmail !== undefined && (!email || email !== r.expectedRecipientEmail))) {
+      await queueOwnerNotification(ctx,{eventKey:`refund-owner-changed:${r._id}`,kind:"checkout_failure",bookingId:r.bookingId,title:"Refund contact needs review",body:"The rental contact changed while a refund was settling. Check the payment and contact before notifying the renter."});
+      return;
+    }
     if (a)
       await postRentalMessage(ctx, {
         accountId: a._id,
@@ -677,6 +729,9 @@ export const recordRefund = internalMutation({
       });
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
       bookingId: b._id,
+      ...(r.expectedAccountId ? { expectedAccountId:r.expectedAccountId } : {}),
+      ...(r.expectedRecipientEmail !== undefined ? { expectedRecipientEmail:r.expectedRecipientEmail } : {}),
+      ...(r.expectedAccountId || r.expectedRecipientEmail !== undefined ? { refundId:r._id } : {}),
       kind: "rental refund",
       detail: `£${(r.amountPence / 100).toFixed(2)} · ${status}. ${r.reason}`,
     });
@@ -714,14 +769,61 @@ export const bindRefundAllocations = internalMutation({
     return allocations;
   },
 });
+function supersedingSwapRefundRetry(refund: any, paymentIntentId: string, stripeRefundId: string, attemptKey: string | undefined, attemptedAt: number) {
+  if (!refund.requestId?.startsWith("swap-")) return null;
+  for (const retry of refund.retryHistory ?? []) {
+    if (retry.startedAt <= attemptedAt) continue;
+    const later = retry.failedParts?.find((part: any) =>
+      part.paymentIntentId === paymentIntentId && part.failedRefundId === stripeRefundId && part.attemptKey !== attemptKey,
+    );
+    if (later) return later;
+  }
+  return null;
+}
+
+async function flagAmbiguousSwapRefund(ctx: any, refund: any, evidence: {
+  paymentIntentId: string; successfulRefundId: string; successfulAttemptKey?: string; retryAttemptKey: string;
+}) {
+  if (!refund.requestId?.startsWith("swap-")) return;
+  const now = Date.now();
+  const ambiguity = refund.refundAmbiguity ?? { ...evidence, detectedAt: now };
+  if (!refund.refundAmbiguity) await ctx.db.patch(refund._id, { refundAmbiguity: ambiguity, updatedAt: now });
+
+  const swap = await ctx.db.get(refund.requestId.slice("swap-".length) as any);
+  if (swap?.bookingId !== refund.bookingId) return;
+  if (swap) {
+    const booking = await ctx.db.get(swap.bookingId);
+    if (booking && (booking.activeItemSwapId == null || booking.activeItemSwapId === swap._id)) {
+      await ctx.db.patch(booking._id, { activeItemSwapId: swap._id });
+    }
+    if (swap.status !== "review") {
+      await ctx.db.patch(swap._id, {
+        status: "review",
+        reconcileError: "Stripe reported success for an earlier refund after a retry began.",
+        reconcileAfter: undefined,
+        reconcileAttempts: 0,
+        updatedAt: now,
+      });
+    }
+  }
+  await queueOwnerNotification(ctx, {
+    eventKey: `swap-refund-ambiguity:${refund._id}:${evidence.paymentIntentId}:${evidence.successfulRefundId}`,
+    kind: "checkout_failure",
+    bookingId: refund.bookingId,
+    title: "Equipment refund attempts need review",
+    body: "Stripe confirmed an earlier refund after a retry began. The equipment change is locked. Compare both Stripe receipts before resolving it; no further refund or equipment update will be started automatically.",
+  });
+}
+
 export const recordRefundPart = internalMutation({
   args: {
     id: v.id("rental_refunds"),
     paymentIntentId: v.string(),
     stripeRefundId: v.string(),
     status: v.string(),
+    attemptKey: v.optional(v.string()),
   },
-  handler: async (ctx, { id, paymentIntentId, stripeRefundId, status }) => {
+  handler: async (ctx, { id, paymentIntentId, stripeRefundId, status, attemptKey }) => {
     const r = await ctx.db.get(id);
     if (!r) return;
     const allocation = r.allocations?.find(
@@ -731,9 +833,32 @@ export const recordRefundPart = internalMutation({
     const existing = r.parts?.find(
       (p) => p.paymentIntentId === paymentIntentId,
     );
-    if (existing?.status === "succeeded") return;
-    if (existing && existing.stripeRefundId !== stripeRefundId)
+
+    const receipts = (r.refundReceipts ?? []).filter((row) => row.paymentIntentId === paymentIntentId);
+    const latestReceipt = receipts.sort((a, b) => b.attemptedAt - a.attemptedAt)[0];
+    if (latestReceipt && latestReceipt.attemptKey !== attemptKey) {
+      if (status === "succeeded") {
+        const historical = receipts.find(row => row.attemptKey === attemptKey && row.stripeRefundId === stripeRefundId);
+        const retry = supersedingSwapRefundRetry(r, paymentIntentId, stripeRefundId, attemptKey, historical?.attemptedAt ?? Math.max(0, latestReceipt.attemptedAt - 1));
+        if (retry) await flagAmbiguousSwapRefund(ctx, r, {
+          paymentIntentId,
+          successfulRefundId: stripeRefundId,
+          ...(attemptKey ? { successfulAttemptKey: attemptKey } : {}),
+          retryAttemptKey: retry.attemptKey,
+        });
+        if (!retry) await queueOwnerNotification(ctx, {
+          eventKey: `refund-stale-attempt-success:${r._id}:${paymentIntentId}:${attemptKey ?? "original"}`,
+          kind: "checkout_failure",
+          bookingId: r.bookingId,
+          title: "Refund attempts need review",
+          body: "An earlier refund attempt succeeded after a later retry began. Check both Stripe receipts before closing this equipment change.",
+        });
+      }
+      return { ignored: true, staleAttempt: true };
+    }
+    if (existing && existing.attemptKey === attemptKey && existing.stripeRefundId !== stripeRefundId)
       throw Error("Refund identity mismatch");
+    if (existing && existing.attemptKey === attemptKey && existing.status === "succeeded" && status !== "failed") return;
     const parts = [
       ...(r.parts ?? []).filter((p) => p.paymentIntentId !== paymentIntentId),
       {
@@ -741,6 +866,7 @@ export const recordRefundPart = internalMutation({
         stripeRefundId,
         status,
         amountPence: allocation.amountPence,
+        ...(attemptKey ? { attemptKey } : {}),
       },
     ];
     const aggregate =
@@ -752,15 +878,15 @@ export const recordRefundPart = internalMutation({
             ? "pending"
             : "failed";
     await ctx.db.patch(id, { parts, status: aggregate, updatedAt: Date.now() });
-    if (aggregate !== "prepared" && aggregate !== r.status) {
+    if (aggregate !== "prepared" && aggregate !== r.status && !r.refundAmbiguity) {
       const b = await ctx.db.get(r.bookingId);
       if (!b) return;
-      const a = await ctx.db
-        .query("accounts")
-        .withIndex("by_email", (q) =>
-          q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()),
-        )
-        .first();
+      const a = await accountForRental(ctx, b);
+      const email = (b.accountId ? a?.email : a?.email ?? b.guestEmail)?.trim().toLowerCase() ?? "";
+      if ((r.expectedAccountId && a?._id !== r.expectedAccountId) || (r.expectedRecipientEmail !== undefined && (!email || email !== r.expectedRecipientEmail))) {
+        await queueOwnerNotification(ctx,{eventKey:`refund-owner-changed:${r._id}`,kind:"checkout_failure",bookingId:r.bookingId,title:"Refund contact needs review",body:"The rental account changed while a refund was settling. Check the payment and contact before notifying the renter."});
+        return;
+      }
       if (a)
         await postRentalMessage(ctx, {
           accountId: a._id,
@@ -770,10 +896,14 @@ export const recordRefundPart = internalMutation({
         });
       await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
         bookingId: b._id,
+        ...(r.expectedAccountId ? { expectedAccountId: r.expectedAccountId } : {}),
+        ...(r.expectedRecipientEmail !== undefined ? { expectedRecipientEmail: r.expectedRecipientEmail } : {}),
+        ...(r.expectedAccountId || r.expectedRecipientEmail !== undefined ? { refundId: r._id } : {}),
         kind: "rental refund",
         detail: `£${(r.amountPence / 100).toFixed(2)} · ${aggregate}. ${r.reason}`,
       });
     }
+    return { status: aggregate };
   },
 });
 
@@ -793,4 +923,47 @@ export const equipmentCatalog = query({
 });
 
 export const refundJob=internalQuery({args:{id:v.id("rental_refunds")},handler:async(ctx,{id})=>ctx.db.get(id)});
-export const recordRefundReceipt=internalMutation({args:{id:v.id("rental_refunds"),receipt:depositReturnReceipt},handler:async(ctx,{id,receipt})=>{const r=await ctx.db.get(id);if(!r)throw Error("Refund missing");const a=r.allocations?.find(p=>p.paymentIntentId===receipt.paymentIntentId);if(!a||a.amountPence!==receipt.amountPence||receipt.attemptedAt!==r.createdAt)throw Error("Refund receipt allocation mismatch");const rows=r.refundReceipts??[],old=rows.find(p=>p.paymentIntentId===receipt.paymentIntentId);if(old&&(old.attemptedAt!==receipt.attemptedAt||(old.stripeRefundId&&old.stripeRefundId!==receipt.stripeRefundId)||(old.approvalRequestId&&old.approvalRequestId!==receipt.approvalRequestId)))throw Error("Original refund identity cannot be replaced");await ctx.db.patch(id,{refundReceipts:[...rows.filter(p=>p.paymentIntentId!==receipt.paymentIntentId),receipt]});}});
+export const recordRefundReceipt=internalMutation({args:{id:v.id("rental_refunds"),receipt:depositReturnReceipt},handler:async(ctx,{id,receipt})=>{
+  const r=await ctx.db.get(id);if(!r)throw Error("Refund missing");
+  const allocation=r.allocations?.find(p=>p.paymentIntentId===receipt.paymentIntentId);
+  if(!allocation||allocation.amountPence!==receipt.amountPence)throw Error("Refund receipt allocation mismatch");
+  if(receipt.attemptKey){
+    const retry=r.retryHistory?.find(row=>row.startedAt===receipt.attemptedAt&&row.failedParts.some(part=>part.paymentIntentId===receipt.paymentIntentId&&part.attemptKey===receipt.attemptKey));
+    if(!retry)throw Error("Refund retry receipt is not linked to an authorized attempt");
+  }else if(receipt.attemptedAt!==r.createdAt)throw Error("Original refund receipt identity cannot be replaced");
+  const rows=r.refundReceipts??[],index=rows.findIndex(p=>p.paymentIntentId===receipt.paymentIntentId&&p.attemptKey===receipt.attemptKey),old=index>=0?rows[index]:undefined;
+  if(old&&(old.attemptedAt!==receipt.attemptedAt||old.amountPence!==receipt.amountPence||(old.stripeRefundId&&old.stripeRefundId!==receipt.stripeRefundId)||(old.approvalRequestId&&old.approvalRequestId!==receipt.approvalRequestId)))throw Error("Refund attempt identity cannot be replaced");
+  const updated=old?{...old,...receipt,...(old.stripeRefundId&&!receipt.stripeRefundId?{stripeRefundId:old.stripeRefundId}:{}),...(old.approvalRequestId&&!receipt.approvalRequestId?{approvalRequestId:old.approvalRequestId}:{}),...(old.approvalUrl&&!receipt.approvalUrl?{approvalUrl:old.approvalUrl}:{})}:receipt;
+  await ctx.db.patch(id,{refundReceipts:old?rows.map((row,i)=>i===index?updated:row):[...rows,updated]});
+  if (updated.status === "succeeded" && updated.stripeRefundId) {
+    const retry = supersedingSwapRefundRetry(r, updated.paymentIntentId, updated.stripeRefundId, updated.attemptKey, updated.attemptedAt);
+    if (retry) await flagAmbiguousSwapRefund(ctx, r, {
+      paymentIntentId: updated.paymentIntentId,
+      successfulRefundId: updated.stripeRefundId,
+      ...(updated.attemptKey ? { successfulAttemptKey: updated.attemptKey } : {}),
+      retryAttemptKey: retry.attemptKey,
+    });
+  }
+}});
+
+export const resolveSwapRefundAmbiguity=internalMutation({args:{id:v.id("rental_refunds"),paymentIntentId:v.string(),attempts:v.array(v.object({stripeRefundId:v.string(),status:v.string(),attemptKey:v.optional(v.string())})),reason:v.string()},handler:async(ctx,args)=>{
+  const refund=await ctx.db.get(args.id),reason=args.reason.trim();
+  if(!refund||!refund.requestId?.startsWith("swap-")||refund.refundAmbiguity?.paymentIntentId!==args.paymentIntentId||reason.length<5||reason.length>400)throw Error("The equipment refund ambiguity is not ready to resolve.");
+  const receipts=refund.refundReceipts??[],known=receipts.filter((row:any)=>row.paymentIntentId===args.paymentIntentId);
+  if(!known.length||known.length!==args.attempts.length||new Set(args.attempts.map(row=>row.stripeRefundId)).size!==args.attempts.length)throw Error("The Stripe receipt list changed. Sync the attempts again.");
+  const checked=known.map((receipt:any)=>{
+    const result=args.attempts.find(row=>row.stripeRefundId===receipt.stripeRefundId&&row.attemptKey===receipt.attemptKey);
+    if(!result||!( ["succeeded","failed"].includes(result.status))||!receipt.stripeRefundId)throw Error("Every Stripe refund attempt must have a terminal, matching receipt before resolution.");
+    return {...receipt,status:result.status};
+  });
+  const successes=checked.filter((row:any)=>row.status==="succeeded");
+  if(successes.length!==1||successes[0].stripeRefundId!==refund.refundAmbiguity.successfulRefundId||successes[0].attemptKey!==refund.refundAmbiguity.successfulAttemptKey)throw Error("The receipts do not confirm exactly one successful refund. Keep the equipment change locked and review Stripe.");
+  const winner=successes[0],allocation=refund.allocations?.find((row:any)=>row.paymentIntentId===args.paymentIntentId);
+  if(!allocation||allocation.amountPence!==winner.amountPence)throw Error("The successful Stripe refund does not match its original payment allocation.");
+  const updatedReceipts=receipts.map((row:any)=>row.paymentIntentId===args.paymentIntentId?checked.find((attempt:any)=>attempt.stripeRefundId===row.stripeRefundId&&attempt.attemptKey===row.attemptKey)??row:row);
+  const parts=[...(refund.parts??[]).filter((row:any)=>row.paymentIntentId!==args.paymentIntentId),{paymentIntentId:args.paymentIntentId,stripeRefundId:winner.stripeRefundId,status:"succeeded",amountPence:allocation.amountPence,...(winner.attemptKey?{attemptKey:winner.attemptKey}:{})}];
+  const aggregate=parts.length!==(refund.allocations??[]).length?"prepared":parts.every((part:any)=>part.status==="succeeded")?"succeeded":parts.some((part:any)=>part.status==="pending")?"pending":"failed";
+  const resolvedAt=Date.now();
+  await ctx.db.patch(refund._id,{refundReceipts:updatedReceipts,parts,status:aggregate,refundAmbiguity:undefined,refundAmbiguityResolution:{resolvedAt,reason,successfulRefundId:winner.stripeRefundId,...(winner.attemptKey?{successfulAttemptKey:winner.attemptKey}:{})},updatedAt:resolvedAt});
+  return {status:aggregate,successfulRefundId:winner.stripeRefundId};
+}});

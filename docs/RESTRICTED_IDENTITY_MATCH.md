@@ -1,0 +1,17 @@
+# Restricted-account identity matching
+
+DB Cinema keeps a keyed HMAC of the provider-approved name and date of birth so a later Didit approval can raise a human-review alert for a restricted account. The matching key is not a substitute for identity documents and does not automatically block a renter. Raw date of birth and identity numbers are not stored in the account match record.
+
+The application prefers `RESTRICTED_IDENTITY_HMAC_SECRET` and falls back to `INVOICE_SECRET` for existing deployments. Before configuring the dedicated variable, set it to the **same value currently used by `INVOICE_SECRET`**. This preserves the existing `dbc-person-v1` hashes while allowing invoice signing to rotate independently later. Store and back up the dedicated key as a long-lived production secret; changing it without a rekey plan makes prior restricted-account hashes unmatchable. Do not print either secret or copy it into source control.
+
+The identity archive and document files retain their separate 90-day-after-rental-closure policy and case hold. Raw ID and selfie files must not be retained permanently. A longer raw-document retention period requires a documented lawful purpose, access controls, and an approved retention schedule; it must not be inferred from the longer-lived HMAC record.
+
+## Retention and lawful-processing boundary
+
+The HMAC is pseudonymous personal data: it is deliberately stable and linkable so the service can find a possible match. It is not anonymous, and its retention period needs its own documented necessity and review. Only provider-approved biographical data is used to derive it; the application does not keep the source DOB or ID number in this match record. The match creates an advisory for a trained human and must not itself reject, restrict, or prevent a rental.
+
+Didit's face match and identity-document checks are a separate processing activity. When biometric data is processed to uniquely identify someone, the ICO classifies it as special-category biometric data. That processing needs both an Article 6 lawful basis and a separate Article 9 condition, plus a DPIA where it is likely to be high risk. Data must be limited to what is necessary and erased when no longer needed. The ICO does not provide a general exemption for a business-requested permanent copy of renter identity documents.
+
+Before extending the existing 90-day document schedule, the controller must record the exact purpose, necessity, proportionality, Article 6 basis, any required Article 9 condition, transparency notice, security controls, and a reviewable retention period. If the purpose can be achieved with a shorter-lived HMAC or a provider-side match signal, retaining the raw documents is not justified by convenience alone. Case holds remain tied to a specific open case and end 90 days after that case closes, subject to a separately documented legal hold.
+
+Sources: [ICO biometric recognition guidance](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/lawful-basis/biometric-data-guidance-biometric-recognition/biometric-recognition/), [ICO special-category data guidance](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/lawful-basis/special-category-data/what-is-special-category-data/), and [ICO storage limitation guidance](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/data-protection-principles/a-guide-to-the-data-protection-principles/storage-limitation/).

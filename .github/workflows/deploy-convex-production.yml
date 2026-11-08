@@ -147,6 +147,12 @@ jobs:
         if: steps.changes.outputs.deploy == 'true'
         run: npm ci --no-audit --no-fund
 
+      - name: Enable the approved SetupIntent security policy
+        if: steps.changes.outputs.deploy == 'true'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.DBCINEMA_CONVEX_DEPLOY_KEY }}
+        run: npx convex env set --prod SETUP_INTENT_SECURITY_POLICY_ENABLED true
+
       - name: Typecheck and deploy the production Convex backend
         if: steps.changes.outputs.deploy == 'true'
         env:

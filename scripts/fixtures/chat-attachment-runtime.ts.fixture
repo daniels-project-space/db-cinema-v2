@@ -1,0 +1,29 @@
+import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
+
+export const seed = mutation({ args: {}, handler: async ctx => {
+  const now = Date.now();
+  const accountId = await ctx.db.insert("accounts", { email: "attachment-owner@example.invalid", createdAt: now });
+  const otherId = await ctx.db.insert("accounts", { email: "attachment-other@example.invalid", createdAt: now });
+  await ctx.db.insert("sessions", { accountId, token: "synthetic-owner", expiresAt: now + 3600000 });
+  await ctx.db.insert("sessions", { accountId: otherId, token: "synthetic-other", expiresAt: now + 3600000 });
+  const bookingId = await ctx.db.insert("bookings", { accountId, guestEmail: "attachment-owner@example.invalid", status: "confirmed", lineItems: [], fulfilment: "pickup", deliveryFee: 0, subtotal: 0, discount: 0, depositAmount: 0, total: 0, currency: "GBP" });
+  return { accountId, bookingId };
+} });
+
+export const inspect = query({ args: { accountId: v.id("accounts") }, handler: async (ctx, { accountId }) => ({
+  attempts: await ctx.db.query("chat_attachment_attempts").withIndex("by_account_created", q => q.eq("accountId", accountId)).collect(),
+  messages: await ctx.db.query("messages").withIndex("by_account", q => q.eq("accountId", accountId)).collect(),
+}) });
+
+export const expireSession = mutation({ args: {}, handler: async ctx => {
+  const session = await ctx.db.query("sessions").withIndex("by_token", q => q.eq("token", "synthetic-owner")).unique();
+  if (!session) throw Error("Synthetic session missing.");
+  await ctx.db.patch(session._id, { expiresAt: Date.now() - 1 });
+} });
+
+export const setMessageBinding = mutation({ args: { messageId: v.id("messages"), attachmentId: v.optional(v.id("chat_attachment_attempts")) }, handler: async (ctx, { messageId, attachmentId }) => {
+  const message = await ctx.db.get(messageId);
+  if (!message) throw Error("Synthetic message missing.");
+  await ctx.db.patch(messageId, { meta: { kind: "attachment", ...(attachmentId ? { attachmentId } : {}) } });
+} });

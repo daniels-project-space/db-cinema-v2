@@ -91,7 +91,9 @@ export async function strictDepositWaiverReason(ctx: any, account: any, replacem
   if (!hasCleanRental) return undefined;
 
   const progress = await loyaltyProgress(ctx, account);
-  if (progress.level === 3) return "encore" as const;
+  // Deposit waivers require earned Encore III. An admin Encore override is a
+  // display/pricing setting and must not replace three qualifying rentals.
+  if (progress.completed >= 3) return "encore" as const;
 
   if (!account.stripeSubscriptionId || !account.membershipActive || account.membershipStatus !== "active" ||
       account.membershipSource === "collective-comp" || account.membershipPerksPendingBookingId ||

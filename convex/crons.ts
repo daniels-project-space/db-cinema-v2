@@ -2,6 +2,7 @@ import { cronJobs } from "convex/server";
 import { api, internal } from "./_generated/api";
 
 const crons = cronJobs();
+crons.interval("recover-membership-refunds", { minutes: 5 }, (internal as any).membershipRefundJobs.dispatchDue, {});
 
 // Durable pickup scheduling recovery; requests only due/new-policy bookings.
 crons.interval("pickup-rental-security-holds", { minutes: 5 }, internal.holdRenewal.pickupsDue, {});
@@ -18,8 +19,16 @@ crons.interval("reconcile-rental-prices",{minutes:5},internal.rentalPricePayment
 
 crons.interval("reconcile-rental-additions",{minutes:5},internal.rentalAdditions.reconcile,{});
 crons.interval("reconcile-rental-delivery-quotes",{minutes:5},internal.rentalDelivery.reconcile,{});
+crons.interval("reconcile-rental-item-swaps",{minutes:5},internal.rentalSwapPayments.reconcile,{});
+crons.interval("reconcile-swap-stock-operations",{minutes:5},internal.swapStockOperations.reconcile,{});
+crons.interval("audit-converted-swap-stock",{minutes:5},internal.swapStockAudit.runDue,{});
+crons.interval("backfill-converted-swap-audits",{minutes:5},internal.swapStockAudit.backfill,{});
 crons.interval("retry-owner-phone-alerts", { minutes: 5 }, internal.adminPushDelivery.retryDue, {});
+crons.interval("restricted-identity-alerts", { minutes: 1 }, internal.restrictedIdentityAlerts.dispatchDue, {});
 crons.interval("retry-owner-telegram-alerts", { minutes: 2 }, internal.ownerTelegram.retryDue, {});
+crons.interval("recover-gaffer-inquiry-alerts", { minutes: 5 }, internal.chat.recoverGafferAlerts, {});
+crons.interval("purge-gaffer-inquiry-alerts", { hours: 1 }, internal.chat.purgeGafferAlerts, {});
+crons.interval("purge-gaffer-call-telemetry", { hours: 24 }, internal.analytics.purgeGafferCallTelemetry, {});
 crons.interval("retry-rental-account-links", { minutes: 5 }, internal.accountAccess.retryRentalAccess, {});
 
 // Lapse membership perks with the real Stripe subscription (deactivates cancelled/unpaid members).
@@ -27,6 +36,7 @@ crons.interval("reconcile-memberships", { hours: 6 }, internal.checkout.reconcil
 
 // Expire old login sessions (enforces session TTL — queries can't read the clock).
 crons.interval("sweep-sessions", { hours: 1 }, internal.accounts.sweepExpiredSessions, {});
+crons.interval("sweep-orphan-avatar-uploads", { hours: 1 }, internal.accounts.sweepAvatarUploads, {});
 
 // Pickup-tomorrow / return-today reminders (email + Telegram).
 crons.interval("send-reminders", { hours: 12 }, internal.notify.sendReminders, {});
@@ -46,6 +56,10 @@ crons.interval("reconcile-rental-verifications", { hours: 1 }, internal.diditSwe
 crons.interval("archive-verification-documents", { minutes: 5 }, internal.verificationArchiveWorker.retryDue, {});
 crons.interval("retry-rental-manager-delivery", { minutes: 1 }, internal.rmv2_webhook.retryDue, {});
 crons.interval("purge-expired-verification-documents", { hours: 24 }, internal.verificationArchive.purgeExpired, {});
+crons.daily("auto-close-inactive-support-chats", { hourUTC: 3, minuteUTC: 20 }, internal.chatAttachments.closeInactiveSupportThreads, {});
+crons.interval("purge-expired-chat-attachments", { hours: 1 }, internal.chatAttachments.purgeExpired, {});
+crons.interval("purge-chat-attachment-audit-history", { hours: 24 }, internal.chatAttachments.purgeExpiredActionAudits, {});
+crons.interval("backfill-legacy-case-chat-archives", { hours: 24 }, (internal as any).chatCaseArchive.backfillLegacyCaseArchives, {});
 
 crons.interval("expire-rental-verifications", { hours: 1 }, internal.bookings.expireRentalVerifications, {});
 
@@ -87,5 +101,7 @@ crons.interval("reconcile-completed-referrals",{hours:1},internal.referrals.reco
 crons.interval("referral-campaign-delivery",{minutes:5},internal.referralMail.sendCampaign,{});
 crons.interval("renter-push-recovery", { minutes: 2 }, internal.renterPushDelivery.retryDue, {});
 crons.interval("admin-push-recovery", { minutes: 2 }, internal.adminPushDelivery.retryDue, {});
+crons.interval("sweep-chat-attachment-uploads", { minutes: 5 }, internal.chatAttachments.sweep, {});
 crons.interval("rental-email-recovery", { minutes: 1 }, internal.rentalEmailDelivery.dispatchDue, {});
+crons.interval("account-restriction-notices", { minutes: 1 }, internal.accountRestrictionNotice.dispatchDue, {});
 export default crons;

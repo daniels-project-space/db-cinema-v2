@@ -4,8 +4,11 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import styles from "./RentalRequestHistory.module.css";
 
-export function RentalRequestApply({ token, bookingId, id, kind, decisionNote, disabled = false }: {
+export function RentalRequestApply({ token, bookingId, id, kind, decisionNote, cancellationKindAtRequest, cancellationTermsVersion, cancellationChoice, disabled = false }: {
   token: string; bookingId: string; id: string; kind: "dates" | "cancel"; decisionNote?: string; disabled?: boolean;
+  cancellationKindAtRequest?: "full_refund" | "store_credit" | "no_refund";
+  cancellationTermsVersion?: string;
+  cancellationChoice?: "refund" | "credit";
 }) {
   const [open, setOpen] = useState(false);
   const [start, setStart] = useState("");
@@ -31,7 +34,10 @@ export function RentalRequestApply({ token, bookingId, id, kind, decisionNote, d
         await reschedule({ token, bookingId: bookingId as any, changeRequestId: id as any, start: Date.parse(start + "T00:00:00Z"), end: end ? Date.parse(end + "T00:00:00Z") : undefined, keepAgreedPrice: keepPrice, reason });
       } else {
         if (!consent) throw Error("Confirm cancellation under the rental's agreed terms.");
-        await cancel({ token, bookingId: bookingId as any, changeRequestId: id as any, reason, expectedCancellationKind: details.cancellationKind });
+        const acceptedKind = cancellationKindAtRequest ?? details.cancellationKind;
+        const acceptedVersion = cancellationTermsVersion ?? details.cancellationTermsVersion;
+        if (acceptedVersion === "2026-11-v21" && acceptedKind === "full_refund" && !cancellationChoice) throw Error("Ask the renter to submit a new request with their refund or credit choice.");
+        await cancel({ token, bookingId: bookingId as any, changeRequestId: id as any, reason, expectedCancellationKind: acceptedKind, ...(acceptedVersion === "2026-11-v21" && acceptedKind === "full_refund" && cancellationChoice ? { customerChoice: cancellationChoice } : {}) });
       }
       setOpen(false);
     } catch (e: any) { setError(e.data?.message ?? e.message ?? "The change could not be completed. Check its status and retry."); setRefreshKey(k => k + 1); if (kind === "cancel") setConsent(false); }
@@ -46,12 +52,13 @@ export function RentalRequestApply({ token, bookingId, id, kind, decisionNote, d
         <p className={styles.explanation}>Leave the return date blank to keep the duration. Existing collection and return times are retained. Stock is checked before the dates change.</p>
         {end && <label className={styles.check}><input required type="checkbox" disabled={busy} checked={keepPrice} onChange={e => setKeepPrice(e.target.checked)} />Keep the agreed charge. Any additional days are complimentary; any refund is handled separately.</label>}
       </> : <>
-        <p className={styles.explanation}>{details.cancellationKind === "full_refund" ? "Cancel under the agreed terms: remaining refundable card payment returns to its original payment method and used credit is restored." : "Cancel under the agreed terms: remaining rental value becomes account credit. Refundable security is settled separately."} The request completes after refunds and card authorisation releases are confirmed.</p>
+        <p className={styles.explanation}>{(cancellationTermsVersion ?? details.cancellationTermsVersion) === "2026-11-v21" ? (cancellationKindAtRequest ?? details.cancellationKind) === "no_refund" ? "At the renter’s request time, pickup was within 48 hours: no rental refund and no account credit. Refundable security is settled separately." : (cancellationKindAtRequest ?? details.cancellationKind) === "store_credit" ? "At the renter’s request time, pickup was more than 48 hours and seven or fewer London calendar days away: account credit only. Refundable security is settled separately." : "At the renter’s request time, pickup was more than seven London calendar days away: the renter could choose a full refund or 100% account credit." : (cancellationKindAtRequest ?? details.cancellationKind) === "full_refund" ? "Cancel under the accepted terms: remaining refundable card payment returns to its original payment method and used credit is restored." : "Cancel under the accepted terms: remaining rental value becomes account credit. Refundable security is settled separately."} The decision follows the terms and timing saved with the renter’s request.</p>
+        {(cancellationTermsVersion ?? details.cancellationTermsVersion) === "2026-11-v21" && (cancellationKindAtRequest ?? details.cancellationKind) === "full_refund" && <p className={styles.reply}>{cancellationChoice === "credit" ? "Renter selected 100% account credit · 365 days." : cancellationChoice === "refund" ? "Renter selected a full refund to the original payment method." : "No renter settlement choice was recorded. Ask them to submit a new request before processing."}</p>}
         <label className={styles.check}><input required type="checkbox" disabled={busy} checked={consent} onChange={e => setConsent(e.target.checked)} />Process this agreed cancellation under the rental terms.</label>
       </>}
       <label>Reason for the update<textarea required minLength={5} maxLength={400} disabled={busy} value={reason} onChange={e => setReason(e.target.value)} /></label>
     </>}
-    <div className={styles.actions}><button disabled={busy || !details || disabled}>{busy ? "Processing…" : kind === "dates" ? "Confirm date update" : "Confirm cancellation and settlement"}</button><button type="button" disabled={busy} onClick={() => { setOpen(false); setError(""); }}>Back</button></div>
+    <div className={styles.actions}><button disabled={busy || !details || disabled || kind === "cancel" && (cancellationTermsVersion ?? details?.cancellationTermsVersion) === "2026-11-v21" && (cancellationKindAtRequest ?? details?.cancellationKind) === "full_refund" && !cancellationChoice}>{busy ? "Processing…" : kind === "dates" ? "Confirm date update" : "Confirm cancellation and settlement"}</button><button type="button" disabled={busy} onClick={() => { setOpen(false); setError(""); }}>Back</button></div>
     {error && <p role="alert" className={styles.error}>{error}</p>}
   </form>;
 }

@@ -2,7 +2,7 @@ const assert=require('node:assert/strict');
 const {load,db,put}=require('./lib/rentalTestHarness.cjs');
 const {qualifyingRentalCount}=load('shared/loyalty.ts');
 const accounts=load('convex/accounts.ts'),bookings=load('convex/bookings.ts'),reviews=load('convex/reviews.ts');
-const {reviewContext}=load('convex/lib/reviewContext.ts'),{reviewSettlementFingerprint}=load('convex/lib/reviewEligibility.ts'),{loyaltyProgress,encoreGate}=load('convex/lib/loyalty.ts');
+const {reviewContext}=load('convex/lib/reviewContext.ts'),{reviewSettlementFingerprint}=load('convex/lib/reviewEligibility.ts'),{loyaltyProgress,loyaltyProgressWithin,encoreGate}=load('convex/lib/loyalty.ts');
 const {calculateRentalPrice}=load('convex/lib/rentalPrice.ts'),catalog=load('convex/catalog.ts');
 const DAY=86400000,now=Date.now();
 const row=(id,date,session='cs-'+id,status='returned')=>({_id:id,status,stripeCheckoutSessionId:session,lineItems:[{start:date,end:date+DAY},{start:date,end:date+DAY}]});
@@ -73,6 +73,7 @@ assert.equal(qualifyingRentalCount([row('a',DAY,'cs-a'),row('a2',DAY*4,'cs-a'),r
  let quote=await calculateRentalPrice(pricingCtx,input);assert.equal(quote.loyaltySaving,30);assert.equal(quote.totalReduction,30);assert.equal(quote.depositAmount,0);assert.equal(quote.securityWaiverReason,undefined);assert.equal(quote.deliveryReduction,0);
  const pendingArgs={customerEmail:account.email,fulfilment:'pickup',deliveryFee:quote.deliveryFee,lineItems:quote.items.map(i=>({listingId:i.listingId,title:i.title,start:i.start,end:i.end,qty:1,lineTotal:i.total})),subtotal:quote.subtotal,depositAmount:quote.depositAmount,discount:quote.totalReduction,total:quote.totalBeforeCredit,expectedTotalDue:quote.totalDue,creditAccountId:account._id,loyaltySaving:quote.loyaltySaving,currency:'GBP'};
  const pending=await bookings.createPending.handler(pricingCtx,pendingArgs);assert.equal((await db.get(pending.bookingId)).discount,30);
+ assert.deepEqual((await db.get(pending.bookingId)).checkoutLineFunding.map(({gross,discount,membershipCredit,accountCredit,card})=>({gross,discount,membershipCredit,accountCredit,card})),[{gross:300,discount:30,membershipCredit:0,accountCredit:0,card:270}]);
  await assert.rejects(bookings.createPending.handler(pricingCtx,{...pendingArgs,loyaltySaving:31}),/saving changed/);
  quote=await calculateRentalPrice(pricingCtx,{...input,selectedMembership:{tier:'pro',intro:'none'}});assert.equal(quote.loyaltySaving,0,'checkout-added subscription cannot stack');assert.equal(quote.membershipSignupOfferSaving,10);assert.equal(quote.depositAmount,0);
  account.membershipActive=true;account.membershipTier='pro';account.membershipStatus='active';account.membershipPaidThrough=now+DAY;
@@ -81,5 +82,10 @@ assert.equal(qualifyingRentalCount([row('a',DAY,'cs-a'),row('a2',DAY*4,'cs-a'),r
  account.membershipPerksPendingBookingId=third._id;quote=await calculateRentalPrice(pricingCtx,input);assert.equal(quote.depositAmount,0,'No new-policy cash security even while member perks are pending');
  await db.patch(account._id,{adminEncoreLevel:1});const overriddenEarned=await loyaltyProgress(ctx,account);assert.equal(overriddenEarned.completed,3);assert.equal(overriddenEarned.level,1,'Explicit admin Encore tier overrides earned display tier');
  await db.patch(account._id,{adminEncoreLevel:undefined});assert.equal((await loyaltyProgress(ctx,account)).level,3,'Automatic restores earned Encore tier');
+ const large=put('accounts',{email:'large-history@example.invalid'});for(let index=0;index<150;index++)put('bookings',{accountId:large._id,guestEmail:large.email,status:'active'});
+ let bookingReads=0;
+ const boundedCtx={db:{...db,query(table){const query=db.query(table);if(table==='bookings'){const iterator=query[Symbol.asyncIterator].bind(query);query[Symbol.asyncIterator]=async function*(){for await(const booking of iterator()){bookingReads++;yield booking;}};}return query;}}};
+ assert.equal(await loyaltyProgressWithin(boundedCtx,large,100),null,'A truncated history never returns a false earned level');
+ assert.equal(bookingReads,101,'Directory loyalty checks read at most 100 records plus one lookahead');
  console.log('PASS review-earned Encore: no return-only or cached grants; three clean/provider-attested owned reviews; negative/unpublished ratings equal; permanent accounts and no reused-mail grants; issue/late/security gates; real pricing/checkout guard, nonstack and persisted celebration.');
 })().catch(e=>{console.error(e);process.exitCode=1});

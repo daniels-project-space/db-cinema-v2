@@ -210,9 +210,10 @@ export async function POST(req: NextRequest) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || !Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end)) || end < start)
     return NextResponse.json({ error: "Choose a valid rental date range.", stages: [] }, { status: 400 });
   const { pickupTime, returnTime } = b;
-  if (!PICKUP_SLOTS.includes(pickupTime) || !PICKUP_SLOTS.includes(returnTime))
-    return NextResponse.json({ error: "Choose pickup and return times before checking kit availability.", stages: [] }, { status: 400 });
-  if (start === end && returnTime <= pickupTime)
+  const hasAnyTime = pickupTime !== undefined || returnTime !== undefined;
+  if (hasAnyTime && (!PICKUP_SLOTS.includes(pickupTime) || !PICKUP_SLOTS.includes(returnTime)))
+    return NextResponse.json({ error: "Choose both pickup and return times, or leave both for checkout.", stages: [] }, { status: 400 });
+  if (hasAnyTime && start === end && returnTime <= pickupTime)
     return NextResponse.json({ error: "Return time must be after pickup time.", stages: [] }, { status: 400 });
   const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
   const loadTypeListings = createTypeListingLoader(c);

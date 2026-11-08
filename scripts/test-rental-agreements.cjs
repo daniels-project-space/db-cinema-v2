@@ -30,6 +30,15 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  await assert.rejects(bookings.createPending.handler(ctx,{...args,agreementRequestId:undefined}),/acceptance attempt/);assert.equal(count(),0);
  const created=await bookings.createPending.handler(ctx,args),b=await db.get(created.bookingId);
  const saved=b.agreementSnapshot,signed=b.agreementSignedAt;
+ // A renter with a Didit pass needs fresh, readable provider copies before the
+ // later handover guards can be reached in this test.
+ const diditSessionId='agreement-didit-session';await db.patch(b._id,{diditSessionId});
+ const archive=put('verification_archives',{bookingId:b._id,sessionId:diditSessionId,source:'didit',status:'complete',accountId:undefined,readProofVersion:2,readVerifiedAt:Date.now(),supplementalStatus:'complete',supplementalCheckVersion:2});
+ for(const kind of ['identity-0-front_image','address-0']){
+  const storageId=`agreement-${kind}`,sha256='a'.repeat(64),size=64,contentType='application/pdf';
+  put('verification_documents',{archiveId:archive._id,bookingId:b._id,sessionId:diditSessionId,accountId:undefined,kind,storageId,sha256,size,contentType});
+  put('_storage',{_id:storageId,sha256,size,contentType});
+ }
  assert.equal(count(),1);const snapshot=JSON.parse(saved);
  assert.equal(snapshot.version,LEGAL_VERSION);assert.equal(LEGAL_VERSION,'2026-10-v13');
  const current=load('shared/legalDocuments.ts').LEGAL_DOCS['deposit-agreement'];assert.match(JSON.stringify(current),/no card hold/i);assert.match(JSON.stringify(current),/10%/);assert.match(JSON.stringify(current),/£250/);assert.match(JSON.stringify(current),/seven days/);assert.match(JSON.stringify(current),/authentication/i);assert.match(JSON.stringify(load('shared/legalDocuments.ts').LEGAL_ARCHIVE['2026-10-v12']['deposit-agreement']),/automatically request.*agreed pickup/);

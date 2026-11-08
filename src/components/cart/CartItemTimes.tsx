@@ -9,7 +9,7 @@ import { TimeSlotPicker } from "../checkout/TimeSlotPicker";
 import { useCart, type CartItem } from "./CartProvider";
 
 /** Checkout keeps each line's own clocks and collapses completed time controls. */
-export function CartItemTimes({ item, delivery = false }: { item: CartItem; delivery?: boolean }) {
+export function CartItemTimes({ item, delivery = false, initiallyExpanded = false }: { item: CartItem; delivery?: boolean; initiallyExpanded?: boolean }) {
   const cart = useCart(), id = useId(), priceQuote = useAction(api.checkout.priceQuote);
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -20,6 +20,7 @@ export function CartItemTimes({ item, delivery = false }: { item: CartItem; deli
   const billableDays = invalidOrder ? daysInclusive(item.start, item.end) : rentalPricingDays(dayMs(item.start), dayMs(item.end), pickupTime, returnTime);
 
   useEffect(() => { if (invalidOrder) setExpanded(true); }, [invalidOrder]);
+  useEffect(() => { if (initiallyExpanded) setExpanded(true); }, [initiallyExpanded]);
 
   const slots = useQuery(api.availability.forTimeSlots, {
     listingId: item.listingId as any,

@@ -1,0 +1,14 @@
+import { v } from 'convex/values';
+import { mutation, query, action } from './_generated/server';
+import { internal } from './_generated/api';
+
+export const seed = mutation({args:{},handler:async ctx=>{
+  const now=Date.now(),start=Math.floor((now+60*86400000)/86400000)*86400000,end=start+86400000;
+  const unit=await ctx.db.insert('inventory_units',{sku:`qualify-${now}`,name:'Synthetic camera',quantityOwned:1,replacementCost:1000,active:true});
+  const listing=await ctx.db.insert('listings',{slug:`qualify-${now}`,title:'Synthetic camera',category:'Cameras',active:true,components:[{inventoryUnitId:unit,qty:1}],pricing:{daily:100},depositAmount:100});
+  const bookings=[];
+  for(let index=0;index<2;index++)bookings.push(await ctx.db.insert('bookings',{guestEmail:`stock-${now}-${index}@example.invalid`,status:'pending_verification',lineItems:[{listingId:listing,title:'Synthetic camera',start,end,qty:1,lineTotal:100}],fulfilment:'pickup',deliveryFee:0,subtotal:100,discount:0,depositAmount:0,total:100,currency:'GBP',verificationProvider:'didit',idVerifyStatus:'verified',idVerifiedAt:now,verificationExpiresAt:now+86400000,documentExpiresAt:now+86400000}));
+  return bookings;
+}});
+export const approve=action({args:{bookingId:v.id('bookings'),paymentIntentId:v.string()},handler:async(ctx,args)=>ctx.runMutation(internal.bookings.confirm,args)});
+export const inspect=query({args:{bookingIds:v.array(v.id('bookings'))},handler:async(ctx,args)=>({bookings:await Promise.all(args.bookingIds.map(id=>ctx.db.get(id))),notifications:await ctx.db.query('admin_notifications').collect()})});

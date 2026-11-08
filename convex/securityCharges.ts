@@ -56,10 +56,20 @@ export const sendReceipt=internalAction({args:idArgs,handler:async(ctx,{id}):Pro
  if(!await ctx.runMutation(internal.securityChargeState.claimNotice,{id,receipt:true}))return;
  const {charge:r,account}=await matchingContext(ctx,id);
  if(!account?.email){await ctx.runMutation(internal.securityChargeState.noticeResult,{id,sent:false,receipt:true});return;}
- const email={to:account.email,subject:`DB Cinema Rentals: ${money(r.paidPence??0)} assessment payment receipt`,html:`<h2>Payment confirmed</h2><p>Stripe confirmed ${money(r.paidPence??0)} for your ${r.kind==='late'?'late-return':'damage/loss'} assessment, reference ${esc(String(r._id).slice(-8))}.</p><p>${esc(r.reason)}</p><p>This is a separate saved-card payment. No deposit or card hold was captured.</p><p>Reply if any receipt detail is wrong.</p>`};const sent=await sendMail(email);
+ const app=process.env.APP_URL??'https://dbcinemarentals.com',secret=process.env.INVOICE_SECRET;
+ let attachment:{filename:string;content:string}|undefined;
+ if(secret)try{
+  const url=new URL(`/api/invoice/${encodeURIComponent(String(r.bookingId))}`,app);url.searchParams.set('phase','assessment');url.searchParams.set('assessment',String(r._id));
+  const response=await fetch(url,{headers:{'x-invoice-key':secret},signal:AbortSignal.timeout(20000)});
+  if(!response.ok||response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()!=='application/pdf')throw Error('Assessment statement unavailable');
+  const bytes=Buffer.from(await response.arrayBuffer());if(bytes.length<5||bytes.length>10_000_000||bytes.subarray(0,5).toString('ascii')!=='%PDF-')throw Error('Assessment statement invalid');
+  attachment={filename:`DbCinema-assessment-${String(r._id).slice(-8)}.pdf`,content:bytes.toString('base64')};
+ }catch(error){console.error('Assessment statement could not be attached',String(error));}
+ const email={to:account.email,subject:`DB Cinema Rentals: ${money(r.paidPence??0)} assessment payment receipt`,html:`<h2>Payment confirmed</h2><p>Stripe confirmed ${money(r.paidPence??0)} for your ${r.kind==='late'?'late-return':'damage/loss'} assessment, reference ${esc(String(r._id).slice(-8))}.</p><p>${esc(r.reason)}</p><p>This is a separate saved-card payment. No deposit or card hold was captured. ${attachment?'Your assessment statement is attached.':'A PDF statement could not be attached; contact us if you need one.'}</p><p>Reply if any receipt detail is wrong.</p>`,...(attachment?{attachments:[attachment]}:{})};const sent=await sendMail(email);
  await ctx.runMutation(internal.securityChargeState.noticeResult,{id,sent,receipt:true,recipient:email.to,subject:email.subject,html:email.html});
 }});
 export const resendNotice=action({args:{token:v.string(),...idArgs},handler:async(ctx,{token,id}):Promise<void>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:'securityCharges.resendNotice'});await ctx.runAction(internal.securityCharges.sendNotice,{id});}});
+export const resendReceipt=action({args:{token:v.string(),...idArgs},handler:async(ctx,{token,id}):Promise<void>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:'securityCharges.resendReceipt'});await ctx.runAction(internal.securityCharges.sendReceipt,{id});}});
 export const collect=action({args:{token:v.string(),...idArgs},handler:async(ctx,{token,id}):Promise<{status:string}>=>{
  await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:'securityCharges.collect'});
  const r:any=await ctx.runMutation(internal.securityChargeState.claim,{id});const sb=client();let requestStarted=false;

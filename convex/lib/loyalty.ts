@@ -21,12 +21,14 @@ export function celebratedLoyaltyLevel(account:any){
 }
 /** Cached legacy levels are not evidence of a review. Ownership follows accountId
  * after email changes; only genuinely unlinked history uses the legacy email. */
-export async function loyaltyProgress(ctx:any,account:any){
+async function calculateLoyaltyProgress(ctx:any,account:any,maxBookings:number | null){
  const qualifying:any[]=[],seen=new Set<string>();
+ let examined=0;
  const resolve=(completed:number)=>{const level=account.adminEncoreLevel??completed;return {eligible:completed>0||level>0,completed,level,percent:loyaltyPercent(level)}};
  const feeds=[ctx.db.query("bookings").withIndex("by_account",(q:any)=>q.eq("accountId",account._id)).order("desc"),
   ctx.db.query("bookings").withIndex("by_guestEmail",(q:any)=>q.eq("guestEmail",account.email.trim().toLowerCase())).order("desc")];
  for(const feed of feeds)for await(const booking of feed){
+  if(maxBookings !== null && examined++ >= maxBookings)return null;
   if(seen.has(booking._id)||!belongsToRentalAccount(booking,account))continue;seen.add(booking._id);
   if(encoreGate(booking))continue;
   const review=await ctx.db.query("reviews").withIndex("by_booking",(q:any)=>q.eq("verifiedBookingId",booking._id)).first();
@@ -37,6 +39,13 @@ export async function loyaltyProgress(ctx:any,account:any){
   if(qualifyingRentalCount(qualifying)===3)return resolve(3);
  }
  return resolve(qualifyingRentalCount(qualifying));
+}
+export async function loyaltyProgress(ctx:any,account:any){
+ return (await calculateLoyaltyProgress(ctx,account,null))!;
+}
+export async function loyaltyProgressWithin(ctx:any,account:any,maxBookings:number){
+ if(!Number.isInteger(maxBookings) || maxBookings < 1)throw Error("Invalid loyalty history limit.");
+ return calculateLoyaltyProgress(ctx,account,maxBookings);
 }
 /** Called in the same transaction that saves the authenticated rental review. */
 export async function unlockLoyalty(ctx:any,account:any){

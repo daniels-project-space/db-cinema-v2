@@ -1,5 +1,6 @@
 import { checkoutDemand } from "../shared/checkoutDemand";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { listingImages } from "./lib/catalogImages";
 import { checkAdminToken } from "./adminAuth";
@@ -9,6 +10,7 @@ import { lateFeeQuote } from "./lib/lateFee";
 import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
 import { requiresDroneLicence } from "./lib/droneVerification";
 import { isExcludedAnalyticsEvent } from "../shared/analyticsTraffic";
+import { bump } from "./rateLimit";
 
 /** Record a first-party event (views, funnel steps, zero-result searches). */
 export const track = mutation({
@@ -32,6 +34,190 @@ export const track = mutation({
     const t = typeof title === "string" ? title.slice(0, 120) : undefined;
     const q = typeof qty === "number" && qty > 0 ? Math.min(Math.round(qty), 100) : undefined;
     await ctx.db.insert("events", { type, path: p, sessionId: s, listingId: li, title: t, qty: q, at: Date.now() });
+  },
+});
+
+const gafferCallEventKinds = [
+  "connected",
+  "conversation_metadata",
+  "interruption",
+  "agent_correction",
+  "agent_response_start",
+  "agent_response_stop",
+  "agent_speaking_start",
+  "agent_speaking_stop",
+  "disconnected",
+] as const;
+type GafferCallEventKind = (typeof gafferCallEventKinds)[number];
+
+const initialGafferCallEventCounts = {
+  connected: 0,
+  conversationMetadata: 0,
+  interruption: 0,
+  agentCorrection: 0,
+  agentResponseStart: 0,
+  agentResponseStop: 0,
+  agentSpeakingStart: 0,
+  agentSpeakingStop: 0,
+  disconnected: 0,
+};
+const gafferCallEventCountKey: Record<GafferCallEventKind, keyof typeof initialGafferCallEventCounts> = {
+  connected: "connected",
+  conversation_metadata: "conversationMetadata",
+  interruption: "interruption",
+  agent_correction: "agentCorrection",
+  agent_response_start: "agentResponseStart",
+  agent_response_stop: "agentResponseStop",
+  agent_speaking_start: "agentSpeakingStart",
+  agent_speaking_stop: "agentSpeakingStop",
+  disconnected: "disconnected",
+};
+const MAX_GAFFER_CALL_EVENTS = 512;
+const MAX_GAFFER_CALL_TIMELINE = 128;
+const GAFFER_CALL_TELEMETRY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Metadata-only browser telemetry for diagnosing voice turn interruptions.
+ * The public mutation accepts a strict event allowlist and never accepts text,
+ * audio, arbitrary payloads, or provider credentials.
+ */
+export const recordGafferCallTelemetry = mutation({
+  args: {
+    callKey: v.string(),
+    kind: v.union(
+      v.literal("connected"),
+      v.literal("conversation_metadata"),
+      v.literal("interruption"),
+      v.literal("agent_correction"),
+      v.literal("agent_response_start"),
+      v.literal("agent_response_stop"),
+      v.literal("agent_speaking_start"),
+      v.literal("agent_speaking_stop"),
+      v.literal("disconnected"),
+    ),
+    sequence: v.number(),
+    occurredAt: v.number(),
+    conversationId: v.optional(v.string()),
+    providerEventId: v.optional(v.number()),
+    agentWasSpeaking: v.optional(v.boolean()),
+    originalResponseChars: v.optional(v.number()),
+    correctedResponseChars: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(args.callKey))
+      throw new Error("Invalid Gaffer call telemetry key.");
+    if (!gafferCallEventKinds.includes(args.kind)) throw new Error("Invalid Gaffer call telemetry event.");
+    if (!Number.isSafeInteger(args.sequence) || args.sequence < 1 || args.sequence > 1_000_000)
+      throw new Error("Invalid Gaffer call telemetry sequence.");
+    if (!Number.isSafeInteger(args.occurredAt) || Math.abs(args.occurredAt - now) > 5 * 60 * 1000)
+      throw new Error("Invalid Gaffer call telemetry timestamp.");
+    if (args.conversationId !== undefined && !/^[A-Za-z0-9_-]{4,180}$/.test(args.conversationId))
+      throw new Error("Invalid Gaffer conversation identifier.");
+    if (args.providerEventId !== undefined &&
+      (!Number.isSafeInteger(args.providerEventId) || args.providerEventId < 0 ||
+        !["interruption", "agent_correction", "agent_response_start", "agent_response_stop"].includes(args.kind)))
+      throw new Error("Invalid Gaffer provider event identifier.");
+    if (args.agentWasSpeaking !== undefined && args.kind !== "interruption")
+      throw new Error("Speaking state is only valid for interruption events.");
+    if (args.originalResponseChars !== undefined &&
+      (args.kind !== "agent_correction" || !Number.isSafeInteger(args.originalResponseChars) || args.originalResponseChars < 0 || args.originalResponseChars > 200_000))
+      throw new Error("Invalid original Gaffer response length.");
+    if (args.correctedResponseChars !== undefined &&
+      (args.kind !== "agent_correction" || !Number.isSafeInteger(args.correctedResponseChars) || args.correctedResponseChars < 0 || args.correctedResponseChars > 200_000))
+      throw new Error("Invalid corrected Gaffer response length.");
+
+    const globalLimit = await bump(ctx, "gaffer-call-telemetry:global", 1200, 60_000);
+    if (!globalLimit.allowed) return { recorded: false, reason: "rate_limited" as const };
+    const callLimit = await bump(ctx, `gaffer-call-telemetry:${args.callKey}`, 300, 60_000);
+    if (!callLimit.allowed) return { recorded: false, reason: "rate_limited" as const };
+
+    const existing = await ctx.db.query("gaffer_call_telemetry")
+      .withIndex("by_call_key", q => q.eq("callKey", args.callKey))
+      .unique();
+    if (existing?.conversationId && args.conversationId && existing.conversationId !== args.conversationId)
+      return { recorded: false, reason: "conversation_mismatch" as const };
+    if (existing && args.sequence <= existing.highestSequence - MAX_GAFFER_CALL_TIMELINE)
+      return { recorded: false, reason: "stale_event" as const };
+    if (existing?.events.some(event => event.sequence === args.sequence))
+      return { recorded: false, reason: "duplicate" as const };
+    if (existing && existing.eventCount >= MAX_GAFFER_CALL_EVENTS)
+      return { recorded: false, reason: "call_event_limit" as const };
+
+    const event = {
+      sequence: args.sequence,
+      kind: args.kind,
+      at: args.occurredAt,
+      ...(args.providerEventId !== undefined ? { providerEventId: args.providerEventId } : {}),
+      ...(args.agentWasSpeaking !== undefined ? { agentWasSpeaking: args.agentWasSpeaking } : {}),
+      ...(args.originalResponseChars !== undefined ? { originalResponseChars: args.originalResponseChars } : {}),
+      ...(args.correctedResponseChars !== undefined ? { correctedResponseChars: args.correctedResponseChars } : {}),
+    };
+    const countKey = gafferCallEventCountKey[args.kind];
+    const counts = { ...(existing?.counts ?? initialGafferCallEventCounts) };
+    counts[countKey] += 1;
+    const timeline = [...(existing?.events ?? []), event]
+      .sort((left, right) => left.sequence - right.sequence)
+      .slice(-MAX_GAFFER_CALL_TIMELINE);
+    const conversationId = args.conversationId ?? existing?.conversationId;
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        ...(conversationId ? { conversationId } : {}),
+        lastEventAt: Math.max(existing.lastEventAt, args.occurredAt),
+        expiresAt: Math.max(existing.expiresAt, now + GAFFER_CALL_TELEMETRY_RETENTION_MS),
+        eventCount: existing.eventCount + 1,
+        highestSequence: Math.max(existing.highestSequence, args.sequence),
+        counts,
+        events: timeline,
+      });
+    } else {
+      await ctx.db.insert("gaffer_call_telemetry", {
+        callKey: args.callKey,
+        ...(conversationId ? { conversationId } : {}),
+        firstEventAt: args.occurredAt,
+        lastEventAt: args.occurredAt,
+        expiresAt: now + GAFFER_CALL_TELEMETRY_RETENTION_MS,
+        eventCount: 1,
+        highestSequence: args.sequence,
+        counts,
+        events: [event],
+      });
+    }
+    return { recorded: true as const };
+  },
+});
+
+/** Return only event metadata to authenticated admins, never the random call key. */
+export const gafferCallTelemetryForAdmin = query({
+  args: { token: v.string(), conversationId: v.string() },
+  handler: async (ctx, { token, conversationId }) => {
+    if (!checkAdminToken(token) || !/^[A-Za-z0-9_-]{4,180}$/.test(conversationId)) return null;
+    const row = await ctx.db.query("gaffer_call_telemetry")
+      .withIndex("by_conversation_id", q => q.eq("conversationId", conversationId))
+      .first();
+    if (!row) return null;
+    return {
+      counts: row.counts,
+      events: row.events,
+      eventCount: row.eventCount,
+      timelineTruncated: row.eventCount > row.events.length,
+      expiresAt: row.expiresAt,
+    };
+  },
+});
+
+/** Remove expired voice diagnostics without retaining call data indefinitely. */
+export const purgeGafferCallTelemetry = internalMutation({
+  args: {},
+  handler: async ctx => {
+    const now = Date.now();
+    const expired = await ctx.db.query("gaffer_call_telemetry")
+      .withIndex("by_expiry", q => q.lte("expiresAt", now))
+      .take(100);
+    for (const row of expired) await ctx.db.delete(row._id);
+    if (expired.length === 100)
+      await ctx.scheduler.runAfter(0, internal.analytics.purgeGafferCallTelemetry, {});
+    return { purged: expired.length };
   },
 });
 

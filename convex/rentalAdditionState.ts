@@ -1,4 +1,5 @@
 import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
+import { assertSwapStockReconciled } from "./lib/swapStockFence";
 import {canDeferAdditionSecurity} from "../shared/pickupSecurity";
 import {schedulePickupHold} from "./pickupSecurity";
 import { tierByKey } from "../shared/membership";
@@ -19,7 +20,7 @@ import { quote } from "./lib/pricing";
 import {isSavedCardRental,savedCardConsentText,securityAmendmentConsentText} from "../shared/savedCardSecurity";
 import { securityForPolicy,REFUNDABLE_DEPOSIT_POLICY_VERSION,savedCardChargeLimit } from "../shared/rentalSecurity";
 import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
-import { listingImages } from "./lib/catalogImages";
+import { listingRentalImages } from "./lib/catalogImages";
 
 async function note(ctx: any, b: any, text: string, meta?: any) {
   const a = await ctx.db
@@ -77,8 +78,9 @@ async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
       b.returnDecision
     )
       throw Error("This rental cannot accept items");
-    if (b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId || b.activePriceAdjustmentId)
+    if (b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId || b.activePriceAdjustmentId || b.activeItemSwapId)
       throw Error("Finish or withdraw the current item addition or approved extension first");
+    await assertSwapStockReconciled(ctx, b._id);
     if (
       ["starting", "requires_action", "failed"].includes(
         b.depositHoldRenewalStatus ?? "",
@@ -162,7 +164,7 @@ async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
     const membershipFee=membership?membershipParams?.metadata?.membershipFeePence?Number(membershipParams.metadata.membershipFeePence)/100:membership.intro==="trial"?0:tierByKey(membership.tier)?.monthlyGbp:undefined;
     if(membership&&membershipFee===undefined)throw Error("Membership price snapshot is unavailable.");
     return {b,l,line,start,end,holdTotal,securityCharge,membership,membershipFee,value,
-      snapshot:rentalControlsSnapshot(b,jobs), imageSources:listingImages(l)};
+      snapshot:rentalControlsSnapshot(b,jobs), imageSources:listingRentalImages(l)};
 }
 export const preview = query({
   args: {token:v.string(),bookingId:v.id("bookings"),listingId:v.id("listings"),qty:v.number(),
@@ -351,6 +353,7 @@ export const apply = internalMutation({
     if (r.withdrawalRequestedAt) return { closed: true };
     if (r.securityCreationPending) throw Error("Wait for the pending security authorisation");
     const b = await ctx.db.get(r.bookingId);
+    if (b) await assertSwapStockReconciled(ctx, b._id);
     if (
       !b ||
       b.cancellationDecision ||
@@ -396,6 +399,7 @@ export const apply = internalMutation({
       ...(amendment?{securityAmendments:[...(b.securityAmendments??[]),amendment],savedCardLimit:amendment.savedCardLimit,savedCardConsentText:amendment.consentText,laterChargeConsentAt:amendment.acceptedAt}:{}),
       replacementValues: await replacementValues(ctx, b, [...b.lineItems, line]),
       lineItems: [...b.lineItems, line],
+      ...(r.draftReplacement && b.checkoutLineFunding ? {checkoutLineFunding:[...b.checkoutLineFunding,{listingId:line.listingId,start:line.start,end:line.end,qty:line.qty,gross:line.lineTotal,discount:0,membershipCredit:0,accountCredit:0,card:line.lineTotal}]} : {}),
       subtotal: b.subtotal + r.lineTotal,
       total: b.total + r.lineTotal + r.securityCharge,
       depositAmount: b.depositAmount + r.securityCharge,

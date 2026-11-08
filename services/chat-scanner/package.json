@@ -1,0 +1,6 @@
+{
+  "name": "dbc-private-chat-scanner",
+  "private": true,
+  "version": "0.0.0",
+  "dependencies": { "sharp": "0.34.5" }
+}

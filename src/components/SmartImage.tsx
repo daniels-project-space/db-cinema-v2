@@ -23,9 +23,8 @@ function ImageSources({ sources, alt, className, imgClassName, fit, loading }: {
   const src = sources[index];
   return <div aria-busy={hydrated && !!src && loadedIndex !== index} className={`relative overflow-hidden bg-charcoal-800 ${className}`}>
     {src && loadedIndex !== index && <div aria-hidden="true" className="absolute inset-0 bg-white/[0.035] motion-safe:animate-pulse" />}
-    {!src ? <div role="img" aria-label={alt ? `${alt} — photo unavailable` : "Photo unavailable"} className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white/30">
-      <svg aria-hidden="true" viewBox="0 0 32 32" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="4" y="7" width="24" height="18" rx="4"/><circle cx="16" cy="16" r="5"/><path d="M10 7l2-3h8l2 3"/></svg>
-      <span className="text-[10px]">Photo unavailable</span>
+    {!src ? <div role="img" aria-label={alt ? `${alt} — photo unavailable` : "Photo unavailable"} className="absolute inset-0 flex items-center justify-center px-2 text-center text-[10px] text-white/30">
+      <span>Listing photo unavailable</span>
     </div> : (
       // eslint-disable-next-line @next/next/no-img-element
       <img key={src} ref={ref} src={src} alt={alt} loading={loading} decoding="async" data-image-pending={hydrated && loadedIndex !== index ? "true" : undefined} style={{ objectFit: fit }} onLoad={() => setLoadedIndex(index)}
