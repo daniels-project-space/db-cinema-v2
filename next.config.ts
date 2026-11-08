@@ -37,6 +37,13 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   poweredByHeader: false, // hide "X-Powered-By: Next.js"
   productionBrowserSourceMaps: false, // don't ship source maps to the browser
+  // Enable only after the exact-commit GitHub check is required for production.
+  typescript: {
+    ignoreBuildErrors:
+      process.env.VERCEL === "1" &&
+      process.env.VERCEL_ENV === "production" &&
+      process.env.DBC_EXTERNAL_TYPECHECK === "1",
+  },
   // react-pdf (invoice route) ships its own fonts/wasm — keep it external so Next doesn't bundle it
   serverExternalPackages: ["@react-pdf/renderer"],
   async headers() {
