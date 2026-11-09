@@ -5,6 +5,7 @@ const { load } = require("./lib/rentalTestHarness.cjs");
 const { LEGAL_ARCHIVE } = load("shared/legalDocuments.ts");
 const agreement = LEGAL_ARCHIVE["2026-11-v20"];
 const newAgreement = LEGAL_ARCHIVE["2026-11-v21"];
+const immediateAgreement = LEGAL_ARCHIVE["2026-11-v22"];
 const rentalSecurityHeading = agreement["rental-terms"].sections.find(section => section.h.startsWith("2."))?.h;
 assert.equal(rentalSecurityHeading, "2. Saved-card security claims");
 
@@ -17,6 +18,12 @@ assert.match(newCancellation, /full refund.*100% of that remaining rental value 
 assert.match(newCancellation, /more than 48 hours.*account credit only/);
 assert.match(newCancellation, /48 hours or less.*no rental refund and no account credit/);
 assert.match(newAgreement.terms.sections.find(section => section.h === "Free cancellation protection").p, /rejected or restricted/);
+const oldClaimText = Object.values(agreement).flatMap(document => document.sections.map(section => section.p)).join(" ");
+assert.match(oldClaimText, /at least seven days to query or dispute/);
+const immediateClaimText = immediateAgreement["deposit-agreement"].sections.map(section => section.p).join(" ");
+assert.match(immediateClaimText, /one off-session collection attempt using the saved card/);
+assert.match(immediateClaimText, /may happen immediately after notice/);
+assert.doesNotMatch(immediateClaimText, /at least seven days/);
 const { assertAgreementBeforeRelease } = load("shared/rentalAgreement.ts");
 const { SETUP_INTENT_SECURITY_POLICY_VERSION } = load("shared/rentalSecurity.ts");
 const historicAgreement = {
@@ -71,6 +78,6 @@ const copy = [
   "convex/rentalAdditionState.ts",
   "src/lib/invoice/InvoiceDocument.tsx",
 ].map(path => fs.readFileSync(path, "utf8")).join("\n");
-assert(copy.includes("SETUP_INTENT_SECURITY_POLICY_VERSION"));
+assert(copy.includes("isSetupIntentSecurityPolicy"));
 assert(copy.includes("setupIntentPolicy"));
 console.log("PASS current saved-card agreement, cancellation, return and rental-update copy; historic versions remain intact.");

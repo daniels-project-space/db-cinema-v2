@@ -53,7 +53,7 @@ export function RentalExtensionPanel({ token, bookingId, admin = false, showTrig
   if (!state) return null;
   const current = state.requests.find(r => ["pending", "approved", "awaiting_payment", "refund_pending"].includes(r.status));
   const recent = current ?? state.requests[0];
-  const eligible = ["confirmed", "active"].includes(state.status);
+  const eligible = state.actionReady === true && ["confirmed", "active"].includes(state.status);
   if (!eligible && !recent) return null;
   if (!admin && !showTrigger && !open && !recent && !notice && !error) return null;
   async function send() {

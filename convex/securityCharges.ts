@@ -1,12 +1,13 @@
 "use node";
 import Stripe from 'stripe';
 import { action, internalAction } from './_generated/server';
-import { internal } from './_generated/api';
+import { api, internal } from './_generated/api';
 import { v } from 'convex/values';
 import { sendMail } from './lib/mailer';
 import { SECURITY_COLLECTION_DAYS, SECURITY_COLLECTION_NOTICE_HOURS } from '../shared/savedCardSecurity';
 import { belongsToRentalAccount } from './lib/rentalAccount';
 import { recoverApprovedRefund, RefundReviewRequired, type RefundReceipt } from './lib/approvedRefund';
+import { isImmediateClaimSecurityPolicy } from '../shared/rentalSecurity';
 const client=()=>{if(!process.env.STRIPE_SECRET_KEY)throw Error('Card payments are not configured.');return new Stripe(process.env.STRIPE_SECRET_KEY);};
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const money=(p:number)=>`£${(p/100).toFixed(2)}`;
@@ -44,13 +45,36 @@ async function findAttempt(sb:Stripe,r:any){
  }
  throw Error('Bank history exceeds the safe reconciliation bound.');
 }
-export const sendNotice=internalAction({args:idArgs,handler:async(ctx,{id}):Promise<void>=>{
- if(!await ctx.runMutation(internal.securityChargeState.claimNotice,{id}))return;
- const {charge:r,account}=await matchingContext(ctx,id);
- if(!account?.email){await ctx.runMutation(internal.securityChargeState.noticeResult,{id,sent:false});return;}
+export const sendNotice=internalAction({args:idArgs,handler:async(ctx,{id}):Promise<boolean>=>{
+ if(!await ctx.runMutation(internal.securityChargeState.claimNotice,{id}))return false;
+ const {charge:r,account,booking}=await matchingContext(ctx,id);
+ if(!account?.email){await ctx.runMutation(internal.securityChargeState.noticeResult,{id,sent:false});return false;}
  const basis=r.claimBasis==='loss'?' · lost or unreturned item':r.claimBasis==='severe_cosmetic_damage'?' · severe, permanent cosmetic damage':'';
- const email={to:account.email,subject:`DB Cinema Rentals: ${money(r.amountPence)} ${r.kind==='late'?'late-return':'damage/loss'} assessment`,html:`<h2>Itemised rental assessment</h2><p>Reference ${esc(String(r._id).slice(-8))}. ${r.kind==='late'?'Late-return fees':'Damage/loss'}${esc(basis)}: <strong>${money(r.amountPence)}</strong>.</p><p>${esc(r.reason).replace(/\n/g,'<br>')}</p><p>No payment has been taken for this assessment. Under your retained booking consent, a card collection may be requested no earlier than ${date(Date.now()+SECURITY_COLLECTION_NOTICE_HOURS*3600000)} London time. Reply or raise a concern in your rental account within this period if the evidence or amount is wrong. A timely unresolved dispute pauses collection. Your bank dispute and statutory rights remain unchanged.</p><p><a href="${esc((process.env.APP_URL??'https://dbcinemarentals.com')+'/account?rental='+encodeURIComponent(String(r.bookingId))+'#chat')}">View your rental and assessment</a></p>`};const sent=await sendMail(email);
+ const immediate=isImmediateClaimSecurityPolicy(booking.securityPolicyVersion);
+ const nextStep=immediate
+  ?`No payment has been taken yet. DB will now make one off-session attempt under the terms accepted for this rental. Your bank may decline it or require authentication. You may query or dispute this assessment at any time; statutory and bank dispute rights remain unchanged.`
+  :`No payment has been taken for this assessment. Under your retained booking consent, collection may be attempted no earlier than ${date(Date.now()+SECURITY_COLLECTION_NOTICE_HOURS*3600000)} London time. Reply or raise a concern in your rental account within this period if the evidence or amount is wrong. An unresolved dispute pauses collection. Your bank dispute and statutory rights remain unchanged.`;
+ const email={to:account.email,subject:`DB Cinema Rentals: ${money(r.amountPence)} ${r.kind==='late'?'late-return':'damage/loss'} assessment`,html:`<h2>Itemised rental assessment</h2><p>Reference ${esc(String(r._id).slice(-8))}. ${r.kind==='late'?'Late-return fees':'Damage/loss'}${esc(basis)}: <strong>${money(r.amountPence)}</strong>.</p><p>${esc(r.reason).replace(/\n/g,'<br>')}</p><p>${nextStep}</p><p><a href="${esc((process.env.APP_URL??'https://dbcinemarentals.com')+'/account?rental='+encodeURIComponent(String(r.bookingId))+'#chat')}">View your rental and assessment</a></p>`};const sent=await sendMail(email);
  await ctx.runMutation(internal.securityChargeState.noticeResult,{id,sent,recipient:email.to,subject:email.subject,html:email.html});
+ return sent;
+}});
+const claimArgs={token:v.string(),bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),amount:v.number(),reason:v.string()};
+/** v22 only: record the itemised claim, email notice, then make one explicit Stripe attempt. */
+export const submitClaim=action({args:claimArgs,handler:async(ctx,a):Promise<{id:any;status:string}>=>{
+ await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:a.token,fn:'securityCharges.submitClaim'});
+ const id=await ctx.runMutation(api.securityChargeState.prepare,{...a,immediate:true});
+ let latest=await matchingContext(ctx,id),charge=latest.charge;
+ if(['paid','failed','requires_action','processing'].includes(charge.state))return {id,status:charge.state};
+ if(charge.state==='notice_pending'){
+  const noticeSent=await ctx.runAction(internal.securityCharges.sendNotice,{id});
+  latest=await matchingContext(ctx,id);charge=latest.charge;
+  if(!noticeSent&&charge.state!=='notice_sent')return {id,status:'notice_failed'};
+ }
+ if(['notice_sent','uncertain'].includes(charge.state)){
+  const result=await ctx.runAction(api.securityCharges.collect,{token:a.token,id});
+  return {id,status:result.status};
+ }
+ return {id,status:charge.state};
 }});
 export const sendReceipt=internalAction({args:idArgs,handler:async(ctx,{id}):Promise<void>=>{
  if(!await ctx.runMutation(internal.securityChargeState.claimNotice,{id,receipt:true}))return;

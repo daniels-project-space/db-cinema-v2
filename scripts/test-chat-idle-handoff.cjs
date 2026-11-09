@@ -13,7 +13,7 @@ process.env.ADMIN_TOKEN = "fixture-admin";
 assert.equal(GAFFER_AUTO_RESUME_MS, 4 * 60 * 60 * 1000, "Gaffer returns after four idle hours");
 
 const account = put("accounts", { email: "chat-idle@test.invalid" });
-const booking = put("bookings", { accountId: account._id, guestEmail: account.email, status: "confirmed" });
+const booking = put("bookings", { accountId: account._id, guestEmail: account.email, status: "confirmed", paidConfirmedAt:now, verificationProvider:"didit", idVerifyStatus:"verified", idVerificationSource:"didit", idVerifiedAt:now, verificationChecks:{identity:"approved",selfie:"approved",address:"approved"} });
 put("sessions", { token: "renter", accountId: account._id, expiresAt: now + 24 * 60 * 60 * 1000 });
 
 function latestTimer() {
@@ -31,7 +31,11 @@ function gafferReplyForLatestRenter() {
 async function offerHumanForLatestRenter(bookingId) {
   const renter = [...(tables.get("messages") ?? [])].reverse().find((message) => message.sender === "renter" && message.bookingId === bookingId);
   const thread = tables.get("chat_threads").find((item) => item.accountId === account._id && item.bookingId === bookingId);
-  await chat._postBot.handler(ctx, { accountId: account._id, bookingId, replyTo: renter._id, generation: thread.gafferGeneration ?? 0, text: "Would you like me to connect you with the team?", offerHuman: true });
+  await chat._postBot.handler(ctx, { accountId: account._id, bookingId, replyTo: renter._id, generation: thread.gafferGeneration ?? 0, text: "I found the answer.", answerComplete: true });
+  const job = [...tables.get("gaffer_alert_jobs")].reverse().find((item) => item.bookingId === bookingId && item.state === "pending");
+  assert(job, "a resolved answer schedules the ten-minute follow-up");
+  now = job.dueAt;
+  await chat.delayedGafferInquiry.handler(ctx, { id: job._id });
   return [...(tables.get("messages") ?? [])].reverse().find((message) => message.sender === "bot" && message.bookingId === bookingId)._id;
 }
 
@@ -48,7 +52,7 @@ async function offerHumanForLatestRenter(bookingId) {
     const accountTimer = latestTimer()[2];
     assert.equal(latestTimer()[0], 4 * 60 * 60 * 1000, "account support uses a four-hour idle handoff");
     const accountMessagesAtHandoff = tables.get("messages").length;
-    now = accountTimer.expectedUpdatedAt + GAFFER_AUTO_RESUME_MS;
+    now = accountTimer.expectedActivityAt + GAFFER_AUTO_RESUME_MS;
     assert.deepEqual(await chat.autoResumeGaffer.handler(ctx, accountTimer), { resumed: true });
     assert.equal(tables.get("messages").length, accountMessagesAtHandoff, "account support timer never sends an unsolicited message");
     assert.equal(threads.find((thread) => thread.bookingId == null).escalated, false);
@@ -60,14 +64,14 @@ async function offerHumanForLatestRenter(bookingId) {
     assert.equal(latestTimer()[0], GAFFER_AUTO_RESUME_MS);
     const messageCountAtHandoff = tables.get("messages").length;
 
-    now = initialTimer.expectedUpdatedAt + 3 * 60 * 60 * 1000;
+    now = initialTimer.expectedActivityAt + 3 * 60 * 60 * 1000;
     assert.deepEqual(await chat.autoResumeGaffer.handler(ctx, initialTimer), { resumed: false, rescheduled: true }, "a previously scheduled three-hour timer waits for the new four-hour deadline");
     assert.equal(latestTimer()[0], 60 * 60 * 1000);
-    now = initialTimer.expectedUpdatedAt + GAFFER_AUTO_RESUME_MS - 1;
+    now = initialTimer.expectedActivityAt + GAFFER_AUTO_RESUME_MS - 1;
     const early = await chat.autoResumeGaffer.handler(ctx, initialTimer);
     assert.deepEqual(early, { resumed: false, rescheduled: true });
 
-    now = initialTimer.expectedUpdatedAt + GAFFER_AUTO_RESUME_MS;
+    now = initialTimer.expectedActivityAt + GAFFER_AUTO_RESUME_MS;
     assert.deepEqual(await chat.autoResumeGaffer.handler(ctx, initialTimer), { resumed: true });
     const thread = tables.get("chat_threads").find((item) => item.bookingId === booking._id);
     assert.equal(thread.escalated, false);
@@ -82,25 +86,26 @@ async function offerHumanForLatestRenter(bookingId) {
     now += 60 * 60 * 1000;
     await chat._adminReply.handler(ctx, { tgMessageId: 42, text: "We are checking this for you." });
     const refreshedTimer = latestTimer()[2];
-    assert.notEqual(refreshedTimer.expectedUpdatedAt, staleTimer.expectedUpdatedAt);
+    assert.notEqual(refreshedTimer.expectedActivityAt, staleTimer.expectedActivityAt, "a real human reply restarts the four-hour idle window");
 
-    now = staleTimer.expectedUpdatedAt + GAFFER_AUTO_RESUME_MS;
+    now = staleTimer.expectedActivityAt + GAFFER_AUTO_RESUME_MS;
     assert.deepEqual(await chat.autoResumeGaffer.handler(ctx, staleTimer), { resumed: false }, "older timer cannot end an active human handoff");
-    now = refreshedTimer.expectedUpdatedAt + GAFFER_AUTO_RESUME_MS;
+    now = refreshedTimer.expectedActivityAt + GAFFER_AUTO_RESUME_MS;
     assert.deepEqual(await chat.autoResumeGaffer.handler(ctx, refreshedTimer), { resumed: true });
     assert.equal(thread.escalated, false);
 
     await chat.send.handler(ctx, { token: "renter", bookingId: booking._id, text: "I have another complicated question." });
     await chat.requestHuman.handler(ctx, { token: "renter", bookingId: booking._id, offerMessageId: await offerHumanForLatestRenter(booking._id) });
     const beforeSystemMessage = latestTimer()[2];
-    now = beforeSystemMessage.expectedUpdatedAt + 60 * 60 * 1000;
+    now = beforeSystemMessage.expectedActivityAt + 60 * 60 * 1000;
     await chat.postSystem.handler(ctx, { accountId: account._id, bookingId: booking._id, text: "The pickup time was updated." });
     const afterSystemMessage = latestTimer()[2];
-    assert.notEqual(afterSystemMessage.expectedUpdatedAt, beforeSystemMessage.expectedUpdatedAt, "system messages reschedule the idle handoff timer");
-    now = beforeSystemMessage.expectedUpdatedAt + GAFFER_AUTO_RESUME_MS;
-    assert.deepEqual(await chat.autoResumeGaffer.handler(ctx, beforeSystemMessage), { resumed: false }, "a stale timer cannot end an active handoff");
-    now = afterSystemMessage.expectedUpdatedAt + GAFFER_AUTO_RESUME_MS;
-    assert.deepEqual(await chat.autoResumeGaffer.handler(ctx, afterSystemMessage), { resumed: true });
+    assert.equal(afterSystemMessage.expectedActivityAt, beforeSystemMessage.expectedActivityAt, "system messages do not extend the human idle window");
+    now = beforeSystemMessage.expectedActivityAt + 2 * 60 * 60 * 1000;
+    await chat.send.handler(ctx, { token: "renter", bookingId: booking._id, text: "I still need help." });
+    assert.equal(latestTimer()[2].expectedActivityAt, beforeSystemMessage.expectedActivityAt, "renter messages do not extend the human idle window");
+    now = beforeSystemMessage.expectedActivityAt + GAFFER_AUTO_RESUME_MS;
+    assert.deepEqual(await chat.autoResumeGaffer.handler(ctx, beforeSystemMessage), { resumed: true }, "Gaffer resumes four hours after the last human activity despite renter or system messages");
     assert.equal(thread.escalated, false);
 
     await rentalRequests.submit.handler(ctx, {
@@ -109,7 +114,7 @@ async function offerHumanForLatestRenter(bookingId) {
     });
     const requestTimer = latestTimer()[2];
     assert.equal(thread.escalated, true, "rental change requests hand off to the team");
-    now = requestTimer.expectedUpdatedAt + GAFFER_AUTO_RESUME_MS;
+    now = requestTimer.expectedActivityAt + GAFFER_AUTO_RESUME_MS;
     assert.deepEqual(await chat.autoResumeGaffer.handler(ctx, requestTimer), { resumed: true }, "rental change requests receive the same four-hour idle timer");
     assert.equal(thread.escalated, false);
     console.log("PASS account-wide support thread, separate rental thread, four-hour idle handoff, stale-timer protection, and no proactive Gaffer reply.");

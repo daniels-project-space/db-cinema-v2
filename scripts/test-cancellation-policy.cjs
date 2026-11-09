@@ -121,6 +121,6 @@ assert(requestApply.includes('no rental refund and no account credit')&&requestA
 for(const copy of [homeProtection,checkoutProtection,chatPolicy,gafferPolicy])assert(!copy.includes('eligible renters'));
 assert(homeProtection.includes('all accounts can get a full refund')&&checkoutProtection.includes('all accounts can receive a full refund')&&chatPolicy.includes('all accounts can receive a refund'));
 assert(guide.includes('Statutory rights take priority'));
-assert(legalPage.includes('["cancellation", "terms"].includes(slug) && ["2026-10-v16",CANCELLATION_PROTECTION_LEGAL_VERSION,SETUP_INTENT_LEGAL_VERSION].includes(version)'));
+assert(legalPage.includes('["cancellation", "terms"].includes(slug) && ["2026-10-v16",CANCELLATION_PROTECTION_LEGAL_VERSION,SETUP_INTENT_LEGAL_VERSION,IMMEDIATE_CLAIM_LEGAL_VERSION].includes(version)'));
 assert(checkoutProtection.includes('{showV16RenterPolicy&&<CancellationPolicyQuickGuide includeCompanyCancellation={false} version="2026-10-v16"/>}'));
 console.log('PASS: London cancellation windows, DST, settlement limits, and v16-v21 signed wording stays aligned across terms and checkout.');

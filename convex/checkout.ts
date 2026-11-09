@@ -5,7 +5,7 @@ import {isAllowedReturnTime} from "../src/lib/site";
 import Stripe from "stripe";
 import {operatorCancellationOptions} from "../shared/operatorCancellationCredit";
 import { isPickupHoldPolicyVersion, pickupHoldEligible } from "../shared/pickupSecurity";
-import { ASSESSMENT_SECURITY_POLICY_VERSION, CARD_HOLD_SECURITY_POLICY_VERSION, hasCashDepositPolicy, isCardHoldSecurityPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION, isSetupIntentSecurityPolicy } from "../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, CARD_HOLD_SECURITY_POLICY_VERSION, hasCashDepositPolicy, isCardHoldSecurityPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION, isSetupIntentSecurityPolicy, isImmediateClaimSecurityPolicy } from "../shared/rentalSecurity";
 import { isSavedCardRental, savedCardRentalValue } from "../shared/savedCardSecurity";
 import { returnSecurityPlan, refundableDepositPlan } from "../shared/returnSettlement";
 import { returnStatementEmail, type ReturnStatementData } from "../shared/returnStatement";
@@ -242,7 +242,7 @@ export const start = action({
     const cfg: any = await ctx.runQuery(api.settings.get, {});
     if (!cfg.acceptingOrders)
       throw new Error("We're not accepting new bookings right now — please check back soon.");
-    const checkoutSecurityPolicyVersion=process.env.SETUP_INTENT_SECURITY_POLICY_ENABLED==="true"?SETUP_INTENT_SECURITY_POLICY_VERSION:process.env.CARD_HOLD_SECURITY_POLICY_ENABLED==="true"?CARD_HOLD_SECURITY_POLICY_VERSION:process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true"?ASSESSMENT_SECURITY_POLICY_VERSION:process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true"?REFUNDABLE_DEPOSIT_POLICY_VERSION:SECURITY_POLICY_VERSION;
+    const checkoutSecurityPolicyVersion=process.env.SETUP_INTENT_SECURITY_POLICY_ENABLED==="true"?IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION:process.env.CARD_HOLD_SECURITY_POLICY_ENABLED==="true"?CARD_HOLD_SECURITY_POLICY_VERSION:process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true"?ASSESSMENT_SECURITY_POLICY_VERSION:process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true"?REFUNDABLE_DEPOSIT_POLICY_VERSION:SECURITY_POLICY_VERSION;
     const cardHoldPolicy=isCardHoldSecurityPolicy(checkoutSecurityPolicyVersion);
     const setupIntentPolicy=isSetupIntentSecurityPolicy(checkoutSecurityPolicyVersion);
     if (!a.agreement || !a.agreement.name.trim() || !a.agreement.securityHoldConsent || (!cardHoldPolicy && !a.agreement.laterChargeConsent))
@@ -488,7 +488,7 @@ export const start = action({
     const meta = {bookingId,rentalPaidPence:String(pence(price.totalDue)),securityPolicyVersion:price.securityPolicyVersion,savedCardLimitPence:String(pence(price.savedCardLimit)),...(membershipCheckout ? {membershipTier:membershipCheckout.tier,accountEmail:acct.email,membershipCheckoutId:String(membershipCheckout._id),membershipTerms:MEMBERSHIP_TERMS_VERSION}: {})};
     const submitMessage=cardHoldPolicy
       ?depositHoldAmount>0?`A temporary £${depositHoldAmount.toFixed(2)} card authorisation is requested separately. It is not a charge but may reduce your available balance. An issue-free return releases it automatically; any claim needs a recorded reason.`:"You qualify for the no-hold exemption. No security payment or card authorisation is requested."
-      :setupIntentPolicy?`No deposit or funds are held. Stripe saves your card for itemised, evidenced post-return damage or late-fee claims up to £${price.savedCardLimit.toFixed(2)} combined. No charge on an on-time return without a reported issue. Later bank approval is not guaranteed; insurance claims are separate.`
+      :setupIntentPolicy?isImmediateClaimSecurityPolicy(checkoutSecurityPolicyVersion)?`No deposit or funds are held. Stripe saves your card for itemised, evidenced post-return late fees or severe permanent damage/loss claims up to £${price.savedCardLimit.toFixed(2)} combined. An authorised team member sends the itemised notice before one immediate off-session attempt. No charge on an on-time return without an issue; bank approval is not guaranteed; insurance is separate.`:`No deposit or funds are held. Stripe saves your card for itemised, evidenced post-return damage or late-fee claims up to £${price.savedCardLimit.toFixed(2)} combined. No charge on an on-time return without a reported issue. Later bank approval is not guaranteed; insurance claims are separate.`
       :`${depositAmount>0?`A refundable £${depositAmount.toFixed(2)} deposit is included; no extra funds are blocked. Retained deposit reduces later collection for the same loss.`:"No cash security deposit or additional card hold is taken."} You agreed to save this card for evidenced damage/loss and late-return payments ${price.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?"for the itemised assessment,":`up to £${price.savedCardLimit.toFixed(2)} combined,`} after an itemised notice and at least seven days to raise a dispute. Bank approval may be required.`;
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       custom_text:{submit:{message:submitMessage}},

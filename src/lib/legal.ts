@@ -1,4 +1,4 @@
-import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, isCardHoldSecurityPolicy, isSetupIntentSecurityPolicy } from "../../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, isCardHoldSecurityPolicy, isSetupIntentSecurityPolicy, isImmediateClaimSecurityPolicy } from "../../shared/rentalSecurity";
 
 /**
  * Versioned legal agreements the renter must e-sign at checkout. The accepted
@@ -28,8 +28,10 @@ export const CARD_HOLD_LEGAL_VERSION = "2026-11-v19";
 export const PREVIOUS_SETUP_INTENT_LEGAL_VERSION = "2026-11-v20";
 export const SETUP_INTENT_LEGAL_VERSION = "2026-11-v21";
 export const SETUP_INTENT_LEGAL_VERSIONS = [PREVIOUS_SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION];
+export const IMMEDIATE_CLAIM_LEGAL_VERSION = "2026-11-v22";
 export function agreementsForSecurityPolicy(policy?: string | null, cancellationProtection=false) {
   if (!hasCashDepositPolicy(policy) && !isCardHoldSecurityPolicy(policy) && !isSetupIntentSecurityPolicy(policy)) return AGREEMENTS;
-  const version=isSetupIntentSecurityPolicy(policy)?SETUP_INTENT_LEGAL_VERSION:isCardHoldSecurityPolicy(policy)?CARD_HOLD_LEGAL_VERSION:policy===ASSESSMENT_SECURITY_POLICY_VERSION?(cancellationProtection?CANCELLATION_PROTECTION_LEGAL_VERSION:ASSESSMENT_DEPOSIT_LEGAL_VERSION):REFUNDABLE_DEPOSIT_LEGAL_VERSION;
-  return AGREEMENTS.map(doc => ({...doc,version:doc.version===LEGAL_VERSION||isSetupIntentSecurityPolicy(policy)&&doc.kind==="referrals"?version:doc.version,title:doc.kind==="deposit-agreement"?isSetupIntentSecurityPolicy(policy)?"Saved Card & Future Security Payments Agreement":isCardHoldSecurityPolicy(policy)?"Card Authorisation Hold & Return Agreement":policy===ASSESSMENT_SECURITY_POLICY_VERSION?"Refundable Deposit & Future Card Payments":"Refundable Deposit & Saved-Card Payment Agreement":doc.title}));
+  const setupIntentPolicy=isSetupIntentSecurityPolicy(policy),immediateClaim=isImmediateClaimSecurityPolicy(policy);
+  const version=immediateClaim?IMMEDIATE_CLAIM_LEGAL_VERSION:setupIntentPolicy?SETUP_INTENT_LEGAL_VERSION:isCardHoldSecurityPolicy(policy)?CARD_HOLD_LEGAL_VERSION:policy===ASSESSMENT_SECURITY_POLICY_VERSION?(cancellationProtection?CANCELLATION_PROTECTION_LEGAL_VERSION:ASSESSMENT_DEPOSIT_LEGAL_VERSION):REFUNDABLE_DEPOSIT_LEGAL_VERSION;
+  return AGREEMENTS.map(doc => ({...doc,version:doc.version===LEGAL_VERSION||setupIntentPolicy&&doc.kind==="referrals"?version:doc.version,title:doc.kind==="deposit-agreement"?setupIntentPolicy?"Saved Card & Future Security Payments Agreement":isCardHoldSecurityPolicy(policy)?"Card Authorisation Hold & Return Agreement":policy===ASSESSMENT_SECURITY_POLICY_VERSION?"Refundable Deposit & Future Card Payments":"Refundable Deposit & Saved-Card Payment Agreement":doc.title}));
 }

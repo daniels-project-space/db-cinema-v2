@@ -52,7 +52,7 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  // Interrupted provider creation remains the same pending booking, never a new obligation.
  assert.equal(retry.sessionId,undefined);
  await db.patch(b._id,{stripeCheckoutSessionId:'session-fixture'});assert.equal((await bookings.createPending.handler(ctx,args)).sessionId,'session-fixture');
- await db.patch(b._id,{status:'confirmed',idVerifyStatus:'verified',verificationExpiresAt:Date.now()+600000});
+ await db.patch(b._id,{status:'confirmed',paidConfirmedAt:Date.now(),verificationProvider:'didit',idVerifyStatus:'verified',idVerificationSource:'didit',idVerifiedAt:Date.now(),verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},verificationExpiresAt:Date.now()+600000});
  await assert.rejects(bookings.createPending.handler(ctx,args),/completed or closed/);assert.equal(count(),1);
  const release=()=>bookings.adminSetStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id,status:'active'});
  await assert.rejects(release(),/review.*outstanding/);assert.equal(b.status,'confirmed','zero-hold booking still needs reviewed evidence, not an invented hold');
@@ -60,7 +60,7 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  await db.patch(b._id,{agreementSignedAt:signed,agreementSnapshot:undefined});await assert.rejects(release(),/accepted agreement copy/);
  await db.patch(b._id,{agreementSnapshot:saved,depositHoldAmount:100,depositHoldStatus:'declined'});await assert.rejects(release(),/card hold/);
  await db.patch(b._id,{depositHoldStatus:'held',depositHoldExpiresAt:Date.now()-1});await assert.rejects(release(),/card hold/);
- await db.patch(b._id,{depositHoldExpiresAt:Date.now()+600000,idVerificationSource:'manual'});await assert.rejects(release(),/review.*outstanding/);
+ await db.patch(b._id,{depositHoldExpiresAt:Date.now()+600000,idVerificationSource:'manual'});await assert.rejects(release(),/Didit verification must be approved/);
  await db.patch(b._id,{idVerifyStatus:'requires_input'});await assert.rejects(release(),/verification must/);
  await db.patch(b._id,{idVerifyStatus:'verified'});
  const acct=put('accounts',{email:args.customerEmail});put('sessions',{token:'agreement-renter',accountId:acct._id,expiresAt:Date.now()+600000});

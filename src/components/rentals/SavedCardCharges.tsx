@@ -6,7 +6,7 @@ import { api } from "@cvx/_generated/api";
 import { formatGbp } from "@/lib/pricing";
 import styles from "./SavedCardCharges.module.css";
 import {isSavedCardRental} from '../../../shared/savedCardSecurity';
-import {SETUP_INTENT_SECURITY_POLICY_VERSION} from '../../../shared/rentalSecurity';
+import {isImmediateClaimSecurityPolicy,isSetupIntentSecurityPolicy} from '../../../shared/rentalSecurity';
 const when=(at:number)=>new Date(at).toLocaleString("en-GB",{timeZone:"Europe/London",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
 export function SavedCardCharges({token,bookingId,admin=false}:{token:string;bookingId:string;admin?:boolean}) {
  return <ScopedCharges key={JSON.stringify([token,bookingId,admin])} token={token} bookingId={bookingId} admin={admin}/>;
@@ -18,14 +18,19 @@ function ScopedCharges({token,bookingId,admin}:{token:string;bookingId:string;ad
  const ownerBooking=useQuery(api.rentalOperations.details,admin?{token,bookingId:bookingId as any}:'skip');
  const booking=admin?ownerBooking:renterBooking;
  const data=useQuery(api.securityChargeState.list,isSavedCardRental(booking)?{token,bookingId:bookingId as any,admin}:'skip');
- const prepare=useMutation(api.securityChargeState.prepare),retryCard=useAction(api.checkout.retrySavedCard);
+ const prepare=useMutation(api.securityChargeState.prepare),submitClaim=useAction(api.securityCharges.submitClaim),retryCard=useAction(api.checkout.retrySavedCard);
  const request=useRef<string|null>(null);
  const [kind,setKind]=useState<"damage"|"late">("damage"),[claimBasis,setClaimBasis]=useState<"loss"|"severe_cosmetic_damage">("severe_cosmetic_damage"),[amount,setAmount]=useState(""),[reason,setReason]=useState(""),[confirmed,setConfirmed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
  if(!data)return null;
- const setupIntentPolicy=data.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION;
+ const setupIntentPolicy=isSetupIntentSecurityPolicy(data.securityPolicyVersion);
+ const immediateClaim=isImmediateClaimSecurityPolicy(data.securityPolicyVersion);
  const assessmentOnly=data.limit===null;
  const remaining=assessmentOnly?undefined:Math.max(0,data.cardStatus==="closed"?0:(data.remaining??(data.limit??0)-data.used-data.reserved-(data.depositRetained??0)));
- async function submit(e:React.FormEvent){e.preventDefault();if(busy||!confirmed)return;setBusy(true);setError("");request.current??=crypto.randomUUID();try{await prepare({token,bookingId:bookingId as any,requestId:request.current,kind,...(setupIntentPolicy&&kind==="damage"?{claimBasis}:{}),amount:Number(amount),reason});request.current=null;setAmount("");setReason("");setConfirmed(false);}catch(e:any){setError(e?.data?.message??e?.message??"The assessment could not be prepared. Check its history before retrying.");}finally{setBusy(false);}}
+ async function submit(e:React.FormEvent){e.preventDefault();if(busy||!confirmed)return;setBusy(true);setError("");request.current??=crypto.randomUUID();try{
+  if(immediateClaim){const result=await submitClaim({token,bookingId:bookingId as any,requestId:request.current,kind,...(setupIntentPolicy&&kind==="damage"?{claimBasis}:{}),amount:Number(amount),reason});if(result.status==="notice_failed"){setError("The notice could not be sent, so no card attempt was made. Retry this same request after checking the renter email.");return;}setError(result.status==="paid"?"Payment confirmed by Stripe.":result.status==="requires_action"?"The bank needs the renter to approve this payment. No payment is confirmed yet; the renter has been notified.":result.status==="failed"?"The bank did not complete the payment. No automatic retry was made.":result.status==="processing"||result.status==="uncertain"||result.status==="collecting"?"Stripe is still confirming the outcome. Reconcile this same attempt; do not create a replacement.":`Claim status: ${result.status.replaceAll("_"," ")}.`);
+  }else{await prepare({token,bookingId:bookingId as any,requestId:request.current,kind,...(setupIntentPolicy&&kind==="damage"?{claimBasis}:{}),amount:Number(amount),reason});setError("Itemised notice queued. No payment has been attempted; the accepted seven-day notice period remains in force.");}
+  request.current=null;setAmount("");setReason("");setConfirmed(false);
+ }catch(e:any){setError(e?.data?.message??e?.message??"The assessment could not be submitted. Check its history before retrying.");}finally{setBusy(false);}}
  return <section className={styles.panel} aria-label={admin?"Saved-card damage and late-fee controls":"Your damage and late-fee assessments"}>
   <header><div><p className={styles.eyebrow}>Saved-card security</p><h3>{admin?"Damage & late-fee collections":"Your card-payment permission"}</h3></div><span>{data.cardStatus==="saved"?"Card saved":data.cardStatus==="closed"?"Permission closed · no amount due":data.cardStatus==="awaiting_payment"?"Awaiting checkout payment":"Card setup needs attention"}</span></header>
   <div className={styles.metrics}>{!assessmentOnly&&<div><small>Agreed combined limit</small><strong>{formatGbp(data.limit??0)}</strong></div>}<div><small>Net collected</small><strong>{formatGbp(data.paid)}</strong></div>{!assessmentOnly&&<div><small>Available permission</small><strong>{formatGbp(remaining!)}</strong></div>}</div>
@@ -33,20 +38,20 @@ function ScopedCharges({token,bookingId,admin}:{token:string;bookingId:string;ad
   {data.cardStatus==="needs_setup"&&<button disabled={busy} type="button" onClick={async()=>{setBusy(true);setError("");try{await retryCard({token,bookingId:bookingId as any,admin});}catch(e:any){setError(e?.message??"Card confirmation needs team support.");}finally{setBusy(false);}}}>Retry confirming the checkout card</button>}
   {admin&&data.returnedAt&&data.cardStatus==="saved"&&<details><summary>Prepare an itemised assessment</summary><form onSubmit={submit}>
    <p>Recorded damage/loss: {formatGbp(data.damageAssessed)} · assessed late time: {formatGbp(data.lateAssessed)}. Only the remaining evidenced assessment can be collected; retained deposit reduces the same loss.</p>
-   {data.damageAssessed===0&&<p>For an inspected issue with a repair quote pending, the first itemised notice records the actual assessment. It requires evidence and the agreed notice period.</p>}
+   {data.damageAssessed===0&&<p>For an inspected issue with a repair quote pending, enter the evidenced amount. The amount must fit the accepted limit and recorded inspection.</p>}
    <label>Assessment type<select disabled={busy} value={kind} onChange={e=>{setKind(e.target.value as "damage"|"late");request.current=null;setConfirmed(false);}}><option value="damage">Damage or loss</option><option value="late">Late-return fees</option></select></label>
    {setupIntentPolicy&&kind==="damage"&&<label>Recorded claim basis<select disabled={busy} value={claimBasis} onChange={e=>{setClaimBasis(e.target.value as "loss"|"severe_cosmetic_damage");request.current=null;setConfirmed(false);}}><option value="loss">Item lost or not returned</option><option value="severe_cosmetic_damage">Severe, permanent cosmetic damage</option></select></label>}
    <label>Amount to request (£)<input disabled={busy} type="number" min="0.01" max={remaining} step="0.01" required value={amount} onChange={e=>{setAmount(e.target.value);request.current=null;setConfirmed(false);}}/></label>
    <label>Itemised evidence and calculation<textarea disabled={busy} required minLength={10} maxLength={4000} value={reason} onChange={e=>{setReason(e.target.value);request.current=null;setConfirmed(false);}} placeholder="Identify the item, condition evidence, repair/valuation or late-rate calculation, and deductions for avoided costs or other recoveries."/></label>
-   <label className={styles.check}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)} disabled={busy}/><span>{setupIntentPolicy&&kind==="damage"?"I confirm this is a recorded loss or severe, permanent cosmetic damage beyond fair wear, supported by inspection evidence and a fair calculation. This sends a notice; it does not take payment.":"I checked the evidence and fair calculation. This sends a notice; it does not take payment."}</span></label>
-   <button type="submit" disabled={busy||!confirmed||remaining!==undefined&&remaining<=0}>{busy?"Preparing…":"Send itemised notice · no payment"}</button>
+   <label className={styles.check}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)} disabled={busy}/><span>{immediateClaim?"I confirm the permitted claim, evidence and amount. This sends the itemised notice and attempts the saved-card payment now.":setupIntentPolicy&&kind==="damage"?"I confirm this is a recorded loss or severe, permanent cosmetic damage beyond fair wear, supported by inspection evidence and a fair calculation. This sends a notice; it does not take payment.":"I checked the evidence and fair calculation. This sends a notice; it does not take payment."}</span></label>
+   <button type="submit" disabled={busy||!confirmed||remaining!==undefined&&remaining<=0}>{busy?immediateClaim?"Sending & checking bank…":"Preparing notice…":immediateClaim?`Send notice & attempt ${formatGbp(Number(amount)||0)} now`:"Send itemised notice · no payment"}</button>
   </form></details>}
-  <div className={styles.history}>{data.rows.map(row=><ChargeRow key={row.id} row={row} token={token} bookingId={bookingId} admin={admin}/>)}</div>
+  <div className={styles.history}>{data.rows.map(row=><ChargeRow key={row.id} row={row} token={token} bookingId={bookingId} admin={admin} immediateClaim={immediateClaim}/>)}</div>
   {!data.rows.length&&<p className={styles.empty}>No damage or late-fee payment has been requested.</p>}
   {error&&<p role="alert" className={styles.error}>{error}</p>}
  </section>;
 }
-function ChargeRow({row,token,bookingId,admin}:{row:any;token:string;bookingId:string;admin:boolean}) {
+function ChargeRow({row,token,bookingId,admin,immediateClaim}:{row:any;token:string;bookingId:string;admin:boolean;immediateClaim:boolean}) {
  const convex=useConvex(),collect=useAction(api.securityCharges.collect),refresh=useAction(api.securityCharges.refresh),reference=useAction(api.securityCharges.reconcileReference),refund=useAction(api.securityCharges.refundPayment),resend=useAction(api.securityCharges.resendNotice),resendReceipt=useAction(api.securityCharges.resendReceipt),dispute=useMutation(api.securityChargeState.dispute),withdraw=useMutation(api.securityChargeState.closePrepared),propose=useMutation(api.securityChargeState.proposeResolution),accept=useMutation(api.securityChargeState.acceptResolution);
  const [now,setNow]=useState(Date.now),[busy,setBusy]=useState(false),[message,setMessage]=useState(""),[note,setNote]=useState(""),[reviewed,setReviewed]=useState(false),[bankRef,setBankRef]=useState('');
  useEffect(()=>{if(!['notice_sent','uncertain'].includes(row.state)||!row.collectAfter)return;const t=setInterval(()=>setNow(Date.now()),30000);return()=>clearInterval(t);},[row.state,row.collectAfter]);
@@ -57,7 +62,7 @@ function ChargeRow({row,token,bookingId,admin}:{row:any;token:string;bookingId:s
  const unresolved=!!row.disputeReason&&!row.disputeResolvedAt;
  return <article className={styles.charge}>
   <div className={styles.row}><strong>{row.kind==="late"?"Late-return fees":"Damage / loss"}{row.claimBasis==="loss"?" · lost item":row.claimBasis==="severe_cosmetic_damage"?" · severe cosmetic damage":""} · {formatGbp(row.amount)}</strong><span>{unresolved?"Disputed · collection paused":row.state.replaceAll("_"," ")}</span></div><p>{row.reason}</p>
-  {row.noticeAt&&<small>Notice accepted by the mail service {when(row.noticeAt)}; delivery is not confirmed · collection no earlier than {when(row.collectAfter)} London time</small>}
+  {row.noticeAt&&<small>Notice accepted by the mail service {when(row.noticeAt)}; delivery is not confirmed{immediateClaim?" · one immediate attempt follows under this rental’s accepted terms":` · collection no earlier than ${when(row.collectAfter)} London time`}</small>}
   {row.state==="paid"&&<p>Bank-confirmed payment: {formatGbp(row.paid)}.</p>}
   {row.state==="paid"&&<button disabled={busy} onClick={()=>run(statement)}>Download assessment statement</button>}
   {row.refunded>0&&<p>Refunded to the original payment method: {formatGbp(row.refunded)}. This does not restore the used collection allowance.</p>}
@@ -66,8 +71,8 @@ function ChargeRow({row,token,bookingId,admin}:{row:any;token:string;bookingId:s
   {admin&&<div className={styles.actions}>
    {row.state==='paid'&&(row.receiptNoticeAt?<small>Receipt accepted by mail service; delivery is not confirmed.</small>:<button disabled={busy} onClick={()=>run(async()=>{await resendReceipt({token,id:row.id});setMessage('Receipt send requested. Check its status before retrying; delivery is not guaranteed.');})}>Retry receipt email</button>)}
    {row.state==="notice_pending"&&<button disabled={busy} onClick={()=>run(()=>resend({token,id:row.id}))}>Retry notice delivery</button>}
-   {["notice_sent","uncertain"].includes(row.state)&&<button className={styles.primary} disabled={busy||!reviewed||unresolved||!row.collectAfter||row.collectAfter>now} onClick={()=>run(async()=>{const r=await collect({token,id:row.id});setMessage("Bank status: "+r.status);})}>Collect {formatGbp(row.amount)}</button>}
-   {["notice_sent","uncertain"].includes(row.state)&&<label className={styles.check}><input type="checkbox" checked={reviewed} onChange={e=>setReviewed(e.target.checked)} disabled={busy}/><span>I reviewed this exact amount and evidence.</span></label>}
+{["notice_sent","uncertain"].includes(row.state)&&<button className={styles.primary} disabled={busy||(!immediateClaim&&!reviewed)||unresolved||!row.collectAfter||row.collectAfter>now} onClick={()=>run(async()=>{const r=await collect({token,id:row.id});setMessage("Bank status: "+r.status);})}>{immediateClaim?`Check / attempt ${formatGbp(row.amount)}`:`Collect ${formatGbp(row.amount)}`}</button>}
+{!immediateClaim&&["notice_sent","uncertain"].includes(row.state)&&<label className={styles.check}><input type="checkbox" checked={reviewed} onChange={e=>setReviewed(e.target.checked)} disabled={busy}/><span>I reviewed this exact amount and evidence.</span></label>}
    {["processing","requires_action","uncertain","collecting","paid"].includes(row.state)&&<button disabled={busy} onClick={()=>run(async()=>{const r=await refresh({token,id:row.id,admin:true});setMessage("Bank status: "+r.status);})}>Reconcile bank status</button>}
    <button disabled={busy} onClick={()=>run(evidence)}>Download consent & evidence</button>
   </div>}

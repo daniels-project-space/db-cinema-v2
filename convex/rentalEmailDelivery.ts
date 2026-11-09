@@ -21,6 +21,9 @@ async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliv
     return !!offer&&offer.emailDeliveryId===row._id&&offer.state==="email_pending"&&account?.blockedAt==null&&offer.recipientEmail===recipient&&Date.now()<(offer.choiceDeadline??0);
   }
   if(row.kind === "review"){
+    // Account renters receive one canonical invitation in their rental chat.
+    // A delayed or retried legacy email job must not send a second request.
+    if(b.reviewInvitationMessageId)return false;
     if(b.remindedReview || b.reviewFollowUpStatus==="sent")return false;
     if(customerReviewGate(b) || b.reviewEligibilityFingerprint!==reviewSettlementFingerprint(await reviewContext(ctx,b)))return false;
     if(row.preparedPromotional && !account?.marketingEmails || row.preparedCleanReturnRequired && encoreGate(b))return false;
@@ -80,7 +83,7 @@ export const finish=internalMutation({args:{deliveryId:v.id("rental_email_delive
   if(row.kind==="review")await markReviewState(ctx,row.bookingId,{reviewFollowUpStatus:a.result==="sent"?"sent":a.result==="skipped"?"suppressed":failed?"failed":"sending",
     remindedReview:a.result==="sent"||a.result==="skipped",reviewFollowUpSentAt:a.result==="sent"?now:undefined,
     reviewFollowUpReason:a.result==="retry"?(failed?"email_failed":"email_retry"):a.result==="skipped"?"notice_no_longer_applicable":undefined});
-  if(a.result === "sent") {
+  if(a.result === "sent" && row.kind !== "review") {
     const booking = await ctx.db.get(row.bookingId), account = await accountForRental(ctx, booking);
     if(account) await queueOwnerNotification(ctx, {eventKey:`rental-email-sent:${row._id}`,kind:"email_sent",accountId:account._id,bookingId:row.bookingId,title:"Booking email sent",body:`The ${row.kind} email was accepted for delivery. This does not confirm that it was read.`});
   }

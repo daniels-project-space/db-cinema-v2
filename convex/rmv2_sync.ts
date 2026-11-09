@@ -103,6 +103,12 @@ export function mapBookingForSync(
     // remains the attestation for older/confirmed reservations and is never a
     // substitute for checkoutPaidAt while Didit is still pending.
     paidConfirmedAt: typeof b.paidConfirmedAt === "number" && Number.isSafeInteger(b.paidConfirmedAt) && b.paidConfirmedAt > 0 ? b.paidConfirmedAt : null,
+    // Persisted only after the Stripe Checkout Session was retrieved and verified as paid or no-payment-required.
+    ...(typeof b.checkoutPaidAt === "number" && Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt > 0 && b.stripePaymentIntentId
+      ? { paymentEvidence: { status: "succeeded" as const, paymentIntentId: b.stripePaymentIntentId, paidAt: b.checkoutPaidAt } }
+      : typeof b.checkoutPaidAt === "number" && Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt > 0 && b.stripeCheckoutSessionId
+        ? { paymentEvidence: { status: "no_payment_required" as const, checkoutSessionId: b.stripeCheckoutSessionId, paidAt: b.checkoutPaidAt } }
+        : {}),
     verification: {
       version: 1,
       provider: b.verificationProvider ?? "stripe",

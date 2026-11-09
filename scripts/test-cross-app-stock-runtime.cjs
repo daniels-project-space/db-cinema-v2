@@ -10,7 +10,17 @@ const { makeFunctionReference } = require('convex/server');
 const { payTestCheckout } = require('./lib/stripeTestCheckout.cjs');
 
 const website = path.resolve(__dirname, '..');
-const manager = process.env.SYNTHETIC_MANAGER_REPO || '/root/rental-manager-current-main';
+const managerCandidates = process.env.SYNTHETIC_MANAGER_REPO
+  ? [path.resolve(process.env.SYNTHETIC_MANAGER_REPO)]
+  : ['/tmp/rm-db-cinema-shared-stock-release-20261108', '/home/ubuntu/rental-manager-v2', '/root/rental-manager-current-main'];
+const manager = managerCandidates.find(candidate => {
+  const handler = path.join(candidate, 'convex', 'dbcinema_shared_stock.ts');
+  const schema = path.join(candidate, 'convex', 'schema.ts');
+  return fs.existsSync(handler) && fs.existsSync(schema) &&
+    fs.readFileSync(handler, 'utf8').includes('renter_declined_before_execution') &&
+    fs.readFileSync(schema, 'utf8').includes('dbcinema_shared_stock_claims: defineTable');
+});
+if (!manager) throw Error(`SYNTHETIC_MANAGER_REPO must point to a Rental Manager checkout with the decline-release contract and dbcinema_shared_stock_claims table. Candidates checked: ${managerCandidates.join(', ')}`);
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'dbc-cross-stock-'));
 const children = [];
 let syntheticProvider;
@@ -69,7 +79,7 @@ async function launch(name, source, fixture) {
 
 async function main() {
   const managerBackend = await launch('manager', manager, 'cross-stock-manager.ts.fixture');
-  for (const [key, value] of [['SHARED_STOCK_AUTHORITY_EXPERIMENTAL', 'true'], ['SHARED_STOCK_RECEIPT_CONVERSION_EXPERIMENTAL', 'true'], ['DBCINEMA_SHARED_STOCK_SECRET', secret], ['SHARED_STOCK_WEBSITE_SECRET', secret], ['DBCINEMA_WEBHOOK_SECRET', 'synthetic-sync-secret'], ['BETTER_AUTH_SECRET', 'synthetic-auth-secret-12345678901234567890']]) await run(managerBackend.cli, ['env', 'set', key, value], { cwd: managerBackend.dir, env: managerBackend.env });
+  for (const [key, value] of [['DBCINEMA_SHARED_STOCK_ENABLED', 'true'], ['SHARED_STOCK_AUTHORITY_EXPERIMENTAL', 'true'], ['SHARED_STOCK_RECEIPT_CONVERSION_EXPERIMENTAL', 'true'], ['DBCINEMA_SHARED_STOCK_SECRET', secret], ['SHARED_STOCK_WEBSITE_SECRET', secret], ['DBCINEMA_WEBHOOK_SECRET', 'synthetic-sync-secret'], ['BETTER_AUTH_SECRET', 'synthetic-auth-secret-12345678901234567890']]) await run(managerBackend.cli, ['env', 'set', key, value], { cwd: managerBackend.dir, env: managerBackend.env });
   const siteBackend = await launch('website', website, 'cross-stock-website.ts.fixture');
   for (const [key, value] of [['ADMIN_TOKEN', 'synthetic-test-admin-only'], ['RENTAL_ITEM_SWAP_ENABLED', 'true'], ['SHARED_STOCK_BRIDGE_EXPERIMENTAL', 'true'], ['RMV2_OUTBOUND_ENABLED', 'false'], ['SYNTHETIC_STOCK_SITE', managerBackend.site]]) await run(siteBackend.cli, ['env', 'set', key, value], { cwd: siteBackend.dir, env: siteBackend.env });
   const testKey = process.env.STRIPE_TEST_SECRET_KEY;
@@ -93,6 +103,7 @@ async function main() {
   assert.equal(retried.status, 'confirmed'); assert.equal(retried.result.replayed, true);
   const competing = await call(request('cross-app-swap-00000001'));
   assert.equal(competing.status, 'capacity_conflict');
+
   const execution = { operation: 'beginExecution', args: { id: retried.result.requestId, fingerprint: retried.result.fingerprint, executionKey: 'booking-execution-000001' } };
   const external = await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:addExternal'), { itemId });
   assert.equal((await call(execution)).status, 'capacity_conflict');
@@ -110,6 +121,20 @@ async function main() {
   assert.equal(race.filter(result => result.status === 'capacity_conflict').length, 1);
   const afterRace = await managerBackend.client.query(inspect, {});
   assert.equal(afterRace.claims.length, 2);
+
+  const declinedItemId = await managerBackend.client.mutation(seed, {});
+  const declinedSwap = { operation: 'acquire', args: { requestId: 'cross-app-declined-swap-0001', items: [{ itemId: declinedItemId, start, returnAt, quantity: 1 }] } };
+  const declinedClaim = await call(declinedSwap);
+  assert.equal(declinedClaim.status, 'confirmed');
+  const declinedRelease = { operation: 'releasePrepared', args: { id: declinedClaim.result.requestId, fingerprint: declinedClaim.result.fingerprint, reason: 'renter_declined_before_execution' } };
+  const releasedDeclinedClaim = await call(declinedRelease);
+  assert.equal(releasedDeclinedClaim.status, 'confirmed');
+  assert.equal(releasedDeclinedClaim.result.state, 'released');
+  const replayedDeclineRelease = await call(declinedRelease);
+  assert.equal(replayedDeclineRelease.status, 'confirmed');
+  assert.equal(replayedDeclineRelease.result.replayed, true);
+  assert.equal((await call({ operation: 'acquire', args: { requestId: 'cross-app-declined-retry-0001', items: [{ itemId: declinedItemId, start, returnAt, quantity: 1 }] } })).status, 'confirmed');
+
   const releaseOld = await managerBackend.client.mutation(seed, {}), releaseNew = await managerBackend.client.mutation(seed, {});
   const releaseSwapId = 'syntheticcompensated123', releaseBookingId = 'synthetic-original-booking';
   await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:seedOriginal'), { itemId: releaseOld, bookingId: releaseBookingId, start, returnAt });
@@ -519,7 +544,13 @@ async function main() {
   await siteBackend.client.mutation(makeFunctionReference('cross_stock_fixture:restoreVerification'),{bookingId:refundRevoke.bookingId});
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
   const restoredConflict=await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:addExternal'),{itemId:refundRevokeNew,date:'2031-01-02'});
-  await deliverLatest(refundRevoke.bookingId,refundRevokeId);
+  await siteBackend.client.mutation(expedite,{bookingId:refundRevoke.bookingId});
+  await siteBackend.client.action(deliver,{bookingId:refundRevoke.bookingId});
+  assert.equal(lastSyncResponse.status,200);
+  assert.equal(JSON.parse(lastSyncResponse.response).outcome,'applied','A metadata-only sync of the still-booked original kit may proceed while the proposed replacement remains uncommitted');
+  const deferredConflict=await siteBackend.client.query(inspectSwap,{bookingId:refundRevoke.bookingId,swapId:refundRevokeId});
+  assert.equal(deferredConflict.booking.rmv2SyncStatus,'delivered');assert.equal(deferredConflict.booking.rmv2DeliveredRevision,deferredConflict.booking.rmv2Revision);
+  assert.notEqual(deferredConflict.booking.lineItems[0].listingId,refundRevoke.newId);
   await assert.rejects(siteBackend.client.action(accept,refundRevokeAccept));
   const conflictPending=await siteBackend.client.query(inspectSwap,{bookingId:refundRevoke.bookingId,swapId:refundRevokeId});
   assert.equal(conflictPending.booking.activeItemSwapId,refundRevokeId);assert.notEqual(conflictPending.booking.lineItems[0].listingId,refundRevoke.newId);assert.equal([...syntheticRefunds.values()].filter(row=>row.payment_intent===refundRevokePayment).length,1);
@@ -572,7 +603,9 @@ async function main() {
   await siteBackend.client.mutation(expedite,{bookingId:comp.bookingId});
   assert.equal((await siteBackend.client.action(deliver,{bookingId:comp.bookingId})).ok,true);
   await run(siteBackend.cli,['env','set','SYNTHETIC_LOSE_COMPENSATED_RESPONSE','true'],{cwd:siteBackend.dir,env:siteBackend.env});
-  assert.equal((await siteBackend.client.action(recoverRelease,{id:releaseJob._id})).status,'unknown');
+  const lostReleaseResponse=await siteBackend.client.action(recoverRelease,{id:releaseJob._id});
+  if(lostReleaseResponse.status!=='unknown')console.error('Compensated release recovery detail',JSON.stringify(await siteBackend.client.query(inspectRelease,{swapId:compId})));
+  assert.equal(lostReleaseResponse.status,'unknown');
   const frozenJob=await siteBackend.client.query(inspectRelease,{swapId:compId});
   assert.equal((await managerBackend.client.query(inspect,{})).requests.find(row=>row._id===frozenJob.request.args.id).state,'compensated_released');
   assert.equal((await siteBackend.client.query(inspectSwap,{bookingId:comp.bookingId,swapId:compId})).booking.activeItemSwapId,compId);

@@ -2,12 +2,14 @@ type Item = { itemId: string; start: number; returnAt: number; quantity: number 
 export type StockRequest =
   | { operation: "acquire"; args: { requestId: string; bookingId?: string; items: Item[] } }
   | { operation: "acquireZero"; args: { requestId:string; bookingId:string; oldItems:Item[]; newItems:Item[] } }
+  | { operation: "acquirePaidBooking"; args: { requestId:string; bookingId:string; bookingRevision:number; verificationState:"pending"; paymentEvidence:{status:"succeeded";paymentIntentId:string;paidAt:number}|{status:"no_payment_required";checkoutSessionId:string;paidAt:number}; items:Item[] } }
+  | { operation: "releaseBooking"; args: { bookingId:string; bookingRevision:number; eventId:string; reason:"booking_cancelled"|"verification_declined"|"verification_expired"|"booking_returned" } }
   | { operation: "beginExecution"; args: { id: string; fingerprint: string; executionKey: string } }
   | { operation: "checkExecution"; args: { id: string; fingerprint: string; executionKey: string } }
   | { operation: "checkConversion"; args: { id: string; fingerprint: string; executionKey: string; receipt: Record<string, unknown> } }
   | { operation: "releaseCompensated"; args: { id: string; fingerprint: string; executionKey: string; evidence: { swapId:string; bookingId:string; bookingRevision:number; paymentIntentId:string; refundId:string; refundStatus:"succeeded"; amountPence:number; refundAttemptedAt:number; windows:Array<{itemId:string;start:number;end:number;quantity:number}> } } }
   | { operation: "checkCompensatedRelease"; args: { id: string; fingerprint: string; executionKey: string; evidence: { swapId:string; bookingId:string; bookingRevision:number; paymentIntentId:string; refundId:string; refundStatus:"succeeded"; amountPence:number; refundAttemptedAt:number; windows:Array<{itemId:string;start:number;end:number;quantity:number}> } } }
-  | { operation: "releasePrepared"; args: { id: string; fingerprint: string; reason: "withdrawn_before_execution" | "abandoned_before_execution" } };
+  | { operation: "releasePrepared"; args: { id: string; fingerprint: string; reason: "withdrawn_before_execution" | "renter_declined_before_execution" | "abandoned_before_execution" } };
 
 export type StockTransportResult = { status: "offline" | "unknown" | "capacity_conflict" } | { status: "confirmed"; result: Record<string, unknown> };
 const MAX_RESPONSE = 16384;
@@ -44,6 +46,18 @@ async function boundedText(response: Response): Promise<string> {
 }
 
 function validReceipt(request: StockRequest, receipt: any): boolean {
+  if (request.operation === "acquirePaidBooking") {
+    const outcome = receipt?.outcome;
+    const expectedExecutionKey = `booking_execution_${request.args.bookingId}`;
+    const keys = ["bookingId", "fingerprint", "holdsStock", "ok", "operation", "outcome", "replayed", "requestId", ...(receipt?.executionKey === undefined ? [] : ["executionKey"])].sort().join(",");
+    const executionStarted = outcome === "execution_started" && receipt.holdsStock === true && receipt.executionKey === expectedExecutionKey;
+    const converted = outcome === "converted" && receipt.holdsStock === false && (receipt.executionKey === undefined || receipt.executionKey === expectedExecutionKey);
+    return receipt?.ok === true && Object.keys(receipt).sort().join(",") === keys &&
+      receipt.operation === request.operation && receipt.bookingId === request.args.bookingId &&
+      receipt.requestId === request.args.requestId && typeof receipt.fingerprint === "string" && receipt.fingerprint.length > 0 &&
+      (executionStarted || converted) && typeof receipt.replayed === "boolean";
+  }
+  if (request.operation === "releaseBooking") return receipt?.ok === true && receipt.operation === request.operation && receipt.bookingId === request.args.bookingId && receipt.outcome === "released" && Number.isSafeInteger(receipt.releasedClaims) && receipt.releasedClaims >= 0 && typeof receipt.idempotent === "boolean";
   if (!receipt || receipt.version !== 1 || receipt.operation !== request.operation || !receipt.request || receipt.request.source !== "website" || !receipt.result || typeof receipt.result !== "object" || typeof receipt.result.replayed !== "boolean") return false;
   const actual = receipt.request;
   if (request.operation === "acquire") {
@@ -100,6 +114,7 @@ export async function sendSharedStockRequest(request: StockRequest, config: { en
       if (response.status !== 409) return { status: "unknown" };
       try {
         const rejection = JSON.parse(await boundedText(response));
+        if (request.operation === "acquirePaidBooking" && rejection && Object.keys(rejection).sort().join(",") === "error,ok" && rejection.ok === false && rejection.error === "capacity_conflict") return { status: "capacity_conflict" };
         if (rejection && Object.keys(rejection).sort().join(",") === "error,operation,version" &&
           rejection.version === 1 && rejection.operation === request.operation && rejection.error === "capacity_conflict" &&
           ["acquire", "beginExecution", "checkExecution"].includes(request.operation)) {
@@ -109,6 +124,9 @@ export async function sendSharedStockRequest(request: StockRequest, config: { en
       return { status: "unknown" };
     }
     const receipt = JSON.parse(await boundedText(response));
-    return validReceipt(request, receipt) ? { status: "confirmed", result: receipt.result } : { status: "unknown" };
+    if (!validReceipt(request, receipt)) return { status: "unknown" };
+    // Paid-claim and terminal-release endpoints use a compact top-level
+    // response envelope; legacy swap operations return their result nested.
+    return { status: "confirmed", result: request.operation === "acquirePaidBooking" || request.operation === "releaseBooking" ? receipt : receipt.result };
   } catch { return { status: "unknown" }; }
 }

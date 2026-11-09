@@ -29,12 +29,15 @@ export function RentalOrderTools({
   token,
   bookingId,
   showReturn = true,
+  showSavedCardTools = true,
   initialMode,
 }: {
   token: string;
   bookingId: string;
   /** Return settlement belongs in the rental conversation, where the customer record is visible. */
   showReturn?: boolean;
+  /** AccountAdmin has one dedicated Payments section; keep the rental action panel focused. */
+  showSavedCardTools?: boolean;
   initialMode?:"reschedule"|"refund"|"add";
 }) {
   const b = useQuery(api.rentalOperations.details, {
@@ -588,7 +591,7 @@ export function RentalOrderTools({
           {result}
         </p>
       )}
-      <SavedCardCharges token={token} bookingId={bookingId} admin />
+      {showSavedCardTools && <SavedCardCharges token={token} bookingId={bookingId} admin />}
     </div>
   );
 }

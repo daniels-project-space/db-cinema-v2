@@ -19,7 +19,7 @@ import { RentalAdditionApproval } from "@/components/rentals/RentalAdditionAppro
 import { LateFeeApproval } from "@/components/account/LateFeeApproval";
 import { AuthenticatedBookingDownload } from "@/components/account/AuthenticatedBookingDownload";
 import { type EnrichedBooking, groupOf, fmtRange, rentalDays, countdown } from "@/lib/bookingDisplay";
-import { SETUP_INTENT_SECURITY_POLICY_VERSION } from "../../../shared/rentalSecurity";
+import { isSetupIntentSecurityPolicy } from "../../../shared/rentalSecurity";
 
 export function BookingTile({
   booking,
@@ -44,7 +44,7 @@ export function BookingTile({
   const showVerify = booking.status !== "pending_payment" && (group === "upcoming" || group === "active");
   const tip = booking.lineItems.find((li) => li.tip)?.tip ?? null;
   const isPending = booking.status === "pending_payment";
-  const setupIntentPolicy = booking.securityPolicyVersion === SETUP_INTENT_SECURITY_POLICY_VERSION;
+  const setupIntentPolicy = isSetupIntentSecurityPolicy(booking.securityPolicyVersion);
 
   const del = useAction(api.checkout.cancelUnpaidByCustomer);
   const [busy, setBusy] = useState(false);

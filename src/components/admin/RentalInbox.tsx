@@ -46,6 +46,8 @@ function EmailConversationPanel({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const replyConfigured = data?.authorized === true && data.replyConfigured === true;
+  const replySetupStatus = data?.authorized === true ? data.replySetupStatus : undefined;
+  const outboundSenderAddress = data?.authorized === true ? data.outboundSenderAddress : null;
   const thread = data?.authorized ? data.thread : null;
   const messages = data?.authorized ? data.messages : [];
 
@@ -123,7 +125,7 @@ function EmailConversationPanel({
         <label htmlFor="email-owner-reply" className="mb-2 block text-xs font-medium text-white/65">Reply by email</label>
         <textarea id="email-owner-reply" value={draft} onChange={(event) => setDraft(event.target.value)} rows={4} maxLength={12000} disabled={!replyConfigured} placeholder={replyConfigured ? "Write an email reply…" : "Email replies are temporarily unavailable"} className="w-full resize-y rounded-2xl border border-white/10 bg-black/20 p-3 text-sm leading-6 text-white outline-none placeholder:text-white/25 focus:border-sky-300/35 disabled:cursor-not-allowed disabled:opacity-45" />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[11px] text-white/40">{replyConfigured ? "Replies send from dbcinemarentals@gmail.com." : "Replies are paused because the business Gmail sender is not configured."}</p>
+          <p className="text-[11px] text-white/40">{replyConfigured ? `Replies send from ${outboundSenderAddress}.` : replySetupStatus === "missing_business_sender" ? "Business email sending is not configured." : "Email reply routing is not configured yet."}</p>
           <button type="submit" disabled={!replyConfigured || sending || !draft.trim()} className="rounded-full bg-sky-200 px-4 py-2 text-xs font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">{sending ? "Sending…" : "Send email reply"}</button>
         </div>
         {error && <p role="alert" className="mt-3 text-xs leading-5 text-rose-200">{error}</p>}
@@ -147,6 +149,7 @@ export function RentalInbox({
     [search, setSearch] = useState(""),
     [selected, setSelected] = useState<string | null>(focusBookingId ?? focusAccountId ?? null);
   const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
+  const [forwardCopyStatus, setForwardCopyStatus] = useState("");
   const isEmailStage = stage === "emails";
   const emailInbox = useQuery(api.emailInbox.adminInbox, { token, limit: 100 });
   const emailItems = emailInbox?.authorized ? emailInbox.items : [];
@@ -377,6 +380,39 @@ export function RentalInbox({
             placeholder={isEmailStage ? "Search loaded emails" : "Search loaded conversations"}
             className="mb-3 w-full rounded-2xl border border-white/[0.07] bg-white/[0.025] px-4 py-3 text-sm text-white outline-none"
           />
+          {isEmailStage && emailInbox?.authorized && <section aria-label="Email routing status" className="mb-3 rounded-2xl border border-sky-300/15 bg-sky-300/[0.035] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-semibold text-white/80">Outbound replies</p>
+                <p className="mt-1 text-[11px] text-white/50">{emailInbox.replyConfigured ? `Ready · ${emailInbox.outboundSenderAddress}` : emailInbox.replySetupStatus === "missing_business_sender" ? "Business sender needs setup." : "Reply route needs setup."}</p>
+              </div>
+              <span className={`rounded-full px-2 py-1 text-[10px] ${emailInbox.replyConfigured ? "bg-emerald-300/10 text-emerald-100" : "bg-amber-300/10 text-amber-100"}`}>{emailInbox.replyConfigured ? "Ready" : "Needs setup"}</span>
+            </div>
+            {emailInbox.inboundForwardingAddress ? <div className="mt-3 border-t border-white/[0.07] pt-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] font-medium text-white/75">Incoming Gmail</p>
+                <span className="rounded-full bg-sky-300/10 px-2 py-1 text-[10px] text-sky-100">Gmail route</span>
+              </div>
+              <p className="mt-1 text-[10px] leading-4 text-white/45">Forward business Gmail here so Gaffer can receive and answer email.</p>
+              <div className="mt-1 flex min-w-0 items-center gap-1.5">
+                <code className="min-w-0 flex-1 truncate rounded-lg bg-black/20 px-2 py-1.5 text-[10px] text-sky-100" title={emailInbox.inboundForwardingAddress}>{emailInbox.inboundForwardingAddress}</code>
+                <button type="button" onClick={async () => {
+                  try { await navigator.clipboard.writeText(emailInbox.inboundForwardingAddress!); setForwardCopyStatus("Copied"); }
+                  catch { setForwardCopyStatus("Copy manually"); }
+                }} className="shrink-0 rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-white/65 hover:bg-white/[0.06]">{forwardCopyStatus || "Copy"}</button>
+              </div>
+              <a href="https://mail.google.com/mail/?authuser=dbcinemarentals%40gmail.com#settings/fwdandpop" target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-lg border border-white/10 px-2.5 py-1.5 text-[10px] text-white/65 hover:bg-white/[0.06]">Open business Gmail forwarding</a>
+              <details className="mt-2 text-[10px] leading-4 text-white/50">
+                <summary className="cursor-pointer text-white/65">Setup steps</summary>
+                <ol className="ml-4 mt-1 list-decimal space-y-1">
+                  <li>In Gmail, open ⚙️ Settings → See all settings → Forwarding and POP/IMAP.</li>
+                  <li>Add the copied address and confirm Google’s email sent to it in this site inbox.</li>
+                  <li>Choose “Forward a copy”, keep Gmail’s copy, then Save Changes.</li>
+                </ol>
+              </details>
+              <p className="mt-2 text-[10px] leading-4 text-white/40">After enabling forwarding, send a test to the business Gmail. Confirm it appears here before relying on email replies.</p>
+            </div> : <p className="mt-3 border-t border-white/[0.07] pt-3 text-[10px] text-amber-100/70">Inbound address needs setup.</p>}
+          </section>}
           <div className={chatStyles.conversationList}>
             {isEmailStage && emailInbox === undefined && <p className="p-6 text-center text-sm text-white/35">Loading emails…</p>}
             {isEmailStage && emailInbox && !emailInbox.authorized && <p role="alert" className="p-6 text-center text-sm text-rose-100/60">Email inbox access is unavailable.</p>}

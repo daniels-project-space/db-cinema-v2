@@ -31,12 +31,21 @@ export async function rentalThread(ctx: any, accountId: any, bookingId?: any) {
     .first();
 }
 export async function scheduleGafferAutoResume(ctx: any, accountId: any, bookingId?: any) {
-  const thread = await rentalThread(ctx, accountId, bookingId);
-  if (!thread?.escalated || !Number.isSafeInteger(thread.updatedAt)) return;
-  await ctx.scheduler.runAfter(GAFFER_AUTO_RESUME_MS, internal.chat.autoResumeGaffer, {
+  let thread = await rentalThread(ctx, accountId, bookingId);
+  if (!thread?.escalated) return;
+  const anchor = thread.lastHumanActivityAt ?? thread.escalatedAt ?? thread.updatedAt;
+  if (!Number.isSafeInteger(anchor)) return;
+  // Backfill legacy human handoffs once. Subsequent renter/system messages must not
+  // restart the four-hour clock; only an owner reply moves lastHumanActivityAt.
+  if (thread.escalatedAt == null && thread.lastHumanActivityAt == null) {
+    await ctx.db.patch(thread._id, { escalatedAt: anchor });
+    thread = { ...thread, escalatedAt: anchor };
+  }
+  await ctx.scheduler.runAfter(Math.max(0, anchor + GAFFER_AUTO_RESUME_MS - Date.now()), internal.chat.autoResumeGaffer, {
     accountId,
     bookingId,
-    expectedUpdatedAt: thread.updatedAt,
+    expectedUpdatedAt: anchor,
+    expectedActivityAt: anchor,
     expectedGeneration: thread.gafferGeneration ?? 0,
   });
 }
@@ -72,6 +81,7 @@ export async function postRentalMessage(
     lastSender: a.sender,
     unreadOwner: (thread?.unreadOwner ?? 0) + (a.sender === "renter" ? 1 : 0),
     unreadRenter: (thread?.unreadRenter ?? 0) + (a.sender !== "renter" ? 1 : 0),
+    ...(a.sender === "owner" && thread?.escalated ? { lastHumanActivityAt: now } : {}),
   };
   if (thread) await ctx.db.patch(thread._id, patch);
   else {
@@ -86,7 +96,7 @@ export async function postRentalMessage(
     const archive=await ctx.db.query("chat_case_archives").withIndex("by_booking",(q:any)=>q.eq("bookingId",a.bookingId)).first();
     if(archive&&!archive.threadId&&threadId)await ctx.db.patch(archive._id,{threadId});
   }
-  if (thread?.escalated) await scheduleGafferAutoResume(ctx, a.accountId, a.bookingId);
+  if (thread?.escalated && a.sender === "owner") await scheduleGafferAutoResume(ctx, a.accountId, a.bookingId);
   if (a.bookingId)
     await ctx.db.patch(a.bookingId, {
       chatUpdatedAt: now,

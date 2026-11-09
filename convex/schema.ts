@@ -1001,7 +1001,7 @@ export default defineSchema({
     baseSnapshot:v.string(),quoteSnapshot:v.string(),lineIndex:v.number(),oldListingId:v.id("listings"),newListingId:v.id("listings"),
     oldLine:v.any(),newLine:v.any(),changes:v.optional(v.array(v.object({lineIndex:v.number(),oldListingId:v.id("listings"),newListingId:v.id("listings"),oldLine:v.any(),newLine:v.any()}))),quote:v.any(),status:v.union(v.literal("awaiting_acceptance"),v.literal("accepted"),v.literal("awaiting_payment"),v.literal("refund_pending"),v.literal("refund_compensating"),v.literal("review"),v.literal("applied"),v.literal("refunded"),v.literal("withdrawn"),v.literal("declined"),v.literal("expired")),
     createdAt:v.number(),updatedAt:v.number(),expiresAt:v.number(),acceptedAt:v.optional(v.number()),acceptanceText:v.optional(v.string()),acceptedEmail:v.optional(v.string()),
-    sessionId:v.optional(v.string()),paymentUrl:v.optional(v.string()),paymentIntentId:v.optional(v.string()),refundJobId:v.optional(v.id("rental_refunds")),stockAppliedAt:v.optional(v.number()),creditsRestoredAt:v.optional(v.number()),compensationStartedAt:v.optional(v.number()),compensationReason:v.optional(v.string()),compensationReceipt:v.optional(depositReturnReceipt),reconcileAfter:v.optional(v.number()),reconcileAttempts:v.optional(v.number()),reconcileError:v.optional(v.string()),
+    sessionId:v.optional(v.string()),paymentUrl:v.optional(v.string()),paymentIntentId:v.optional(v.string()),expiredSessionEvidence:v.optional(v.object({sessionId:v.string(),status:v.literal("expired"),paymentStatus:v.literal("unpaid"),checkedAt:v.number(),expiresAt:v.number()})),refundJobId:v.optional(v.id("rental_refunds")),stockAppliedAt:v.optional(v.number()),creditsRestoredAt:v.optional(v.number()),compensationStartedAt:v.optional(v.number()),compensationReason:v.optional(v.string()),compensationReceipt:v.optional(depositReturnReceipt),reconcileAfter:v.optional(v.number()),reconcileAttempts:v.optional(v.number()),reconcileError:v.optional(v.string()),
   }).index("by_booking",["bookingId"]).index("by_booking_status",["bookingId","status"]).index("by_booking_account",["bookingId","accountId"]).index("by_request",["bookingId","requestId"]).index("by_status_due",["status","reconcileAfter"]).index("by_status_error_due",["status","reconcileError","reconcileAfter"]),
 
   rental_swap_adjustment_receipts: defineTable({
@@ -1023,8 +1023,8 @@ export default defineSchema({
 
   swap_stock_operations: defineTable({
     swapId:v.id("rental_item_swaps"), operation:v.union(v.literal("acquire"),v.literal("beginExecution"),v.literal("releasePrepared"),v.literal("releaseCompensated")),
-    request:v.any(), state:v.union(v.literal("pending"),v.literal("confirmed"),v.literal("review")),
-    receipt:v.optional(v.any()), leaseToken:v.optional(v.string()), leaseUntil:v.optional(v.number()), reconcileAfter:v.optional(v.number()), reconcileAttempts:v.optional(v.number()), createdAt:v.number(), updatedAt:v.number(),
+    request:v.any(), state:v.union(v.literal("pending"),v.literal("confirmed"),v.literal("capacity_conflict"),v.literal("review")),
+    receipt:v.optional(v.any()), leaseToken:v.optional(v.string()), leaseUntil:v.optional(v.number()), reconcileAfter:v.optional(v.number()), reconcileAttempts:v.optional(v.number()), reconcileError:v.optional(v.string()), createdAt:v.number(), updatedAt:v.number(),
   }).index("by_swap_operation",["swapId","operation"]).index("by_state_due",["state","reconcileAfter"]),
 
   swap_stock_applied_receipts: defineTable({
@@ -1073,6 +1073,8 @@ export default defineSchema({
     stripePaymentLinkId: v.optional(v.string()),
     paymentLinkUrl: v.optional(v.string()),
     paidAt: v.optional(v.number()),
+    settlementKind: v.optional(v.union(v.literal("stripe"), v.literal("approved_zero"))),
+    settledAt: v.optional(v.number()),
     createdAt: v.number(),
     resolvedAt: v.optional(v.number()),
   })
@@ -1125,6 +1127,8 @@ export default defineSchema({
     gafferReplyTo: v.optional(v.id("messages")),
     gafferGeneration: v.optional(v.number()),
     escalated: v.boolean(), // true → a human is handling it; Gaffer stops auto-replying
+    escalatedAt: v.optional(v.number()),
+    lastHumanActivityAt: v.optional(v.number()),
     tgMessageId: v.optional(v.number()), // the Telegram alert msg id (admin replies to it → thread)
     closedAt: v.optional(v.number()),
     caseArchivedAt: v.optional(v.number()),

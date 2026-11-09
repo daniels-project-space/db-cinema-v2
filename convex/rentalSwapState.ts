@@ -21,10 +21,11 @@ import { listingRentalImages } from "./lib/catalogImages";
 import { depositReturnReceipt } from "./lib/depositReturnReceipt";
 import { assertFreshSharedStock } from "./lib/shared_stock_sync";
 import { assertSwapAuthorityAvailable, swapAuthorityAvailable } from "./lib/rentalSwapAuthority";
-import { assertStockExecution, releaseClosedClaim, queueCompensatedRelease } from "./swapStockOperations";
+import { assertStockExecution, assertStockPrepared, releaseClosedClaim, queueCompensatedRelease } from "./swapStockOperations";
 import { initialInvoiceSnapshot } from "./lib/initialInvoiceSnapshot";
 
 const PAID_STOCK_RETRY_ERROR = "Payment received; equipment availability needs review.";
+const REFUNDED_CHANGE_RETRY_ERROR = "Stripe refund succeeded; retry equipment application.";
 
 function enabled() {
   if (process.env.RENTAL_ITEM_SWAP_ENABLED !== "true") throw Error("Equipment swaps are not enabled.");
@@ -213,6 +214,11 @@ export const accept = internalMutation({ args:{ token:v.string(), id:v.id("renta
   await ownedBooking(ctx,account,swap.bookingId);
   if (swap.quote.deltaPence !== args.expectedDeltaPence) throw Error("The equipment quote changed. Review it again.");
   if (swap.status === "applied") return swap;
+  // Recheck the operational kill switch and both stock-authority bindings at
+  // the renter's acceptance boundary. A proposal can outlive a deployment
+  // configuration change; do not record consent or start settlement while
+  // the cross-app stock coordinator is unavailable.
+  enabled();
   if (["accepted","awaiting_payment","refund_pending"].includes(swap.status)) return swap;
   await assertFreshSharedStock(ctx);
   if (swap.status !== "awaiting_acceptance" || swap.expiresAt <= Date.now()) throw Error("This equipment proposal has expired.");
@@ -262,7 +268,14 @@ export const list=query({args:{token:v.string(),bookingId:v.id("bookings"),admin
   }));
 }});
 
-export const bindSession = internalMutation({args:{id:v.id("rental_item_swaps"),sessionId:v.string(),url:v.string()},handler:async(ctx,args)=>{const swap=await ctx.db.get(args.id);if(!swap||!swap.acceptedAt||swap.quote.deltaPence<=0||!["accepted","awaiting_payment","review"].includes(swap.status))throw Error("The accepted swap payment is unavailable.");await assertStockExecution(ctx,swap._id);if(swap.sessionId&&swap.sessionId!==args.sessionId)throw Error("The original swap payment cannot be replaced.");await ctx.db.patch(swap._id,{sessionId:args.sessionId,paymentUrl:args.url,status:"awaiting_payment",updatedAt:Date.now(),reconcileAfter:Date.now()+5*60000});}});
+export const bindSession = internalMutation({args:{id:v.id("rental_item_swaps"),sessionId:v.string(),url:v.string(),paymentIntentId:v.optional(v.string())},handler:async(ctx,args)=>{
+  const swap=await ctx.db.get(args.id);
+  if(!swap||!swap.acceptedAt||swap.quote.deltaPence<=0||!["accepted","awaiting_payment","review"].includes(swap.status))throw Error("The accepted swap payment is unavailable.");
+  if(swap.sessionId&&swap.sessionId!==args.sessionId)throw Error("The original swap payment cannot be replaced.");
+  if(swap.paymentIntentId&&args.paymentIntentId&&swap.paymentIntentId!==args.paymentIntentId)throw Error("The original equipment payment cannot be replaced.");
+  if(!swap.sessionId&&!args.paymentIntentId)await assertStockPrepared(ctx,swap._id);
+  await ctx.db.patch(swap._id,{sessionId:args.sessionId,paymentUrl:args.url,status:swap.status==="review"?"review":"awaiting_payment",updatedAt:Date.now(),reconcileAfter:Date.now()+5*60000,...(args.paymentIntentId?{paymentIntentId:args.paymentIntentId}:{})});
+}});
 
 export const authorizeExecution=internalMutation({args:{id:v.id("rental_item_swaps")},handler:async(ctx,{id})=>{
   const swap=await ctx.db.get(id);
@@ -306,12 +319,16 @@ export const recordRefundedChangeReview=internalMutation({args:{id:v.id("rental_
   assertSuccessfulSwapRefund(refund,swap);
   if(swap.status==="applied"||swap.status==="refunded")return {status:swap.status,already:true};
   if(!["refund_pending","review"].includes(swap.status))throw Error("The equipment refund is not ready for application review.");
-  const reviewError="Stripe refund succeeded, but the equipment change is not confirmed.";
-  if(swap.status==="review"&&swap.reconcileError===reviewError&&!swap.reconcileAfter)return {status:"review",already:true};
-  const now=Date.now(),booking=await ctx.db.get(swap.bookingId),account=await ctx.db.get(swap.accountId);
-  await ctx.db.patch(swap._id,{status:"review",reconcileAttempts:0,reconcileError:reviewError,reconcileAfter:undefined,updatedAt:now});
-  await queueOwnerNotification(ctx,{eventKey:`swap-refund-application:${swap._id}`,kind:"checkout_failure",accountId:swap.accountId,bookingId:swap.bookingId,title:"Refunded equipment change needs reconciliation",body:"The Stripe refund succeeded, but the replacement has not been confirmed. Keep the rental locked and reconcile stock before resolving the change. Do not issue another refund."});
-  if(booking?.activeItemSwapId===swap._id&&belongsToRentalAccount(booking,account))await postRentalMessage(ctx,{accountId:swap.accountId,bookingId:swap.bookingId,sender:"system",text:`Your £${(-swap.quote.deltaPence/100).toFixed(2)} refund was processed, but the equipment change is not confirmed. The team is reconciling stock. Please wait for our update before relying on changed equipment details.`});
+  const retrying=swap.status==="review"&&swap.reconcileError===REFUNDED_CHANGE_RETRY_ERROR;
+  if(retrying&&!swap.reconcileAfter)return {status:"review",already:true};
+  const attempts=retrying?(swap.reconcileAttempts??0)+1:1;
+  const terminal=attempts>=3,now=Date.now(),booking=await ctx.db.get(swap.bookingId),account=await ctx.db.get(swap.accountId);
+  await ctx.db.patch(swap._id,{status:"review",reconcileAttempts:attempts,reconcileError:REFUNDED_CHANGE_RETRY_ERROR,reconcileAfter:terminal?undefined:now+Math.min(30,2**attempts)*60000,updatedAt:now});
+  if(!retrying){
+    await queueOwnerNotification(ctx,{eventKey:`swap-refund-application:${swap._id}`,kind:"checkout_failure",accountId:swap.accountId,bookingId:swap.bookingId,title:"Refunded equipment change needs reconciliation",body:"The Stripe refund succeeded, but the replacement has not been confirmed. We are retrying the same accepted change; the rental stays locked. Do not issue another refund."});
+    if(booking?.activeItemSwapId===swap._id&&belongsToRentalAccount(booking,account))await postRentalMessage(ctx,{accountId:swap.accountId,bookingId:swap.bookingId,sender:"system",text:`Your £${(-swap.quote.deltaPence/100).toFixed(2)} refund was processed, but we are still applying the equipment change. The rental remains locked while we reconcile it. Please wait for our update before relying on changed equipment details.`});
+  }
+  if(terminal)await queueOwnerNotification(ctx,{eventKey:`swap-refund-application-exhausted:${swap._id}`,kind:"checkout_failure",accountId:swap.accountId,bookingId:swap.bookingId,title:"Equipment change needs manual reconciliation",body:"Three automatic attempts could not apply an already-refunded equipment change. The rental remains locked. Check booking and Rental Manager stock before resolving it; do not issue another refund."});
   return {status:"review"};
 }});
 
@@ -320,31 +337,35 @@ export const pending=internalQuery({args:{},handler:async(ctx)=>{
   for(const status of ["awaiting_acceptance","accepted","awaiting_payment","refund_pending","refund_compensating"] as const)
     rows.push(...await ctx.db.query("rental_item_swaps").withIndex("by_status_due",index=>index.eq("status",status).gte("reconcileAfter",0).lte("reconcileAfter",Date.now())).take(20));
   rows.push(...await ctx.db.query("rental_item_swaps").withIndex("by_status_error_due",index=>index.eq("status","review").eq("reconcileError",PAID_STOCK_RETRY_ERROR).gte("reconcileAfter",0).lte("reconcileAfter",Date.now())).take(20));
+  rows.push(...await ctx.db.query("rental_item_swaps").withIndex("by_status_error_due",index=>index.eq("status","review").eq("reconcileError",REFUNDED_CHANGE_RETRY_ERROR).gte("reconcileAfter",0).lte("reconcileAfter",Date.now())).take(20));
   return rows;
 }});
 export const reconcileResult=internalMutation({args:{id:v.id("rental_item_swaps"),expectedStatus:v.string(),expectedDue:v.number(),error:v.optional(v.string())},handler:async(ctx,args)=>{
   const swap=await ctx.db.get(args.id);
   const retryingPaidStock=swap?.status==="review"&&swap.reconcileError===PAID_STOCK_RETRY_ERROR;
-  if(!swap||swap.status!==args.expectedStatus||swap.reconcileAfter!==args.expectedDue||!(["awaiting_acceptance","accepted","awaiting_payment","refund_pending","refund_compensating"].includes(swap.status)||retryingPaidStock))return;
+  const retryingRefundedChange=swap?.status==="review"&&swap.reconcileError===REFUNDED_CHANGE_RETRY_ERROR;
+  if(!swap||swap.status!==args.expectedStatus||swap.reconcileAfter!==args.expectedDue||!(["awaiting_acceptance","accepted","awaiting_payment","refund_pending","refund_compensating"].includes(swap.status)||retryingPaidStock||retryingRefundedChange))return;
   const attempts=args.error?(swap.reconcileAttempts??0)+1:0;
   const terminal=attempts>=3;
   const delay=args.error?Math.min(30,2**attempts)*60000:5*60000;
   await ctx.db.patch(swap._id,{
     reconcileAttempts:attempts,
-    reconcileError:retryingPaidStock?PAID_STOCK_RETRY_ERROR:args.error?.slice(0,240),
+    reconcileError:retryingPaidStock?PAID_STOCK_RETRY_ERROR:retryingRefundedChange?REFUNDED_CHANGE_RETRY_ERROR:args.error?.slice(0,240),
     reconcileAfter:terminal?undefined:Date.now()+delay,
     ...(terminal?{status:"review" as const}:{}),
   });
   if(terminal){
     await queueOwnerNotification(ctx,{
-      eventKey:retryingPaidStock?`swap-paid-stock-review:${swap._id}`:`swap-review:${swap._id}`,
+      eventKey:retryingRefundedChange?`swap-refund-application-exhausted:${swap._id}`:retryingPaidStock?`swap-paid-stock-review:${swap._id}`:`swap-review:${swap._id}`,
       kind:"checkout_failure",accountId:swap.accountId,bookingId:swap.bookingId,
-      title:retryingPaidStock?"Paid equipment change needs stock review":"Equipment change needs review",
-      body:retryingPaidStock
+      title:retryingRefundedChange?"Equipment change needs manual reconciliation":retryingPaidStock?"Paid equipment change needs stock review":"Equipment change needs review",
+      body:retryingRefundedChange
+        ?"Three automatic attempts could not apply an already-refunded equipment change. The rental remains locked. Check booking and Rental Manager stock before resolving it; do not issue another refund."
+        :retryingPaidStock
         ?"Three automatic checks could not confirm the equipment change. The original payment is recorded once and the rental remains locked. Check Rental Manager before taking further action; do not charge the renter again."
         :swap.acceptedAt?"The equipment payment or refund could not finish. Check the original provider receipt before retrying.":"An unaccepted equipment proposal could not expire safely. Review the proposal before releasing its reservation.",
     });
-  }else if(retryingPaidStock&&args.error){
+  }else if((retryingPaidStock||retryingRefundedChange)&&args.error){
     await ctx.scheduler.runAfter(delay,internal.rentalSwapPayments.reconcile,{});
   }
 }});
@@ -462,19 +483,31 @@ export const finishCompensation=internalMutation({args:{id:v.id("rental_item_swa
   await notifySettlement(ctx,swap,booking,`The equipment change could not be completed. The additional £${(swap.quote.deltaPence/100).toFixed(2)} payment has been refunded to the original payment method; your existing equipment is unchanged.`,"equipment change refund",`The additional £${(swap.quote.deltaPence/100).toFixed(2)} payment was refunded. The existing equipment is unchanged.`);
   return {refunded:true,stockReleasePending:true};
 }});
-async function closeSwap(ctx:any,swap:any,status:"withdrawn"|"declined"|"expired",expiredSessionId?:string) {
+type ExpiredSessionEvidence={sessionId:string;status:"expired";paymentStatus:"unpaid";checkedAt:number;expiresAt:number};
+function validExpiredSessionEvidence(swap:any,evidence?:ExpiredSessionEvidence) {
+  return !!evidence&&evidence.sessionId===swap?.sessionId&&evidence.status==="expired"&&evidence.paymentStatus==="unpaid"&&Number.isSafeInteger(evidence.checkedAt)&&evidence.checkedAt>0&&evidence.checkedAt<=Date.now()+60000&&Number.isSafeInteger(evidence.expiresAt)&&evidence.expiresAt>0;
+}
+
+async function closeSwap(ctx:any,swap:any,status:"withdrawn"|"declined"|"expired",evidence?:ExpiredSessionEvidence) {
   if(!swap||swap.refundJobId||swap.paymentIntentId)throw Error("The equipment settlement needs review before closing.");
-  if(swap.status===status){await releaseClosedClaim(ctx,swap);return;}
-  if(swap.status!=="awaiting_acceptance"&&!(status!=="declined"&&swap.status==="awaiting_payment"&&swap.sessionId&&swap.sessionId===expiredSessionId))throw Error("The accepted equipment settlement needs review before closing.");
+  const evidenceRequired=swap.status==="awaiting_payment"&&!!swap.sessionId;
+  if(evidenceRequired&&!validExpiredSessionEvidence(swap,evidence??swap.expiredSessionEvidence))throw Error("Stripe has not confirmed that the equipment payment expired unpaid.");
+  if(swap.status===status){
+    const next=evidence??swap.expiredSessionEvidence;
+    if(next&&!swap.expiredSessionEvidence)await ctx.db.patch(swap._id,{expiredSessionEvidence:next,updatedAt:Date.now()});
+    await releaseClosedClaim(ctx,{...swap,...(next?{expiredSessionEvidence:next}:{})});return;
+  }
+  if(swap.status!=="awaiting_acceptance"&&!(status!=="declined"&&evidenceRequired))throw Error("The accepted equipment settlement needs review before closing.");
   const booking=await ctx.db.get(swap.bookingId);
   const claim=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",(index:any)=>index.eq("swapId",swap._id).eq("operation","acquire")).unique();
   if(!claim){const rows=await ctx.db.query("reservations").withIndex("by_booking",(index:any)=>index.eq("bookingId",swap.bookingId)).collect();for(const row of rows)if(row.status==="hold"&&row.externalRef===`swap:${swap._id}`)await ctx.db.patch(row._id,{status:"cancelled"});if(booking?.activeItemSwapId===swap._id)await ctx.db.patch(booking._id,{activeItemSwapId:undefined});}
-  await ctx.db.patch(swap._id,{status,updatedAt:Date.now(),reconcileAfter:undefined});
-  await releaseClosedClaim(ctx,{...swap,status});
+  const patch={status,updatedAt:Date.now(),reconcileAfter:undefined,...(evidence?{expiredSessionEvidence:evidence}:{})};
+  await ctx.db.patch(swap._id,patch);
+  await releaseClosedClaim(ctx,{...swap,...patch});
   if(booking)await queueRmv2Sync(ctx,booking._id);
 }
 
-export const close=internalMutation({args:{id:v.id("rental_item_swaps"),status:v.union(v.literal("withdrawn"),v.literal("declined"),v.literal("expired")),expiredSessionId:v.optional(v.string())},handler:async(ctx,args)=>{const swap=await ctx.db.get(args.id);await closeSwap(ctx,swap,args.status,args.expiredSessionId);}});
+export const close=internalMutation({args:{id:v.id("rental_item_swaps"),status:v.union(v.literal("withdrawn"),v.literal("declined"),v.literal("expired")),expiredSessionEvidence:v.optional(v.object({sessionId:v.string(),status:v.literal("expired"),paymentStatus:v.literal("unpaid"),checkedAt:v.number(),expiresAt:v.number()}))},handler:async(ctx,args)=>{const swap=await ctx.db.get(args.id);if(args.expiredSessionEvidence&&!validExpiredSessionEvidence(swap,args.expiredSessionEvidence))throw Error("The Stripe expiration evidence does not match this equipment payment.");await closeSwap(ctx,swap,args.status,args.expiredSessionEvidence);}});
 
 export const customerDecline=mutation({args:{token:v.string(),id:v.id("rental_item_swaps")},handler:async(ctx,args)=>{
   const account=await accountForToken(ctx,args.token),swap=await ctx.db.get(args.id);

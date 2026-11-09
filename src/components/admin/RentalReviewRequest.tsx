@@ -5,7 +5,9 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 
 const labels: Record<string, string> = {
-  sent: "A review request is already in this rental conversation.",
+  sent: "A review request was already sent.",
+  sending: "A review email is already being sent.",
+  not_due: "The review request becomes available 24 hours after return and settlement.",
   reviewed: "This rental already has a review.",
   not_settled: "The rental and security settlement must be complete before requesting a review.",
   check_required: "The latest security settlement must be checked before requesting a review.",
@@ -42,7 +44,7 @@ function RentalReviewRequestForm({ token, bookingId }: { token: string; bookingI
       const result = await send({ token, bookingId: bookingId as any });
       setConfirm(current => current === scope ? null : current);
       setFinished(true);
-      setMessage({ scope, text: result.state === "reviewed" ? "This rental already has a review." : "A review request is in this rental conversation." });
+      setMessage({ scope, text: result.state === "reviewed" ? "This rental already has a review." : result.state === "sending" ? "A review email is already being sent." : "A review request is in this rental conversation." });
     } catch {
       setMessage({ scope, text: "The request could not be sent. Check the rental settlement and try again." });
     } finally {

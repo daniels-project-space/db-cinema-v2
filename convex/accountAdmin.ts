@@ -65,7 +65,9 @@ function effectiveAccessTier(account: any) {
 async function effectiveEncoreTier(ctx: any, account: any) {
   if (account.adminEncoreLevel != null) return account.adminEncoreLevel;
   const progress = await loyaltyProgressWithin(ctx, account, 100);
-  return progress?.completed ?? 0;
+  // A capped scan is unknown, not evidence that the renter has no Encore.
+  // Keep unknown records visible in a tier filter so staff can inspect them.
+  return progress?.completed ?? null;
 }
 
 function tierFilterMatches(filter: string, subscriptionTier: string | null) {
@@ -178,7 +180,7 @@ export const directory = query({
     const filtered = matches.filter(({account,readiness,effectiveEncore,accessTier}) => {
       const verified = !!readiness;
       const encoreMatch = !args.encore || args.encore === "all" ||
-        (args.encore === "automatic" ? account.adminEncoreLevel == null : String(effectiveEncore) === args.encore);
+        (args.encore === "automatic" ? account.adminEncoreLevel == null : effectiveEncore === null || String(effectiveEncore) === args.encore);
       return encoreMatch &&
         (!args.verification || args.verification === "all" || (args.verification === "verified" ? verified : !verified)) &&
         (args.filter === "all" || args.filter === "members" && accessTier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified);
@@ -198,6 +200,7 @@ export const directory = query({
 export const searchMessages = query({
   args: {
     token: v.string(), search: v.string(),
+    paginationOpts: paginationOptsValidator,
     filter: v.union(v.literal("all"), v.literal("members"), v.literal("verified"), v.literal("pending")),
     tier: v.union(v.literal("all"), v.literal("standard"), v.literal("plus"), v.literal("pro"), v.literal("studio")),
     encore: v.optional(v.union(v.literal("all"), v.literal("automatic"), v.literal("1"), v.literal("2"), v.literal("3"))),
@@ -205,14 +208,18 @@ export const searchMessages = query({
     view: directoryView,
   },
   handler: async (ctx, args) => {
-    if (!await customerReadAuthorized(ctx, args.token)) return { items: [], truncated: false };
+    if (!await customerReadAuthorized(ctx, args.token)) return { page: [], isDone: true, continueCursor: "" };
     const search = args.search.trim();
     if (search.length > 254) throw Error("Customer search is too long.");
-    if (search.length < 2) return { items: [], truncated: false };
-    const messages = await ctx.db.query("messages").withSearchIndex("search_text", q => q.search("text", search)).take(101);
+    if (!Number.isInteger(args.paginationOpts.numItems) || args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > 100)
+      throw Error("Invalid customer message page size.");
+    if (search.length < 2) return { page: [], isDone: true, continueCursor: "" };
+    const result = await ctx.db.query("messages")
+      .withSearchIndex("search_text", q => q.search("text", search))
+      .paginate(args.paginationOpts);
     const seen = new Set<string>();
-    const items = [];
-    for (const message of messages.slice(0, 100)) {
+    const page = [];
+    for (const message of result.page) {
       const accountId = String(message.accountId);
       if (seen.has(accountId)) continue;
       const account = await ctx.db.get(message.accountId);
@@ -228,12 +235,12 @@ export const searchMessages = query({
         ? await effectiveEncoreTier(ctx, account)
         : account.adminEncoreLevel ?? 0;
       const encoreMatch = !args.encore || args.encore === "all" ||
-        (args.encore === "automatic" ? account.adminEncoreLevel == null : String(effectiveEncore) === args.encore);
+        (args.encore === "automatic" ? account.adminEncoreLevel == null : effectiveEncore === null || String(effectiveEncore) === args.encore);
       if (!tierFilterMatches(args.tier, subscriptionTier)) continue;
       if (!encoreMatch) continue;
       if (args.verification && args.verification !== "all" && (args.verification === "verified" ? !verified : verified)) continue;
       if (!(args.filter === "all" || args.filter === "members" && tier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified)) continue;
-      items.push({
+      page.push({
         id: account._id, email: account.email, name: account.name ?? "", createdAt: account.createdAt,
         tier, override: account.adminMembershipTier ?? "automatic", encoreOverride: account.adminEncoreLevel == null ? "automatic" : String(account.adminEncoreLevel),
         blocked: account.blockedAt != null, blockedReason: account.blockedReason ?? "", blockedAt: account.blockedAt ?? null, restrictionRevision: account.restrictionRevision ?? 0, restrictionNoticeId: account.restrictionNoticeId ?? null, hasSubscription: !!account.stripeSubscriptionId, visualTier: customerAdminVisual(account),
@@ -241,9 +248,8 @@ export const searchMessages = query({
         avatarUrl: account.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
         matchedMessage: message.text.slice(0, 150),
       });
-      if (items.length >= 50) break;
     }
-    return { items, truncated: messages.length > 100 || items.length >= 50 };
+    return { ...result, page };
   },
 });
 

@@ -13,9 +13,10 @@ import { RentalConversation } from "@/components/rentals/RentalConversation";
 import { RentalOrderTools } from "./RentalOrderTools";
 import { PrivateVerificationPortrait } from "./PrivateVerificationPortrait";
 import { RentalVerificationSummary } from "@/components/rentals/RentalVerificationSummary";
+import { SavedCardCharges } from "@/components/rentals/SavedCardCharges";
 
 const LEVELS = [
-  ["automatic", "Automatic · subscription / existing grant"],
+  ["automatic", "Automatic"],
   ["standard", "Standard"],
   ["plus", "Starter"],
   ["pro", "Pro"],
@@ -49,6 +50,7 @@ const actionPaths: Record<string, string> = {
   overview: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21v-2a8 8 0 0 1 16 0v2",
   rentals: "M4 5h16v15H4zM4 9h16M8 3v4m8-4v4",
   "rental-actions": "M4 6h16M7 3v6M17 3v6M4 13h16M9 10v6M4 20h16M15 17v6",
+  payments: "M3 6h18v12H3zM3 10h18m-14 4h4m6 0h1",
   verification: "M12 3 4 6v5c0 5 3 8 8 10 5-2 8-5 8-10V6l-8-3Zm-3 9 2 2 4-4",
   documents: "M6 3h8l4 4v14H6zM14 3v5h4M9 12h6m-6 4h6",
   invoices: "M4 6h16v13H4zM4 10h16m-12 5h4",
@@ -65,7 +67,7 @@ function ActionIcon({name}: {name: string}) {
 function PossibleIdentityMatch({ token, bookingId }: { token: string; bookingId: string }) {
   const result = useQuery(api.accountAdmin.possibleRestrictedIdentityMatches, { token, bookingId: bookingId as any });
   if (!result?.matches.length) return null;
-  return <section className={styles.identityWarning} role="status"><strong>Possible identity match</strong><p>Compare verified details manually. This never blocks a rental.</p>{result.matches.map((match: {id: string; name: string | null; email: string; blockedReason: string | null}) => <p key={match.id}>{match.name || "Unnamed customer"} · {match.email}{match.blockedReason ? ` · ${match.blockedReason}` : ""}</p>)}{result.more && <p>More matches · open customer directory.</p>}</section>;
+  return <section className={styles.identityWarning} role="status"><strong>Possible identity match</strong><p>Name + DOB match · compare manually.<span className={styles.visuallyHidden}> This never blocks a rental.</span></p>{result.matches.map((match: {id: string; name: string | null; email: string; blockedReason: string | null}) => <p key={match.id}>{match.name || "Unnamed customer"} · {match.email}{match.blockedReason ? ` · ${match.blockedReason}` : ""}</p>)}{result.more && <p>More matches · open customer directory.</p>}</section>;
 }
 type Level = (typeof LEVELS)[number][0];
 type EncoreLevel = (typeof ENCORE_LEVELS)[number][0];
@@ -77,6 +79,21 @@ type ProfileDraft = {
   reason: string;
   expected: { name: string | null; phone: string | null; address: string | null };
 };
+
+type AccountRentalOption = {id:string;title:string;status:string;start:number;end:number};
+function AccountPayments({token,rentals}:{token:string;rentals:AccountRentalOption[]}) {
+  const [bookingId,setBookingId]=useState(rentals[0]?.id??"");
+  useEffect(()=>{if(!rentals.some(r=>r.id===bookingId))setBookingId(rentals[0]?.id??"");},[bookingId,rentals]);
+  return <section className={styles.card} aria-label="Customer payments" data-testid="admin-account-payments">
+    <header><h3>Payments &amp; saved-card claims</h3></header>
+    {!rentals.length?<p className={styles.empty}>No rentals are linked to this account.</p>:<>
+      <label className={styles.paymentRentalSelect}>Rental<select aria-label="Rental for payment controls" value={bookingId} onChange={e=>setBookingId(e.target.value)}>
+        {rentals.map(r=><option key={r.id} value={r.id}>{r.title} · {new Date(r.start).toLocaleDateString("en-GB")}–{new Date(r.end).toLocaleDateString("en-GB")} · {r.status.replaceAll("_"," ")}</option>)}
+      </select></label>
+      {bookingId?<SavedCardCharges key={bookingId} token={token} bookingId={bookingId} admin/>:null}
+    </>}
+  </section>;
+}
 
 export function AccountAdmin({
   token,
@@ -152,10 +169,15 @@ export function AccountAdmin({
     authorized ? { token, search: email, filter, tier: tierFilter, encore: encoreFilter, verification: verificationFilter, view: directoryView } : "skip",
     { initialNumItems: 100 },
   );
-  const messageSearch = useQuery(api.accountAdmin.searchMessages,
+  const { results: messageSearchRows, status: messageSearchStatus, loadMore: loadMoreMessageMatches } = usePaginatedQuery(api.accountAdmin.searchMessages,
     authorized && email.trim().length >= 2
-      ? { token, search: email, filter, tier: tierFilter, encore: encoreFilter, verification: verificationFilter, view: directoryView } : "skip");
-  const messageMatches = messageSearch?.items ?? [];
+      ? { token, search: email, filter, tier: tierFilter, encore: encoreFilter, verification: verificationFilter, view: directoryView } : "skip",
+    { initialNumItems: 100 },
+  );
+  // A customer may have many matching messages across cursor pages. Keep one
+  // row per account while retaining the first (highest ranked) matching text.
+  const messageMatches = [...new Map(messageSearchRows.map(account => [account.id, account])).values()];
+  const messageSearchActive = authorized === true && email.trim().length >= 2;
   const messagesByAccount = new Map(messageMatches.map(account => [account.id, account.matchedMessage]));
   const matchingAccounts = [
     ...visible.map(account => ({ ...account, matchedMessage: messagesByAccount.get(account.id) })),
@@ -174,7 +196,7 @@ export function AccountAdmin({
     return () => { if (timer !== undefined) window.clearTimeout(timer); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
   }, [nextVerificationExpiry]);
   const isCurrentlyVerified = (account: { verified: boolean; verifiedUntil?: number | null }) => account.verified && typeof account.verifiedUntil === "number" && account.verifiedUntil > verificationNow;
-  const searchPending = input !== email || authorized === undefined || status === "LoadingFirstPage" || !!authorized && email.trim().length >= 2 && messageSearch === undefined;
+  const searchPending = input !== email || authorized === undefined || status === "LoadingFirstPage" || messageSearchActive && messageSearchStatus === "LoadingFirstPage";
   const selected = !authorized || searchPending ? undefined :
     matchingAccounts.find((a) => a.id === selectedId) ?? matchingAccounts[0];
   // Replaced during render so a result cannot reach a different profile,
@@ -437,13 +459,17 @@ export function AccountAdmin({
     : null;
   const supportConversation = detail?.conversations.find(thread => !thread.bookingId) ?? null;
   const reviewRentals = reviewQueue?.items ?? [];
+  const currentPlan = detail ? subscriptionSummary(detail) : null;
+  const currentPlanLabel = currentPlan
+    ? ["Not linked", "No plan"].includes(currentPlan.label) ? "No plan" : currentPlan.label
+    : selected?.hasSubscription ? "Plan loading…" : "No plan";
   const profileSections = [
     ["overview", "Account details"],
     ["rentals", "Rentals"],
     ["rental-actions", "Rental actions"],
-    ...(reviewRentals.length ? [["verification", "Verification needs review"]] : []),
+    ["payments", "Payments"],
+    ...(reviewRentals.length ? [["verification", "Verification"]] : []),
     ["documents", "Documents"],
-    ["billing", "Billing"],
     ["invoices", "Invoices"],
     ["credits", "Credits"],
     ["restriction", selected?.blocked ? "Unblock account" : "Restrict account"],
@@ -465,19 +491,19 @@ export function AccountAdmin({
         }}>Export {checked.length}</button>
       </div>}
       <div className={styles.directory} data-testid="admin-customer-directory">
-        <div className={styles.directoryToolbar}>
-          <label className={styles.directorySearch}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5 5"/></svg><span className={styles.srOnly}>Search customers and chat messages</span><input data-testid="account-email-search" type="search" maxLength={254} placeholder="Name or chat…" value={input} onChange={e => { setInput(e.target.value); setSelectedId(null); setPanelClosed(false); }} /></label>
+        <div className={styles.directoryToolbar} data-testid="admin-directory-toolbar">
+          <label className={styles.directorySearch} data-testid="admin-directory-search"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5 5"/></svg><span className={styles.srOnly}>Search customers and chat messages</span><input data-testid="account-email-search" type="search" maxLength={254} placeholder="Name or chat…" value={input} onChange={e => { setInput(e.target.value); setSelectedId(null); setPanelClosed(false); }} /></label>
           <div className={styles.viewFilters} aria-label="Conversation views">{([['all','All'],['unread','Unread'],['starred','Starred']] as const).map(([value, title]) => <button key={value} type="button" aria-pressed={directoryView === value} onClick={() => { setDirectoryView(value); setSelectedId(null); }}>{value === 'starred' && <ActionIcon name="access" />}{title}</button>)}</div>
         </div>
         <div className={styles.filters}>
           <label>
-            <span className={styles.filterLabel}>Subscription</span>
+            <span className={styles.filterLabel}>Membership tier</span>
             <select
               value={tierFilter}
               onChange={(e) => { setTierFilter(e.target.value as typeof tierFilter); setPage(0); setSelectedId(null); }}
             >
-              <option value="all">All subscriptions</option>
-              <option value="standard">No active subscription</option>
+              <option value="all">All tiers</option>
+              <option value="standard">Guest / no membership</option>
               {LEVELS.filter(([key]) => key !== "automatic" && key !== "standard").map(
                 ([key, name]) => (
                   <option key={key} value={key}>
@@ -490,7 +516,7 @@ export function AccountAdmin({
           <label>
             <span className={styles.filterLabel}>Encore Tier</span>
             <select aria-label="Encore Tier" value={encoreFilter} onChange={e => { setEncoreFilter(e.target.value as typeof encoreFilter); setPage(0); setSelectedId(null); }}>
-              <option value="all">All Encore tiers</option>
+              <option value="all">All Encore</option>
               <option value="automatic">Automatic / earned tier</option>
               <option value="1">Encore I</option>
               <option value="2">Encore II</option>
@@ -565,8 +591,9 @@ export function AccountAdmin({
               ? `${currentPage * 10 + 1}–${Math.min((currentPage + 1) * 10, matchingAccounts.length)} of ${matchingAccounts.length}${exhausted ? "" : " loaded"}`
               : loading ? "Searching…" : "0 results"}
             <small>
-              {messageSearch?.truncated ? "Chat matches are limited; use a more specific search." : exhausted ? "Matching accounts loaded. Chat search matches words, not partial substrings." : "Continue through the pages to search the rest of the directory."}
+              {!messageSearchActive ? "Chat search matches words, not partial substrings." : messageSearchStatus === "LoadingFirstPage" ? "Searching chat history…" : messageSearchStatus === "LoadingMore" ? "Loading older chat matches…" : messageSearchStatus === "CanLoadMore" ? `${messageMatches.length} matching accounts found; older chat matches remain.` : messageMatches.length ? "All matching chat messages searched." : "No matching chat messages."}
             </small>
+            {messageSearchActive && messageSearchStatus === "CanLoadMore" && <button type="button" className={styles.loadOlderChatMatches} data-testid="load-older-chat-matches" onClick={() => loadMoreMessageMatches(100)}>Load older chat matches</button>}
             <button type="button" onClick={() => { setSelecting(!selecting); setChecked([]); }}>{selecting ? "Done selecting" : "Select customers"}</button>
           </p>
           <div>
@@ -598,7 +625,7 @@ export function AccountAdmin({
           </div>
           <nav className={styles.threadTabs} aria-label="Customer conversations" aria-description="Scroll horizontally to see every rental">
             <button type="button" aria-pressed={!activeConversationId} onClick={() => setActiveConversationId(null)}>
-              Account support
+              <span>Account support</span>
               {supportConversation?.unread ? <span>{supportConversation.unread}</span> : null}
             </button>
             {detail?.conversations.filter(thread => !!thread.bookingId).map(thread => {
@@ -663,11 +690,11 @@ export function AccountAdmin({
           </header>
           <div className={styles.summary} data-testid="admin-account-summary">
             <button type="button" onClick={() => setSection("overview")}><span><ActionIcon name="overview"/> Account</span><strong className={selected.blocked ? styles.blocked : styles.verified}>{selected.blocked ? "Restricted" : "Active"}</strong></button>
-            <button type="button" data-testid="admin-membership-summary" aria-label="Manage membership and Encore tier" aria-expanded={section === "access"} aria-controls="customer-action-content" onClick={openAccess}>
-              <span><ActionIcon name="membership"/> Membership</span>
+            <button type="button" data-testid="admin-membership-summary" aria-label={`Manage membership: ${label(selected.tier)}${effectiveEncoreFor(selected) ? `, ${selected.encoreOverride === "automatic" ? "earned" : "assigned"} ${encoreName(effectiveEncoreFor(selected)!)}` : ""}, monthly plan ${currentPlanLabel}`} aria-expanded={section === "access"} aria-controls="customer-action-content" onClick={openAccess}>
+              <span><ActionIcon name="membership"/> Access</span>
               <strong>
-                {section === "access" ? "Editing" : `${label(selected.tier)} · ${effectiveEncoreFor(selected) ? `${selected.encoreOverride === "automatic" ? "Earned" : "Assigned"} ${encoreName(effectiveEncoreFor(selected)!)}` : selected.encoreOverride === "automatic" && !metrics?.some(metric => metric.id === selected.id) ? "Loading Encore…" : "No Encore"}`}
-                <span aria-hidden="true">{section === "access" ? "↑" : "↗"}</span>
+                <><span data-testid="admin-membership-summary-value" className={styles.summaryValue} title={`${label(selected.tier)} · ${effectiveEncoreFor(selected) ? encoreName(effectiveEncoreFor(selected)!) : "No Encore"} · ${currentPlanLabel}`} aria-hidden="true">{`${label(selected.tier)} · ${effectiveEncoreFor(selected) ? `Encore ${effectiveEncoreFor(selected)}` : selected.encoreOverride === "automatic" && !metrics?.some(metric => metric.id === selected.id) ? "Encore loading…" : "No Encore"} · ${currentPlanLabel}`}</span>{effectiveEncoreFor(selected) ? <span className={styles.visuallyHidden}>{`${selected.encoreOverride === "automatic" ? "Earned" : "Assigned"} ${encoreName(effectiveEncoreFor(selected)!)}`}</span> : null}</>
+                <span className={styles.summaryCaret} aria-hidden="true">{section === "access" ? "↑" : "↗"}</span>
               </strong>
             </button>
           </div>
@@ -681,9 +708,10 @@ export function AccountAdmin({
               <button
                 type="button"
                 key={key}
-                data-testid={key === "billing" ? "admin-billing-controls" : undefined}
-                aria-label={key === "billing" ? "Open recurring billing controls" : undefined}
                 style={{order: index * 2 + 2}}
+                data-testid={key === "verification" ? "admin-verification-review-action" : undefined}
+                aria-label={key === "verification" ? `${reviewRentals.length} Didit verification case${reviewRentals.length === 1 ? "" : "s"} need manual review` : undefined}
+                title={key === "verification" ? `${reviewRentals.length} Didit case${reviewRentals.length === 1 ? "" : "s"} need manual review` : undefined}
                 aria-pressed={section === key}
                 aria-expanded={section === key}
                 aria-controls="customer-action-content"
@@ -691,10 +719,6 @@ export function AccountAdmin({
                 className={`${section === key ? styles.active : ""} ${key === "restriction" ? styles.dangerAction : ""} ${key === "verification" ? styles.verificationAttention : ""}`}
               >
                 <span className={styles.actionLabel}><ActionIcon name={key}/>{key === "verification" ? <>{name}<span className={styles.reviewCount}>{reviewRentals.length}</span></> : <>{name}{key === "rentals" && detail ? ` · ${detail.rentals.length}${detail.rentalsMore ? "+" : ""}` : ""}</>}</span>
-                {key === "billing" && detail && (() => {
-                  const status = subscriptionSummary(detail);
-                  return <span className={`${styles.actionStatus} ${status.tone === "ready" ? styles.actionStatusReady : status.tone === "attention" ? styles.actionStatusAttention : styles.actionStatusMuted}`} data-testid="admin-subscription-summary" aria-label={`Recurring subscription: ${status.label}`}>{status.label}</span>;
-                })()}
                 {key === "credits" && detail && <span className={styles.actionBalance}>{formatGbp(detail.credit)}</span>}
                 <span aria-hidden>{section === key ? "−" : "+"}</span>
               </button>
@@ -734,7 +758,8 @@ export function AccountAdmin({
                     )}
                   </section>
                 )}
-                {section === "rental-actions" && <section className={styles.card}>{activeRental ? <RentalOrderTools key={activeRental.id} token={token} bookingId={activeRental.id} /> : <p className={styles.empty}>Select a rental conversation to manage its delivery, dates, payments and return.</p>}</section>}
+                {section === "rental-actions" && <section className={styles.card}>{activeRental ? <RentalOrderTools key={activeRental.id} token={token} bookingId={activeRental.id} showSavedCardTools={false} /> : <p className={styles.empty}>Select a rental conversation to manage delivery, dates, item changes and return.</p>}</section>}
+                {section === "payments" && <AccountPayments token={token} rentals={detail.rentals as AccountRentalOption[]}/>}
                 {section === "verification" && reviewRentals.map(rental => <section key={rental.id} className={styles.card}><h3>{rental.title}</h3><p>{date(rental.start)}</p><RentalVerificationSummary token={token} bookingId={rental.id} admin /></section>)}
                 {section === "verification" && reviewQueue?.more && <p className={styles.empty}>More than 20 cases need review. Resolve the displayed cases to see the rest.</p>}
                 {section === "notes" && (
@@ -746,15 +771,10 @@ export function AccountAdmin({
                   </section>
                 )}
                 {section === "access" && (
-                  <section className={`${styles.card} ${styles.accessPanel}`}>
+                  <section className={`${styles.card} ${styles.accessPanel}`} data-testid="admin-membership-controls">
                     <div className={styles.accessCloseHeader}>
-                      <div><h3>Membership &amp; Encore</h3><p>Rental tier · loyalty level</p></div>
+                      <div><h3>Membership</h3><p>Rental tier · Encore · monthly plan</p></div>
                       <button type="button" className={styles.accessClose} onClick={() => setSection("closed")} aria-label="Close rental access controls">×</button>
-                    </div>
-                    <div className={styles.accessCurrent} data-testid="admin-current-access">
-                      <span>Current</span>
-                      <strong>{label(selected.tier)}</strong>
-                      <span>{effectiveEncoreFor(selected) ? `${selected.encoreOverride === "automatic" ? "Earned" : "Assigned"} ${encoreName(effectiveEncoreFor(selected)!)}` : selected.encoreOverride === "automatic" && !metrics?.some(metric => metric.id === selected.id) ? "Encore loading" : "No Encore"}</span>
                     </div>
                     {selected.blocked && (
                       <p className="mt-3 rounded-xl bg-rose-500/10 p-3 text-xs text-rose-200">
@@ -762,7 +782,7 @@ export function AccountAdmin({
                       </p>
                     )}
                     <label className="mt-3 block text-xs text-white/65">
-                      Membership level
+                      Rental tier
                       <select
                         ref={membershipRef}
                         value={level}
@@ -781,7 +801,6 @@ export function AccountAdmin({
                         ))}
                       </select>
                     </label>
-                    <p className={styles.accessHelp}>Rental benefits only · does not change billing.</p>
                     <label className="mt-3 block text-xs text-white/65">
                       Encore tier
                       <select
@@ -800,7 +819,7 @@ export function AccountAdmin({
                         ))}
                       </select>
                     </label>
-                    <p className={styles.accessHelp}>Rental savings only · no first-rental waiver.</p>
+                    <p className={styles.accessHelp}>Encore changes rental pricing, never deposits.</p>
                     <label className="mt-4 block text-xs text-white/65">
                       Admin reason
                       <textarea
@@ -849,10 +868,8 @@ export function AccountAdmin({
                       </p>
                     )}
                     {!!history?.length && (
-                      <div className="mt-6 border-t border-white/10 pt-4">
-                        <h4 className="text-xs text-white/65">
-                          Recent admin changes
-                        </h4>
+                      <details className="mt-5 rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
+                        <summary className="cursor-pointer text-xs font-medium text-white/65">Recent changes · {history.length}</summary>
                         <ul className="mt-3 space-y-3">
                           {history.map((change) => (
                             <li
@@ -883,41 +900,36 @@ export function AccountAdmin({
                             </li>
                           ))}
                         </ul>
-                      </div>
+                      </details>
                     )}
-                  </section>
-                )}
-                {section === "billing" && (
-                    <section className={`${styles.card} ${styles.billingCard}`} aria-label="Billing">
-                    <header className={styles.billingHeader}>
-                      <div><h3>Recurring billing</h3><p>Subscription · Stripe</p></div>
-                      <span className={`${styles.billingChip} ${detail.hasBillingCustomer ? styles.billingChipReady : styles.billingChipMuted}`}>
-                        <span aria-hidden="true">{detail.hasBillingCustomer ? "✓" : "–"}</span>
-                        {detail.hasBillingCustomer ? "Linked" : "Not linked"}
-                      </span>
-                    </header>
-                    {detail.hasBillingCustomer ? (
-                      <button type="button" aria-label="Manage subscription billing in Stripe" onClick={openBilling} disabled={busy || searchPending} className={styles.billingPortalButton}>
-                        <ActionIcon name="billing"/><span>{busy ? "Opening Stripe…" : "Manage subscription"}</span><span aria-hidden="true">↗</span>
-                      </button>
-                    ) : (
-                      <div role="status" className={styles.billingNotice}><ActionIcon name="billing"/><span>No Stripe customer linked</span></div>
-                    )}
-                    {selected.hasSubscription ? (
-                      <div className={styles.billingStatusCard}>
-                        <div className={styles.billingStatusTitle}>
-                          <span>Recurring subscription</span>
-                          <strong>{billingStatus(detail.membershipStatus)}</strong>
+                    <section className={`${styles.card} ${styles.billingCard}`} aria-label="Monthly plan" data-testid="admin-membership-plan">
+                      <header className={styles.billingHeader}>
+                        <div><h3>Monthly plan</h3><p>{detail.hasBillingCustomer ? "Stripe billing" : "No paid plan linked"}</p></div>
+                        {currentPlan && <span className={`${styles.billingChip} ${currentPlan.tone === "ready" ? styles.billingChipReady : currentPlan.tone === "attention" ? styles.actionStatusAttention : styles.billingChipMuted}`} data-testid="admin-plan-detail-status">{currentPlan.label}</span>}
+                      </header>
+                      {detail.hasBillingCustomer ? (
+                        <button type="button" data-testid="admin-billing-controls" aria-label="Manage subscription billing in Stripe" onClick={openBilling} disabled={busy || searchPending} className={styles.billingPortalButton}>
+                          <ActionIcon name="billing"/><span>{busy ? "Opening Stripe…" : "Manage in Stripe"}</span><span aria-hidden="true">↗</span>
+                        </button>
+                      ) : (
+                        <div role="status" className={styles.billingNotice}><ActionIcon name="billing"/><span>No paid plan linked</span></div>
+                      )}
+                      {selected.hasSubscription ? (
+                        <div className={styles.billingStatusCard}>
+                          <div className={styles.billingStatusTitle}>
+                            <span>Plan status</span>
+                            <strong>{billingStatus(detail.membershipStatus)}</strong>
+                          </div>
+                          <div className={styles.billingDates}>
+                            {detail.trialEnd && detail.membershipStatus === "trialing" ? <div><span>Trial ends</span><strong>{date(detail.trialEnd)}</strong></div> : null}
+                            {detail.paidThrough ? <div><span>{detail.cancelAtPeriodEnd ? "Ends" : "Paid through"}</span><strong>{date(detail.paidThrough)}</strong></div> : null}
+                          </div>
+                          {detail.membershipStatus === "provider_missing" && <div role="status" className={styles.billingNotice}><span className={styles.billingNoticeGlyph}>!</span><span>Subscription not found in Stripe</span></div>}
                         </div>
-                        <div className={styles.billingDates}>
-                          {detail.trialEnd && detail.membershipStatus === "trialing" ? <div><span>Trial ends</span><strong>{date(detail.trialEnd)}</strong></div> : null}
-                          {detail.paidThrough ? <div><span>{detail.cancelAtPeriodEnd ? "Ends" : "Paid through"}</span><strong>{date(detail.paidThrough)}</strong></div> : null}
-                        </div>
-                        {detail.membershipStatus === "provider_missing" && <div role="status" className={styles.billingNotice}><span className={styles.billingNoticeGlyph}>!</span><span>Subscription not found in Stripe</span></div>}
-                      </div>
-                    ) : (
-                      <div className={styles.billingNotice}><ActionIcon name="membership"/><span>No subscription linked</span></div>
-                    )}
+                      ) : (
+                        <div role="status" className={styles.billingNotice}><ActionIcon name="membership"/><span>No paid monthly plan</span></div>
+                      )}
+                    </section>
                   </section>
                 )}
                 {section === "restriction" && (

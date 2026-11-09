@@ -1,13 +1,14 @@
 import { query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { accountForToken, ownedBooking, rentalThread, postRentalMessage } from "./lib/rentalChat";
+import { accountForToken, ownedBooking, rentalThread, postRentalMessage, scheduleGafferAutoResume } from "./lib/rentalChat";
 import { bookingCancelKind, cancellationDaysForBooking, NO_REFUND_WITHIN_48_HOURS_CANCELLATION_VERSION } from "../src/lib/cancellationPolicy";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 import type { Id } from "./_generated/dataModel";
 import { paginationOptsValidator } from "convex/server";
 import { listingRentalImages } from "./lib/catalogImages";
+import { assertRenterRentalActionReady, renterRentalActionReady } from "./lib/renterRentalActionGate";
 
 const labels = { dates: "Change dates", items: "Change kit", extension: "Extend rental", cancel: "Cancel rental" };
 const requestStillOpen = (request: { status?: string; execution?: { status?: string } }) =>
@@ -90,6 +91,7 @@ export const context = query({
     }));
     return { status: b.status, start: Math.min(...b.lineItems.map((l: { start: number }) => l.start)), end: Math.max(...b.lineItems.map((l: { end: number }) => l.end)),
       items,
+      actionReady: renterRentalActionReady(b),
       cancellationKind: bookingCancelKind(b, Date.now()), cancellationFullRefundDays: cancellationDaysForBooking(b),
       cancellationTermsVersion: b.agreementDocs?.find((d: { kind: string; version: string }) => d.kind === "cancellation")?.version ?? "2026-10-v10",
       direct: reservations.every(r => r.source === "site"),
@@ -107,13 +109,15 @@ export const submit = mutation({
     const a = await accountForToken(ctx, token, true);
     if (!a) throw Error("Please sign in.");
     const b = await ownedBooking(ctx, a, bookingId);
+    if (["returned", "cancelled", "declined", "expired"].includes(b.status)) throw Error("This rental has finished. Please message the team instead.");
+    assertRenterRentalActionReady(b);
     if (!/^[a-zA-Z0-9-]{16,80}$/.test(requestId)) throw Error("Invalid request.");
     const previous = await ctx.db.query("rental_change_requests").withIndex("by_request", q => q.eq("requestId", requestId)).first();
     if (previous) {
       if (previous.accountId !== a._id || previous.bookingId !== bookingId || previous.kind !== kind || previous.detail !== detail.trim() || previous.cancellationChoice !== cancellationChoice) throw Error("Request belongs to a different change.");
       return { ok: true, messageId: previous.messageId };
     }
-    if (!["pending_payment", "confirmed", "active"].includes(b.status)) throw Error("This rental has finished. Please message the team instead.");
+    if (!["confirmed", "active"].includes(b.status)) throw Error("This rental has finished. Please message the team instead.");
     if (kind === "cancel" && b.status === "active") throw Error("This rental has started. Ask the team about an early return instead.");
     if (kind !== "cancel" && cancellationChoice !== undefined) throw Error("A cancellation settlement choice is only valid for a cancellation request.");
     if (b.cancellationDecision || b.returnDecision) throw Error("A cancellation or return is already being processed.");
@@ -134,8 +138,10 @@ export const submit = mutation({
     if (openRequests.some(requestStillOpen))
       throw Error("A change request is already awaiting the team. Wait for the decision before sending another.");
     const thread = await rentalThread(ctx, a._id, bookingId);
-    if (thread) await ctx.db.patch(thread._id, { escalated: true });
-    else await ctx.db.insert("chat_threads", { accountId: a._id, bookingId, escalated: true, updatedAt: Date.now(), unreadOwner: 0, unreadRenter: 0 });
+    const escalationAt=Date.now();
+    if (thread) await ctx.db.patch(thread._id, { escalated: true, ...(!thread.escalated?{escalatedAt:escalationAt,lastHumanActivityAt:undefined}:{}) });
+    else await ctx.db.insert("chat_threads", { accountId: a._id, bookingId, escalated: true, escalatedAt:escalationAt, updatedAt: escalationAt, unreadOwner: 0, unreadRenter: 0 });
+    await scheduleGafferAutoResume(ctx,a._id,bookingId);
     const label = labels[kind];
     const cancellationSummary = cancellationKindAtRequest === "full_refund"
       ? `\nCancellation terms at request: more than seven London calendar days before pickup. Renter chose ${cancellationChoice === "credit" ? "100% account credit" : "a full refund to the original payment method"}.`

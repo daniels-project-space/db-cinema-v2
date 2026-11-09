@@ -110,6 +110,15 @@ export function BotBubble() {
     if (!account.me?._id) { setNotificationOfferDismissed(true); return; }
     try { setNotificationOfferDismissed(localStorage.getItem("dbc_chat_notification_offer:" + account.me._id) === "dismissed"); }
     catch { setNotificationOfferDismissed(false); }
+    const accountId=account.me._id;
+    const receive=(event:Event)=>{
+      if((event as CustomEvent).detail!=="active")return;
+      try{localStorage.setItem("dbc_chat_notification_offer:"+accountId,"dismissed");}catch{}
+      setNotificationOfferDismissed(true);
+    };
+    window.addEventListener("dbc:renter-notification-status",receive);
+    window.dispatchEvent(new Event("dbc:request-renter-notification-status"));
+    return()=>window.removeEventListener("dbc:renter-notification-status",receive);
   }, [account.me?._id]);
   const recordAccountQuestion = useMutation(api.chat.recordGafferUserMessage);
   const recordAccountReply = useMutation(api.chat.recordGafferReply);
@@ -245,7 +254,6 @@ export function BotBubble() {
       const d = await r.json();
       const reply = d.reply || "…";
       let replyId: string | undefined;
-      let offerHuman = false;
       if (account.token && renterMessageId) {
         const recorded = await recordAccountReply({ token: account.token, renterMessageId: renterMessageId as any, text: reply, ...(typeof d.completionProof === "string" ? { completionProof:d.completionProof } : {}) });
         if (!recorded.saved) {
@@ -258,7 +266,6 @@ export function BotBubble() {
           return;
         }
         replyId = String(recorded.messageId);
-        offerHuman = !!recorded.offerHuman;
       }
       const cards = (d.cards || []).map((card:any)=>{
         const item=card.kind==="swap"?card.added:card.item;
@@ -269,7 +276,7 @@ export function BotBubble() {
       setMsgs((current) => {
         setTalkingIdx(current.length);
         const existingIndex = replyId ? current.findIndex((message) => message.id === replyId) : -1;
-        const message = { id: replyId, role: "assistant" as const, content: reply, cards, suggestions: d.suggestions || [], meta: offerHuman ? { offerHuman: true } : undefined };
+        const message = { id: replyId, role: "assistant" as const, content: reply, cards, suggestions: d.suggestions || [] };
         if (existingIndex >= 0) return current.map((item, index) => index === existingIndex ? message : item);
         return [...current, message];
       });
@@ -319,6 +326,7 @@ export function BotBubble() {
     .find((x) => x.m.role === "assistant");
   const firstAccountQuestion = accountThread?.findIndex(message => message.sender === "renter" && message.text?.trim()) ?? -1;
   const firstAccountReply = firstAccountQuestion < 0 ? undefined : accountThread?.slice(firstAccountQuestion + 1).find(message => message.sender === "bot" && message.text?.trim());
+  const latestAccountMessageId = accountThread?.at(-1)?._id ? String(accountThread.at(-1)!._id) : undefined;
   const liveSuggestions =
     !busy && lastAssistant?.m.suggestions?.length
       ? lastAssistant.m.suggestions
@@ -582,8 +590,8 @@ export function BotBubble() {
                   }
                   mood={talkingIdx === mi ? "talking" : "idle"}
                 />
-                {account.token && account.me?._id && !notificationOfferDismissed && m.id === String(firstAccountReply?._id) && <div className="ml-10 flex gap-3 rounded-2xl border border-white/15 bg-white/[0.07] p-3 text-xs text-white/80 shadow-[0_12px_32px_#0005] backdrop-blur-2xl" aria-label="Chat notifications"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-amber-100/20 bg-amber-100/[0.08] text-amber-100" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-4 w-4"><path d="M18 8a6 6 0 00-12 0v5l-2 3v1h16v-1l-2-3V8ZM9 20h6"/><path d="M18.5 3v3m-1.5-1.5h3"/></svg></span><div className="min-w-0 flex-1"><strong className="text-white">Stay in the loop</strong><p className="mt-1 leading-relaxed">Get an alert when the team replies. Tap to enable; iPhone and iPad setup includes the Home Screen steps.</p><div className="mt-3 flex items-center gap-4"><Link href="/account#chat" className="rounded-full border border-amber-100/30 bg-amber-100/[0.08] px-3 py-2 text-amber-100 transition hover:bg-amber-100/[0.14]" onClick={() => { try { localStorage.setItem("dbc_chat_notification_offer:" + account.me!._id, "dismissed"); sessionStorage.setItem("dbc_open_chat_notification_settings", "1"); } catch {} setNotificationOfferDismissed(true); }}>Turn on notifications</Link><button type="button" className="text-white/50 transition hover:text-white/80" onClick={() => { try { localStorage.setItem("dbc_chat_notification_offer:" + account.me!._id, "dismissed"); } catch {} setNotificationOfferDismissed(true); }}>Later</button></div></div></div>}
-                {account.token && m.role === "assistant" && m.id && m.meta?.offerHuman && <HumanHandoffOffer key={`support-${m.id}`} onRequest={async () => { await requestAccountHuman({ token: account.token!, offerMessageId: m.id as any }); }} />}
+                {account.token && account.me?._id && !notificationOfferDismissed && m.id === String(firstAccountReply?._id) && <div className="ml-10 flex gap-3 rounded-2xl border border-white/15 bg-white/[0.07] p-3 text-xs text-white/80 shadow-[0_12px_32px_#0005] backdrop-blur-2xl" aria-label="Chat notifications"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-amber-100/20 bg-amber-100/[0.08] text-amber-100" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-4 w-4"><path d="M18 8a6 6 0 00-12 0v5l-2 3v1h16v-1l-2-3V8ZM9 20h6"/><path d="M18.5 3v3m-1.5-1.5h3"/></svg></span><div className="min-w-0 flex-1"><strong className="text-white">Stay in the loop</strong><p className="mt-1 leading-relaxed">Get an alert when the team replies. Tap to enable; iPhone and iPad setup includes the Home Screen steps.</p><div className="mt-3 flex items-center gap-4"><Link href="/account#chat" className="rounded-full border border-amber-100/30 bg-amber-100/[0.08] px-3 py-2 text-amber-100 transition hover:bg-amber-100/[0.14]" onClick={() => { try { sessionStorage.setItem("dbc_open_chat_notification_settings", "1"); } catch {} }}>Turn on notifications</Link><button type="button" className="text-white/50 transition hover:text-white/80" onClick={() => { try { localStorage.setItem("dbc_chat_notification_offer:" + account.me!._id, "dismissed"); } catch {} setNotificationOfferDismissed(true); }}>Later</button></div></div></div>}
+                {account.token && m.role === "assistant" && m.id && m.meta?.offerHuman && m.id === latestAccountMessageId && <HumanHandoffOffer key={`support-${m.id}`} onRequest={async () => { await requestAccountHuman({ token: account.token!, offerMessageId: m.id as any }); }} />}
                 {m.cards &&
                   m.cards.length > 0 &&
                   (() => {

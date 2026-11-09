@@ -6,9 +6,12 @@ export const REFUNDABLE_DEPOSIT_POLICY_VERSION = "2026-10-refundable-deposit-v1"
 export const ASSESSMENT_SECURITY_POLICY_VERSION = "2026-10-refundable-assessment-v2";
 export const CARD_HOLD_SECURITY_POLICY_VERSION = "2026-11-card-hold-v1";
 export const SETUP_INTENT_SECURITY_POLICY_VERSION = "2026-11-setup-intent-v1";
+/** New rentals accept immediate, itemised off-session claim collection after return. */
+export const IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION = "2026-11-immediate-claim-v2";
 export function hasCashDepositPolicy(version?:string|null){return version===REFUNDABLE_DEPOSIT_POLICY_VERSION || version===ASSESSMENT_SECURITY_POLICY_VERSION;}
 export function isCardHoldSecurityPolicy(version?:string|null){return version===CARD_HOLD_SECURITY_POLICY_VERSION;}
-export function isSetupIntentSecurityPolicy(version?:string|null){return version===SETUP_INTENT_SECURITY_POLICY_VERSION;}
+export function isSetupIntentSecurityPolicy(version?:string|null){return version===SETUP_INTENT_SECURITY_POLICY_VERSION||version===IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION;}
+export function isImmediateClaimSecurityPolicy(version?:string|null){return version===IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION;}
 export function assessmentDepositFor(value:number){return refundableDepositFor(value) || 20;}
 export function cardLimitForPolicy(version:string|undefined,value:number){return version===ASSESSMENT_SECURITY_POLICY_VERSION || isCardHoldSecurityPolicy(version) ? 0 : isSetupIntentSecurityPolicy(version) ? setupIntentSecurityLimit(value) : savedCardChargeLimit(value);}
 export function depositForBookingPolicy(b:any,value:number){

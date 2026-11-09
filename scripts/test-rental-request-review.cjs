@@ -9,11 +9,31 @@ put('sessions', { token: 'owner-session', accountId: owner._id, expiresAt: Date.
 put('sessions', { token: 'stranger-session', accountId: stranger._id, expiresAt: Date.now() + 600000 });
 put('sessions', { token: 'expired-session', accountId: owner._id, expiresAt: Date.now() - 1 });
 put('sessions', { token: 'missing-expiry', accountId: owner._id });
-const booking = put('bookings', { accountId: owner._id, guestEmail: owner.email, status: 'confirmed', lineItems: [{ start: Date.UTC(2030, 0, 1), end: Date.UTC(2030, 0, 2), qty: 1 }], total: 45 });
+const agedBookingPass = Date.now() - 100 * 86400000;
+const diditApproval = { paidConfirmedAt: Date.now() - 1000, verificationProvider: 'didit', idVerifyStatus: 'verified', idVerificationSource: 'didit', idVerifiedAt: agedBookingPass, verificationExpiresAt: agedBookingPass + 90 * 86400000, verificationChecks: { identity: 'approved', selfie: 'approved', address: 'approved' } };
+const booking = put('bookings', { accountId: owner._id, guestEmail: owner.email, status: 'confirmed', ...diditApproval, lineItems: [{ start: Date.UTC(2030, 0, 1), end: Date.UTC(2030, 0, 2), qty: 1 }], total: 45 });
 const otherBooking = put('bookings', { accountId: stranger._id, status: 'confirmed' });
 const view = { token: 'owner-session', bookingId: booking._id, paginationOpts: {numItems:30,cursor:null} };
 const admin = { token: process.env.ADMIN_TOKEN, bookingId: booking._id, paginationOpts: {numItems:30,cursor:null} };
 (async () => {
+  const gatedCases = [
+    ['unpaid-confirmed', { paidConfirmedAt: undefined }],
+    ['pending-payment', { status: 'pending_payment' }],
+    ['verification-incomplete', { idVerifyStatus: 'manual_review' }],
+    ['verification-not-didit', { verificationProvider: 'stripe' }],
+    ['missing-provenance', { idVerificationSource: undefined }],
+    ['missing-approval-time', { idVerifiedAt: undefined }],
+    ['incomplete-checks', { verificationChecks: { identity: 'approved', selfie: 'approved', address: 'waiting' } }],
+  ];
+  for (const [suffix, change] of gatedCases) {
+    const blocked = put('bookings', { accountId: owner._id, guestEmail: owner.email, status: 'confirmed', ...diditApproval,
+      lineItems: [{ start: Date.UTC(2030, 0, 1), end: Date.UTC(2030, 0, 2), qty: 1 }], total: 45, ...change });
+    const args = { token: 'owner-session', bookingId: blocked._id };
+    assert.equal((await requests.context.handler(ctx, args)).actionReady, false, `${suffix} hides renter request controls`);
+    await assert.rejects(requests.submit.handler(ctx, { ...args, requestId: `blocked-${suffix}-0001`, kind: 'dates', detail: 'Please move my rental to Friday.' }), /payment and Didit verification/);
+  }
+  assert.equal((await requests.context.handler(ctx, { token: 'owner-session', bookingId: booking._id })).actionReady, true,
+    'A paid booking retains its own complete Didit approval even after the account reuse window has elapsed');
   await requests.submit.handler(ctx, { ...view, requestId: 'request-review-00001', kind: 'dates', detail: 'Could we move the rental to Friday?' });
   const first = tables.get('rental_change_requests').find(row=>row.requestId==='request-review-00001');
   assert.equal(first.status, 'pending');

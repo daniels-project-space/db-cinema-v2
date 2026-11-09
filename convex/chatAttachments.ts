@@ -297,7 +297,13 @@ export const purgeExpiredActionAudits=internalMutation({args:{},handler:async ct
     if(attempt&&attempt.status!=="removed"){await ctx.db.patch(row._id,{purgeAfter:undefined});continue;}
     const removedAt=attempt?.removedAt;
     if(attempt&&(typeof removedAt!=="number"||!Number.isSafeInteger(removedAt)||removedAt+CHAT_AUDIT_RETENTION_MS>now)){await ctx.db.patch(row._id,{purgeAfter:undefined});continue;}
+    const attachmentId=row.attachmentId;
     await ctx.db.delete(row._id);deleted++;
+    // The removal audit is the 90-day record of who/which rental, why, and
+    // when. Once its final row expires, discard the now-unreferenced upload
+    // attempt too; otherwise its account/booking linkage would live forever.
+    if(attempt?.status==="removed"&&!(await ctx.db.query("chat_attachment_actions").withIndex("by_attachment",(q:any)=>q.eq("attachmentId",attachmentId)).first()))
+      await ctx.db.delete(attempt._id);
   }
   const continued=!page.isDone||!backfillDone;
   await ctx.db.patch(state!._id,{cursor:page.isDone?undefined:page.continueCursor,updatedAt:now});

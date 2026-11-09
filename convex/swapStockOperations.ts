@@ -9,7 +9,7 @@ import { assertRentalAllocation } from "./lib/rentalAllocation";
 
 const item = v.object({ itemId:v.string(), start:v.number(), returnAt:v.number(), quantity:v.number() });
 const operation = v.union(v.literal("acquire"),v.literal("beginExecution"),v.literal("releasePrepared"));
-const reason = v.union(v.literal("withdrawn_before_execution"),v.literal("abandoned_before_execution"));
+const reason = v.union(v.literal("withdrawn_before_execution"),v.literal("renter_declined_before_execution"),v.literal("abandoned_before_execution"));
 
 function canonicalRequest(value:any):any {
   if(Array.isArray(value))return value.map(canonicalRequest);
@@ -22,7 +22,8 @@ function sameRequest(left:any,right:any):boolean {
 }
 
 function safeToRelease(swap:any) {
-  return swap && ["withdrawn", "declined", "expired"].includes(swap.status) && !swap.sessionId && !swap.paymentIntentId && !swap.refundJobId && !swap.stockAppliedAt && !swap.compensationStartedAt && !swap.compensationReceipt;
+  const expiredUnpaidSession=!swap?.sessionId||swap.expiredSessionEvidence?.sessionId===swap.sessionId&&swap.expiredSessionEvidence?.status==="expired"&&swap.expiredSessionEvidence?.paymentStatus==="unpaid"&&Number.isSafeInteger(swap.expiredSessionEvidence?.checkedAt)&&Number.isSafeInteger(swap.expiredSessionEvidence?.expiresAt);
+  return swap && ["withdrawn", "declined", "expired"].includes(swap.status) && expiredUnpaidSession && !swap.paymentIntentId && !swap.refundJobId && !swap.stockAppliedAt && !swap.compensationStartedAt && !swap.compensationReceipt;
 }
 
 async function notifyStockReview(ctx:any,row:any,releaseConfirmed=false) {
@@ -56,7 +57,7 @@ async function compensatedRequest(ctx:any,swapId:any) {
   if(!swap||swap.status!=="refunded"||!swap.acceptedAt||swap.quote.deltaPence<=0||swap.stockAppliedAt||swap.refundJobId||!swap.compensationStartedAt||swap.compensationReceipt?.status!=="succeeded"||swap.compensationReceipt.paymentIntentId!==swap.paymentIntentId||swap.compensationReceipt.amountPence!==swap.quote.deltaPence||swap.compensationReceipt.attemptedAt!==swap.compensationStartedAt||!swap.compensationReceipt.stripeRefundId||!booking||booking.status!=="confirmed"||booking.activeItemSwapId!==swapId||booking.cancellationDecision||booking.returnDecision||!originalStillMatches)throw Error("The compensated rental needs review before releasing stock.");
   if(await ctx.db.query("swap_stock_applied_receipts").withIndex("by_swap",(q:any)=>q.eq("swapId",swapId)).unique())throw Error("The equipment change was applied and cannot be released as compensated.");
   if(booking.rmv2SyncStatus!=="delivered"||!Number.isSafeInteger(booking.rmv2Revision)||booking.rmv2Revision<1||booking.rmv2DeliveredRevision!==booking.rmv2Revision)return null;
-  await assertStockExecution(ctx,swapId);
+  await assertStockExecution(ctx,swapId,true);
   const claim=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",(q:any)=>q.eq("swapId",swapId).eq("operation","acquire")).unique();
   const execution=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",(q:any)=>q.eq("swapId",swapId).eq("operation","beginExecution")).unique();
   const reservations=await ctx.db.query("reservations").withIndex("by_booking",(q:any)=>q.eq("bookingId",booking._id)).collect();
@@ -140,8 +141,10 @@ async function prepareOperation(ctx:any,args:any) {
       if(!sameRequest(current.request,request))throw Error("Stock operation identity changed; reconcile before continuing.");
       return current._id;
     }
-    if(args.operation!=="releasePrepared"&&(swap.sessionId||swap.paymentIntentId||swap.refundJobId||swap.stockAppliedAt||swap.compensationStartedAt))throw Error("Existing financial activity requires stock reconciliation.");
-    if(args.operation!=="releasePrepared"&&swap.status!=="accepted")throw Error("The renter must accept the swap before claiming stock or starting execution.");
+    if(args.operation==="acquire"&&(swap.sessionId||swap.paymentIntentId||swap.refundJobId||swap.stockAppliedAt||swap.compensationStartedAt))throw Error("Existing financial activity requires stock reconciliation.");
+    if(args.operation==="beginExecution"&&swap.quote?.deltaPence>0&&!swap.paymentIntentId)throw Error("The additional payment must be confirmed before stock execution starts.");
+    const allowedStatuses=args.operation==="acquire"?["accepted"]:["accepted","awaiting_payment","refund_pending","refund_compensating","review"];
+    if(args.operation!=="releasePrepared"&&!allowedStatuses.includes(swap.status))throw Error("The renter must accept the swap before claiming stock or starting execution.");
     if(args.operation!=="acquire"){
       const other=await find(args.operation==="beginExecution"?"releasePrepared":"beginExecution");
       if(other)throw Error("A conflicting stock operation requires reconciliation.");
@@ -226,11 +229,21 @@ export const prepareSwapClaim = internalMutation({args:{swapId:v.id("rental_item
   return prepareOperation(ctx,{swapId:args.swapId,operation:"acquire",items});
 }});
 
-export async function assertStockExecution(ctx:any,swapId:any) {
+export async function assertStockExecution(ctx:any,swapId:any,allowCapacityConflict=false) {
   const claim=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",(q:any)=>q.eq("swapId",swapId).eq("operation","acquire")).unique();
   const execution=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",(q:any)=>q.eq("swapId",swapId).eq("operation","beginExecution")).unique();
   const release=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",(q:any)=>q.eq("swapId",swapId).eq("operation","releasePrepared")).unique();
-  if(claim?.state!=="confirmed"||execution?.state!=="confirmed"||release||!claim.receipt?.requestId||!claim.receipt?.fingerprint||execution.request?.args?.id!==claim.receipt.requestId||execution.request?.args?.fingerprint!==claim.receipt.fingerprint||execution.request?.args?.executionKey!==`swap_execution_${swapId}`)throw Error("The equipment stock execution is not confirmed.");
+  const executionConfirmed=execution?.state==="confirmed"&&execution.receipt?.state==="execution_started";
+  const executionRejectedForCapacity=allowCapacityConflict&&execution?.state==="capacity_conflict"&&execution.receipt?.state==="capacity_conflict";
+  if(claim?.state!=="confirmed"||!execution||!(executionConfirmed||executionRejectedForCapacity)||release||!claim.receipt?.requestId||!claim.receipt?.fingerprint||execution.request?.args?.id!==claim.receipt.requestId||execution.request?.args?.fingerprint!==claim.receipt.fingerprint||execution.request?.args?.executionKey!==`swap_execution_${swapId}`)throw Error("The equipment stock execution is not confirmed.");
+}
+
+export async function assertStockPrepared(ctx:any,swapId:any) {
+  const claim=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",(q:any)=>q.eq("swapId",swapId).eq("operation","acquire")).unique();
+  const execution=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",(q:any)=>q.eq("swapId",swapId).eq("operation","beginExecution")).unique();
+  const release=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",(q:any)=>q.eq("swapId",swapId).eq("operation","releasePrepared")).unique();
+  if(claim?.state!=="confirmed"||claim.receipt?.state!=="prepared"||!claim.receipt.requestId||!claim.receipt.fingerprint||execution||release)throw Error("The equipment stock reservation is not confirmed before payment.");
+  return claim;
 }
 
 export const read = internalQuery({args:{id:v.id("swap_stock_operations")},handler:async(ctx,args)=>ctx.db.get(args.id)});
@@ -263,7 +276,7 @@ export const lease = internalMutation({
         if(!current){await ctx.db.patch(row._id,{reconcileAfter:now+60000,updatedAt:now});return {status:"waiting_for_sync"};}
         if(request.args!==null&&!sameRequest(request,current))throw Error("The original stock release evidence changed.");
         request=current;
-      }catch{await ctx.db.patch(row._id,{state:"review",leaseToken:undefined,leaseUntil:undefined,reconcileAfter:request.args?now:undefined,updatedAt:now});await notifyStockReview(ctx,row);return {status:"review"};}
+      }catch(error){await ctx.db.patch(row._id,{state:"review",leaseToken:undefined,leaseUntil:undefined,reconcileAfter:request.args?now:undefined,reconcileError:(error instanceof Error?error.message:"Stock evidence could not be checked.").slice(0,240),updatedAt:now});await notifyStockReview(ctx,row);return {status:"review"};}
     }
     await ctx.db.patch(row._id,{request,leaseToken:args.token,leaseUntil:now+60000,reconcileAfter:now+60000,updatedAt:now});
     return {status:"leased",request};
@@ -290,6 +303,10 @@ export const record = internalMutation({
     if(row.state!=="pending")return row.state;
     if(row.leaseToken!==args.token)return "stale";
     const receipt=args.receipt;
+    if(row.operation==="beginExecution"&&receipt?.state==="capacity_conflict"){
+      await ctx.db.patch(row._id,{state:"capacity_conflict",receipt:{state:"capacity_conflict"},leaseToken:undefined,leaseUntil:undefined,reconcileAfter:undefined,reconcileError:"capacity_conflict",updatedAt:Date.now()});
+      return "capacity_conflict";
+    }
     const expected=row.operation==="acquire"?"prepared":row.operation==="beginExecution"?"execution_started":row.operation==="releaseCompensated"?"compensated_released":"released";
     if(!receipt||receipt.state!==expected||typeof receipt.replayed!=="boolean"||(row.operation==="acquire"&&(typeof receipt.requestId!=="string"||typeof receipt.fingerprint!=="string"))){
       await ctx.db.patch(row._id,{state:"review",leaseToken:undefined,leaseUntil:undefined,reconcileAfter:undefined,updatedAt:Date.now()});
@@ -356,6 +373,10 @@ export const recover = internalAction({
     if(lease.status!=="leased")return {status:lease.status};
     try{
       const result=await ctx.runAction(internal.sharedStockBridge.send,{request:lease.request});
+      if(result.status==="capacity_conflict"&&lease.request.operation==="beginExecution"){
+        const status=await ctx.runMutation(internal.swapStockOperations.record,{id:args.id,token,request:lease.request,receipt:{state:"capacity_conflict"}});
+        return {status};
+      }
       if(result.status!=="confirmed")return {status:result.status};
       const status=await ctx.runMutation(internal.swapStockOperations.record,{id:args.id,token,request:lease.request,receipt:result.result});
       return {status};

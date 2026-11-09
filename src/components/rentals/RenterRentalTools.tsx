@@ -24,9 +24,10 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
   if (!context) return null;
   if (!["pending_payment", "confirmed", "active"].includes(context.status)) return <RentalRequestHistory token={token} bookingId={bookingId} />;
   const canCancel = context.direct && context.status === "pending_payment";
+  const canRequestChanges = context.actionReady === true;
   const rescheduleStart = mode === "dates" && detail ? dayMs(detail.slice(0, 10)) : 0;
   const preview = useQuery(api.rentalOperations.renterReschedulePreview,
-    context.status === "confirmed" && rescheduleStart > 0 && detail.length > 10
+    canRequestChanges && context.status === "confirmed" && rescheduleStart > 0 && detail.length > 10
       ? { token, bookingId: bookingId as any, start: rescheduleStart, reason: detail.slice(11, 1011) }
       : "skip");
   function open(next: typeof mode) { setMode(next); setDetail(""); setCancellationChoice(null); setConsent(false); setError(""); setResult(""); requestId.current = null; }
@@ -54,9 +55,9 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
   return <div className="mt-3" data-testid="renter-rental-tools">
     <RentalRequestHistory token={token} bookingId={bookingId} />
     {cancellation && cancellation.status !== "succeeded" && <p role="status" className="mb-3 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-xs text-amber-100">{cancellation.status === "attention" ? "The team is reviewing your cancellation settlement. Please message us if you need help." : "Your cancellation is processing. We will confirm once the refund and security release are complete."}</p>}
-    <div className="flex flex-wrap gap-2" aria-label="Rental requests">
-      {(context.status === "active" ? [["items", "Request kit change"]] : context.status === "confirmed" ? [["dates", "Reschedule"], ["items", "Request kit change"], ["cancel", context.cancellationKind === "full_refund" ? "Cancel · refund options" : context.cancellationKind === "store_credit" ? "Cancel · credit only" : "Cancellation options"]] : [["items", "Request kit change"], ["cancel", "Abandon checkout"]]).map(([kind, label]) => <button key={kind} disabled={busy || context.locked} onClick={() => open(kind as typeof mode)} className={`rounded-full border px-3 py-2 text-xs ${mode === kind ? "border-accent-400/50 bg-accent-500/10 text-white" : "border-white/10 text-white/60 hover:text-white"} disabled:opacity-35`}>{label}</button>)}
-    </div>
+    {(canRequestChanges || canCancel) ? <div className="flex flex-wrap gap-2" aria-label="Rental requests">
+      {(canRequestChanges ? context.status === "active" ? [["items", "Request kit change"]] : context.status === "confirmed" ? [["dates", "Reschedule"], ["items", "Request kit change"], ["cancel", context.cancellationKind === "full_refund" ? "Cancel · refund options" : context.cancellationKind === "store_credit" ? "Cancel · credit only" : "Cancellation options"]] : [] : canCancel ? [["cancel", "Abandon checkout"]] : []).map(([kind, label]) => <button key={kind} disabled={busy || context.locked} onClick={() => open(kind as typeof mode)} className={`rounded-full border px-3 py-2 text-xs ${mode === kind ? "border-accent-400/50 bg-accent-500/10 text-white" : "border-white/10 text-white/60 hover:text-white"} disabled:opacity-35`}>{label}</button>)}
+    </div> : <p data-testid="renter-actions-locked" className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-2 text-xs text-white/45">Rental changes unlock after payment and verification are complete.</p>}
     {mode && <form onSubmit={e => { e.preventDefault(); void submit(); }} className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
       <div className="flex justify-between gap-3"><h3 className="text-sm font-medium text-white">{mode === "cancel" ? "Cancellation terms" : "Ask the team"}</h3><button type="button" disabled={busy} onClick={() => setMode(null)} className="text-xs text-white/50">Close</button></div>
       {mode === "cancel" ? <div className="mt-3 space-y-2 text-xs leading-relaxed text-white/65">

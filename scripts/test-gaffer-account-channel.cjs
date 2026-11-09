@@ -4,6 +4,7 @@ const { load, db, put, tables, setMock } = require("./lib/rentalTestHarness.cjs"
 
 const chat = load("convex/chat.ts");
 const { signGafferCompletion } = load("shared/gafferCompletionProof.ts");
+const { isGafferHumanHandoffOffer } = load("shared/gafferHumanHandoff.ts");
 const { GAFFER_AUTO_RESUME_MS } = load("convex/lib/rentalChat.ts");
 const scheduled = [];
 const ctx = { db, scheduler: { runAfter: async (...args) => scheduled.push(args) } };
@@ -25,6 +26,9 @@ const saveReply = async (question, text, resolved = false) => {
 
 (async () => {
   try {
+    assert.equal(isGafferHumanHandoffOffer("Would you like me to connect you with a team member?"), true);
+    assert.equal(isGafferHumanHandoffOffer("Would you like me to recommend a lens?"), false);
+    assert.equal(isGafferHumanHandoffOffer("Our human team is available on weekdays."), false);
     setMock("@openrouter/ai-sdk-provider", { createOpenRouter: () => { throw new Error("No provider call expected in fallback test."); } });
     setMock("ai", { generateObject: async () => { throw new Error("No provider call expected in fallback test."); } });
     const { gafferReply } = load("convex/gaffer.ts");

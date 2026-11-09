@@ -9,15 +9,11 @@ import { brandedEmailHtml } from "../../shared/emailBrand";
  *
  * Two transports, because the "From" address decides which one can be used:
  *
- *  - GMAIL — sends through Google's own SMTP as dbcinemarentals@gmail.com, so
- *    that address is genuinely the sender rather than a reply-to bolted onto
- *    someone else's domain. Needs GMAIL_USER + GMAIL_APP_PASSWORD (a Google
- *    App Password, not the account password — Google rejects the real one for
- *    SMTP). Preferred whenever both are set.
- *  - RESEND — the previous transport, kept as the fallback. It can only send
- *    from a domain verified in the Resend dashboard; asking it for a gmail.com
- *    sender returns a hard 403 ("The gmail.com domain is not verified"), which
- *    is exactly why the Gmail path above exists.
+ *  - GMAIL — sends ordinary transactional mail through Google's SMTP when an
+ *    app password is configured.
+ *  - RESEND — the website's verified dbcinemarentals.com sender. It handles
+ *    ordinary mail as a fallback and all admin/Gaffer replies, with the
+ *    business Gmail mailbox as Reply-To.
  *
  * Both callers previously swallowed every failure in a bare catch, so a
  * rejected send was indistinguishable from a delivered one — the contact form
@@ -48,10 +44,6 @@ export type MailInput = {
   references?: string[];
   attachments?: MailAttachment[];
 };
-
-/** Shared customer-support sender for Gaffer email replies. */
-export const supportEmailFrom = () =>
-  process.env.SUPPORT_EMAIL_FROM?.trim() || "Bookings <bookings@dbcinemarentals.com>";
 
 export function deliveryMessageId(deliveryKey: string): string {
   return `<rental-${createHash("sha256").update(deliveryKey).digest("hex")}@dbcinemarentals.com>`;
@@ -137,19 +129,31 @@ export async function sendMail(m: MailInput): Promise<boolean> {
   }
   const key = process.env.RESEND_API_KEY;
   if (!key) {
-    console.error("[mail] no transport configured — set GMAIL_APP_PASSWORD or RESEND_API_KEY");
+    console.error("[mail] no transport configured — set GMAIL_USER and GMAIL_APP_PASSWORD, or RESEND_API_KEY");
     return false;
   }
   return viaResend(m, key);
 }
 
-/** Mail used for customer replies must originate from the business Gmail mailbox. */
+function configuredBusinessSender() {
+  const from = process.env.RESEND_FROM?.trim();
+  if (!from) return null;
+  const email = from.match(/<([^>]+)>/)?.[1]?.trim() ?? from;
+  if (!/^[^@\s]+@dbcinemarentals\.com$/i.test(email)) return null;
+  return { from, email: email.toLowerCase() };
+}
+
+/**
+ * Website replies use the verified DB Cinema domain through Resend. The Gmail
+ * connection inside ChatGPT is not a backend credential, and SMTP app
+ * passwords should not be required for Gaffer to answer customers.
+ */
 export async function sendBusinessMail(m: MailInput): Promise<boolean> {
-  const user = process.env.GMAIL_USER?.trim().toLowerCase();
-  const pass = process.env.GMAIL_APP_PASSWORD;
-  if (user !== "dbcinemarentals@gmail.com" || !pass) {
-    console.error("[mail] business Gmail sender is not configured");
+  const key = process.env.RESEND_API_KEY?.trim();
+  const sender = configuredBusinessSender();
+  if (!key || !sender) {
+    console.error("[mail] business Resend sender is not configured for dbcinemarentals.com");
     return false;
   }
-  return viaGmail(m, user, pass);
+  return viaResend({ ...m, from: sender.from, replyTo: m.replyTo ?? OWNER_EMAIL() }, key);
 }

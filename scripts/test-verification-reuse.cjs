@@ -1,5 +1,9 @@
 const assert=require('node:assert/strict');
-const {load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
+const harness=require('./lib/rentalTestHarness.cjs');
+const {load,db,put,tables}=harness;
+// Keep this regression focused on the verification predicate. The real
+// archive readiness remains in place; only the separate legal release gate is bypassed.
+harness.setMock('../shared/rentalAgreement',{assertAgreementBeforeRelease(){}});
 const bookings=load('convex/bookings.ts'),accounts=load('convex/accounts.ts');
 const {validReuse,verificationDetail,saveAccountDiditVerification}=load('convex/lib/verificationReuse.ts');
 process.env.ADMIN_TOKEN='owner-test';
@@ -198,26 +202,32 @@ function providerContext(runMutation,sourceSnapshot=source){return {runMutation,
  await bookings.revokeVerificationReuse.handler(ctx,{sourceBookingId:source._id});assert.equal(next.idVerifyStatus,'requires_input');assert.equal(account.rentalVerification,undefined);
  assert.equal(recycled.rentalVerification,record,'revocation follows the permanent owner, not a recycled email');source.guestEmail=account.email;
  await db.patch(next._id,{depositHoldAmount:0});
- await assert.rejects(bookings.adminSetStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:next._id,status:'active'}),/verification must be approved/);
- await db.patch(next._id,{idVerifyStatus:'verified',idVerifiedAt:now-91*86400000,verificationExpiresAt:now-1});await assert.rejects(bookings.adminSetStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:next._id,status:'active'}),/verification must be approved/);
- await bookings.expireRentalVerifications.handler(ctx,{});assert.equal(next.idVerifyStatus,'requires_input');
+ await assert.rejects(bookings.adminSetStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:next._id,status:'active'}),/Didit verification must be approved/);
+ await db.patch(next._id,{paidConfirmedAt:now-91*86400000,idVerifyStatus:'verified',verificationProvider:'didit',idVerificationSource:'reused_didit',idVerifiedAt:now-91*86400000,verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},verificationExpiresAt:now-1});
+ const archiveModule=load('convex/verificationArchive.ts'), realArchiveGuard=archiveModule.assertVerificationArchive;
+ archiveModule.assertVerificationArchive=async()=>{}; // Isolate the aged-booking Didit predicate from separately tested archive-read readiness.
+ await bookings.adminSetStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:next._id,status:'active'});
+ archiveModule.assertVerificationArchive=realArchiveGuard;
+ assert.equal(next.status,'active','a paid confirmed rental with its own completed Didit provenance can enter active status after the separate account reuse badge expires');
+ next.status='confirmed'; // Restore the fixture for the independent profile-change and expiry cases below.
+ await bookings.expireRentalVerifications.handler(ctx,{});assert.equal(next.idVerifyStatus,'verified','the expiry sweep does not invalidate a confirmed booking when its account reuse window ends');
  const beforeExpiryRevision=next.rmv2Revision, beforeExpiryMessages=tables.get('messages').length;
  await db.patch(next._id,{idVerifyStatus:'verified',idVerifiedAt:now,verificationExpiresAt:now-1,documentExpiresAt:now-1,diditSessionId:'expired-document-session'});
- await bookings.expireRentalVerifications.handler(ctx,{cursor:'1|'});
- assert.equal(next.idVerifyStatus,'verified','An ID expiry date does not shorten the successful verification window');
- assert.equal(next.diditSessionId,'expired-document-session','A valid 90-day approval does not open a redundant verification flow');
+ await bookings.expireRentalVerifications.handler(ctx,{});
+ assert.equal(next.idVerifyStatus,'verified','A confirmed booking keeps its recorded approval after the account reuse window ends');
+ assert.equal(next.diditSessionId,'expired-document-session','The expiry sweep does not reopen verification for an existing confirmed rental');
  assert.equal(next.rmv2Revision,beforeExpiryRevision,'Document expiry alone does not advance the manager revision');
  assert.equal(tables.get('messages').length,beforeExpiryMessages,'Document expiry alone does not send a reverification message');
- await bookings.expireRentalVerifications.handler(ctx,{cursor:'1|'});
- assert.equal(next.rmv2Revision,beforeExpiryRevision,'Repeated sweeps still leave the valid verification untouched');
+ await bookings.expireRentalVerifications.handler(ctx,{});
+ assert.equal(next.rmv2Revision,beforeExpiryRevision,'Repeated sweeps still leave the confirmed booking untouched');
  assert.equal(tables.get('messages').length,beforeExpiryMessages,'Repeated sweeps do not repeat renter messages');
  await db.patch(next._id,{documentExpiresAt:undefined});
  const legacy=put('bookings',{guestEmail:account.email,status:'confirmed',idVerifyStatus:'verified',idVerifiedAt:now-91*86400000,rmv2Revision:7});
  const current=put('bookings',{guestEmail:account.email,status:'confirmed',idVerifyStatus:'verified',idVerifiedAt:now,documentExpiresAt:now+86400000,rmv2Revision:9});
  const cancelled=put('bookings',{guestEmail:account.email,status:'cancelled',idVerifyStatus:'verified',documentExpiresAt:now-1,rmv2Revision:11});
  await bookings.expireRentalVerifications.handler(ctx,{});
- assert.equal(legacy.idVerifyStatus,'requires_input','Legacy approval age expires using the same 90-day limit as handover');
- assert.equal(legacy.rmv2Revision,8);
+ assert.equal(legacy.idVerifyStatus,'verified','An already-confirmed rental is not invalidated even when legacy provenance is missing');
+ assert.equal(legacy.rmv2Revision,7);
  assert.equal(current.idVerifyStatus,'verified');assert.equal(current.rmv2Revision,9,'Unexpired approval remains untouched');
  assert.equal(cancelled.idVerifyStatus,'verified');assert.equal(cancelled.rmv2Revision,11,'Cancelled history remains untouched');
  await db.patch(next._id,{idVerifyStatus:'verified',verificationExpiresAt:now+60000,verificationReusedFrom:source._id});account.rentalVerification=record;

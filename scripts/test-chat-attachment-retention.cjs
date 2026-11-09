@@ -165,6 +165,7 @@ function addAttachment({ account, booking, thread, closedAt, createdAt = now, ho
   assert.equal(staleThread.closedAt, now);
   await attachments.purgeExpiredActionAudits.handler(ctx, {});
   assert.equal((await db.query("chat_attachment_actions").withIndex("by_attachment", q => q.eq("attachmentId", expired.attempt._id)).collect()).length, 0, "Deletion audit metadata expires 90 days after the attachment is deleted");
+  assert.equal(await db.get(expired.attempt._id), null, "The removed upload metadata and its account/booking link expire with the final deletion-audit row");
 
   const manyThreads = Array.from({ length: 51 }, (_, index) => put("chat_threads", {
     accountId: put("accounts", { email: `batch-${index}@example.invalid` })._id,

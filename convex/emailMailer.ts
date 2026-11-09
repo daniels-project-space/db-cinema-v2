@@ -2,7 +2,7 @@
 
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
-import { deliveryMessageId, sendMail, supportEmailFrom } from "./lib/mailer";
+import { deliveryMessageId, sendBusinessMail } from "./lib/mailer";
 
 /** Keep Node-only SMTP and crypto dependencies behind a dedicated Node action. */
 export const sendBusinessReply = internalAction({
@@ -18,9 +18,8 @@ export const sendBusinessReply = internalAction({
   },
   handler: async (_ctx, args) => {
     const messageId = deliveryMessageId(args.deliveryKey);
-    const sent = await sendMail({
+    const sent = await sendBusinessMail({
       deliveryKey: args.deliveryKey,
-      from: supportEmailFrom(),
       to: args.to,
       cc: args.cc,
       subject: args.subject,

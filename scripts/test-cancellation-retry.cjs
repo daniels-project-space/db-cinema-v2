@@ -51,6 +51,12 @@ put("sessions",{token:"request-renter",accountId:account._id,expiresAt:Date.now(
 const b = put("bookings", {
   status: "confirmed",
   guestEmail: "cancellation@rental-test.invalid",
+  paidConfirmedAt: Date.now(),
+  verificationProvider: "didit",
+  idVerifyStatus: "verified",
+  idVerificationSource: "didit",
+  idVerifiedAt: Date.now(),
+  verificationChecks: { identity: "approved", selfie: "approved", address: "approved" },
   stripePaymentIntentId: "pi_fixture",
   total: 120,
   depositAmount: 20,

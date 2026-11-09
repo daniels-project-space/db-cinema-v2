@@ -130,7 +130,9 @@ const actionCtx={runQuery:async(ref,args)=>{
  const legal=load('shared/legalDocuments.ts');assert.equal(legal.RENTAL_DRAFT_RELEASE_READY,false);const terms=JSON.stringify(legal.LEGAL_DOCS.terms);
  assert.match(terms,/£100 per rental/);assert.match(terms,/actually incurred and evidenced/);assert.match(terms,/age, condition and depreciation/);assert.match(terms,/separate payment approval/);
  const checkout=fs.readFileSync('src/app/checkout/page.tsx','utf8');
- assert.match(checkout,/setupIntentPolicy\?`I agree to the linked terms and permit itemised, evidenced post-return claims up to \$\{formatGbp\(futureChargeLimit\)\} combined\. No funds are held; insurance is separate\.`:cardHoldPolicy\?"I agree to the linked terms for the temporary card authorisation hold and return process\. This checkbox does not authorise later off-session charges\.":"I agree to all the linked terms and authorise my card for future damage, loss and late-fee payments\."/,'SetupIntent, Card Hold, and standard checkout branches retain their distinct consent wording');
+ assert(checkout.includes("An authorised team member may send notice and attempt one payment immediately"),'The new checkout text describes v22 immediate claim consent');
+ assert(checkout.includes("Notice and a seven-day query period apply before collection"),'Historic v1 agreement wording remains explicit');
+ assert(checkout.includes("This checkbox does not authorise later off-session charges"),'Card Hold wording remains distinct');
  const holdDocs=setupLegal.agreementsForSecurityPolicy(policy.CARD_HOLD_SECURITY_POLICY_VERSION);
  assert.doesNotThrow(()=>agreement.assertCurrentAgreement({name:'Card Owner',securityHoldConsent:true,laterChargeConsent:false,documents:holdDocs,securityPolicyVersion:policy.CARD_HOLD_SECURITY_POLICY_VERSION},'pickup'));
  assert.throws(()=>agreement.assertCurrentAgreement({name:'Card Owner',securityHoldConsent:true,laterChargeConsent:true,documents:holdDocs,securityPolicyVersion:policy.CARD_HOLD_SECURITY_POLICY_VERSION},'pickup'),/does not authorise later off-session charges/);

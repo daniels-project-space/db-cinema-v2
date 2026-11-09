@@ -11,6 +11,7 @@ import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { accountForRental } from "./lib/rentalAccount";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { listingImages, listingRentalImages } from "./lib/catalogImages";
+import { renterRentalActionReady } from "./lib/renterRentalActionGate";
 import {
   requiresDroneLicence,
   droneLicenceStatusForRental,
@@ -255,6 +256,7 @@ export const renterReschedulePreview = query({
     const account = await accountForToken(ctx, token, true);
     if (!account) throw Error("Please sign in to check this rental.");
     const booking = await ownedBooking(ctx, account, bookingId);
+    if (!renterRentalActionReady(booking)) return { ok: false, reason: "Rental changes are available after payment and Didit verification are complete." };
     try {
       const proposal = await qualifyReschedule(ctx, booking, { start, reason });
       return {
@@ -826,6 +828,7 @@ export const recordRefundPart = internalMutation({
   handler: async (ctx, { id, paymentIntentId, stripeRefundId, status, attemptKey }) => {
     const r = await ctx.db.get(id);
     if (!r) return;
+    const previousRefundStatus = r.status;
     const allocation = r.allocations?.find(
       (p) => p.paymentIntentId === paymentIntentId,
     );
@@ -878,7 +881,7 @@ export const recordRefundPart = internalMutation({
             ? "pending"
             : "failed";
     await ctx.db.patch(id, { parts, status: aggregate, updatedAt: Date.now() });
-    if (aggregate !== "prepared" && aggregate !== r.status && !r.refundAmbiguity) {
+    if (aggregate !== "prepared" && aggregate !== previousRefundStatus && !r.refundAmbiguity) {
       const b = await ctx.db.get(r.bookingId);
       if (!b) return;
       const a = await accountForRental(ctx, b);
@@ -887,21 +890,38 @@ export const recordRefundPart = internalMutation({
         await queueOwnerNotification(ctx,{eventKey:`refund-owner-changed:${r._id}`,kind:"checkout_failure",bookingId:r.bookingId,title:"Refund contact needs review",body:"The rental account changed while a refund was settling. Check the payment and contact before notifying the renter."});
         return;
       }
-      if (a)
-        await postRentalMessage(ctx, {
-          accountId: a._id,
+      const equipmentChange = typeof r.requestId === "string" && r.requestId.startsWith("swap-");
+      if (equipmentChange) {
+        // The swap workflow owns renter-facing settlement updates: it must
+        // commit the new basket and shared-stock receipt before saying the
+        // change is complete. The generic refund notice could announce success
+        // while the old equipment was still on the rental, then duplicate the
+        // swap completion/reconciliation message. Only surface a pending state
+        // here; success and failure are reported by rentalSwapState.
+        if (aggregate === "pending" && a)
+          await postRentalMessage(ctx, {
+            accountId: a._id,
+            bookingId: b._id,
+            sender: "system",
+            text: `Your £${(r.amountPence / 100).toFixed(2)} equipment-change refund is processing. Your rental still shows the original equipment until the refund settles and the change is applied.`,
+          });
+      } else {
+        if (a)
+          await postRentalMessage(ctx, {
+            accountId: a._id,
+            bookingId: b._id,
+            sender: "system",
+            text: `Rental refund £${(r.amountPence / 100).toFixed(2)}: ${aggregate}. ${r.reason}`,
+          });
+        await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
           bookingId: b._id,
-          sender: "system",
-          text: `Rental refund £${(r.amountPence / 100).toFixed(2)}: ${aggregate}. ${r.reason}`,
+          ...(r.expectedAccountId ? { expectedAccountId: r.expectedAccountId } : {}),
+          ...(r.expectedRecipientEmail !== undefined ? { expectedRecipientEmail: r.expectedRecipientEmail } : {}),
+          ...(r.expectedAccountId || r.expectedRecipientEmail !== undefined ? { refundId: r._id } : {}),
+          kind: "rental refund",
+          detail: `£${(r.amountPence / 100).toFixed(2)} · ${aggregate}. ${r.reason}`,
         });
-      await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
-        bookingId: b._id,
-        ...(r.expectedAccountId ? { expectedAccountId: r.expectedAccountId } : {}),
-        ...(r.expectedRecipientEmail !== undefined ? { expectedRecipientEmail: r.expectedRecipientEmail } : {}),
-        ...(r.expectedAccountId || r.expectedRecipientEmail !== undefined ? { refundId: r._id } : {}),
-        kind: "rental refund",
-        detail: `£${(r.amountPence / 100).toFixed(2)} · ${aggregate}. ${r.reason}`,
-      });
+      }
     }
     return { status: aggregate };
   },

@@ -4,7 +4,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { handleChat } from "@/lib/gaffer";
 import { CONTACT_EMAIL } from "@/lib/site";
-import { formatGafferEmailReply, hasSpecificModelQuoteMismatch, isHumanHandoffRequested, newTextOnly, plainBody, recipientCandidates, replyKeyFrom, senderFrom } from "@/lib/inboundEmail";
+import { formatGafferEmailReply, hasSpecificModelQuoteMismatch, isGmailForwardingConfirmation, isHumanHandoffRequested, newTextOnly, plainBody, recipientCandidates, replyKeyFrom, senderFrom } from "@/lib/inboundEmail";
 import { minimumRentalBasketLines } from "../../../../../shared/gafferEmailQuote";
 
 export const runtime = "nodejs";
@@ -49,6 +49,7 @@ function headerValue(headers: any, key: string): string {
 function htmlToText(html: string): string {
   return String(html ?? "")
     .replace(/<\s*(script|style)[^>]*>[\s\S]*?<\/\s*\1\s*>/gi, " ")
+    .replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a\s*>/gi, "$2 ($1)")
     .replace(/<\s*br\s*\/?>|<\/(?:p|div|li|tr|h[1-6])\s*>/gi, "\n")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;|&#160;/gi, " ")
@@ -92,6 +93,7 @@ type InboundEmail = {
   to: string;
   subject: string;
   text: string;
+  noAutoReply?: boolean;
   replyThreadId?: any;
   priorMessage?: PriorEmailMessage;
 };
@@ -122,6 +124,9 @@ async function processGafferInboundEmail(message: InboundEmail) {
       ...(message.replyThreadId ? { replyThreadId: message.replyThreadId } : {}),
       ...(message.priorMessage ? { priorMessage: message.priorMessage } : {}),
     });
+    if (message.noAutoReply) {
+      return NextResponse.json({ ok: true, stored: true, requiresAdminAction: true });
+    }
     explicitlyRequestedHuman = isHumanHandoffRequested(message.subject, message.text);
     const claim: any = await client.mutation(api.emailInbox.claimInbound, {
       secret,
@@ -224,21 +229,25 @@ async function processResendEmail(req: NextRequest, raw: string) {
   }
 
   const headers = received?.headers ?? {};
+  const rawFrom = received?.from ?? headerValue(headers, "from");
+  const from = senderFrom({ from: rawFrom, sender: rawFrom });
+  const subject = String(received?.subject ?? event?.data?.subject ?? "Customer rental enquiry").trim().slice(0, 500);
+  const forwardingConfirmation = isGmailForwardingConfirmation(from, subject);
   const automated = headerValue(headers, "auto-submitted").trim().toLowerCase();
-  if ((automated && automated !== "no") || /^(bulk|list|junk)$/i.test(headerValue(headers, "precedence").trim())) {
+  if (!forwardingConfirmation && ((automated && automated !== "no") || /^(bulk|list|junk)$/i.test(headerValue(headers, "precedence").trim()))) {
     return NextResponse.json({ ok: true, ignored: "automated mail" });
   }
-  const rawFrom = received?.from ?? headerValue(headers, "from");
   return processGafferInboundEmail({
     providerId: emailId,
     messageId: received?.message_id ?? (headerValue(headers, "message-id") || undefined),
     inReplyTo: headerValue(headers, "in-reply-to") || undefined,
     references: referencesFrom(headers, "references"),
-    from: senderFrom({ from: rawFrom, sender: rawFrom }),
+    from,
     name: nameFrom(rawFrom),
     to: addressList(received?.received_for ?? received?.to ?? event?.data?.to)[0] ?? OWNER_EMAIL,
-    subject: String(received?.subject ?? event?.data?.subject ?? "Customer rental enquiry").trim().slice(0, 500),
+    subject,
     text: newTextOnly(typeof received?.text === "string" && received.text.trim() ? received.text : htmlToText(received?.html ?? "")),
+    ...(forwardingConfirmation ? { noAutoReply: true } : {}),
   });
 }
 

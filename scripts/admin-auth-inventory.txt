@@ -19,6 +19,8 @@ call convex/rentalDelivery.ts:delivery.quote
 call convex/rentalDelivery.ts:settings.get
 call convex/rentalPricePayments.ts:checkout.refundRental
 call convex/rentalPricePayments.ts:rentalPriceState.preview
+call convex/securityCharges.ts:securityChargeState.prepare
+call convex/securityCharges.ts:securityCharges.collect
 call convex/sync.ts:availability.forCalendar
 call convex/sync.ts:availability.forCart
 call src/app/about/page.tsx:catalog.categories
@@ -418,6 +420,7 @@ call src/components/rentals/RentalSwapApproval.tsx:rentalSwapPayments.accept
 call src/components/rentals/RentalSwapApproval.tsx:rentalSwapState.customerDecline
 call src/components/rentals/RentalSwapApproval.tsx:rentalSwapState.customerProposal
 call src/components/rentals/RentalVerificationSummary.tsx:bookings.verificationProgress
+call src/components/rentals/RentalVerificationSummary.tsx:didit.adminReview
 call src/components/rentals/RentalVerificationSummary.tsx:didit.refreshProgress
 call src/components/rentals/RentalVerificationSummary.tsx:rentalOperations.details
 call src/components/rentals/RenterRentalTools.tsx:cancellationRecovery.renterStatus
@@ -441,6 +444,7 @@ call src/components/rentals/SavedCardCharges.tsx:securityCharges.refresh
 call src/components/rentals/SavedCardCharges.tsx:securityCharges.refundPayment
 call src/components/rentals/SavedCardCharges.tsx:securityCharges.resendNotice
 call src/components/rentals/SavedCardCharges.tsx:securityCharges.resendReceipt
+call src/components/rentals/SavedCardCharges.tsx:securityCharges.submitClaim
 call src/components/rentals/VerificationProgress.tsx:bookings.verificationProgress
 call src/components/rentals/VerificationProgress.tsx:checkout.retrySavedCard
 call src/components/rentals/VerificationReuseClaim.tsx:verificationReuseClaimState.available
@@ -901,6 +905,7 @@ export convex/droneLicences.ts:saveUpload
 export convex/droneLicences.ts:uploadAccess
 export convex/emailInbox.ts:adminInbox
 export convex/emailInbox.ts:adminThread
+export convex/emailInbox.ts:businessEmailReadiness
 export convex/emailInbox.ts:claimAutomaticReply
 export convex/emailInbox.ts:claimForAccount
 export convex/emailInbox.ts:claimInbound
@@ -1096,7 +1101,6 @@ export convex/lib/mailer.ts:OWNER_EMAIL
 export convex/lib/mailer.ts:deliveryMessageId
 export convex/lib/mailer.ts:sendBusinessMail
 export convex/lib/mailer.ts:sendMail
-export convex/lib/mailer.ts:supportEmailFrom
 export convex/lib/marketingInventory.ts:automaticMarketingFields
 export convex/lib/marketingInventory.ts:isMarketingOnly
 export convex/lib/marketingInventory.ts:marketingRedirect
@@ -1193,6 +1197,9 @@ export convex/lib/rentalSwapStock.ts:reserveSwapStock
 export convex/lib/renterMessageTime.ts:renterMessageTime
 export convex/lib/renterPush.ts:queueRenterNotification
 export convex/lib/renterPush.ts:renterPushKeys
+export convex/lib/renterRentalActionGate.ts:assertRenterRentalActionReady
+export convex/lib/renterRentalActionGate.ts:hasBookingDiditApproval
+export convex/lib/renterRentalActionGate.ts:renterRentalActionReady
 export convex/lib/repeatRental.ts:repeatRentalFingerprint
 export convex/lib/repeatRental.ts:safeRepeatRental
 export convex/lib/repeatRentalProvider.ts:providerRepeatGate
@@ -1208,6 +1215,7 @@ export convex/lib/returnInspectionFields.ts:inspectionRecord
 export convex/lib/reviewContext.ts:reviewContext
 export convex/lib/reviewEligibility.ts:customerReviewGate
 export convex/lib/reviewEligibility.ts:reviewFingerprint
+export convex/lib/reviewEligibility.ts:reviewFollowUpDueAt
 export convex/lib/reviewEligibility.ts:reviewGate
 export convex/lib/reviewEligibility.ts:reviewSettlementFingerprint
 export convex/lib/reviewEligibility.ts:reviewSuppressed
@@ -1473,6 +1481,7 @@ export convex/rentalExtensions.ts:bindPayment
 export convex/rentalExtensions.ts:close
 export convex/rentalExtensions.ts:context
 export convex/rentalExtensions.ts:decline
+export convex/rentalExtensions.ts:gafferPreview
 export convex/rentalExtensions.ts:pendingPayments
 export convex/rentalExtensions.ts:prepare
 export convex/rentalExtensions.ts:quote
@@ -1683,6 +1692,7 @@ export convex/securityCharges.ts:resendNotice
 export convex/securityCharges.ts:resendReceipt
 export convex/securityCharges.ts:sendNotice
 export convex/securityCharges.ts:sendReceipt
+export convex/securityCharges.ts:submitClaim
 export convex/settings.ts:adminGet
 export convex/settings.ts:adminUpdate
 export convex/settings.ts:get
@@ -1701,6 +1711,7 @@ export convex/swapStockAudit.ts:record
 export convex/swapStockAudit.ts:retryLegacyDelivery
 export convex/swapStockAudit.ts:runDue
 export convex/swapStockOperations.ts:assertStockExecution
+export convex/swapStockOperations.ts:assertStockPrepared
 export convex/swapStockOperations.ts:checkReview
 export convex/swapStockOperations.ts:due
 export convex/swapStockOperations.ts:lease

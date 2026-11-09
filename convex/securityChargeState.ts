@@ -1,4 +1,4 @@
-import { ASSESSMENT_SECURITY_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION } from "../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, isSetupIntentSecurityPolicy, isImmediateClaimSecurityPolicy } from "../shared/rentalSecurity";
 import { query, mutation, internalMutation, internalQuery } from './_generated/server';
 import { v } from 'convex/values';
 import { assertAdmin, checkAdminToken } from './adminAuth';
@@ -16,16 +16,18 @@ export const list = query({args:{token:v.string(),bookingId:v.id('bookings'),adm
   damageAssessed:b!.savedCardDamageAssessed??b!.returnDecision?.damageKept??0,lateAssessed:b!.lateFeeAmount??0,returnedAt:b!.actualReturnedAt??null,
   securityPolicyVersion:b!.securityPolicyVersion??null,rows:rows.map(r=>({id:r._id,kind:r.kind,claimBasis:r.claimBasis??null,amount:r.amountPence/100,reason:r.reason,state:r.state,paid:(r.paidPence??0)/100,createdAt:r.createdAt,noticeAt:r.noticeAt??null,collectAfter:r.collectAfter??null,disputeReason:r.disputeReason??null,disputeResolution:r.disputeResolution??null,disputeResolvedAt:r.disputeResolvedAt??null,refunded:(r.refundedPence??0)/100,refundStatus:r.refundReceipt?.status??null,refundReason:r.refundReason??null,...(a.admin?{refundApprovalUrl:r.refundReceipt?.approvalUrl??null,receiptNoticeAt:r.receiptNoticeAt??null}:{}),error:r.error??null}))};
 }});
-export const prepare = mutation({args:{token:v.string(),bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),amount:v.number(),reason:v.string()},handler:async(ctx,a)=>{
+export const prepare = mutation({args:{token:v.string(),bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),amount:v.number(),reason:v.string(),immediate:v.optional(v.boolean())},handler:async(ctx,a)=>{
  await assertAdmin(ctx,a.token,'securityCharges.prepare');
  if(!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId)||!Number.isFinite(a.amount)||a.amount<=0||Math.round(a.amount*100)/100!==a.amount||a.reason.trim().length<10||a.reason.length>4000)throw Error('Enter a positive penny-accurate amount and itemised evidence/reason.');
  const amountPence=Math.round(a.amount*100),reason=a.reason.trim();
  const previous=await ctx.db.query('rental_security_charges').withIndex('by_request',q=>q.eq('bookingId',a.bookingId).eq('requestId',a.requestId)).unique();
  if(previous){if(previous.kind!==a.kind||previous.claimBasis!==a.claimBasis||previous.amountPence!==amountPence||previous.reason!==reason)throw Error('This request belongs to a different assessment.');return previous._id;}
  const b=await ctx.db.get(a.bookingId);assertSavedCardCollection(b);
- if(b!.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION&&(a.kind==='damage'&&!a.claimBasis||a.kind==='late'&&a.claimBasis))throw Error('Choose the recorded loss or severe cosmetic-damage basis for this saved-card claim.');
- if(b!.securityPolicyVersion!==SETUP_INTENT_SECURITY_POLICY_VERSION&&a.claimBasis)throw Error('A new-policy claim basis cannot be applied to this rental.');
- if(Date.now()+SECURITY_COLLECTION_NOTICE_HOURS*3600000>b!.actualReturnedAt!+SECURITY_COLLECTION_DAYS*86400000)throw Error('There is insufficient time for the notice period within the agreed collection window.');
+ const immediatePolicy=isImmediateClaimSecurityPolicy(b!.securityPolicyVersion);
+ if(immediatePolicy!==!!a.immediate)throw Error(immediatePolicy?"Use the immediate claim action for this rental; a notice-only preparation is not available under its accepted terms.":"Immediate collection is not permitted by this rental's accepted agreement.");
+ if(isSetupIntentSecurityPolicy(b!.securityPolicyVersion)&&(a.kind==='damage'&&!a.claimBasis||a.kind==='late'&&a.claimBasis))throw Error('Choose the recorded loss or severe cosmetic-damage basis for this saved-card claim.');
+ if(!isSetupIntentSecurityPolicy(b!.securityPolicyVersion)&&a.claimBasis)throw Error('A new-policy claim basis cannot be applied to this rental.');
+ if(!immediatePolicy&&Date.now()+SECURITY_COLLECTION_NOTICE_HOURS*3600000>b!.actualReturnedAt!+SECURITY_COLLECTION_DAYS*86400000)throw Error('There is insufficient time for the notice period within the agreed collection window.');
  if(!b!.accountId)throw Error('A permanent rental account is required.');
  const account=await ctx.db.get(b!.accountId);if(!account||account.blockedAt!=null||!account.email)throw Error('The rental account is unavailable.');
  const rows=await ctx.db.query('rental_security_charges').withIndex('by_booking',q=>q.eq('bookingId',a.bookingId)).take(100);
@@ -43,7 +45,7 @@ export const prepare = mutation({args:{token:v.string(),bookingId:v.id('bookings
  await ctx.db.patch(b!._id,{savedCardChargeReservedPence:reserved+amountPence});
  const basisText=a.claimBasis==='loss'?' · lost or unreturned item':a.claimBasis==='severe_cosmetic_damage'?' · severe, permanent cosmetic damage':'';
  await postRentalMessage(ctx,{accountId:b!.accountId,bookingId:b!._id,sender:'system',text:`An itemised ${a.kind==='late'?'late-return':'damage/loss'} assessment${basisText} of £${a.amount.toFixed(2)} has been prepared. No payment has been taken. You will receive the evidence and proposed collection date before any card collection. ${reason}`});
- await ctx.scheduler.runAfter(0,internal.securityCharges.sendNotice,{id});return id;
+ if(!immediatePolicy)await ctx.scheduler.runAfter(0,internal.securityCharges.sendNotice,{id});return id;
 }});
 export const context=internalQuery({args:idArgs,handler:async(ctx,{id})=>{const charge=await ctx.db.get(id);if(!charge)return null;const booking=await ctx.db.get(charge.bookingId),account=await ctx.db.get(charge.accountId);const rows=await ctx.db.query('rental_security_charges').withIndex('by_booking',q=>q.eq('bookingId',charge.bookingId)).take(100);return {charge,booking,account,collectionPaused:rows.some(r=>r.disputedAt&&!r.disputeResolvedAt)||!!booking?.cancellationDecision||!account||account.blockedAt!=null};}});
 export const claimNotice=internalMutation({args:{...idArgs,receipt:v.optional(v.boolean())},handler:async(ctx,{id,receipt})=>{
@@ -56,7 +58,8 @@ export const noticeResult=internalMutation({args:{...idArgs,sent:v.boolean(),rec
  if(receipt){await ctx.db.patch(id,{receiptLeaseUntil:undefined,...(sent?{receiptNoticeAt:Date.now(),receiptEmail:recipient,receiptSubject:subject,receiptHtml:html}: {})});return;}
  if(r.state!=='notice_pending')return;
  const now=Date.now();
- await ctx.db.patch(id,{noticeLeaseUntil:undefined,updatedAt:now,...(sent?{state:'notice_sent',noticeAt:now,noticeEmail:recipient,noticeSubject:subject,noticeHtml:html,collectAfter:now+SECURITY_COLLECTION_NOTICE_HOURS*3600000,error:undefined}:{error:'Notice could not be sent; collection is blocked.'})});
+ const b=await ctx.db.get(r.bookingId),immediate=!!b&&isImmediateClaimSecurityPolicy(b.securityPolicyVersion);
+ await ctx.db.patch(id,{noticeLeaseUntil:undefined,updatedAt:now,...(sent?{state:'notice_sent',noticeAt:now,noticeEmail:recipient,noticeSubject:subject,noticeHtml:html,collectAfter:now+(immediate?0:SECURITY_COLLECTION_NOTICE_HOURS*3600000),error:undefined}:{error:'Notice could not be sent; collection is blocked.'})});
 }});
 export const claim=internalMutation({args:idArgs,handler:async(ctx,{id})=>{
  const r=await ctx.db.get(id);if(!r)throw Error('Charge not found.');
@@ -66,7 +69,8 @@ export const claim=internalMutation({args:idArgs,handler:async(ctx,{id})=>{
  if(r.consentSnapshot!==b!.agreementSnapshot||r.accountId!==b!.accountId)throw Error('The retained rental/account consent changed.');
  const reviews=await ctx.db.query('rental_security_charges').withIndex('by_booking',q=>q.eq('bookingId',r.bookingId)).take(100);
  if(reviews.some(row=>row.disputedAt&&!row.disputeResolvedAt))throw Error('An unresolved renter dispute pauses all saved-card collections for this rental.');
- if(!['notice_sent','uncertain'].includes(r.state)||!r.noticeAt||!r.collectAfter||r.collectAfter>Date.now())throw Error('Collection is blocked until the notice period finishes and any dispute is resolved.');
+ const immediate=isImmediateClaimSecurityPolicy(b!.securityPolicyVersion);
+ if(!['notice_sent','uncertain'].includes(r.state)||!r.noticeAt||!r.collectAfter||r.collectAfter>Date.now())throw Error(immediate?'The itemised notice must be sent before collection.':'Collection is blocked until the notice period finishes and any dispute is resolved.');
  if((r.leaseUntil??0)>Date.now())throw Error('This collection is already in progress.');
  if(r.attemptedAt&&Date.now()>r.attemptedAt+23*3600000&&!r.intentId)throw Error('The original outcome needs manual reconciliation; a second payment must not be created.');
  const claimed={...r,attemptedAt:r.attemptedAt??Date.now()};
@@ -91,6 +95,10 @@ export const record=internalMutation({args:{...idArgs,intentId:v.optional(v.stri
    await postRentalMessage(ctx,{accountId:r.accountId,bookingId:r.bookingId,sender:'system',text:`Stripe confirmed a £${(a.paidPence/100).toFixed(2)} ${r.kind==='late'?'late-return':'damage/loss'} payment. Assessment reference ${String(r._id).slice(-8)}. This is a separate payment, not a captured deposit or hold.`});
    await ctx.scheduler.runAfter(0,internal.securityCharges.sendReceipt,{id:r._id});
   }
+ }else if(a.state==='requires_action'){
+  await postRentalMessage(ctx,{accountId:r.accountId,bookingId:r.bookingId,sender:'system',text:`Your bank requires an extra approval for the £${(r.amountPence/100).toFixed(2)} ${r.kind==='late'?'late-return':'damage/loss'} assessment. No payment is confirmed yet. Open the assessment in your account to complete bank authentication; no replacement charge will be made automatically.`});
+ }else if(a.state==='failed'){
+  await postRentalMessage(ctx,{accountId:r.accountId,bookingId:r.bookingId,sender:'system',text:`The bank did not complete the £${(r.amountPence/100).toFixed(2)} ${r.kind==='late'?'late-return':'damage/loss'} assessment. No payment was taken. We will not retry automatically; contact the team if you need to discuss another payment method.`});
  }
 }});
 export const dispute=mutation({args:{token:v.string(),...idArgs,reason:v.string()},handler:async(ctx,a)=>{

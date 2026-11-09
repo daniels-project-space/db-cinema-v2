@@ -19,8 +19,8 @@ import { availableCreditRows,creditPlan,creditKind,reconcileReleasedCredit } fro
 import { ensurePaidBookingAccount } from "./accountClaims";
 import { referralEligibility,availableReferralReward } from "./lib/referrals";
 import { SINGLE_BENEFIT_VERSION } from "../shared/rentalBenefits";
-import { ASSESSMENT_SECURITY_POLICY_VERSION, assessmentDepositFor, cardHoldFor, cardLimitForPolicy, CARD_HOLD_SECURITY_POLICY_VERSION, hasCashDepositPolicy, isCardHoldSecurityPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, depositChargeFor, savedCardChargeLimit, isSetupIntentSecurityPolicy, SETUP_INTENT_SECURITY_POLICY_VERSION } from "../shared/rentalSecurity";
-import { isSavedCardRental, assessmentConsentText, savedCardConsentText, assertSavedCardConsent, setupIntentConsentText } from "../shared/savedCardSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, assessmentDepositFor, cardHoldFor, cardLimitForPolicy, CARD_HOLD_SECURITY_POLICY_VERSION, hasCashDepositPolicy, isCardHoldSecurityPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, depositChargeFor, savedCardChargeLimit, isSetupIntentSecurityPolicy, isImmediateClaimSecurityPolicy } from "../shared/rentalSecurity";
+import { isSavedCardRental, assessmentConsentText, savedCardConsentText, assertSavedCardConsent, setupIntentConsentText, immediateClaimConsentText } from "../shared/savedCardSecurity";
 import { loyaltyProgress } from "./lib/loyalty";
 import { creditDebit,usableCredit } from "./lib/creditLedger";
 import { reviewContext } from "./lib/reviewContext";
@@ -44,6 +44,7 @@ import { reservationPaymentUnresolved } from "./lib/reservationPayment";
 import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
 import { rentalPaymentSources } from "./lib/rentalPaymentSources";
 import { postRentalMessage } from "./lib/rentalChat";
+import { hasBookingDiditApproval } from "./lib/renterRentalActionGate";
 import {
   internalMutation,
   internalQuery,
@@ -66,7 +67,7 @@ import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage, saveAccountDiditVerification, verificationReuseOwnerMatches } from "./lib/verificationReuse";
 import { assertCreditOffer } from "./lib/rentalCreditPolicy";
 import { rentalCancellationStart, bookingCancelKind,CANCELLATION_CREDIT_DAYS,NO_REFUND_WITHIN_48_HOURS_CANCELLATION_VERSION } from "../src/lib/cancellationPolicy";
-import { LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, CARD_HOLD_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS } from "../src/lib/legal";
+import { LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, CARD_HOLD_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS, IMMEDIATE_CLAIM_LEGAL_VERSION } from "../src/lib/legal";
 import { assertAgreementBeforeRelease, snapshotAgreement, readAgreementSnapshot, agreementRequestFingerprint as fingerprintAgreement } from "../shared/rentalAgreement";
 
 
@@ -218,7 +219,7 @@ export const createPending = internalMutation({
       if(!owner||owner.blockedAt!=null||owner.email!==a.customerEmail.trim().toLowerCase())throw Error("Rental account does not match the checkout customer.");
     }
     if(a.checkoutInputFingerprint&&!/^[a-f0-9]{64}$/.test(a.checkoutInputFingerprint))throw Error("Invalid checkout receipt.");
-    const newAgreement = a.agreementDocs?.some(d => [LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,...SETUP_INTENT_LEGAL_VERSIONS].includes(d.version));
+    const newAgreement = a.agreementDocs?.some(d => [LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,...SETUP_INTENT_LEGAL_VERSIONS,IMMEDIATE_CLAIM_LEGAL_VERSION].includes(d.version));
     if ((hasCashDepositPolicy(a.securityPolicyVersion) || isCardHoldSecurityPolicy(a.securityPolicyVersion) || isSetupIntentSecurityPolicy(a.securityPolicyVersion)) && !newAgreement) throw Error("Review and accept the current security agreements before paying.");
     const agreementRequestFingerprint = a.agreementRequestId ? fingerprintAgreement(a) : undefined;
     if (newAgreement && !a.agreementRequestId) throw Error("An agreement acceptance attempt is required.");
@@ -377,7 +378,7 @@ export const createPending = internalMutation({
     if (savedCard && (a.depositAmount !== requiredDeposit || (refundablePolicy && !assessmentPolicy && !!a.securityWaiverReason) || (a.depositHoldAmount ?? 0) !== 0 || a.savedCardLimit !== cardLimit || !a.laterChargeConsent))
       throw Error("Review the current saved-card limit and explicitly consent; review the quoted refundable deposit and no additional card hold is permitted.");
     const acceptedAt = Date.now();
-    const cardConsent = setupIntentPolicy&&cardLimit!==undefined?setupIntentConsentText(cardLimit):assessmentPolicy?assessmentConsentText(a.depositAmount):cardLimit !== undefined ? savedCardConsentText(cardLimit,refundablePolicy?a.depositAmount:undefined) : undefined;
+    const cardConsent = setupIntentPolicy&&cardLimit!==undefined?(isImmediateClaimSecurityPolicy(a.securityPolicyVersion)?immediateClaimConsentText(cardLimit):setupIntentConsentText(cardLimit)):assessmentPolicy?assessmentConsentText(a.depositAmount):cardLimit !== undefined ? savedCardConsentText(cardLimit,refundablePolicy?a.depositAmount:undefined) : undefined;
     const agreementSnapshot = newAgreement ? snapshotAgreement({...a,savedCardConsentText:cardConsent}, acceptedAt, chargedTotal, creditApplied) : undefined;
     const checkoutFunding = checkoutLineAllocation(a.lineItems.map(line=>line.lineTotal),[a.deliveryFee],a.discount??0,membershipCreditApplied,creditApplied-membershipCreditApplied);
     const checkoutFundingSources = allocations ? checkoutCreditSources<Id<"credits">>(checkoutFunding, allocations).map(source=>({...source,lineIndex:source.lineIndex===a.lineItems.length?-1:source.lineIndex})) : undefined;
@@ -975,8 +976,8 @@ export const adminSetStatus = mutation({
       throw new Error("A closed booking cannot be reopened by changing its status.");
     if (booking.status === "pending_payment")
       throw new Error("Payment must be confirmed by Stripe before this booking is confirmed.");
-    if (status === "active" && (booking.idVerifyStatus !== "verified" || (verificationValidUntil(booking) ?? 0) <= Date.now()))
-      throw new Error("Identity and address verification must be approved before handover.");
+    if (status === "active" && (!booking.paidConfirmedAt || !hasBookingDiditApproval(booking)))
+      throw new Error("Payment and Didit verification must be approved before handover.");
     if (status === "active" && booking.depositHoldAmount &&
         (booking.depositHoldStatus !== "held" || (booking.depositHoldExpiresAt ?? 0) <= Date.now()))
       throw new Error("The card hold must be active before handover.");
@@ -1840,10 +1841,18 @@ export const flagCheckoutSessionFailure = internalMutation({
 });
 
 export const flagDiditWebhookRejection = internalMutation({
-  args:{reason:v.union(v.literal("configuration"),v.literal("signature"),v.literal("timestamp"),v.literal("provider_context"),v.literal("payload"))},
-  handler:async(ctx,{reason})=>{
+  args:{reason:v.union(v.literal("configuration"),v.literal("signature"),v.literal("timestamp"),v.literal("provider_context"),v.literal("payload"),v.literal("booking_binding")),
+    bookingId:v.optional(v.string()),sessionRef:v.optional(v.string()),eventRef:v.optional(v.string()),providerStatus:v.optional(v.string())},
+  handler:async(ctx,{reason,bookingId,sessionRef,eventRef,providerStatus})=>{
     const window=Math.floor(Date.now()/3600000);
-    await queueOwnerNotification(ctx,{eventKey:`didit-webhook-rejected:${reason}:${window}`,kind:"verification_failure",title:"Didit webhook rejected",body:`A Didit callback was rejected (${reason}). No renter verification state was changed. Check the Didit webhook configuration and Convex logs.`});
+    const normalizedBookingId=bookingId?ctx.db.normalizeId("bookings",bookingId):null;
+    const booking=normalizedBookingId?await ctx.db.get(normalizedBookingId):null;
+    const account=booking?await accountForRental(ctx,booking):null;
+    const body = reason === "booking_binding"
+      ? `A signed Didit callback did not match the current booking/session. No renter verification state was changed.${providerStatus?` Provider status: ${providerStatus}.`:""}${sessionRef?` Session ref: ${sessionRef}.`:""}${eventRef?` Event ref: ${eventRef}.`:""} Check this rental’s current Didit session; paid pending rentals are reconciled from Didit automatically.`
+      : `A Didit callback was rejected (${reason}). No renter verification state was changed. Check the Didit webhook configuration and Convex logs.`;
+    await queueOwnerNotification(ctx,{eventKey:`didit-webhook-rejected:${reason}:${normalizedBookingId??"global"}:${window}`,kind:"verification_failure",
+      ...(account?{accountId:account._id}:{}),...(normalizedBookingId?{bookingId:normalizedBookingId}:{}),title:"Didit webhook rejected",body});
   },
 });
 
@@ -1952,14 +1961,32 @@ export const setDiditResult = internalMutation({
     if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
     if (expectedEventId !== undefined && ((b.diditEventId ?? null) !== expectedEventId || (b.diditEventAt ?? null) !== expectedEventAt ||
         (b.diditManualDecisionAt ?? null) !== expectedManualDecisionAt)) return !requireApplied;
-    if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt ||
-        (b.diditManualDecisionAt ?? 0) >= eventAt) return !requireApplied;
+    const unavailableKeyNotice = "Didit approved the identity, but cross-account identity matching is unavailable.";
+    let repeatApprovedIdentityRecovery = false;
+    if (b.diditEventId === eventId) {
+      // A status poll may return the same provider event after its trusted
+      // identity key has become available. Reconcile only this exact stale-key
+      // case; ordinary duplicate events remain idempotent.
+      let recoveredKey = personKey;
+      if (!/^[a-f0-9]{64}$/.test(recoveredKey ?? "") && /^[a-f0-9]{64}$/.test(b.renterPersonKey ?? "")) recoveredKey = b.renterPersonKey;
+      if (!/^[a-f0-9]{64}$/.test(recoveredKey ?? "") && b.accountId) {
+        const account = await accountForRental(ctx, b);
+        if (/^[a-f0-9]{64}$/.test(account?.renterPersonKey ?? "")) recoveredKey = account.renterPersonKey;
+      }
+      repeatApprovedIdentityRecovery = b.idVerifyStatus === "verified" && b.idVerificationSource === "didit" &&
+        b.identityRiskNotice === unavailableKeyNotice && status === "verified" && providerStatus === "Approved" &&
+        ["identity", "selfie", "address"].every(key => (checks ?? b.verificationChecks)?.[key as "identity" | "selfie" | "address"] === "approved") &&
+        /^[a-f0-9]{64}$/.test(recoveredKey ?? "");
+      if (!repeatApprovedIdentityRecovery) return !requireApplied;
+      personKey = recoveredKey;
+    }
+    if ((b.diditEventAt ?? 0) > eventAt || (b.diditManualDecisionAt ?? 0) >= eventAt) return !requireApplied;
     const preservingVerifiedManualDecision = b.idVerificationSource === "manual" && b.idVerifyStatus === "verified" &&
       providerStatus === "Approved" && status === "manual_review";
     // The admin review queue is reserved for a provider-level manual hold.
     // Never create that state from an Approved Didit result or missing status.
     if (status === "manual_review" && providerStatus !== "In Review" && !preservingVerifiedManualDecision) return false;
-    if (status!=="processing" || providerStatus==="In Progress" || Object.values(checks??{}).some(check=>check!=="waiting")) {
+    if (!repeatApprovedIdentityRecovery && (status!=="processing" || providerStatus==="In Progress" || Object.values(checks??{}).some(check=>check!=="waiting"))) {
       const changed=b.idVerifyStatus!==status || (["identity","selfie","address"] as const).some(key=>b.verificationChecks?.[key]!==checks?.[key]) || (b.documentExpiresAt??null)!==(documentExpiresAt??null);
       await queueVerificationArchive(ctx,b,!reconciliation || changed);
     }
@@ -1976,6 +2003,23 @@ export const setDiditResult = internalMutation({
       await queueRmv2Sync(ctx, bookingId);
       return true;
     }
+    // Didit may return an Approved status refresh without repeating the ID
+    // fields used to derive the HMAC person key. If this exact booking was
+    // already verified in this Didit session, its stored key remains the
+    // provider-attested identity anchor; do not turn an ordinary refresh into
+    // a false cross-account-matching alert. A first approval still needs a
+    // fresh provider key and remains flagged when that key is unavailable.
+    if (!personKey && b.idVerifyStatus === "verified" && /^[a-f0-9]{64}$/.test(b.renterPersonKey ?? ""))
+      personKey = b.renterPersonKey;
+    // A later rental can be the first booking row for an account that has
+    // already passed Didit. If Didit omits ID fields on this Approved refresh,
+    // reuse that account's previously attested HMAC for identity matching.
+    // This does not skip verification: only an Approved Didit result reaches
+    // this branch, and accounts without a trusted key still need a fresh key.
+    if (!personKey && status === "verified" && providerStatus === "Approved") {
+      const account = await accountForRental(ctx, b);
+      if (/^[a-f0-9]{64}$/.test(account?.renterPersonKey ?? "")) personKey = account.renterPersonKey;
+    }
     let identityRiskNotice: string | undefined = status === "verified" && providerStatus === "Approved" && !personKey
       ? "Didit approved the identity, but cross-account identity matching is unavailable."
       : undefined;
@@ -1990,6 +2034,8 @@ export const setDiditResult = internalMutation({
       catch { identityRiskNotice = "The overlapping equipment allocation needs attention against the per-person limit."; }
     }
     const previous = b.idVerifyStatus;
+    const previousIdentityRiskNotice = b.identityRiskNotice;
+    const previousDiditEventId = b.diditEventId;
     const identityRiskNoticeChanged = identityRiskNotice !== b.identityRiskNotice;
     const verifiedAt = status === "verified" ? (b.idVerifiedAt ?? Date.now()) : undefined;
     await ctx.db.patch(bookingId, {
@@ -2006,6 +2052,14 @@ export const setDiditResult = internalMutation({
       identityRiskNotice: status === "verified" ? identityRiskNotice : undefined,
       verificationUpdatedAt: Date.now(),
     });
+    if (status === "verified" && providerStatus === "Approved" && !identityRiskNotice && previousIdentityRiskNotice === unavailableKeyNotice &&
+        /^[a-f0-9]{64}$/.test(personKey ?? "") && previousDiditEventId) {
+      const previousNotice = await ctx.db.query("admin_notifications")
+        .withIndex("by_event", (q: any) => q.eq("eventKey", `allocation-review:${bookingId}:${previousDiditEventId}`)).first();
+      if (previousNotice?.bookingId === bookingId && previousNotice.kind === "verification_failure" &&
+          previousNotice.title === "Booking identity or allocation notice" && previousNotice.body === unavailableKeyNotice && !previousNotice.read)
+        await ctx.db.patch(previousNotice._id, { read: true });
+    }
     // A final Didit rejection releases only the pending checkout allocation.
     // Confirmed/active rentals remain booked for the team's cancellation flow.
     if (status === "rejected" && b.status === "pending_verification") {
@@ -2037,12 +2091,17 @@ export const setDiditResult = internalMutation({
         title:approved?"Didit verification approved":status === "rejected"?"Didit verification not approved":resubmitted?"Didit resubmission reported":"Didit verification incomplete",
         body:approved?"Didit approved verification. Document archiving may still be in progress.":status === "rejected"?"Didit did not approve verification. Open the rental for details.":resubmitted?"Didit reports a resubmission; verification is not complete.":"Didit reports that verification is not complete. Open the rental for details."});
     }
-    if (verificationBookingOpen(b.status) && status === "manual_review" &&
-        (previous !== status || (b.verificationNote ?? null) !== (note ?? null))) {
+    // A Didit review can emit more than one event while the case stays in the
+    // same manual-review state (for example, when its explanatory note is
+    // refreshed). Keep the latest note on the booking, but notify the team
+    // only when the booking enters a new review state. Note changes remain
+    // visible in the rental's verification details without sending another
+    // push for the same unresolved review.
+    if (verificationBookingOpen(b.status) && status === "manual_review" && previous !== status) {
       const account = await accountForRental(ctx, b);
       await queueOwnerNotification(ctx, { eventKey: `didit-review:${bookingId}:${eventId}`, kind: "verification_failure",
-        ...(account ? { accountId: account._id } : {}), bookingId, title: "Verification needs review",
-        body: note ?? "Didit referred this verification for review. Open the rental for details." });
+        ...(account ? { accountId: account._id } : {}), bookingId, title: "Didit review needed",
+        body: note ?? "Didit paused verification for a human decision. Open the rental for the provider's note." });
       await ctx.scheduler.runAfter(0, internal.notify.verificationReviewAlert, { bookingId });
     }
     await queueRmv2Sync(ctx, bookingId);
@@ -2452,7 +2511,10 @@ export const adminSuspendVerificationReuse = mutation({args:{token:v.string(),bo
 export const expireRentalVerifications = internalMutation({
   args: { cursor: v.optional(v.string()) }, handler: async (ctx, { cursor }) => {
     const now = Date.now();
-    const statuses = ["confirmed", "pending_verification"] as const;
+    // A confirmed rental keeps the Didit pass recorded on that booking. The
+    // account's separate 90-day reuse record expires for future rentals, but
+    // this sweep must not invalidate an already-confirmed booking.
+    const statuses = ["pending_verification"] as const;
     const separator = cursor?.indexOf("|") ?? -1;
     const statusIndex = separator < 0 ? 0 : Number(cursor!.slice(0, separator));
     const pageCursor = separator < 0 ? cursor ?? null : cursor!.slice(separator + 1) || null;

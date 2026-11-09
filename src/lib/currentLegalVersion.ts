@@ -1,6 +1,6 @@
 import {ConvexHttpClient} from "convex/browser";
 import {api} from "@cvx/_generated/api";
-import {LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,SETUP_INTENT_LEGAL_VERSION} from "./legal";
+import {LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,IMMEDIATE_CLAIM_LEGAL_VERSION} from "./legal";
 
 type LegalPolicyFlags = {
  setupIntentSecurityEnabled?: boolean;
@@ -11,7 +11,7 @@ type LegalPolicyFlags = {
 };
 
 export function legalVersionForPolicy(flags: LegalPolicyFlags) {
- return flags.setupIntentSecurityEnabled?SETUP_INTENT_LEGAL_VERSION:flags.cardHoldSecurityEnabled?CARD_HOLD_LEGAL_VERSION:flags.assessmentSecurityEnabled?(flags.cancellationProtectionEnabled?CANCELLATION_PROTECTION_LEGAL_VERSION:ASSESSMENT_DEPOSIT_LEGAL_VERSION):flags.refundableDepositEnabled?REFUNDABLE_DEPOSIT_LEGAL_VERSION:LEGAL_VERSION;
+ return flags.setupIntentSecurityEnabled?IMMEDIATE_CLAIM_LEGAL_VERSION:flags.cardHoldSecurityEnabled?CARD_HOLD_LEGAL_VERSION:flags.assessmentSecurityEnabled?(flags.cancellationProtectionEnabled?CANCELLATION_PROTECTION_LEGAL_VERSION:ASSESSMENT_DEPOSIT_LEGAL_VERSION):flags.refundableDepositEnabled?REFUNDABLE_DEPOSIT_LEGAL_VERSION:LEGAL_VERSION;
 }
 
 function configuredPolicyFlags(): LegalPolicyFlags {

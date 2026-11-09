@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { formatGbp } from "@/lib/pricing";
-import { SETUP_INTENT_SECURITY_POLICY_VERSION } from "../../../shared/rentalSecurity";
+import { isSetupIntentSecurityPolicy } from "../../../shared/rentalSecurity";
 export function RentalCreditOffer({ token, offerId }: { token: string; offerId: string }) {
   const offer = useQuery(api.rentalCreditOffers.get, { token, offerId: offerId as any });
   const accept = useAction(api.checkout.acceptFullCredit);
@@ -14,7 +14,7 @@ export function RentalCreditOffer({ token, offerId }: { token: string; offerId: 
   return <div className="mt-4 rounded-xl border border-emerald-300/20 bg-black/20 p-4">
     <p className="text-base font-semibold text-emerald-100">{formatGbp(offer.amountPence / 100)} account credit</p>
     <p className="mt-1 text-xs text-white/50">Valid one year · automatically used at checkout</p>
-    <label className="mt-3 flex gap-2 text-xs leading-5 text-white/75"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} disabled={busy} className="mt-1 shrink-0"/>{offer.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION?"I choose the account-credit option for the rental amount shown. No deposit or card hold was collected under this rental; any future security claim stays under the saved-card agreement.":"I choose to cancel for account credit instead of a card refund, including my remaining security payment. Unused card holds will be released."}</label>
+    <label className="mt-3 flex gap-2 text-xs leading-5 text-white/75"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} disabled={busy} className="mt-1 shrink-0"/>{isSetupIntentSecurityPolicy(offer.securityPolicyVersion)?"I choose the account-credit option for the rental amount shown. No deposit or card hold was collected under this rental; any future security claim stays under the saved-card agreement.":"I choose to cancel for account credit instead of a card refund, including my remaining security payment. Unused card holds will be released."}</label>
     <button disabled={!consent || busy} onClick={async()=>{setBusy(true);setError("");try{await accept({token,offerId:offerId as any,consent:true});}catch(e:any){setError(e.message ?? "Cancellation failed. Contact the team.");}finally{setBusy(false)}}} className="mt-3 rounded-full bg-emerald-300 px-4 py-2 text-xs font-semibold text-black disabled:opacity-30">{busy?"Settling…":"Cancel & accept credit"}</button>
     {error && <p role="alert" className="mt-2 text-xs text-rose-200">{error}</p>}
   </div>;

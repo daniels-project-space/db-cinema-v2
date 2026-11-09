@@ -27,6 +27,8 @@ const helper = load('convex/lib/approvedRefund.ts'), requests = load('convex/ren
 const account = put('accounts', { email: 'changed@rental-test.invalid' });
 const b = put('bookings', { accountId: account._id, status: 'confirmed', guestEmail: 'old@rental-test.invalid',
   stripePaymentIntentId: 'pi_main', stripeDepositIntentId: 'pi_hold', depositHoldStatus: 'held', depositHoldAmount: 100,
+  paidConfirmedAt: Date.now(), verificationProvider: 'didit', idVerifyStatus: 'verified', idVerificationSource: 'didit', idVerifiedAt: Date.now(),
+  verificationChecks: { identity: 'approved', selfie: 'approved', address: 'approved' },
   total: 45, depositAmount: 25, currency: 'GBP', lineItems: [{ listingId: 'camera', title: 'Camera', qty: 1,
     lineTotal: 20, start: Date.UTC(2030, 10, 1), end: Date.UTC(2030, 10, 2) }] });
 const stock = put('reservations', { bookingId: b._id, source: 'site', status: 'confirmed' });

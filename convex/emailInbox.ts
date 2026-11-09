@@ -28,6 +28,30 @@ function assertInboundSecret(secret: string) {
   if (!expected || secret !== expected) throw new Error("unauthorized");
 }
 
+function configuredBusinessSender() {
+  const from = process.env.RESEND_FROM?.trim();
+  if (!from) return null;
+  const email = from.match(/<([^>]+)>/)?.[1]?.trim() ?? from;
+  return /^[^@\s]+@dbcinemarentals\.com$/i.test(email) ? email.toLowerCase() : null;
+}
+
+export function businessEmailReadiness() {
+  if (!process.env.RESEND_API_KEY?.trim() || !configuredBusinessSender()) {
+    return "missing_business_sender" as const;
+  }
+  if (!gafferReplyAddress("a".repeat(24))) return "missing_reply_route" as const;
+  return "ready" as const;
+}
+
+function businessEmailReady() {
+  return businessEmailReadiness() === "ready";
+}
+
+function configuredForwardingAddress() {
+  const address = process.env.INBOUND_REPLY_ADDRESS?.trim().toLowerCase() ?? "";
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address) ? address : null;
+}
+
 function subjectKey(subject: string) {
   return String(subject ?? "")
     .toLowerCase()
@@ -442,6 +466,7 @@ export const sendAssistantReply = action({
   args: { secret: v.string(), threadId: v.id("email_threads"), inboundId: v.id("email_messages"), text: v.string(), humanRequested: v.boolean() },
   handler: async (ctx, args) => {
     assertInboundSecret(args.secret);
+    if (!businessEmailReady()) throw new Error("business email sender is not configured");
     const text = args.text.trim().slice(0, 12_000);
     if (!text) throw new Error("assistant returned an empty reply");
     const claim = await ctx.runMutation(internal.emailInbox.claimAutomaticReply, {
@@ -474,7 +499,7 @@ export const sendAssistantReply = action({
       references,
     });
     if (!delivery.sent) {
-      await ctx.runMutation(internal.emailInbox.markSendFailed, { outboundId, inboundId: args.inboundId, error: "business Gmail SMTP rejected the reply" });
+      await ctx.runMutation(internal.emailInbox.markSendFailed, { outboundId, inboundId: args.inboundId, error: "business email provider rejected the reply" });
       throw new Error("business email reply could not be sent");
     }
     await ctx.runMutation(internal.emailInbox.finishAutomaticReply, {
@@ -495,7 +520,8 @@ export const adminInbox = query({
     if (!checkAdminToken(token)) return { authorized: false as const, items: [] };
     const count = Math.min(100, Math.max(1, Math.floor(limit ?? 100)));
     const rows = await ctx.db.query("email_threads").withIndex("by_updated").order("desc").take(count);
-    return { authorized: true as const, items: rows };
+    const replySetupStatus = businessEmailReadiness();
+    return { authorized: true as const, items: rows, replyConfigured: replySetupStatus === "ready", replySetupStatus, outboundSenderAddress: configuredBusinessSender(), inboundForwardingAddress: configuredForwardingAddress() };
   },
 });
 
@@ -504,10 +530,13 @@ export const adminThread = query({
   handler: async (ctx, { token, threadId }) => {
     if (!checkAdminToken(token)) return { authorized: false as const, thread: null, messages: [] };
     const thread = await ctx.db.get(threadId);
-    const replyConfigured = Boolean(gafferReplyAddress("a".repeat(24)) && (process.env.RESEND_API_KEY || (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD)));
-    if (!thread) return { authorized: true as const, thread: null, messages: [], replyConfigured };
+    const replySetupStatus = businessEmailReadiness();
+    const replyConfigured = replySetupStatus === "ready";
+    const outboundSenderAddress = configuredBusinessSender();
+    const inboundForwardingAddress = configuredForwardingAddress();
+    if (!thread) return { authorized: true as const, thread: null, messages: [], replyConfigured, replySetupStatus, outboundSenderAddress, inboundForwardingAddress };
     const messages = (await threadMessages(ctx, threadId, 40)).reverse();
-    return { authorized: true as const, thread, messages, replyConfigured };
+    return { authorized: true as const, thread, messages, replyConfigured, replySetupStatus, outboundSenderAddress, inboundForwardingAddress };
   },
 });
 
@@ -593,7 +622,7 @@ export const sendOwnerReply = action({
       references,
     });
     if (!delivery.sent) {
-      await ctx.runMutation(internal.emailInbox.markSendFailed, { outboundId: claim.outboundId, error: "business Gmail SMTP rejected the reply" });
+      await ctx.runMutation(internal.emailInbox.markSendFailed, { outboundId: claim.outboundId, error: "business email provider rejected the reply" });
       throw new Error("business email reply could not be sent");
     }
     await ctx.runMutation(internal.emailInbox.finishOwnerReply, { threadId: args.threadId, outboundId: claim.outboundId, text, messageId: delivery.messageId, inReplyTo, references });

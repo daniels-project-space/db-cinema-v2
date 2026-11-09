@@ -281,6 +281,17 @@
 .directoryFooter button:disabled {
   opacity: 0.3;
 }
+.directoryFooter .loadOlderChatMatches {
+  width: auto;
+  height: auto;
+  margin-top: 7px;
+  padding: 6px 9px;
+  border-color: #bd9676;
+  border-radius: 7px;
+  color: #ead0b4;
+  font-size: 10px;
+  line-height: 1.2;
+}
 .profileHeader {
   display: flex;
   gap: 17px;
@@ -1024,8 +1035,8 @@
 .viewFilters { display:flex; padding:3px; border:1px solid #ffffff30; border-radius:10px; white-space:nowrap; }
 .viewFilters button { padding:9px 10px; border-radius:7px; color:#d6d2cc; font-size:12px; }
 .viewFilters button[aria-pressed=true] { border:1px solid #d3a577; background:#a67a5426; color:#fff; }
-.directoryTabs { margin-top:10px; gap:18px; }
-.filters { grid-template-columns:repeat(2,minmax(0,1fr)) auto; gap:8px; align-items:end; margin:18px 0 20px; }
+.directoryTabs { margin-top:8px; gap:18px; }
+.filters { grid-template-columns:repeat(2,minmax(0,1fr)) auto; gap:8px; align-items:end; margin:14px 0; }
 .filters select { height:38px; font-size:13px; }
 .filterLabel { display:block; margin:0 0 6px; color:#ede7de; font-size:13px; }
 .clearFilters { justify-self:end; padding:5px; color:#e0b995; font-size:12px; }
@@ -1083,14 +1094,27 @@
 .accessClose { display:block; padding:5px 8px; border:1px solid #ffffff25; border-radius:6px; background:#222321; color:#d6b695; font-size:12px; }
 .rentalActions { margin-top:14px; min-width:0; }
 .rentalActions > summary { cursor:pointer; padding:10px; border:1px solid #ffffff25; border-radius:6px; color:#ead4bc; }
-.identityWarning { order:-1; flex:0 0 auto; margin:0 12px 14px; padding:12px; border:1px solid #d6a968; border-radius:7px; background:#4b342133; color:#f5d8ad; overflow-wrap:anywhere; }
-.identityWarning p { margin-top:8px; font-size:12px; line-height:1.5; }
+.identityWarning { order:-1; flex:0 0 auto; margin:0 12px 10px; padding:10px; border:1px solid #d6a968; border-radius:9px; background:linear-gradient(140deg,#4b342133,#211c174d); color:#f5d8ad; overflow-wrap:anywhere; }
+.identityWarning p { margin-top:4px; font-size:10.5px; line-height:1.35; }
 @media (min-width:1101px) and (max-width:1350px) {
-  .root { grid-template-columns:minmax(300px,1fr) minmax(360px,1.2fr); }
-  .directory,.conversationPane,.conversationEmpty,.detail { grid-row:auto; }
-  .directory { grid-column:1; grid-row:3/span 2; }
+  .root { grid-template-columns:minmax(280px,.78fr) minmax(375px,1.5fr) minmax(225px,.7fr); gap:10px; }
+  .directory { grid-column:1; grid-row:3; }
   .conversationPane,.conversationEmpty { grid-column:2; grid-row:3; }
-  .detail { grid-column:2; grid-row:4; }
+  .detail { grid-column:3; grid-row:3; max-height:none; }
+  :global([data-management-screen=accounts]) .conversationPane { height:max(500px,calc(100dvh - 148px)); }
+  :global([data-management-screen=accounts]) .directory,:global([data-management-screen=accounts]) .detail { height:max(500px,calc(100dvh - 148px)); max-height:none; }
+  .directory { padding:12px 9px; }
+  .filters { gap:6px; margin:10px 0; }
+  .filters select { height:34px; padding-block:5px; font-size:11px; }
+  .filterLabel { margin-bottom:4px; font-size:11px; }
+  .customerRow { gap:6px; padding:2px 0; }
+  .customerRow .customer { gap:8px; padding:6px; }
+  .customerRow .avatarSmall,.customerRow .initials { width:36px; height:36px; }
+  .customerRow .customer strong { font-size:12px; line-height:1.2; }
+  .customerNameLine { gap:5px; row-gap:2px; }
+  .customerRow .customer .tier,.customerRow .customer .encoreBadge { padding:2px 5px; font-size:9px; }
+  .customerRow .customer .messageMatch,.customerRow .customer .mobileEmail { margin-top:2px; font-size:10px; line-height:1.2; }
+  .customerMeta { margin-top:3px; }
 }
 @media (max-width:1100px) {
   .root { grid-template-columns:minmax(0,1fr); }
@@ -1134,11 +1158,15 @@
 .summary strong { flex:1 1 0; min-width:0; overflow-wrap:anywhere; line-height:1.35; }
 .summary > button:first-child strong { flex:0 1 auto; }
 .summary > button:not(:first-child) > strong { display:inline-flex; align-items:center; justify-content:flex-end; gap:6px; color:#d6c5b2; font-size:11px; font-weight:600; letter-spacing:.015em; }
-.summary > button:not(:first-child) > strong > span { color:#c99770; font-size:13px; transition:transform .18s ease,color .18s ease; }
+.summaryValue { flex:1 1 auto; min-width:0; max-width:200px; overflow:hidden; color:#d6c5b2; font-size:11px; font-weight:600; letter-spacing:.015em; text-overflow:ellipsis; white-space:nowrap; }
+.summaryCaret { color:#c99770; font-size:13px; transition:transform .18s ease,color .18s ease; }
+.visuallyHidden { position:absolute!important; width:1px!important; height:1px!important; padding:0!important; margin:-1px!important; overflow:hidden!important; clip:rect(0,0,0,0)!important; white-space:nowrap!important; border:0!important; }
 .summary > button[aria-expanded="true"] { background:linear-gradient(100deg,#d1a27616,#ffffff03); color:#fff4e7; }
 .summary > button:hover { background:linear-gradient(100deg,#d1a27613,#ffffff04); }
 .summary > button:focus-visible { position:relative; z-index:1; outline:2px solid #e3bd96; outline-offset:-3px; }
-.summary > button[aria-expanded="true"] > strong > span { color:#f0c596; transform:translateY(-1px); }
+.summary > button[aria-expanded="true"] > strong > .summaryCaret { color:#f0c596; transform:translateY(-1px); }
+.summary > button:not(:first-child) .actionStatus { max-width:76px; }
+.accessPanel > [aria-label="Monthly plan"] { margin-top:16px; }
 .summary { border-color:#ffffff22; border-radius:13px; background:linear-gradient(145deg,#252523c9,#171919e8); box-shadow:0 14px 36px #0003,inset 0 1px #ffffff0b; backdrop-filter:blur(18px); }
 .summary > button { min-height:42px; padding:9px 12px; border-bottom-color:#ffffff12; font-size:12px; transition:background .18s ease,color .18s ease; }
 .summary > button > span { gap:8px; }
@@ -1152,7 +1180,7 @@
 .profileTabs button:focus-visible { outline:2px solid #e3bd96; outline-offset:2px; }
 .billingDetails p { max-width:48ch; }
 @media (prefers-reduced-motion: reduce) {
-  .summary > button, .summary > button > strong > span, .profileTabs button { transition:none; }
+  .summary > button, .summaryCaret, .profileTabs button { transition:none; }
   .profileTabs button:hover { transform:none; }
 }
 .actionLabel { min-width:0; overflow-wrap:anywhere; }
@@ -1216,11 +1244,21 @@
 @media (prefers-reduced-motion:reduce) { .profileTabs button.verificationAttention { animation:none; } }
 
 @media (min-width:1351px) {
-  :global([data-management-screen=accounts]) .root { margin-top:0; grid-template-columns:minmax(340px,1fr) minmax(460px,1.36fr) minmax(250px,.62fr); }
+  :global([data-management-screen=accounts]) .root {
+    margin-top:0;
+    grid-template-columns:minmax(390px,1.4fr) minmax(500px,1.4fr) minmax(280px,.8fr);
+    gap:12px;
+  }
   :global([data-management-screen=accounts]) .conversationPane { height:max(500px,calc(100dvh - var(--management-site-header-height) - 48px)); }
   :global([data-management-screen=accounts]) .directory,
   :global([data-management-screen=accounts]) .detail { height:max(500px,calc(100dvh - var(--management-site-header-height) - 48px)); max-height:none; }
   :global([data-management-screen=accounts]) .profileHeader .managementHeading { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+}
+
+@media (min-width:1601px) {
+  :global([data-management-screen=accounts]) .root {
+    grid-template-columns:minmax(390px,2fr) minmax(500px,1.8fr) minmax(300px,1.15fr);
+  }
 }
 
 @media (max-width:600px) {
@@ -1237,12 +1275,67 @@
   }
 }
 
-@media (min-width:1351px) {
-  :global([data-management-screen=accounts]) .root {
-    /* Keep the three-panel reading order, giving the conversation the most room.
-       The directory and action rail stay wide enough for their controls without
-       taking space from the message history and composer. */
-    grid-template-columns:minmax(350px,.92fr) minmax(470px,1.45fr) minmax(265px,.58fr);
-    gap:12px;
+@media (min-width:1101px) and (max-width:1250px) {
+  :global([data-management-screen=accounts]) .directoryToolbar { flex-wrap:wrap; }
+  :global([data-management-screen=accounts]) .directorySearch { flex:0 0 100%; min-width:0; }
+  :global([data-management-screen=accounts]) .viewFilters { flex:0 0 100%; justify-content:space-around; }
+  :global([data-management-screen=accounts]) .viewFilters button { padding:7px; font-size:10px; }
+  :global([data-management-screen=accounts]) .filters { grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
+  :global([data-management-screen=accounts]) .filterLabel { font-size:11px; }
+  :global([data-management-screen=accounts]) .filters select { height:36px; padding:7px; font-size:11px; }
+  :global([data-management-screen=accounts]) .threadTabs {
+    display:grid;
+    width:100%;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:5px;
+    overflow:hidden;
+  }
+  :global([data-management-screen=accounts]) .threadTabs button {
+    width:100%;
+    max-width:none;
+    min-width:0;
+    justify-content:flex-start;
+    gap:5px;
+    padding:6px 7px;
+    font-size:9px;
+  }
+  :global([data-management-screen=accounts]) .threadTabs button span { min-width:0; }
+  :global([data-management-screen=accounts]) .threadTabs button span:last-child:not(:first-child) { flex:0 0 auto; }
+  :global([data-management-screen=accounts]) .summary > button:not(:first-child) { flex-wrap:wrap; gap:5px 8px; }
+  :global([data-management-screen=accounts]) .summary > button:not(:first-child) > span { flex:1 1 100%; }
+  :global([data-management-screen=accounts]) .summary > button:not(:first-child) > strong {
+    display:flex;
+    flex:1 1 100%;
+    flex-wrap:wrap;
+    justify-content:flex-start;
+    gap:5px;
+    padding-left:24px;
+  }
+  :global([data-management-screen=accounts]) .summaryValue { flex:0 0 100%; max-width:none; }
+  :global([data-management-screen=accounts]) .summaryValue { overflow:visible; text-overflow:clip; white-space:normal; }
+  :global([data-management-screen=accounts]) .summary > button:not(:first-child) .actionStatus { max-width:none; }
+}
+
+@media (min-width:1101px) and (max-width:1250px) {
+  :global([data-management-screen=accounts]) .summary > button:not(:first-child) { flex-wrap:wrap; gap:4px 8px; }
+  :global([data-management-screen=accounts]) .summary > button:not(:first-child) > span { flex:1 1 100%; }
+  :global([data-management-screen=accounts]) .summary > button:not(:first-child) > strong {
+    display:flex;
+    flex:1 1 100%;
+    flex-wrap:wrap;
+    justify-content:flex-start;
+    gap:4px;
+    padding-left:24px;
+  }
+  :global([data-management-screen=accounts]) .summaryValue {
+    flex:1 1 100%;
+    max-width:100%;
+    overflow:visible;
+    text-overflow:clip;
+    white-space:normal;
+    font-size:10px;
   }
 }
+.paymentRentalSelect{display:grid;gap:.4rem;margin:.2rem 0 .9rem;color:rgba(239,232,222,.72);font-size:.74rem}
+.paymentRentalSelect select{min-width:0;width:100%;border:1px solid rgba(230,190,140,.2);border-radius:.7rem;background:rgba(255,255,255,.035);padding:.7rem .75rem;color:#f4eee6;font:inherit;line-height:1.35}
+.paymentRentalSelect option{background:#151515;color:#f4eee6}

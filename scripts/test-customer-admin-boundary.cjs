@@ -43,7 +43,7 @@ const ctx = { db };
     filter: "all",
     tier: "all",
     view: "all",
-  }), { items: [], truncated: false });
+  }), { page: [], isDone: true, continueCursor: "" });
   assert.deepEqual(await customerAdmin.directoryMetrics.handler(ctx, {
     token: customerToken,
     accountIds: [account._id],

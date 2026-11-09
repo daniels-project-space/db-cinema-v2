@@ -2,11 +2,11 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { MEMBERSHIP_TERMS_VERSION } from "@/lib/membership";
 import {currentLegalVersion} from "@/lib/currentLegalVersion";
-import {ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,SETUP_INTENT_LEGAL_VERSION} from "@/lib/legal";
+import {ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,IMMEDIATE_CLAIM_LEGAL_VERSION} from "@/lib/legal";
 export const dynamic="force-dynamic";
 export default async function MembershipTerms() {
  const activeLegalVersion=await currentLegalVersion();
- const setupIntentPolicy=activeLegalVersion===SETUP_INTENT_LEGAL_VERSION;
+ const setupIntentPolicy=activeLegalVersion===IMMEDIATE_CLAIM_LEGAL_VERSION;
  const assessment=[ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,"2026-10-v15","2026-10-v16"].includes(activeLegalVersion);
  const sections = [
   ["Your membership", "DB Cinema Rentals offers Starter at £19, Pro at £49 and Studio at £99 per month, billed in GBP. You must be at least 18 and have an account. These are recurring memberships, not a single rental purchase. We are not VAT registered and do not add VAT."],

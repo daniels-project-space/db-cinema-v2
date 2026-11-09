@@ -19,7 +19,7 @@ const l = put('listings', { title: 'Camera', depositAmount: 200, active: true, c
 const l2 = put('listings', { title: 'Lens kit', depositAmount: 200, active: true, components: [{ inventoryUnitId: unit._id, qty: 1 }] });
 const start = Date.UTC(2030,9,1), end = start+86400000;
 const lines = [{listingId:l._id,title:l.title,start,end,qty:1,lineTotal:30},{listingId:l2._id,title:l2.title,start:start+86400000,end:end+86400000,qty:1,lineTotal:20}];
-const b = put('bookings', { guestEmail:a.email,status:'confirmed',lineItems:lines,total:60,subtotal:50,depositAmount:10,stripePaymentIntentId:'pi_fixture' });
+const b = put('bookings', { guestEmail:a.email,status:'confirmed',lineItems:lines,total:60,subtotal:50,depositAmount:10,stripePaymentIntentId:'pi_fixture',paidConfirmedAt:Date.now(),verificationProvider:'didit',idVerifyStatus:'verified',idVerificationSource:'didit',idVerifiedAt:Date.now(),verificationChecks:{identity:'approved',selfie:'approved',address:'approved'} });
 for(const line of lines) put('reservations',{bookingId:b._id,listingId:line.listingId,inventoryUnitId:unit._id,start:line.start,end:line.end,qty:line.qty,source:'site',status:'confirmed'});
 const change = {token:'renter',bookingId:b._id,requestId:'fixture-request-0001',kind:'items',detail:'Please remove the camera from my rental.'};
 (async()=>{

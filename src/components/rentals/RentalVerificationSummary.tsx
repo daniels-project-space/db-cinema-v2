@@ -67,8 +67,12 @@ function DiditReviewCard({
   sessionId?: string;
 }) {
   const refresh = useAction(api.didit.refreshProgress);
+  const review = useAction(api.didit.adminReview);
   const [checking, setChecking] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState("");
+  const [decision, setDecision] = useState<"approve" | "resubmit" | "decline" | null>(null);
+  const [reviewReason, setReviewReason] = useState("");
+  const [decisionMessage, setDecisionMessage] = useState("");
 
   async function refreshDecision() {
     setChecking(true);
@@ -84,6 +88,24 @@ function DiditReviewCard({
       setRefreshMessage("Refresh uncertain · check Didit and the rental.");
     } finally {
       setChecking(false);
+    }
+  }
+
+  async function submitDecision(next: "approve" | "resubmit" | "decline") {
+    if (reviewReason.trim().length < 5) {
+      setDecisionMessage("Add a short reason first.");
+      return;
+    }
+    setDecision(next);
+    setDecisionMessage("");
+    try {
+      await review({ bookingId: bookingId as any, token, decision: next, note: reviewReason.trim() });
+      setReviewReason("");
+      setDecisionMessage(next === "approve" ? "Approved in Didit and synced to this rental." : next === "resubmit" ? "Resubmission requested in Didit and sent to the renter." : "Declined in Didit and synced to this rental.");
+    } catch (error) {
+      setDecisionMessage(error instanceof Error ? error.message : "Decision not confirmed · refresh the case.");
+    } finally {
+      setDecision(null);
     }
   }
 
@@ -111,12 +133,29 @@ function DiditReviewCard({
           <summary className="cursor-pointer text-[#e4c49b]">Session ID</summary>
           <code className="mt-2 block break-all font-mono text-[10px] text-[#f0e2d1]">{sessionId || "Unavailable"}</code>
         </details>
-        <p className="text-[10px] text-[#c6b5a1]">Approve only after Didit confirms.</p>
+        <p className="text-[10px] text-[#c6b5a1]">The choice updates Didit and this rental.</p>
+        <label className="block text-[10px] font-medium text-[#e4c49b]" htmlFor={`didit-review-reason-${bookingId}`}>Decision reason</label>
+        <textarea
+          id={`didit-review-reason-${bookingId}`}
+          value={reviewReason}
+          maxLength={400}
+          rows={2}
+          disabled={decision !== null}
+          onChange={event => setReviewReason(event.target.value)}
+          placeholder="Why are you approving, requesting a resubmission, or declining?"
+          className="min-h-[56px] w-full resize-y rounded-xl border border-white/[.1] bg-black/20 px-3 py-2 text-[11px] leading-4 text-white outline-none placeholder:text-white/35 focus:border-[#e4b77d]/45 disabled:opacity-50"
+        />
+        <div className="grid grid-cols-3 gap-1.5">
+          <button type="button" disabled={decision !== null} onClick={() => void submitDecision("approve")} className="min-h-10 rounded-xl border border-emerald-200/20 bg-emerald-200/[.08] px-2 text-[10px] font-semibold text-emerald-100 transition hover:bg-emerald-200/[.14] disabled:opacity-50">{decision === "approve" ? "Saving…" : "Approve"}</button>
+          <button type="button" disabled={decision !== null} onClick={() => void submitDecision("resubmit")} className="min-h-10 rounded-xl border border-[#e4b77d]/20 bg-[#e4b77d]/[.08] px-2 text-[10px] font-semibold text-[#f0d3ad] transition hover:bg-[#e4b77d]/[.14] disabled:opacity-50">{decision === "resubmit" ? "Saving…" : "Resubmit"}</button>
+          <button type="button" disabled={decision !== null} onClick={() => void submitDecision("decline")} className="min-h-10 rounded-xl border border-rose-200/20 bg-rose-200/[.06] px-2 text-[10px] font-semibold text-rose-100 transition hover:bg-rose-200/[.12] disabled:opacity-50">{decision === "decline" ? "Saving…" : "Decline"}</button>
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <a href="https://business.didit.me" target="_blank" rel="noopener noreferrer" aria-label="Open Didit Business Console" className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#d5a474]/30 bg-white/[.025] px-3 font-semibold text-[#edc89f] transition hover:bg-white/[.06]">Open Didit ↗</a>
           <button type="button" aria-label="Refresh Didit decision" disabled={checking} className="min-h-10 rounded-xl bg-gradient-to-br from-[#e4bb8e] to-[#c89b6d] px-3 font-semibold text-[#21170e] shadow-[0_8px_18px_rgba(200,155,109,.14)] transition hover:brightness-105 disabled:opacity-50" onClick={() => void refreshDecision()}>{checking ? "Checking…" : "Refresh"}</button>
         </div>
         {refreshMessage && <p role="status" className="rounded-xl border border-white/[.08] bg-black/15 px-3 py-2 text-[10px]">{refreshMessage}</p>}
+        {decisionMessage && <p role="status" className="rounded-xl border border-white/[.08] bg-black/15 px-3 py-2 text-[10px]">{decisionMessage}</p>}
       </div>
     </section>
   );
@@ -135,7 +174,7 @@ export function RentalVerificationSummary({ bookingId, token, admin = false }: {
   return (
     <section aria-label="Rental verification progress" className="mt-4 rounded-3xl border border-white/10 bg-gradient-to-br from-white/[.07] via-[#171819]/95 to-amber-950/10 p-4 shadow-[0_18px_48px_rgba(0,0,0,.22)] backdrop-blur-2xl">
       <p className="mb-3 text-[11px] font-semibold uppercase tracking-[.14em] text-accent-200">{rentalStageLabel(booking)}</p>
-      <VerificationBar booking={booking} />
+      <VerificationBar booking={booking} compact={admin} />
       <VerificationChecks checks={booking.verificationChecks} verificationStatus={booking.idVerifyStatus} />
       {needsDiditReview && <DiditReviewCard bookingId={bookingId} token={token} reason={owner.verificationNote} sessionId={owner.diditSessionId} />}
       {booking.verificationUpdatedAt && <p className="mt-2 text-[10px] text-white/40">Updated {new Date(booking.verificationUpdatedAt).toLocaleString("en-GB", { timeZone: "Europe/London" })} · London</p>}

@@ -7,12 +7,17 @@ const bookings = load('convex/bookings.ts');
   const tasks = [];
   const ctx = { db, scheduler: { runAfter: async (_delay, ref, args) => tasks.push({ ref, args }) } };
   const missing=put('bookings',{verificationProvider:'didit',status:'confirmed',diditSessionId:'missing-contact-session'});
+  const pendingMissing=put('bookings',{verificationProvider:'didit',status:'pending_verification',diditSessionId:'pending-missing-contact-session'});
   for (let index = 0; index < 240; index++) put('bookings', {
     verificationProvider: 'didit', status: 'confirmed', guestEmail: 'test@example.invalid',
   });
   const eligible = Array.from({ length: 125 }, (_, index) => put('bookings', {
     verificationProvider: 'didit', status: index % 2 ? 'active' : 'confirmed',
     guestEmail: 'test@example.invalid', diditSessionId: `session-${index}`, diditReconciledAt: 125 - index,
+  }));
+  const pendingVerification = Array.from({ length: 2 }, (_, index) => put('bookings', {
+    verificationProvider: 'didit', status: 'pending_verification',
+    guestEmail: 'test@example.invalid', diditSessionId: `pending-session-${index}`, diditReconciledAt: 0,
   }));
   await sweep.start.handler(ctx, {});
   await sweep.start.handler(ctx, {});
@@ -27,14 +32,15 @@ const bookings = load('convex/bookings.ts');
   assert.ok(pages >= 5, 'each status stream is scanned in bounded pages');
   assert.equal(tasks.length, 1);
   assert.ok((tables.get('admin_notifications')??[]).some(row=>row.bookingId===missing._id&&row.kind==='verification_failure'),'a bound session with no email produces a durable repair alert');
+  assert.ok((tables.get('admin_notifications')??[]).some(row=>row.bookingId===pendingMissing._id&&row.kind==='verification_failure'),'a paid pending-verification session with no email also produces a durable repair alert');
   assert.equal(tasks[0].ref, 'didit.reconcileOpenSessions');
   const generation = tasks.shift().args.generation;
   await sweep.configurationFailure.handler(ctx, { generation });
   assert.ok((tables.get('admin_notifications') ?? []).some(row => row.title === 'Verification configuration needs attention' && !row.accountId), 'configuration incidents are stored without requiring an account');
   const batch = await sweep.batch.handler(ctx, { generation });
   assert.equal(batch.length, 50, 'provider reads stay capped at 50 per sweep');
-  assert.deepEqual(batch.map(row => row.bookingId), eligible.slice(75).reverse().map(row => row._id),
-    'the globally oldest eligible sessions win even after many ineligible rows and across both statuses');
+  assert.deepEqual(batch.map(row => row.bookingId), [...pendingVerification.map(row => row._id), ...eligible.slice(77).reverse().map(row => row._id)],
+    'paid pending-verification sessions and the globally oldest confirmed/active sessions are reconciled first');
   eligible[124].diditReconciledAt++;
   eligible[123].status = 'returned';
   assert.equal((await sweep.batch.handler(ctx, { generation })).length, 48, 'changed candidates are revalidated before provider calls');
@@ -47,6 +53,7 @@ const bookings = load('convex/bookings.ts');
   await sweep.finish.handler(ctx, { generation });
   assert.equal((await sweep.batch.handler(ctx, { generation })).length, 0);
   missing.guestEmail='repaired@example.invalid';
+  pendingMissing.guestEmail='repaired@example.invalid';
 
   const realNow = Date.now;
   let now = realNow();
@@ -55,6 +62,10 @@ const bookings = load('convex/bookings.ts');
     await sweep.start.handler(ctx, {});
     const stale = tasks.shift().args;
     await sweep.page.handler(ctx, stale);
+    while(tasks[0]?.ref==='diditSweep.missingEmail'){
+      const notice=tasks.shift();
+      await sweep.missingEmail.handler(ctx,notice.args);
+    }
     const abandoned = tasks.shift();
     now += 10 * 60000 + 1;
     await sweep.start.handler(ctx, {});

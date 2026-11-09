@@ -15,6 +15,8 @@ import { faqsForSecurityPolicy } from "../shared/gafferPublicKnowledge";
 import { quote } from "./lib/pricing";
 import { rentalPricingDays } from "../shared/rentalDuration";
 
+import { parseRentalExtensionIntent } from "../shared/rentalExtensionConversation";
+
 function currentFaqFacts(hours: string) {
   const faqs = faqsForSecurityPolicy({
     setupIntentSecurityEnabled: process.env.SETUP_INTENT_SECURITY_POLICY_ENABLED === "true",
@@ -60,24 +62,49 @@ export const gafferReply = internalAction({
       await ctx.runMutation(internal.chat._postBot, { accountId, bookingId, generation: cx.gafferGeneration, replyTo: messageId ?? cx.latestRenterId ?? undefined, text: "I'll connect you with the team here.", handoff: true });
       return;
     }
-    const extensionIntent = !!latestRenter && /\b(?:extend(?:ed|ing|s)?|extension|extra\s+(?:day|days|time)|more\s+(?:time|days)|keep\b.{0,35}\b(?:longer|until|through)|return\b.{0,25}\b(?:later|another\s+day))\b/i.test(latestRenter.text);
-    if (extensionIntent && bookingId && cx.booking && ["confirmed", "active"].includes(cx.booking.stage) && Array.isArray(cx.booking.items) && cx.booking.items.length > 0 && !cx.booking.pendingExtension && !cx.booking.changeLocked) {
-      const items = (cx.booking.items ?? []).map((item: any) => ({
-        index: item.index,
-        title: item.title,
-        qty: item.qty,
-        end: item.end,
-        returnTime: item.returnTime,
-        imageSources: Array.isArray(item.imageSources) ? item.imageSources.slice(0, 4) : [],
-      }));
+    const extensionIntent = latestRenter ? parseRentalExtensionIntent(latestRenter.text) : { requested: false, extraDays: null };
+    if (extensionIntent.requested && bookingId && cx.booking && ["confirmed", "active"].includes(cx.booking.stage) && Array.isArray(cx.booking.items) && cx.booking.items.length > 0) {
+      const replyTo = messageId ?? cx.latestRenterId ?? undefined;
+      if (cx.booking.pendingExtension) {
+        await ctx.runMutation(internal.chat._postBot, {
+          accountId, bookingId, generation: cx.gafferGeneration, replyTo,
+          text: "Your extension request is already with the team. The original return times still apply until approval and any required payment are complete.",
+          answerComplete: true,
+        });
+        return;
+      }
+      if (cx.booking.changeLocked) {
+        await ctx.runMutation(internal.chat._postBot, {
+          accountId, bookingId, generation: cx.gafferGeneration, replyTo,
+          text: "Another rental change is in progress. Finish that request first; I haven’t changed your dates.",
+          answerComplete: true,
+        });
+        return;
+      }
+      let offer: any = null;
+      try {
+        offer = await ctx.runQuery((internal as any).rentalExtensions.gafferPreview, {
+          accountId, bookingId, ...(extensionIntent.extraDays !== null ? { extraDays: extensionIntent.extraDays } : {}),
+        });
+      } catch {}
+      if (!offer) {
+        await ctx.runMutation(internal.chat._postBot, {
+          accountId, bookingId, generation: cx.gafferGeneration, replyTo,
+          text: "I couldn’t check live availability just now. Your current return times still apply and nothing has changed.",
+          answerComplete: true,
+        });
+        return;
+      }
+      const text = offer.quoteStatus === "duration_required"
+        ? "How many extra days would you like? I’ve shown your actual rental items and original return deadlines below. Nothing changes until the team approves your request."
+        : offer.quoteStatus === "partial"
+          ? "I checked live availability for the extra days shown. The quote covers only the available items; anything marked unavailable must be returned by its original deadline. Alternatives are suggestions. Your dates change only after team approval and any required payment."
+          : offer.quoteStatus === "available"
+            ? "I checked live availability for the extra days shown. The quote includes your active member pricing. Use the normal request control if you want to proceed; your dates change only after team approval and any required payment."
+            : "I couldn’t confirm an extension for these dates. Unavailable items remain due at their original deadlines. Any alternatives shown are suggestions only; your rental changes only after team approval and any required payment.";
       await ctx.runMutation(internal.chat._postBot, {
-        accountId,
-        bookingId,
-        generation: cx.gafferGeneration,
-        replyTo: messageId ?? cx.latestRenterId ?? undefined,
-        text: "Check extra time below. Anything unavailable stays due at its original time; your booking changes only after team approval and successful payment.",
-        meta: { extensionOffer: { items } },
-        answerComplete: true,
+        accountId, bookingId, generation: cx.gafferGeneration, replyTo,
+        text, meta: { extensionOffer: offer }, answerComplete: true,
       });
       return;
     }
@@ -94,7 +121,7 @@ export const gafferReply = internalAction({
 
     const recovery = bookingId && latestRenter ? paymentRecovery(latestRenter.text, cx.booking) ?? verificationRecovery(latestRenter.text, cx.booking?.verification) ?? bookingRecovery(latestRenter.text, cx.booking) : null;
     if (recovery) {
-      await ctx.runMutation(internal.chat._postBot, { accountId, bookingId, generation: cx.gafferGeneration, replyTo: messageId ?? cx.latestRenterId ?? undefined, text: recovery, ...(/would you like[^?]*\bteam\b/i.test(recovery) ? { offerHuman: true } : {}) });
+      await ctx.runMutation(internal.chat._postBot, { accountId, bookingId, generation: cx.gafferGeneration, replyTo: messageId ?? cx.latestRenterId ?? undefined, text: recovery });
       return;
     }
 
@@ -189,10 +216,10 @@ export const gafferReply = internalAction({
       `A securityAmountOnBooking is an amount recorded on the booking, not proof that money was charged or held. A saved-card limit is not a hold or a payment. Do not infer payment, a hold or a bank refund from booking status.`,
       b?.payment?`CUSTOMER SETTLEMENT FACTS: ${JSON.stringify({items:b.items,payment:b.payment,cancellation:b.cancellation,pendingItemAddition:b.pendingItemAddition,pendingExtension:b.pendingExtension})}. These facts do not promise that a bank refund has arrived. Changes, additions, rescheduling and refunds require the team; never say you applied them.`:"",
       `CANCELLATION CREDIT OPTION: When the customer asks to cancel a legacy booking with cancellation.fullRefundDays other than 7, set offerCredit=true if they may want its existing full-value credit offer. For v16/seven-day bookings set offerCredit=false and use their recorded cancellation schedule or the operator email choice. The server separately checks eligibility using cancellation.fullRefundDays from the rental context (the selected booking retains its signed window; v16 uses credit for seven or fewer London calendar days, and earlier versions retain their recorded window), quotes the remaining paid value and displays a consent button. Never claim a quote, refund, credit or cancellation has happened in your reply. The offer includes the remaining paid security payment, replaces a card refund, expires in one year, and releases unused holds. The customer must explicitly accept the displayed offer. Keep handoff=true for cancellation requests so the team can assist with cash refunds or ineligible offers. Otherwise set offerCredit=false.`,
-      `CURRENT CUSTOMER UI: Each rental has its own chat, item basket and request-extension controls. A team-request button appears in chat only when you offer team help. When the team is notified, Get back to Gaffer resumes assistance without deleting history. An operator reviews replacements, date/price changes and refunds before applying them; never claim that you applied one. DB10OFF gives signed-in accounts 10% off their first order only, cannot combine with other discounts, and is checked by checkout. Explain existing refund/payment status without requesting a human unless action is requested.`,
-      `TROUBLESHOOTING: First address the customer's actual question or complaint using the recorded rental facts and any verification refresh result. Explain the recorded status and give a specific safe next step, or ask one useful question if the cause is unclear. Never call a rental confirmed while its verification is outstanding. A pending payment is not proof that payment failed: if the customer sees a bank charge, do not ask them to pay again. An expected security amount is not a paid deposit. Do not treat frustration, a complaint, or an ordinary technical problem alone as a request to transfer the chat. Offer the team-request control if more help is wanted, without saying the team has been contacted unless handoff=true. You cannot repair an external provider, change booking details, issue money, or guarantee a result.`,
+      `CURRENT CUSTOMER UI: Each rental has its own chat, item basket and request-extension controls. Handle the renter's question yourself first. Do not proactively offer a human choice; an explicit human request is handed off immediately, and the system asks whether the renter wants the team after 10 minutes with no reply to a resolved answer. When the team is notified, Gaffer resumes after four hours without a human reply. An operator reviews replacements, date/price changes and refunds before applying them; never claim that you applied one. DB10OFF gives signed-in accounts 10% off their first order only, cannot combine with other discounts, and is checked by checkout. Explain existing refund/payment status without requesting a human unless action is requested.`,
+      `TROUBLESHOOTING: First address the customer's actual question or complaint using the recorded rental facts and any verification refresh result. Explain the recorded status and give a specific safe next step, or ask one useful question if the cause is unclear. Never call a rental confirmed while its verification is outstanding. A pending payment is not proof that payment failed: if the customer sees a bank charge, do not ask them to pay again. An expected security amount is not a paid deposit. Do not treat frustration, a complaint, or an ordinary technical problem alone as a request to transfer the chat. Do not proactively show the team-request control; the server offers it after an answered issue has been quiet for ten minutes, or handles an explicit request to speak with a person. You cannot repair an external provider, change booking details, issue money, or guarantee a result.`,
       `STYLE: friendly, concise (under ~80 words), practical. Set handoff=true for an explicit request to speak to a person, a safety or safeguarding concern, damage, or an actual request to execute a refund/cancellation/dispute; briefly say you're connecting them with the team. Continue to hand off cancellation requests as instructed above. For other questions, including complaints, set handoff=false and help first.`,
-      `Set resolved=true only when the customer's question has been fully answered or their issue actually resolved, without further action, a clarifying answer, provider intervention or team help. An attempted troubleshooting step is not proof of resolution. Otherwise set resolved=false. Set offerHuman=true only when your reply explicitly asks whether they want help from the team; never set it when handoff=true.`,
+      `Set resolved=true only when the customer's question has been fully answered or their issue actually resolved, without further action, a clarifying answer, provider intervention or team help. An attempted troubleshooting step is not proof of resolution. Otherwise set resolved=false.`,
     ].join("\n");
 
     const convo = cx.messages
@@ -203,11 +230,10 @@ export const gafferReply = internalAction({
     let handoff = false;
     let offerCredit = false;
     let resolved = false;
-    let offerHuman = false;
     try {
       const out = await generateObject({
         model,
-        schema: z.object({ reply: z.string(), handoff: z.boolean(), offerCredit: z.boolean(), resolved: z.boolean(), offerHuman: z.boolean() }),
+        schema: z.object({ reply: z.string(), handoff: z.boolean(), offerCredit: z.boolean(), resolved: z.boolean() }),
         system,
         prompt: `Conversation so far:\n${convo}\n\nWrite Gaffer's next reply.`,
       });
@@ -215,15 +241,14 @@ export const gafferReply = internalAction({
       handoff = !!out.object.handoff;
       offerCredit = !!out.object.offerCredit;
       resolved = out.object.resolved === true;
-      offerHuman = out.object.offerHuman === true;
     } catch {
       await fallback();return;
     }
     if (!reply){await fallback();return;}
 
     const substantiveReply = reply.replace(/[^?]{0,90}\b(?:anything else|anything more|further help|more help)\b[^?]{0,90}\?/gi, "");
-    const answered = resolved && !handoff && !offerHuman && !offerCredit && !substantiveReply.includes("?") && !/\b(?:can't|cannot|couldn't|unable|not sure|don't know)\b/i.test(reply);
-    const posted=await ctx.runMutation(internal.chat._postBot, { accountId, bookingId, generation:cx.gafferGeneration,replyTo:messageId??cx.latestRenterId??undefined, text: reply, ...(catalogueItems.length ? { meta: { catalogueItems } } : {}), ...(handoff ? { handoff: true } : offerHuman && /\b(?:team|human|person|staff|representative|someone|agent|operator)\b/i.test(reply) ? { offerHuman: true } : {}), ...(answered ? { answerComplete: true } : {}) });
+    const answered = resolved && !handoff && !offerCredit && !substantiveReply.includes("?") && !/\b(?:can't|cannot|couldn't|unable|not sure|don't know)\b/i.test(reply);
+    const posted=await ctx.runMutation(internal.chat._postBot, { accountId, bookingId, generation:cx.gafferGeneration,replyTo:messageId??cx.latestRenterId??undefined, text: reply, ...(catalogueItems.length ? { meta: { catalogueItems } } : {}), ...(handoff ? { handoff: true } : {}), ...(answered ? { answerComplete: true } : {}) });
     if(!posted)return;
     if (offerCredit && bookingId) {
       try { await ctx.runAction(internal.checkout.offerFullCredit, { accountId, bookingId }); } catch {

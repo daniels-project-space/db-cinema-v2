@@ -5,11 +5,12 @@ const { expireRentalVerifications } = load('convex/bookings.ts');
 (async () => {
   const now = Date.now();
   const expired = Array.from({ length: 125 }, () => put('bookings', {
-    status: 'confirmed', idVerifyStatus: 'verified', verificationExpiresAt: now - 1,
+    status: 'pending_verification', idVerifyStatus: 'verified', verificationExpiresAt: now - 1,
   }));
   const current = put('bookings', {
-    status: 'confirmed', idVerifyStatus: 'verified', verificationExpiresAt: now + 60000,
+    status: 'pending_verification', idVerifyStatus: 'verified', verificationExpiresAt: now + 60000,
   });
+  const confirmedRental = put('bookings', { status: 'confirmed', idVerifyStatus: 'verified', verificationExpiresAt: now - 1 });
   const returned = put('bookings', {
     status: 'returned', idVerifyStatus: 'verified', verificationExpiresAt: now - 1,
   });
@@ -24,6 +25,7 @@ const { expireRentalVerifications } = load('convex/bookings.ts');
   while (continuations.length) await expireRentalVerifications.handler(ctx, continuations.shift());
   assert.equal(expired.filter(row => row.idVerifyStatus === 'requires_input').length, 125);
   assert.equal(current.idVerifyStatus, 'verified');
+  assert.equal(confirmedRental.idVerifyStatus, 'verified', 'Account reuse expiry never invalidates an already-confirmed booking');
   assert.equal(returned.idVerifyStatus, 'verified');
   const revisions = expired.map(row => row.rmv2Revision);
   await expireRentalVerifications.handler(ctx, {});

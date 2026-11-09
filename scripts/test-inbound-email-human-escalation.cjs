@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const path = require("node:path");
 const { load } = require("./lib/rentalTestHarness.cjs");
-const { isHumanHandoffRequested } = load("src/lib/inboundEmail.ts");
+const { isHumanHandoffRequested, isGmailForwardingConfirmation } = load("src/lib/inboundEmail.ts");
 
 const cases = [
   [true, "Can someone call me?", ""],
@@ -30,20 +30,25 @@ const cases = [
 for (const [expected, subject, body] of cases) {
   assert.equal(isHumanHandoffRequested(subject, body), expected, `${subject} ${body}`.trim());
 }
+assert.equal(isGmailForwardingConfirmation("forwarding-noreply@google.com", "Gmail Forwarding Confirmation - Receive Mail from you@example.com"), true);
+assert.equal(isGmailForwardingConfirmation("someone@google.com", "Gmail Forwarding Confirmation"), false, "Only Google's forwarding sender is treated as a setup challenge");
+assert.equal(isGmailForwardingConfirmation("forwarding-noreply@google.com", "A different Gmail message"), false);
 const inboundRoute = readFileSync(path.join(__dirname, "../src/app/api/email/inbound/route.ts"), "utf8");
 const emailInbox = readFileSync(path.join(__dirname, "../convex/emailInbox.ts"), "utf8");
 const emailMailer = readFileSync(path.join(__dirname, "../convex/emailMailer.ts"), "utf8");
 assert.match(inboundRoute, /claim\.state === "busy"[\s\S]{0,240}status: 503/);
 assert.match(inboundRoute, /!delivered\?\.ok[\s\S]{0,240}status: 503/);
 assert.doesNotMatch(inboundRoute, /status: 202/);
+assert.match(inboundRoute, /if \(message\.noAutoReply\)[\s\S]{0,120}requiresAdminAction/);
+assert.match(inboundRoute, /if \(!forwardingConfirmation && \(\(automated/);
 assert.match(inboundRoute, /api\.emailInbox\.resolveReplyKey/);
 assert.match(inboundRoute, /api\.followUp\.resolveInbound/);
 assert.match(inboundRoute, /priorMessage:[\s\S]{0,180}gaffer-follow-up/);
 const automaticReply = emailInbox.split("export const sendAssistantReply = action({")[1]?.split("export const sendOwnerReply = action({")[0] ?? "";
 assert.match(automaticReply, /gafferReplyAddress\(thread\.replyKey\)/);
 assert.match(automaticReply, /args\.humanRequested && thread\.email !== OWNER_EMAIL[\s\S]{0,80}cc: \[OWNER_EMAIL\]/, "only human handoffs CC the owner on Gaffer's customer reply");
-assert.match(emailMailer, /sendMail, supportEmailFrom/);
-assert.match(emailMailer, /sendMail\(\{[\s\S]{0,120}from: supportEmailFrom\(\)/, "Gaffer email uses the shared booking mail transport and support sender");
+assert.match(emailMailer, /sendBusinessMail/);
+assert.match(emailMailer, /sendBusinessMail\(\{[\s\S]{0,120}to: args\.to/, "Gaffer email replies use the business Gmail transport");
 assert.doesNotMatch(automaticReply, /replyTo:\s*OWNER_EMAIL/);
 assert.match(inboundRoute, /assistant\.humanRequested\s*===\s*true/);
 assert.match(inboundRoute, /api\.emailInbox\.markHumanRequested/);

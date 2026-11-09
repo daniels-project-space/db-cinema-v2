@@ -8,7 +8,7 @@ const account=put('accounts',{email:'review@test.invalid',name:'Reviewer',avatar
 put('sessions',{token:'owner',accountId:account._id,expiresAt:Date.now()+100000});
 put('sessions',{token:'expired',accountId:account._id,expiresAt:Date.now()-1});
 const foreign=put('accounts',{email:'other@test.invalid'});put('sessions',{token:'foreign',accountId:foreign._id,expiresAt:Date.now()+100000});
-const booking=put('bookings',{status:'returned',guestEmail:account.email,total:120,depositAmount:20,depositRefundAmount:20,depositRefunded:true,stripePaymentIntentId:'pi_card',stripeDepositIntentId:'pi_hold',depositHoldAmount:40,depositHoldStatus:'released',lineItems:[{title:'Camera',listingId:'gear',start:0,end:0}]});
+const booking=put('bookings',{status:'returned',guestEmail:account.email,total:120,depositAmount:20,depositRefundAmount:20,depositRefunded:true,stripePaymentIntentId:'pi_card',stripeDepositIntentId:'pi_hold',depositHoldAmount:40,depositHoldStatus:'released',reviewFollowUpDueAt:Date.now()-1,lineItems:[{title:'Camera',listingId:'gear',start:0,end:0}]});
 const ctx={db,storage:{getUrl:async id=>'https://storage.test/'+id},runQuery:async(ref,args)=>invitations.ownedContext.handler(ctx,args),runMutation:async(ref,args)=>invitations.recordEligibility.handler(ctx,args)};
 const args={token:'owner',bookingId:booking._id,rating:5,text:'Excellent camera rental and helpful team.'};
 const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process.env.STRIPE_SECRET_KEY='fixture';process.env.ADMIN_TOKEN='review-admin-test';

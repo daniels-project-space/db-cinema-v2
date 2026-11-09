@@ -22,9 +22,14 @@ export const claim = internalMutation({ args: { bookingId: v.id("bookings"), rev
   await ctx.db.patch(b._id, { rmv2SyncLeaseUntil: leaseUntil, rmv2SyncDueAt: leaseUntil, rmv2SyncLeaseGeneration: generation });
   return { generation };
 } });
-export const record = internalMutation({ args: { bookingId: v.id("bookings"), revision: v.number(), generation: v.number(), ok: v.boolean(), reason: v.optional(v.string()), stockAcknowledgement:v.optional(v.union(v.object({swapId:v.id("rental_item_swaps"),managerRequestId:v.string(),fingerprint:v.string(),executionKey:v.string(),bookingRevision:v.number()}),v.object({kind:v.literal("booking_confirmation"),managerRequestId:v.string(),fingerprint:v.string(),executionKey:v.string(),bookingRevision:v.number()}))) }, handler: async (ctx, args) => {
+export const record = internalMutation({ args: { bookingId: v.id("bookings"), revision: v.number(), generation: v.number(), ok: v.boolean(), reason: v.optional(v.string()), deferred: v.optional(v.boolean()), stockAcknowledgement:v.optional(v.union(v.object({swapId:v.id("rental_item_swaps"),managerRequestId:v.string(),fingerprint:v.string(),executionKey:v.string(),bookingRevision:v.number()}),v.object({kind:v.literal("booking_confirmation"),managerRequestId:v.string(),fingerprint:v.string(),executionKey:v.string(),bookingRevision:v.number()}))) }, handler: async (ctx, args) => {
   const booking = await ctx.db.get(args.bookingId);
   if (!booking || (booking.rmv2Revision ?? 0) !== args.revision || booking.rmv2DeliveredRevision === args.revision || booking.rmv2SyncStatus !== "pending" || booking.rmv2SyncLeaseGeneration !== args.generation || typeof booking.rmv2SyncLeaseUntil !== "number") return;
+  if(args.deferred){
+    if(!args.ok||args.stockAcknowledgement)throw Error("A deferred stock update cannot acknowledge a receipt.");
+    await ctx.db.patch(booking._id,{rmv2SyncStatus:"pending",rmv2SyncDueAt:Date.now()+15*60_000,rmv2SyncError:args.reason?.slice(0,100)??"stock_claim_pending",rmv2SyncLeaseUntil:undefined});
+    return;
+  }
   if (args.ok) {
     if(args.stockAcknowledgement){
       const ack=args.stockAcknowledgement;
@@ -69,6 +74,17 @@ export const record = internalMutation({ args: { bookingId: v.id("bookings"), re
   }
   const attempts = (booking.rmv2SyncAttempts ?? 0) + 1;
   await ctx.db.patch(booking._id, { rmv2SyncAttempts: attempts, rmv2SyncStatus: attempts >= 12 ? "attention" : "pending", rmv2SyncDueAt: Date.now() + Math.min(3600000, 30000 * 2 ** Math.min(attempts, 7)), rmv2SyncError: args.reason?.slice(0, 100) ?? "delivery_failed", rmv2SyncLeaseUntil: undefined });
+  if (args.reason === "paid_pending_stock_capacity_conflict" && booking.status === "pending_verification" && typeof booking.checkoutPaidAt === "number") {
+    const account = await accountForRental(ctx, booking);
+    await queueOwnerNotification(ctx, {
+      eventKey: `paid-stock-capacity-conflict:${booking._id}:${args.revision}`,
+      kind: "checkout_failure",
+      ...(account ? { accountId: account._id } : {}),
+      bookingId: booking._id,
+      title: "Paid rental needs stock review",
+      body: "Checkout completed, but Rental Manager rejected the paid stock claim. The booking remains unconfirmed. Check both inventories and resolve the renter’s payment before handover.",
+    });
+  }
   if(attempts===1){
     const swapReceipt=await ctx.db.query("swap_stock_applied_receipts").withIndex("by_booking_delivery",q=>q.eq("bookingId",booking._id).eq("deliveryState","pending")).first();
     const initialClaim=await ctx.db.query("booking_stock_claims").withIndex("by_booking",q=>q.eq("bookingId",booking._id)).unique();

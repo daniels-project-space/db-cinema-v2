@@ -25,11 +25,21 @@ async function identityAdminWrite(ctx: MutationCtx, token: string, fn: string): 
 const retentionMs = 90 * 86400000;
 const maxAttempts = 5;
 
+async function resolveCheckFailureNotification(ctx: any, job: any) {
+  const eventKey = `restricted-identity-check-failed:${job._id}:${job.generation}`;
+  const notification = await ctx.db.query("admin_notifications").withIndex("by_event", (q: any) => q.eq("eventKey", eventKey)).first();
+  if (notification && notification.bookingId === job.bookingId && notification.kind === "identity_match" &&
+      notification.title === "Identity check needs attention" && !notification.read)
+    await ctx.db.patch(notification._id, { read: true });
+}
+
 export async function queueRestrictedIdentityCheck(ctx: any, bookingId: any, sessionId: string, eventId: string, preserveUnavailable = false) {
   const existing = await ctx.db.query("restricted_identity_alert_jobs").withIndex("by_booking", (q: any) => q.eq("bookingId", bookingId)).unique();
-  if (existing?.sessionId === sessionId && existing.eventId === eventId) return;
   if (preserveUnavailable && existing?.sessionId === sessionId && ["pending", "attention"].includes(existing.state)) return;
+  const sameAttempt = existing?.sessionId === sessionId && existing.eventId === eventId;
+  if (sameAttempt && (existing.state === "complete" || existing.state === "pending" && existing.attempts === 0)) return;
   const now = Date.now();
+  if (existing) await resolveCheckFailureNotification(ctx, existing);
   const data = { bookingId, sessionId, eventId, state: "pending" as const, generation: (existing?.generation ?? 0) + 1, attempts: 0, dueAt: now, updatedAt: now, expiresAt: now + retentionMs };
   if (existing) await ctx.db.patch(existing._id, data);
   else await ctx.db.insert("restricted_identity_alert_jobs", { ...data, createdAt: now });
@@ -78,14 +88,24 @@ export const processOne = internalMutation({ args: { id: v.id("restricted_identi
   if (booking?.idVerifyStatus === "verified" && booking.idVerificationSource === "didit" && booking.diditSessionId === job.sessionId &&
       !["identity", "selfie", "address"].every(key => booking.verificationChecks?.[key as "identity" | "selfie" | "address"] === "approved"))
     throw Error("Verified identity checks are inconsistent; review the provider decision");
-  if (booking?.idVerifyStatus === "verified" && ["The verified person could not be linked to the rental identity record.", "Didit approved the identity, but cross-account identity matching is unavailable."].includes(booking.identityRiskNotice ?? "")) throw Error("Verified identity signal unavailable");
+  if (booking?.idVerifyStatus === "verified" && booking.identityRiskNotice === "The verified person could not be linked to the rental identity record.") throw Error("Verified identity signal unavailable");
+  // A warning on the exact Didit event being scanned means that approval did
+  // not provide an identity signal. Older queued/recheck jobs may see a stale
+  // warning after a later bound approval supplied the trusted key, so compare
+  // the provider event before deciding to fail closed.
+  if (booking?.idVerifyStatus === "verified" && booking.idVerificationSource === "didit" && booking.diditSessionId === job.sessionId &&
+      booking.diditEventId === job.eventId && booking.identityRiskNotice === "Didit approved the identity, but cross-account identity matching is unavailable.")
+    throw Error("Verified identity signal unavailable");
   if (booking?.idVerifyStatus === "verified" && ["didit","reused_didit"].includes(booking.idVerificationSource ?? "") && !booking.renterPersonKey) throw Error("Verified identity signal unavailable");
   if (!booking || !await approvedRestrictedIdentitySource(ctx,booking,job.sessionId)) {
     const now = Date.now(); await ctx.db.patch(job._id, { state: "complete", updatedAt: now, expiresAt: now + retentionMs });
     return;
   }
   const personKey=booking.renterPersonKey;if (!personKey || !/^[a-f0-9]{64}$/.test(personKey)) throw Error("Verified identity signal unavailable");
+  if (booking.identityRiskNotice === "Didit approved the identity, but cross-account identity matching is unavailable.")
+    await ctx.db.patch(booking._id, { identityRiskNotice: undefined });
   await notifyRestrictedIdentityMatch(ctx, booking, personKey);
+  await resolveCheckFailureNotification(ctx, job);
   const now = Date.now(); await ctx.db.patch(job._id, { state: "complete", updatedAt: now, expiresAt: now + retentionMs });
 } });
 
@@ -140,5 +160,6 @@ export const retry = mutation({ args: { token: v.string(), id: v.id("restricted_
   await identityAdminWrite(ctx, args.token, "restrictedIdentityAlerts.retry");
   const job = await ctx.db.get(args.id);
   if (!job || job.state !== "attention") throw Error("This identity check does not need retrying.");
+  await resolveCheckFailureNotification(ctx, job);
   await ctx.db.patch(job._id, { state: "pending", generation: job.generation + 1, attempts: 0, dueAt: Date.now(), updatedAt: Date.now() });
 } });

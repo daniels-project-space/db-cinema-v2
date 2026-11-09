@@ -21,6 +21,7 @@ import { AttachmentAdminControls } from "./AttachmentAdminControls";
 import { RentalSwapApproval } from "./RentalSwapApproval";
 import { createCleanChatImage } from "@/lib/chatImageCopy";
 import { HumanHandoffOffer } from "./HumanHandoffOffer";
+import { GafferExtensionOfferCard } from "./GafferExtensionOfferCard";
 
 export function RentalConversation({
   token,
@@ -51,7 +52,7 @@ export function RentalConversation({
   escalated?: boolean;
   tools?: React.ReactNode;
   openRevision?: number;
-  bookingSummary?: { items?: { title: string; qty: number; heroImage?: string | null; imageSources?: string[] }[]; dates: string; count: number };
+  bookingSummary?: { items?: { index?: number; title: string; qty: number; heroImage?: string | null; imageSources?: string[] }[]; dates: string; count: number };
   handoverDetails?: { phone: string; pickupAddress?: string | null; returnAddress?: string | null; pickupInstructions?: string | null; fulfilment: "pickup" | "delivery" };
   workspaceIdentity?: { name?: string | null; phone?: string | null; photo?: string | null; privatePortrait?: React.ReactNode; membershipLabel?: string | null; encoreLabel?: string | null; verified?: boolean };
   renterWorkspace?: boolean;
@@ -342,11 +343,14 @@ export function RentalConversation({
     const receive = (event: Event) => {
       const status = (event as CustomEvent).detail;
       if (status === "active" || status === "inactive" || status === "unknown") setNotificationDeviceStatus(status);
+      if (status === "active" && invitationAccount) {
+        setNotificationInvitation(current => current ? { ...current, visible: false } : current);
+      }
     };
     window.addEventListener("dbc:renter-notification-status", receive);
     window.dispatchEvent(new Event("dbc:request-renter-notification-status"));
     return () => window.removeEventListener("dbc:renter-notification-status", receive);
-  }, [admin, token]);
+  }, [admin, token, invitationAccount]);
   const [notificationInvitation, setNotificationInvitation] = useState<{ id: string; visible: boolean } | null>(null);
   useEffect(() => {
     if (!invitationId || !invitationAccount || notificationDeviceStatus !== "inactive") { setNotificationInvitation(null); return; }
@@ -359,9 +363,12 @@ export function RentalConversation({
   }, [notificationInvitation]);
   function dismissNotificationInvitation(openSettings: boolean) {
     if (!invitationId || !invitationAccount) return;
+    if (openSettings) {
+      window.dispatchEvent(new Event("dbc:open-renter-notifications"));
+      return;
+    }
     try { localStorage.setItem("dbc_chat_notification_offer:" + invitationAccount, "dismissed"); } catch {}
     setNotificationInvitation({ id: invitationId, visible: false });
-    if (openSettings) window.dispatchEvent(new Event("dbc:open-renter-notifications"));
   }
   function openGafferGearHelp() {
     const rental = bookingId
@@ -372,7 +379,8 @@ export function RentalConversation({
   }
   const teamHandling = thread?.escalated ?? escalated;
   const latestConversationMessage = [...messages].reverse().find(message => message.sender === "renter" || message.sender === "bot" || message.sender === "owner");
-  const hasExtensionOffer = !admin && latestConversationMessage?.sender === "bot" && Array.isArray(latestConversationMessage.meta?.extensionOffer?.items) && latestConversationMessage.meta.extensionOffer.items.length > 0;
+  const latestExtensionOffer = latestConversationMessage?.meta?.extensionOffer;
+  const hasExtensionOffer = !admin && latestConversationMessage?.sender === "bot" && !!latestExtensionOffer && [latestExtensionOffer.items, latestExtensionOffer.availableItems, latestExtensionOffer.unavailableItems].some((items: any) => Array.isArray(items) && items.length > 0);
   const workspacePresentation = !!workspaceIdentity || (!admin && renterWorkspace);
   const replyState = thread && "replyState" in thread ? thread.replyState : null;
   return (
@@ -535,16 +543,7 @@ export function RentalConversation({
                     </article>)}
                     <p className="sm:col-span-2 text-[10px] leading-relaxed text-white/35">Availability is a live check, not a reservation. Hire-rate estimates exclude delivery and checkout adjustments.</p>
                   </div>}
-                  {m.sender === "bot" && Array.isArray(m.meta?.extensionOffer?.items) && m.meta.extensionOffer.items.length > 0 && <section data-testid="gaffer-extension-card" aria-label="Extension options for your rental" className="mt-3 overflow-hidden rounded-2xl border border-sky-200/15 bg-gradient-to-br from-sky-200/[0.09] via-white/[0.035] to-transparent p-3 shadow-[inset_0_1px_0_#ffffff0b] backdrop-blur-xl">
-                    <div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-medium uppercase tracking-[0.16em] text-sky-100/55">Your rental · extension</p><h4 className="mt-1 text-sm font-semibold text-white/90">Check extra time</h4></div><span className="rounded-full border border-sky-200/15 bg-sky-200/[0.07] px-2 py-1 text-[10px] text-sky-100/75">Live stock check</span></div>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">{m.meta.extensionOffer.items.slice(0, 4).map((item: any) => <div key={`${m._id}-extension-${item.index}`} className="flex min-w-0 items-center gap-2 rounded-xl border border-white/[0.07] bg-black/15 p-2">
-                      <SmartImage src={item.imageSources?.[0]} fallbackSources={item.imageSources?.slice(1)} alt={item.title} className="h-11 w-11 shrink-0 rounded-lg" />
-                      <div className="min-w-0"><p className="truncate text-xs text-white/80">{item.qty}× {rentalTitle(item.title)}</p><p className="mt-0.5 text-[10px] text-white/40">Original return {new Date(item.end).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}{item.returnTime ? ` · ${item.returnTime}` : ""}</p></div>
-                    </div>)}</div>
-                    {m.meta.extensionOffer.items.length > 4 && <p className="mt-2 text-[10px] text-white/40">+{m.meta.extensionOffer.items.length - 4} more items in this rental</p>}
-                    <p className="mt-3 text-[11px] leading-relaxed text-white/55">Choose days and items for a live total. Anything not selected stays due at its original time.</p>
-                    {!admin && <button type="button" data-testid="gaffer-extension-open" onClick={() => window.dispatchEvent(new Event("dbc:open-rental-extension"))} className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl border border-sky-100/20 bg-sky-100/[0.12] px-3.5 text-xs font-medium text-sky-50 transition hover:bg-sky-100/[0.18] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-100/60">Check availability & total</button>}
-                  </section>}
+                  {m.sender === "bot" && m.meta?.extensionOffer && [m.meta.extensionOffer.items, m.meta.extensionOffer.availableItems, m.meta.extensionOffer.unavailableItems].some((items: any) => Array.isArray(items) && items.length > 0) && <GafferExtensionOfferCard offer={m.meta.extensionOffer} bookingItems={bookingSummary?.items?.map((item,index)=>({...item,index:item.index??index}))} legacy={!m.meta.extensionOffer.quoteStatus && !m.meta.extensionOffer.availableIndexes && !m.meta.extensionOffer.unavailableItems} interactive={!admin} />}
                   {!admin && !teamHandling && m.sender === "bot" && m._id === latestConversationMessage?._id && m.meta?.offerHuman === true && <HumanHandoffOffer key={`${scopeKey}:${m._id}`} onRequest={async () => { await human({ token, bookingId: bookingId as any, offerMessageId: m._id as any }); }} />}
                   {m.meta?.kind === "attachment" && m.meta.attachmentId && <button type="button" disabled={attachmentBusy} onClick={() => void downloadAttachment(m.meta.attachmentId, m.meta.name || "attachment")} className="mt-3 rounded-full border border-current/20 px-3 py-1 text-xs disabled:opacity-40">Download attachment</button>}
                   {admin && m.meta?.kind === "attachment" && m.meta.attachmentId && <AttachmentAdminControls key={m.meta.attachmentId} token={token} id={m.meta.attachmentId}/>}
@@ -568,7 +567,7 @@ export function RentalConversation({
               </div>
               {!admin && notificationDeviceStatus === "inactive" && notificationInvitation?.id === String(m._id) && notificationInvitation.visible && <div className={styles.notificationCard} aria-label="Chat notifications">
                 <span className={styles.notificationIcon} aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M18 8a6 6 0 0 0-12 0v5l-2 3v1h16v-1l-2-3V8ZM9 20h6"/><path d="M18.5 3v3m-1.5-1.5h3"/></svg></span>
-                <div className={styles.notificationCopy}><strong>Stay in the loop</strong><p>Get chat and booking updates. On iPhone or iPad, add DB Cinema to your Home Screen first.</p><div><button type="button" onClick={() => dismissNotificationInvitation(true)}>Turn on notifications</button><button type="button" onClick={() => dismissNotificationInvitation(false)}>Not now</button></div></div>
+                <div className={styles.notificationCopy}><strong>Stay in the loop</strong><p>Get chat and booking updates. On iPhone or iPad, add DB Cinema to your Home Screen first.</p><div><button type="button" onClick={() => dismissNotificationInvitation(true)}>Set up notifications</button><button type="button" onClick={() => dismissNotificationInvitation(false)}>Not now</button></div></div>
               </div>}
               </Fragment>
             );
