@@ -4,8 +4,9 @@ import { checkAdminToken } from "./adminAuth";
 import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
 import { accountVerificationReady } from "./lib/accountVerificationReady";
 import { archiveRetention, documentCopyAvailable } from "./verificationArchive";
+import { CURRENT_PRIVACY_NOTICE_VERSION } from "../shared/legalVersioning";
 
-const NOTICE_VERSION = "2026-11-06";
+const NOTICE_VERSION = CURRENT_PRIVACY_NOTICE_VERSION;
 
 async function portraitAdminRead(ctx: any, token: string): Promise<boolean> {
   if (process.env.ADMIN_SESSION_VERIFICATION_V2 !== "enabled") return checkAdminToken(token);

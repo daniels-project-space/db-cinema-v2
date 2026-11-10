@@ -1,6 +1,6 @@
 import { ASSESSMENT_SECURITY_POLICY_VERSION, depositForBookingPolicy, hasCashDepositPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit, SETUP_INTENT_SECURITY_POLICY_VERSION, IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION, isImmediateClaimSecurityPolicy } from "./rentalSecurity";
 import { readAgreementSnapshot } from "./rentalAgreement";
-import { ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS, IMMEDIATE_CLAIM_LEGAL_VERSION } from "../src/lib/legal";
+import { ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS, IMMEDIATE_CLAIM_LEGAL_VERSIONS } from "../src/lib/legal";
 
 export const SECURITY_COLLECTION_NOTICE_HOURS = 7 * 24;
 export const SECURITY_COLLECTION_DAYS = 30;
@@ -65,7 +65,7 @@ export function assertSavedCardConsent(b:any) {
     if(typeof limit!=="number"||![50,100,200].includes(limit))return fail();
     const consent=isImmediateClaimSecurityPolicy(b.securityPolicyVersion)?immediateClaimConsentText(limit):setupIntentConsentText(limit);
     if(snapshot.particulars.savedCardConsent!==consent||b.savedCardLimit!==limit||b.savedCardConsentText!==consent)return fail();
-    if(isImmediateClaimSecurityPolicy(b.securityPolicyVersion)?snapshot.version!==IMMEDIATE_CLAIM_LEGAL_VERSION:!SETUP_INTENT_LEGAL_VERSIONS.includes(snapshot.version))return fail();
+    if(isImmediateClaimSecurityPolicy(b.securityPolicyVersion)?!IMMEDIATE_CLAIM_LEGAL_VERSIONS.includes(snapshot.version as typeof IMMEDIATE_CLAIM_LEGAL_VERSIONS[number]):!SETUP_INTENT_LEGAL_VERSIONS.includes(snapshot.version))return fail();
     return limit;
   }
   const fail=()=>{throw Error("The retained saved-card payment consent is missing or inconsistent. No charge is permitted.")};

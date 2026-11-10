@@ -23,6 +23,7 @@ import { assertCreditOffer, creditOfferFingerprint } from "./lib/rentalCreditPol
 import { cancellationPaymentPlan,rentalRefundPlan,securityReturnPlan } from "./lib/rentalPaymentPlan";
 import { lateFeeQuote } from "./lib/lateFee";
 import { assertCurrentAgreement, agreementRequestFingerprint } from "../shared/rentalAgreement";
+import { RENTAL_DRAFT_RELEASE_READY } from "../shared/legalDocuments";
 import { sendMail } from "./lib/mailer";
 import { assertDiditCheckoutCapacity } from "./lib/diditCapacity";
 import { ensureCheckoutCustomer } from "./lib/stripeCustomer";
@@ -31,9 +32,11 @@ import { checkoutLineAllocation } from "../shared/checkoutLineAllocation";
 import { cancellationSettlement } from "../src/lib/cancellationPolicy";
 import { MEMBERSHIP_BASKET_MINIMUM } from "../shared/checkoutMembershipCredit";
 import { calculateRentalPrice } from "./lib/rentalPrice";
+import { expireUnpaidCheckoutSession } from "./lib/checkoutSessionRecovery";
 import { paidRecurringMembership } from "./lib/membershipBilling";
 import { resolveMembershipInvoiceSnapshot, type MembershipPriceSnapshot } from "./lib/membershipInvoiceSnapshot";
 import { MEMBERSHIP_TERMS_VERSION,membershipActiveNow,membershipTierFor } from "../shared/membership";
+import { legalVersionForPolicy, CURRENT_PRIVACY_NOTICE_VERSION } from "../shared/legalVersioning";
 
 const pence = (gbp: number) => Math.round(gbp * 100);
 const subActive = (status: string) => status === "active" || status === "trialing";
@@ -92,6 +95,13 @@ function stripe() {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error("STRIPE_SECRET_KEY not set on the Convex deployment");
   return new Stripe(key);
+}
+
+/** The seven-day free trial is a standalone membership offer, never a rental-basket discount.
+ * A previously reserved membership checkout is allowed to finish its original accepted terms. */
+export function assertRentalBasketTrialAllowed(intro: string | undefined, existingReservation: boolean) {
+  if (intro === "trial" && !existingReservation)
+    throw new Error("The free membership trial can only be started from the Memberships page, not added to a rental basket.");
 }
 
 /** Preview the same authoritative calculation used when creating the Stripe session. */
@@ -191,7 +201,7 @@ export const start = action({
         pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),
       }),
     ),
-    selectedMembership: v.optional(v.object({tier:v.string(),intro:v.union(v.literal("trial"),v.literal("credit"),v.literal("none")),termsVersion:v.string(),requestId:v.string()})),
+    selectedMembership: v.optional(v.object({tier:v.string(),intro:v.union(v.literal("trial"),v.literal("credit"),v.literal("none")),termsVersion:v.string(),requestId:v.string(),accountTermsPrivacyAcknowledged:v.optional(v.boolean()),accountTermsVersion:v.optional(v.string()),privacyNoticeVersion:v.optional(v.string())})),
     useAccountCredit:v.optional(v.boolean()),
     token: v.optional(v.string()), // session token — required to apply MEMBER perks (anti-spoof)
     customer: v.object({
@@ -216,17 +226,20 @@ export const start = action({
         requestId: v.optional(v.string()),
         securityHoldConsent: v.boolean(),
         laterChargeConsent: v.boolean(),
+        deliveryAccepted: v.optional(v.boolean()),
         documents: v.array(v.object({ kind: v.string(), version: v.string() })),
       }),
     ),
   },
-  handler: async (ctx, a): Promise<{ url: string }> => {
+  handler: async (ctx, a): Promise<{ url: string } | { bookingId: string; alreadyPaid: true; sessionId: string }> => {
     if (a.items.length === 0) throw new Error("empty cart");
     if (a.items.some((item) => item.qty !== 1 || !Number.isSafeInteger(item.start) ||
         !Number.isSafeInteger(item.end) || item.end < item.start))
       throw new Error("Each rental line must be one item with valid dates. Please refresh your basket.");
     if (process.env.RENTAL_CHECKOUT_ENABLED !== "true")
       throw new ConvexError({code:"CHECKOUT_PAUSED",message:"Checkout is temporarily paused while we improve the booking experience. Your basket is saved; please check back soon."});
+    if (!RENTAL_DRAFT_RELEASE_READY)
+      throw new ConvexError({code:"RENTAL_AGREEMENT_REVIEW",message:"Online rental booking is temporarily paused while we complete the rental agreement and handover checks. Your basket is saved; please try again soon."});
     if (process.env.BUSINESS_VAT_REGISTERED === "true")
       throw new Error("Rental receipt tax configuration needs updating before checkout can continue.");
     if (!process.env.DIDIT_API_KEY || !process.env.DIDIT_WORKFLOW_ID || !process.env.DIDIT_WEBHOOK_SECRET ||
@@ -257,13 +270,42 @@ export const start = action({
     const checkoutInputFingerprint=createHash("sha256").update(agreementRequestFingerprint({...a,token:undefined})).digest("hex");
     const priorAttempt=await ctx.runQuery(internal.bookings.checkoutAttempt,{requestId:a.agreement.requestId,checkoutInputFingerprint});
     if(priorAttempt?.sessionId){
-      await ctx.runQuery(internal.bookings.assertCheckoutReservation,{bookingId:priorAttempt.bookingId});
-      const session=await stripe().checkout.sessions.retrieve(priorAttempt.sessionId);
+      const sb=stripe(),session=await sb.checkout.sessions.retrieve(priorAttempt.sessionId);
       if(session.id!==priorAttempt.sessionId||session.metadata?.bookingId!==String(priorAttempt.bookingId))throw Error("This payment session does not match the saved booking. Contact us before retrying.");
-      if(session.status!=="open"||!session.url)throw Error("This checkout has completed or expired. Use the existing booking or contact us.");
-      return {url:session.url};
+      // A completed payment retains the terms accepted when that session was
+      // created. Reconcile it as-is; never change or retroactively collect its
+      // security amount because the renter reopened checkout later.
+      if(checkoutCompleted(session)){
+        await confirmPaidBookingWithLiveStock(ctx,priorAttempt.bookingId,session);
+        return {bookingId:String(priorAttempt.bookingId),alreadyPaid:true,sessionId:session.id};
+      }
+      if(session.status==="complete"&&session.payment_status==="unpaid")
+        throw new ConvexError({code:"CHECKOUT_PAYMENT_PENDING",message:"Stripe is still resolving this payment. Keep this booking open and do not pay again.",freshAcceptanceRequired:false});
+      if(session.status==="expired"&&session.payment_status==="unpaid"){
+        const closed=await ctx.runMutation(internal.bookings.expireUnpaidPending,{bookingId:priorAttempt.bookingId,sessionId:session.id});
+        if(!closed)throw new ConvexError({code:"CHECKOUT_RECONCILIATION_REQUIRED",message:"This checkout is still being reconciled. Please do not pay again.",freshAcceptanceRequired:false});
+        throw new ConvexError({code:"CHECKOUT_CLOSED",message:"This checkout expired. Review and accept the current rental terms again to continue.",freshAcceptanceRequired:true});
+      }
+      if(session.status!=="open"||session.payment_status!=="unpaid")
+        throw new ConvexError({code:"CHECKOUT_RECONCILIATION_REQUIRED",message:"This checkout is still being reconciled. Please do not pay again.",freshAcceptanceRequired:false});
+      if(!priorAttempt.fingerprintMatches){
+        const expired=await expireUnpaidCheckout(ctx,sb,priorAttempt.bookingId,session);
+        if(expired.paidSession){
+          await confirmPaidBookingWithLiveStock(ctx,priorAttempt.bookingId,expired.paidSession);
+          return {bookingId:String(priorAttempt.bookingId),alreadyPaid:true,sessionId:expired.paidSession.id};
+        }
+        if(!expired.expired)throw new ConvexError({code:"CHECKOUT_RECONCILIATION_REQUIRED",message:"The saved checkout changed while we were checking it. Please do not pay again while we reconcile it.",freshAcceptanceRequired:false});
+        throw new ConvexError({code:"CHECKOUT_TERMS_CHANGED",message:"Your rental details changed. Review the updated quote and accept the terms again before paying.",freshAcceptanceRequired:true});
+      }
+      // New non-membership quotes continue through fresh server pricing and
+      // eligibility checks below before an unpaid URL can be reused.
+      if(priorAttempt.membershipCheckoutId){
+        await ctx.runQuery(internal.bookings.assertCheckoutReservation,{bookingId:priorAttempt.bookingId});
+        if(!session.url)throw Error("Stripe did not return a checkout URL");
+        return {url:session.url};
+      }
     }
-    if(priorAttempt&&!priorAttempt.membershipCheckoutId)throw Error("This checkout is still pending reconciliation. Do not submit a second acceptance or payment.");
+    if(priorAttempt&&!priorAttempt.sessionId&&!priorAttempt.membershipCheckoutId)throw Error("This checkout is still pending reconciliation. Do not submit a second acceptance or payment.");
 
     await assertDiditCheckoutCapacity(
       process.env.DIDIT_API_KEY!,
@@ -272,8 +314,10 @@ export const start = action({
       process.env.DIDIT_MAX_WORKFLOW_PRICE_USD,
     );
 
+    let existingMembershipCheckout:any=null;
     if (a.selectedMembership && /^[A-Za-z0-9_-]{32,100}$/.test(a.selectedMembership.requestId)) {
       const existing: any = await ctx.runQuery(internal.membershipBenefits.byRequest,{requestId:a.selectedMembership.requestId,email:a.customer.email});
+      existingMembershipCheckout=existing;
       if(priorAttempt&&existing&&(String(existing._id)!==String(priorAttempt.membershipCheckoutId)||String(existing.bookingId)!==String(priorAttempt.bookingId)))throw Error("This membership checkout does not match the saved booking. Contact us before retrying.");
       if(priorAttempt&&existing&&!["creating","open"].includes(existing.state))throw Error("This membership checkout has completed or closed. Contact us before retrying.");
       if (existing?.sessionId) {
@@ -294,6 +338,9 @@ export const start = action({
         return {url:session.url};
       }
     }
+
+    if (a.selectedMembership)
+      assertRentalBasketTrialAllowed(a.selectedMembership.intro, !!existingMembershipCheckout);
 
     assertCurrentAgreement({...a.agreement,cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true",securityPolicyVersion:checkoutSecurityPolicyVersion}, a.fulfilment);
 
@@ -325,7 +372,15 @@ export const start = action({
     let membershipCheckout: any = null;
     if (a.selectedMembership) {
       if (a.selectedMembership.termsVersion !== MEMBERSHIP_TERMS_VERSION || !/^[A-Za-z0-9_-]{32,100}$/.test(a.selectedMembership.requestId)) throw Error("Accept the membership terms and refresh your checkout.");
-      if (!acct) acct = await ctx.runMutation(internal.membershipBenefits.bootstrapCheckoutAccount, {email:price.customerEmail,name:a.customer.name!,seedHash:createHash("sha256").update(a.selectedMembership.requestId).digest("hex")});
+      if (!acct) {
+        const accountTermsVersion = legalVersionForPolicy(cfg);
+        if (a.selectedMembership.accountTermsPrivacyAcknowledged !== true || a.selectedMembership.accountTermsVersion !== accountTermsVersion || a.selectedMembership.privacyNoticeVersion !== CURRENT_PRIVACY_NOTICE_VERSION)
+          throw new Error("Agree to the current account Terms and acknowledge the Privacy Notice before creating your account.");
+        acct = await ctx.runMutation(internal.membershipBenefits.bootstrapCheckoutAccount, {
+          email:price.customerEmail,name:a.customer.name!,seedHash:createHash("sha256").update(a.selectedMembership.requestId).digest("hex"),
+          termsAndPrivacyAcknowledged:true,accountTermsVersion,privacyNoticeVersion:CURRENT_PRIVACY_NOTICE_VERSION,
+        });
+      }
       membershipCheckout = await ctx.runMutation(internal.membershipBenefits.reserveCheckout, {accountId:acct._id,tier:a.selectedMembership.tier,intro:a.selectedMembership.intro,requestId:a.selectedMembership.requestId,termsVersion:a.selectedMembership.termsVersion});
       if (membershipCheckout.sessionId) {
         const existing = await stripe().checkout.sessions.retrieve(membershipCheckout.sessionId);
@@ -352,7 +407,7 @@ export const start = action({
     // Reserved transactionally inside createPending (double-spend-safe): it caps to the account's
     // available balance minus credit already reserved by its other pending checkouts, and returns
     // the amount actually applied, which drives the Stripe discount below.
-    const { bookingId, creditApplied, reused, sessionId: existingSessionId } = await ctx.runMutation(internal.bookings.createPending, {
+    const { bookingId, creditApplied, reused, staleCheckout, sessionId: existingSessionId } = await ctx.runMutation(internal.bookings.createPending, {
       pricingVersion:price.pricingVersion,benefitKind:price.benefitKind,useAccountCredit:a.useAccountCredit,
       refundCreditApplied:price.refundCreditApplied,earnedCreditApplied:price.earnedCreditApplied,
       referralCode:price.referralCode,referralRewardId:price.referralRewardId,
@@ -383,6 +438,7 @@ export const start = action({
       discount: totalReduction,
       total,
       expectedTotalDue: price.totalDue,
+      expectedCheckoutAmountPence:Math.round(price.combinedTotalDue*100),
       membershipCreditApplied: price.membershipCreditApplied,
       membershipSignupOfferSaving: price.membershipSignupOfferSaving,
       weekendSaving: price.weekendSaving,
@@ -402,6 +458,7 @@ export const start = action({
       checkoutInputFingerprint,
       securityHoldConsent: a.agreement?.securityHoldConsent,
       laterChargeConsent: a.agreement?.laterChargeConsent,
+      deliveryAccepted: a.agreement?.deliveryAccepted,
       agreementDocs: a.agreement?.documents,
       protection,
       idVerifyStatus,
@@ -412,7 +469,24 @@ export const start = action({
     if (reused) {
       if (!existingSessionId) throw Error("This checkout is still pending reconciliation. Do not submit a second acceptance or payment.");
       const existingSession = await sb.checkout.sessions.retrieve(existingSessionId);
-      if (existingSession.status !== "open" || !existingSession.url) throw Error("This checkout has completed or expired. Use the existing booking or contact us.");
+      if(existingSession.id!==existingSessionId||existingSession.metadata?.bookingId!==String(bookingId))throw Error("This payment session does not match the saved booking. Contact us before retrying.");
+      if(checkoutCompleted(existingSession)){
+        await confirmPaidBookingWithLiveStock(ctx,bookingId,existingSession);
+        return {bookingId:String(bookingId),alreadyPaid:true,sessionId:existingSession.id};
+      }
+      if(existingSession.status==="complete"&&existingSession.payment_status==="unpaid")
+        throw new ConvexError({code:"CHECKOUT_PAYMENT_PENDING",message:"Stripe is still resolving this payment. Keep this booking open and do not pay again.",freshAcceptanceRequired:false});
+      if(staleCheckout||existingSession.status==="expired"&&existingSession.payment_status==="unpaid"){
+        const expired=await expireUnpaidCheckout(ctx,sb,bookingId,existingSession);
+        if(expired.paidSession){
+          await confirmPaidBookingWithLiveStock(ctx,bookingId,expired.paidSession);
+          return {bookingId:String(bookingId),alreadyPaid:true,sessionId:expired.paidSession.id};
+        }
+        if(!expired.expired)throw new ConvexError({code:"CHECKOUT_RECONCILIATION_REQUIRED",message:"This checkout is still being reconciled. Please do not pay again.",freshAcceptanceRequired:false});
+        throw new ConvexError({code:"CHECKOUT_TERMS_CHANGED",message:"Your rental details or eligibility changed. Review the updated quote and accept the terms again before paying.",freshAcceptanceRequired:true});
+      }
+      if(existingSession.status !== "open" || existingSession.payment_status!=="unpaid" || !existingSession.url)
+        throw new ConvexError({code:"CHECKOUT_RECONCILIATION_REQUIRED",message:"This checkout is still being reconciled. Please do not pay again.",freshAcceptanceRequired:false});
       return {url:existingSession.url};
     }
 
@@ -530,13 +604,22 @@ function checkoutCompleted(session: Stripe.Checkout.Session) {
   return session.payment_status === "paid" || (session.status === "complete" && session.payment_status === "no_payment_required");
 }
 
+async function expireUnpaidCheckout(ctx:any,sb:Stripe,bookingId:any,session:Stripe.Checkout.Session){
+  const result=await expireUnpaidCheckoutSession({
+    session,
+    expireStripe:(sessionId)=>sb.checkout.sessions.expire(sessionId),
+    retrieveStripe:(sessionId)=>sb.checkout.sessions.retrieve(sessionId),
+    expireBooking:(sessionId)=>ctx.runMutation(internal.bookings.expireUnpaidPending,{bookingId,sessionId}),
+  });
+  return {paidSession:result.state==="paid"?result.session:null,expired:result.bookingExpired};
+}
+
 async function confirmPaidBookingWithLiveStock(ctx: any, bookingId: any, session: Stripe.Checkout.Session) {
   if (!checkoutCompleted(session) || session.metadata?.bookingId !== String(bookingId))
     throw Error("Paid checkout does not match this booking.");
-  const paymentIntentId = await checkoutPaymentIntent(session);
-  if (session.payment_status === "paid" && !paymentIntentId)
-    throw Error("The paid checkout has no identifiable payment. Review it before confirming the rental.");
-  const receipt = await ctx.runMutation(internal.bookings.recordPaidCheckoutReceipt, { bookingId, sessionId: session.id, paymentIntentId });
+  const providerReceipt=await verifiedCheckoutReceipt(stripe(),session);
+  const paymentIntentId=providerReceipt.paymentIntentId;
+  const receipt = await ctx.runMutation(internal.bookings.recordPaidCheckoutReceipt, { bookingId, sessionId: session.id, ...providerReceipt });
   if (receipt.closed) return receipt;
   if (receipt.awaitingVerification) {
     // A successful Didit checkout must reach Rental Manager before the payer
@@ -583,14 +666,33 @@ async function confirmPaidBookingWithLiveStock(ctx: any, bookingId: any, session
   });
 }
 /** New Stripe versions expose invoice payments separately from the Checkout Session. */
-export async function checkoutPaymentIntent(session: Stripe.Checkout.Session): Promise<string | undefined> {
+export async function checkoutPaymentIntent(session: Stripe.Checkout.Session, sb:Stripe=stripe()): Promise<string | undefined> {
   if (session.payment_intent) return typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent.id;
   const invoiceId = typeof session.invoice === "string" ? session.invoice : session.invoice?.id;
   if (!invoiceId) return;
-  const payments = await stripe().invoicePayments.list({ invoice: invoiceId, status: "paid", limit: 100 });
+  const payments = await sb.invoicePayments.list({ invoice: invoiceId, status: "paid", limit: 100 });
   const intents = payments.data.filter(p => p.payment.type === "payment_intent" && p.payment.payment_intent).map(p => typeof p.payment.payment_intent === "string" ? p.payment.payment_intent : p.payment.payment_intent!.id);
   if (intents.length > 1) throw Error("This invoice has multiple payments and needs financial reconciliation before rental confirmation.");
   return intents[0];
+}
+
+/** Verify the Checkout Session against its underlying Stripe payment before
+ * persisting a receipt. Checkout's paid flag alone is not a sufficient record
+ * for later clean-rental eligibility. */
+export async function verifiedCheckoutReceipt(sb:Stripe,session:Stripe.Checkout.Session){
+  if(!checkoutCompleted(session)||!session.id||!Number.isSafeInteger(session.amount_total)||session.amount_total!<0||
+    typeof session.currency!=="string"||!/^[a-z]{3}$/i.test(session.currency))
+    throw Error("Stripe did not return a complete checkout amount and currency. Review the payment before confirming the rental.");
+  const paymentIntentId=await checkoutPaymentIntent(session,sb);
+  if(session.payment_status==="paid"){
+    if(!paymentIntentId)throw Error("The paid checkout has no identifiable payment. Review it before confirming the rental.");
+    const payment=await sb.paymentIntents.retrieve(paymentIntentId);
+    if(payment.status!=="succeeded"||payment.amount_received!==session.amount_total||payment.currency.toLowerCase()!==session.currency.toLowerCase())
+      throw Error("The Stripe payment amount or currency does not match the checkout. Review the payment before confirming the rental.");
+  }else if(session.payment_status==="no_payment_required"&&(session.amount_total!==0||paymentIntentId)){
+    throw Error("Stripe marked a charged checkout as unpaid. Review the payment before confirming the rental.");
+  }
+  return {paymentIntentId,amountTotalPence:session.amount_total!,currency:session.currency!,paymentStatus:session.payment_status as "paid"|"no_payment_required"};
 }
 
 /** Payment, setup, paid subscription and trial subscription all save a reusable card. */
@@ -1079,20 +1181,23 @@ export const adminRefreshMembership = action({
 });
 
 export const adminInspectMembershipInvoice = action({
-  args:{token:v.string(),accountId:v.id("accounts"),selection:v.optional(v.union(v.literal("latest"),v.literal("paid"))),inspectTier:v.optional(v.boolean())},
-  handler:async(ctx,args):Promise<{invoice:null|{id:string;status:string|null;amountPaidPence:number;currency:string;createdAt:number};receipt:null|{creditPence:number;bonusPence:number;revokedPence:number;paidMembershipPence:number;createdAt:number};tierCheck?:{state:string;tier?:string;earnedCreditPence?:number;reason?:string}} >=>{
+  args:{token:v.string(),accountId:v.id("accounts"),invoiceId:v.optional(v.string()),selection:v.optional(v.union(v.literal("latest"),v.literal("paid"))),inspectTier:v.optional(v.boolean())},
+  handler:async(ctx,args):Promise<{invoice:null|{id:string;status:string|null;amountPaidPence:number;currency:string;createdAt:number;billingReason:string|null};receipt:null|{creditPence:number;bonusPence:number;revokedPence:number;paidMembershipPence:number;createdAt:number;hasHistoricalPrice:boolean};tierCheck?:{state:string;tier?:string;earnedCreditPence?:number;reason?:string}} >=>{
     const target:{customerId:string;subscriptionId:string}=await ctx.runMutation(internal.accountAdmin.billingPortalTarget,{token:args.token,accountId:args.accountId});
     const client=stripe(),sub=await client.subscriptions.retrieve(target.subscriptionId);
     const customerId=typeof sub.customer==="string"?sub.customer:sub.customer?.id;
     if(sub.id!==target.subscriptionId||customerId!==target.customerId)throw Error("The Stripe subscription does not match this account.");
     let invoiceId:string|undefined;
-    if(args.selection==="paid"){
+    if(args.invoiceId){
+      if(!/^in_[A-Za-z0-9]+$/.test(args.invoiceId))throw Error("Invalid membership invoice reference.");
+      invoiceId=args.invoiceId;
+    }else if(args.selection==="paid"){
       const recent=await client.invoices.list({subscription:target.subscriptionId,status:"paid",limit:100});
       invoiceId=recent.data.find(item=>item.status==="paid"&&Number.isSafeInteger(item.amount_paid)&&item.amount_paid>0)?.id;
       if(!invoiceId&&recent.has_more)throw Error("More invoice history needs review in Stripe before a paid invoice can be identified.");
     }else invoiceId=typeof sub.latest_invoice==="string"?sub.latest_invoice:sub.latest_invoice?.id;
-    let invoice:null|{id:string;status:string|null;amountPaidPence:number;currency:string;createdAt:number}=null;
-    let receipt:null|{creditPence:number;bonusPence:number;revokedPence:number;paidMembershipPence:number;createdAt:number}=null;
+    let invoice:null|{id:string;status:string|null;amountPaidPence:number;currency:string;createdAt:number;billingReason:string|null}=null;
+    let receipt:null|{creditPence:number;bonusPence:number;revokedPence:number;paidMembershipPence:number;createdAt:number;hasHistoricalPrice:boolean}=null;
     let tierCheck:{state:string;tier?:string;earnedCreditPence?:number;reason?:string}|undefined;
     if(invoiceId){
       const current=await client.invoices.retrieve(invoiceId);
@@ -1101,8 +1206,9 @@ export const adminInspectMembershipInvoice = action({
       const invoiceSubscription=typeof parent==="string"?parent:parent?.id;
       if(current.id!==invoiceId||invoiceCustomer!==target.customerId||invoiceSubscription!==target.subscriptionId||current.currency!=="gbp"||!Number.isSafeInteger(current.amount_paid)||current.amount_paid<0||!Number.isSafeInteger(current.created))throw Error("The Stripe invoice does not match this subscription. Review it in Stripe.");
       if(args.selection==="paid"&&(current.status!=="paid"||current.amount_paid<=0))throw Error("The selected paid invoice changed. Check again.");
-      invoice={id:current.id,status:current.status,amountPaidPence:current.amount_paid,currency:current.currency,createdAt:current.created*1000};
-      receipt=await ctx.runQuery(internal.accountAdmin.membershipInvoiceReceipt,{accountId:args.accountId,customerId:target.customerId,subscriptionId:target.subscriptionId,invoiceId});
+      invoice={id:current.id,status:current.status,amountPaidPence:current.amount_paid,currency:current.currency,createdAt:current.created*1000,billingReason:current.billing_reason??null};
+      const savedReceipt=await ctx.runQuery(internal.accountAdmin.membershipInvoiceReceipt,{accountId:args.accountId,customerId:target.customerId,subscriptionId:target.subscriptionId,invoiceId});
+      receipt=savedReceipt?{creditPence:savedReceipt.creditPence,bonusPence:savedReceipt.bonusPence,revokedPence:savedReceipt.revokedPence,paidMembershipPence:savedReceipt.paidMembershipPence,createdAt:savedReceipt.createdAt,hasHistoricalPrice:typeof savedReceipt.historicalPriceId==="string"}:null;
       if(args.inspectTier){
         let snapshots:MembershipPriceSnapshot[]=[];
         try {const parsed=JSON.parse(process.env.MEMBERSHIP_INVOICE_PRICE_SNAPSHOTS ?? "[]");if(Array.isArray(parsed)&&parsed.length<=100)snapshots=parsed;} catch {}
@@ -1559,8 +1665,10 @@ export const releasePausedLateHold = internalAction({
  * customer closes the tab before the success page runs finalize().
  * ACTIVATION (2 steps, both required):
  *   1. In the Stripe dashboard, add a webhook endpoint for this deployment's
- *      /stripe-webhook path, including `checkout.session.completed` and
- *      `checkout.session.async_payment_succeeded`; copy its signing secret.
+ *      /stripe-webhook path. Subscribe it to `checkout.session.completed`,
+ *      `checkout.session.async_payment_succeeded`, and all three dispute events:
+ *      `charge.dispute.created`, `charge.dispute.updated`, and `charge.dispute.closed`.
+ *      Copy the endpoint's signing secret.
  *   2. `npx convex env set STRIPE_WEBHOOK_SECRET whsec_...`
  * Until the secret is set this returns false (no-op) and the success-page finalize() still
  * confirms bookings — so deploying this is safe and non-breaking.
@@ -1579,7 +1687,11 @@ export const stripeWebhook = internalAction({
     if (event.type === "charge.dispute.created" || event.type === "charge.dispute.updated" || event.type === "charge.dispute.closed") {
       const dispute = event.data.object as Stripe.Dispute;
       const intent = typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
-      await ctx.runMutation((internal as any).stripeDisputes.record, { eventId: event.id, eventType: event.type, paymentIntentId: intent ?? undefined });
+      await ctx.runMutation((internal as any).stripeDisputes.record, {
+        eventId: event.id, eventType: event.type, paymentIntentId: intent ?? undefined,
+        disputeId: dispute.id, status: dispute.status ?? undefined, reason: dispute.reason ?? undefined,
+        eventCreatedAt: event.created,
+      });
       return true;
     }
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
@@ -2081,7 +2193,10 @@ export const reconcileRentalRefund=internalAction({args:{refundId:v.string()},ha
     }
     if(!receipt)throw Error("Rental refund attempt is not recorded; no settlement was changed.");
     await ctx.runMutation(internal.rentalOperations.recordRefundReceipt,{id:r._id,receipt:{...receipt,stripeRefundId:refund.id,status}});
-    return ctx.runMutation(internal.rentalOperations.recordRefundPart,{id:r._id,paymentIntentId:pi,stripeRefundId:refund.id,status,attemptKey});
+    const part:any=await ctx.runMutation(internal.rentalOperations.recordRefundPart,{id:r._id,paymentIntentId:pi,stripeRefundId:refund.id,status,attemptKey});
+    if(part?.status==="succeeded"&&r.requestId?.startsWith("swap-"))
+      await ctx.scheduler.runAfter(0,internal.rentalSwapPayments.reconcileRefundWebhook,{id:r.requestId.slice("swap-".length) as any});
+    return part;
   }
   if(r.stripeRefundId!==refund.id||r.amountPence!==refund.amount||attemptKey)throw Error("Legacy rental refund receipt mismatch.");
   return ctx.runMutation(internal.rentalOperations.recordRefund,{id:r._id,stripeRefundId:refund.id,status});

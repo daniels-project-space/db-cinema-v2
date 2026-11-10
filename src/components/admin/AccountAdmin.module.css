@@ -932,6 +932,20 @@
 .profileCall { display:inline-flex; flex:0 0 auto; align-items:center; gap:4px; min-height:27px; padding:4px 7px; border:1px solid #c59a724a; border-radius:8px; color:#ddc2a4; font-size:10px; }
 .profileCall svg { width:13px; height:13px; }
 .profilePhone { display:block; margin-top:2px; overflow:hidden; color:#9fa49f; font-size:10px; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
+.profileHeader { gap:8px; padding-right:42px!important; }
+.profileContact { width:100%; }
+.profileIdentity { gap:10px; }
+.profileAvatar { width:40px; height:40px; flex-basis:40px; padding:2px; }
+.profileIdentityDetails { min-width:0; flex:1 1 auto; }
+.profileIdentityDetails h2 { max-width:100%; }
+.profileTabs::before { content:none; display:none; }
+.profileSubtabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin:0 10px 8px; padding:3px; border:1px solid #ffffff16; border-radius:11px; background:linear-gradient(150deg,#ffffff08,#ffffff02); }
+.profileSubtab { display:flex; min-width:0; min-height:31px; align-items:center; justify-content:center; gap:4px; padding:5px 4px; overflow:hidden; border:1px solid transparent; border-radius:8px; color:#b8b9b7; font-size:10px; line-height:1.1; text-align:center; text-overflow:ellipsis; white-space:nowrap; transition:background .18s ease,border-color .18s ease,color .18s ease; }
+.profileSubtab[aria-pressed="true"] { border-color:#d2a87b60; background:linear-gradient(130deg,#b88c6430,#ffffff08); color:#fff3e5; box-shadow:inset 0 1px #ffffff10; }
+.profileSubtab:focus-visible { outline:2px solid #e3bd96; outline-offset:2px; }
+.profileSubtab:disabled { cursor:not-allowed; opacity:.42; }
+.profileSubtabDanger { color:#efb0a8; }
+.profileSubtabDanger[aria-pressed="true"] { border-color:#dc8c8260; background:#6d30252b; color:#ffd0c9; }
 .summary {
   grid-template-columns:minmax(0,1fr);
   gap:6px;
@@ -1094,8 +1108,21 @@
 .accessClose { display:block; padding:5px 8px; border:1px solid #ffffff25; border-radius:6px; background:#222321; color:#d6b695; font-size:12px; }
 .rentalActions { margin-top:14px; min-width:0; }
 .rentalActions > summary { cursor:pointer; padding:10px; border:1px solid #ffffff25; border-radius:6px; color:#ead4bc; }
-.identityWarning { order:-1; flex:0 0 auto; margin:0 12px 10px; padding:10px; border:1px solid #d6a968; border-radius:9px; background:linear-gradient(140deg,#4b342133,#211c174d); color:#f5d8ad; overflow-wrap:anywhere; }
-.identityWarning p { margin-top:4px; font-size:10.5px; line-height:1.35; }
+.identityWarning { order:-1; flex:0 0 auto; margin:0 12px 10px; border:1px solid #d6a96875; border-radius:13px; background:linear-gradient(140deg,#4b34214a,#171719a8 72%); color:#f5d8ad; box-shadow:inset 0 1px #ffffff0d,0 10px 26px #0003; backdrop-filter:blur(16px) saturate(125%); -webkit-backdrop-filter:blur(16px) saturate(125%); overflow:hidden; }
+.identityWarningSummary { display:grid; grid-template-columns:25px minmax(0,1fr) 12px; align-items:center; gap:9px; padding:9px 10px; cursor:pointer; list-style:none; }
+.identityWarningSummary::-webkit-details-marker { display:none; }
+.identityWarningGlyph { display:grid; width:24px; height:24px; place-items:center; border:1px solid #e3b36c55; border-radius:8px; background:linear-gradient(145deg,#d6a96828,#ffffff08); color:#f1c989; font:700 12px/1 var(--font-mono,monospace); }
+.identityWarningCopy { display:grid; min-width:0; gap:3px; }
+.identityWarningCopy strong { overflow:hidden; color:#f5d8ad; font-size:10.5px; font-weight:650; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
+.identityWarningCopy span { color:#d0c0a7; font-size:9.5px; line-height:1.35; }
+.identityWarningChevron { width:12px; height:12px; color:#d6a968; transition:transform .18s ease; }
+.identityWarning[open] .identityWarningChevron { transform:rotate(180deg); }
+.identityWarningDetails { display:grid; gap:7px; padding:8px 10px 10px; border-top:1px solid #d6a9682b; }
+.identityWarningDetails > p { margin:0; color:#b8a486; font-size:9.5px; line-height:1.4; }
+.identityWarningMatch { display:grid; gap:2px; padding:7px 8px; border:1px solid #ffffff0b; border-radius:9px; background:#00000020; overflow-wrap:anywhere; }
+.identityWarningMatch strong { color:#eee2ce; font-size:10px; font-weight:600; }
+.identityWarningMatch span { color:#b8a994; font-size:9.5px; line-height:1.35; }
+.identityWarningMatch .identityWarningReason { color:#efc98c; }
 @media (min-width:1101px) and (max-width:1350px) {
   .root { grid-template-columns:minmax(280px,.78fr) minmax(375px,1.5fr) minmax(225px,.7fr); gap:10px; }
   .directory { grid-column:1; grid-row:3; }
@@ -1159,6 +1186,7 @@
 .summary > button:first-child strong { flex:0 1 auto; }
 .summary > button:not(:first-child) > strong { display:inline-flex; align-items:center; justify-content:flex-end; gap:6px; color:#d6c5b2; font-size:11px; font-weight:600; letter-spacing:.015em; }
 .summaryValue { flex:1 1 auto; min-width:0; max-width:200px; overflow:hidden; color:#d6c5b2; font-size:11px; font-weight:600; letter-spacing:.015em; text-overflow:ellipsis; white-space:nowrap; }
+.summaryValueReview { overflow:visible; overflow-wrap:anywhere; text-overflow:clip; white-space:normal; }
 .summaryCaret { color:#c99770; font-size:13px; transition:transform .18s ease,color .18s ease; }
 .visuallyHidden { position:absolute!important; width:1px!important; height:1px!important; padding:0!important; margin:-1px!important; overflow:hidden!important; clip:rect(0,0,0,0)!important; white-space:nowrap!important; border:0!important; }
 .summary > button[aria-expanded="true"] { background:linear-gradient(100deg,#d1a27616,#ffffff03); color:#fff4e7; }
@@ -1184,6 +1212,9 @@
   .profileTabs button:hover { transform:none; }
 }
 .actionLabel { min-width:0; overflow-wrap:anywhere; }
+.summary > .summaryStatus { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:42px; padding:9px 12px; border-bottom-color:#ffffff12; }
+.summaryStatus > span { display:flex; align-items:center; gap:8px; min-width:0; font-size:12px; }
+.summaryStatus > strong { margin:0; padding:3px 8px; border-radius:999px; font:600 10px/1.3 var(--font-inter,Arial,sans-serif); white-space:nowrap; }
 .profileBody :global(.input) { min-width:0; max-width:100%; }
 .accountDetails dl { display:grid; grid-template-columns:minmax(0,1fr); gap:3px; }
 .accountDetails dt { margin-top:8px; color:#a9aaa5; }
@@ -1238,6 +1269,8 @@
 .actionStatusMuted { color:#b9b3a9; }
 .accessPanel .accessCurrent { min-height:54px; }
 .accessPanel .accessCurrent strong { overflow-wrap:anywhere; }
+.membershipPanel { display:grid; min-width:0; gap:10px; }
+.membershipPanel > * { min-width:0; }
 .accessPanel .accessHelp { margin-top:-3px; }
 .profileTabs button.verificationAttention { color:#ffe0af; border-color:#c99a5f; animation:verificationAttention 2s ease-in-out infinite; }
 @keyframes verificationAttention { 50% { border-color:#f2c889; box-shadow:0 0 12px #d7a66666; } }
@@ -1246,29 +1279,73 @@
 @media (min-width:1351px) {
   :global([data-management-screen=accounts]) .root {
     margin-top:0;
-    grid-template-columns:minmax(390px,1.4fr) minmax(500px,1.4fr) minmax(280px,.8fr);
+    grid-template-columns:minmax(340px,.95fr) minmax(500px,1.5fr) minmax(220px,.6fr);
     gap:12px;
   }
   :global([data-management-screen=accounts]) .conversationPane { height:max(500px,calc(100dvh - var(--management-site-header-height) - 48px)); }
   :global([data-management-screen=accounts]) .directory,
   :global([data-management-screen=accounts]) .detail { height:max(500px,calc(100dvh - var(--management-site-header-height) - 48px)); max-height:none; }
   :global([data-management-screen=accounts]) .profileHeader .managementHeading { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* The chat header already owns the selected renter's identity and call link.
+     Keep the profile rail focused on account controls on wide screens. */
+  :global([data-management-screen=accounts]) .detail .profileContact { display:none; }
+  :global([data-management-screen=accounts]) .detail .profileHeader {
+    min-height:22px!important;
+    height:22px!important;
+    padding:0 28px 0 0!important;
+    border:0;
+  }
+  :global([data-management-screen=accounts]) .detail .profileHeader .close { top:0; right:2px; }
+  :global([data-management-screen=accounts]) .summary > button:not(:first-child) { flex-wrap:wrap; gap:4px 8px; }
+  :global([data-management-screen=accounts]) .summary > button:not(:first-child) > span { flex:1 1 100%; }
+  :global([data-management-screen=accounts]) .summary > button:not(:first-child) > strong { display:flex; flex:1 1 100%; flex-wrap:wrap; justify-content:flex-start; gap:5px; padding-left:24px; }
+  :global([data-management-screen=accounts]) .summaryValue { max-width:100%; overflow:visible; text-overflow:clip; white-space:normal; }
 }
 
 @media (min-width:1601px) {
   :global([data-management-screen=accounts]) .root {
-    grid-template-columns:minmax(390px,2fr) minmax(500px,1.8fr) minmax(300px,1.15fr);
+    grid-template-columns:minmax(360px,.95fr) minmax(580px,1.7fr) minmax(250px,.55fr);
   }
 }
 
 @media (max-width:600px) {
   :global([data-management-screen=accounts]) .conversationPane { height:max(500px,calc(100dvh - var(--management-site-header-height, 64px) - 24px)); }
+  :global([data-management-screen=accounts]) .summary > button:not(:first-child) { flex-wrap:wrap; gap:4px 8px; }
+  :global([data-management-screen=accounts]) .summary > button:not(:first-child) > span { flex:1 1 100%; }
+  :global([data-management-screen=accounts]) .summary > button:not(:first-child) > strong { display:flex; flex:1 1 100%; flex-wrap:wrap; justify-content:flex-start; gap:5px; padding-left:24px; }
+  :global([data-management-screen=accounts]) .summaryValue { flex:0 0 100%; max-width:none; overflow:visible; overflow-wrap:anywhere; text-overflow:clip; white-space:normal; }
+  :global([data-management-screen=accounts]) .customerList {
+    flex:1 1 0;
+    min-height:0;
+    overscroll-behavior:contain;
+    scroll-padding-block-end:12px;
+  }
+  :global([data-management-screen=accounts]) .customerList::after {
+    content:"";
+    display:block;
+    position:sticky;
+    z-index:1;
+    bottom:0;
+    height:18px;
+    margin-top:-18px;
+    background:linear-gradient(180deg,transparent,#191b1b);
+    pointer-events:none;
+  }
+  :global([data-management-screen=accounts]) .directoryFooter {
+    flex:0 0 auto;
+    position:relative;
+    z-index:1;
+    margin-top:8px;
+    padding:10px 4px 0;
+    border-top:1px solid #ffffff18;
+    background:#191b1b;
+  }
 }
 
 @media (max-width:1100px) {
   :global([data-management-screen=accounts]) .directory {
-    height:clamp(440px,66dvh,560px);
-    max-height:clamp(440px,66dvh,560px);
+    height:max(440px,calc(100dvh - var(--management-site-header-height,64px) - 140px));
+    max-height:none;
   }
   :global([data-management-screen=accounts]) .customerList {
     min-height:112px;
@@ -1339,3 +1416,221 @@
 .paymentRentalSelect{display:grid;gap:.4rem;margin:.2rem 0 .9rem;color:rgba(239,232,222,.72);font-size:.74rem}
 .paymentRentalSelect select{min-width:0;width:100%;border:1px solid rgba(230,190,140,.2);border-radius:.7rem;background:rgba(255,255,255,.035);padding:.7rem .75rem;color:#f4eee6;font:inherit;line-height:1.35}
 .paymentRentalSelect option{background:#151515;color:#f4eee6}
+
+/* At tablet widths, keep the conversation wide and make the profile a view,
+   instead of compressing three full panels into unreadable columns. */
+@media (min-width:1101px) and (max-width:1350px) {
+  .root {
+    grid-template-columns:minmax(300px,.78fr) minmax(0,1.22fr);
+    gap:11px;
+  }
+  .mobileWorkspaceNav {
+    position:sticky;
+    top:var(--management-site-header-height,64px);
+    z-index:6;
+    display:grid;
+    grid-column:1/-1;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:5px;
+    padding:5px;
+    border:1px solid #ffffff18;
+    border-radius:13px;
+    background:linear-gradient(145deg,#242523f2,#171919f2);
+    box-shadow:0 10px 28px #0004;
+    backdrop-filter:blur(16px);
+  }
+  .mobileWorkspaceNav button {
+    min-width:0;
+    min-height:38px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:7px;
+    border:1px solid transparent;
+    border-radius:9px;
+    color:#c7c6c1;
+    font-size:12px;
+    transition:background .18s ease,color .18s ease,border-color .18s ease;
+  }
+  .mobileWorkspaceNav button[aria-pressed=true] {
+    border-color:#d3a57775;
+    background:linear-gradient(120deg,#a77d5e36,#ffffff06);
+    color:#fff1e2;
+    box-shadow:inset 0 1px #ffffff10;
+  }
+  .mobileWorkspaceNav button:focus-visible { outline:2px solid #e3bd96; outline-offset:2px; }
+  .mobileWorkspaceNav button:disabled { opacity:.42; }
+  .mobileWorkspaceNav button span {
+    min-width:18px;
+    height:18px;
+    display:inline-grid;
+    place-items:center;
+    padding:0 5px;
+    border-radius:999px;
+    background:#c99770;
+    color:#171717;
+    font-size:10px;
+    font-weight:700;
+  }
+  .root[data-mobile-pane="directory"] > .directory {
+    grid-column:1/-1;
+    height:max(440px,calc(100dvh - var(--management-site-header-height,64px) - 140px));
+    max-height:none;
+  }
+  .root[data-mobile-pane="directory"] > .conversationPane,
+  .root[data-mobile-pane="directory"] > .conversationEmpty,
+  .root[data-mobile-pane="directory"] > .detail,
+  .root[data-mobile-pane="conversation"] > .directory,
+  .root[data-mobile-pane="conversation"] > .detail,
+  .root[data-mobile-pane="profile"] > .directory,
+  .root[data-mobile-pane="profile"] > .conversationPane,
+  .root[data-mobile-pane="profile"] > .conversationEmpty { display:none; }
+  .root[data-mobile-pane="conversation"] > .mobileWorkspaceNav { display:none; }
+  .mobileConversationTools {
+    flex:0 0 32px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:0 9px;
+    border-bottom:1px solid #ffffff10;
+    background:#191b1bcc;
+  }
+  .mobileConversationTools button {
+    min-height:30px;
+    padding:4px 8px;
+    border:1px solid #ffffff15;
+    border-radius:8px;
+    color:#d8b895;
+    font-size:11px;
+  }
+  .mobileConversationTools button:focus-visible { outline:2px solid #e3bd96; outline-offset:2px; }
+  .root[data-mobile-pane="conversation"] > .conversationPane,
+  .root[data-mobile-pane="conversation"] > .conversationEmpty {
+    grid-column:1/-1;
+    display:flex;
+    height:max(500px,calc(100dvh - var(--management-site-header-height,64px) - 100px));
+    min-height:0;
+    max-height:none;
+  }
+  .root[data-mobile-pane="conversation"] .conversationPane :global(.management-conversation-messages) {
+    height:auto;
+    min-height:0;
+    flex:1 1 auto;
+  }
+  .root[data-mobile-pane="profile"] > .detail {
+    grid-column:1/-1;
+    grid-row:auto;
+    display:flex;
+    height:calc(100dvh - var(--management-site-header-height,64px) - 140px);
+    max-height:none;
+    overflow:auto;
+  }
+}
+
+.profileTabs::before { content:none!important; display:none!important; }
+.profileHeader { flex:0 0 auto; }
+
+.currentRentalCard {
+  margin: 12px 10px 0;
+  padding: 13px;
+  border-color: #d7ab7b38;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #d7ab7b0d, #ffffff03 68%);
+  box-shadow: inset 0 1px #ffffff08;
+}
+.currentRentalCard > header { align-items: flex-start; margin-bottom: 10px; }
+.currentRentalHeading { min-width: 0; }
+.currentRentalHeading h3 { color: #d8b995; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+.currentRentalHeading strong { display: block; margin-top: 4px; color: #f2eee7; font-size: 13px; font-weight: 550; line-height: 1.35; overflow-wrap: anywhere; }
+.currentRentalPhotos { display: flex; gap: 7px; min-width: 0; overflow: hidden; }
+.currentRentalPhoto { width: 60px; height: 54px; flex: 0 0 60px; border: 1px solid #ffffff12; border-radius: 8px; background: #111313; object-fit: contain; }
+.currentRentalOverflow { align-self: center; color: #b9b7b0; font-size: 11px; }
+.currentRentalDates { margin-top: 9px; color: #aaa9a2; font-size: 10px; line-height: 1.4; }
+.currentRentalManage { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: 11px; padding: 8px 10px; border: 1px solid #d7ab7b39; border-radius: 8px; background: #d7ab7b0a; color: #e7c59e; font-size: 10px; font-weight: 600; transition: border-color .16s ease, background .16s ease; }
+.currentRentalManage:hover { border-color: #e5c19780; background: #d7ab7b16; }
+.currentRentalManage:focus-visible { outline: 2px solid #e5c197; outline-offset: 2px; }
+@media(max-width:600px) {
+  .currentRentalCard { margin: 9px 10px 0; padding: 11px; }
+  .currentRentalPhoto { width: 50px; height: 46px; flex-basis: 50px; }
+  .currentRentalManage { min-height: 38px; }
+}
+
+/* Keep the customer list in view on phones; secondary filters can be opened
+   when needed, while search and conversation status remain immediately visible. */
+.mobileFilterToggle { display:none; }
+.filterFields { display:contents; }
+@media(max-width:600px) {
+  .filters { grid-template-columns:minmax(0,1fr); gap:7px; margin:8px 0 10px; }
+  .mobileFilterToggle {
+    display:flex;
+    grid-column:1/-1;
+    align-items:center;
+    justify-content:space-between;
+    width:100%;
+    min-height:38px;
+    padding:7px 11px;
+    border:1px solid #ffffff20;
+    border-radius:9px;
+    background:linear-gradient(115deg,#d3a57715,#ffffff04);
+    color:#eee4d7;
+    font-size:12px;
+    font-weight:600;
+  }
+  .mobileFilterToggle:focus-visible { outline:2px solid #e3bd96; outline-offset:2px; }
+  .activeFilterCount { margin-left:auto; margin-right:8px; color:#d5b38e; font-size:10px; font-weight:500; }
+  .filterFields { display:none; grid-column:1/-1; }
+  .filters[data-mobile-open="true"] .filterFields {
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:7px;
+    padding-top:2px;
+  }
+  .filters[data-mobile-open="true"] .filterFields > .filterActions { grid-column:1/-1; margin:0; }
+}
+
+/* Desktop workspace proportions follow the approved directory / conversation /
+   account-rail composition while keeping minimum widths for every pane. */
+@media (min-width:1601px) {
+  :global([data-management-screen="accounts"]) .root {
+    grid-template-columns:minmax(470px,1.5fr) minmax(500px,1.3fr) minmax(300px,.9fr);
+    gap:10px;
+  }
+}
+
+/* Pass two: give the directory the render's balanced search/filter row and
+   enough type size to scan customer names and recent messages quickly. */
+@media (min-width:1601px) {
+  :global([data-management-screen="accounts"]) .directoryToolbar {
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);
+    gap:10px;
+  }
+  :global([data-management-screen="accounts"]) .viewFilters { width:100%; }
+  :global([data-management-screen="accounts"]) .viewFilters button { flex:1 1 0; padding-inline:8px; font-size:13px; }
+  :global([data-management-screen="accounts"]) .filters { grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(145px,.78fr); gap:8px; }
+  :global([data-management-screen="accounts"]) .filterActions { grid-column:3; flex-direction:row; align-items:center; justify-content:flex-end; gap:4px; }
+  :global([data-management-screen="accounts"]) .clearFilters,
+  :global([data-management-screen="accounts"]) .filterActions summary { padding:2px; font-size:11px; white-space:nowrap; }
+  :global([data-management-screen="accounts"]) .customerRow { padding:6px 0; }
+  :global([data-management-screen="accounts"]) .customerRow .customer { padding:13px 10px; }
+  :global([data-management-screen="accounts"]) .customerRow .avatarSmall,
+  :global([data-management-screen="accounts"]) .customerRow .initials,
+  :global([data-management-screen="accounts"]) .customerRow .directoryAvatar { width:56px; height:56px; flex-basis:56px; }
+  :global([data-management-screen="accounts"]) .customerRow .customer strong { font-size:14px; line-height:1.25; }
+  :global([data-management-screen="accounts"]) .customerRow .customer .messageMatch { font-size:12px; line-height:1.35; }
+}
+
+/* Pass three: give the renter thread controls and account rail a clearer,
+   touch-friendly hierarchy without adding actions or changing their handlers. */
+@media (min-width:1601px) {
+  :global([data-management-screen="accounts"]) .threadTabs { gap:5px; padding:9px 8px; }
+  :global([data-management-screen="accounts"]) .threadTabs button { min-height:33px; padding:7px 8px; border-radius:7px; font-size:10.5px; }
+  :global([data-management-screen="accounts"]) .summary { background:linear-gradient(145deg,#ffffff08,#ffffff02); box-shadow:0 9px 24px #0002,inset 0 1px #ffffff08; }
+  :global([data-management-screen="accounts"]) .profileTabs button { min-height:42px; margin-bottom:8px; padding:9px 12px; border-radius:10px; }
+  :global([data-management-screen="accounts"]) .currentRentalCard { padding:13px; border-color:#d7ad7a42; background:linear-gradient(150deg,#25221e,#191b1b 58%); box-shadow:0 10px 24px #0002,inset 0 1px #ffffff08; }
+  :global([data-management-screen="accounts"]) .currentRentalHeading h3 { font-size:11px; }
+  :global([data-management-screen="accounts"]) .currentRentalHeading > strong { font-size:14px; line-height:1.3; }
+  :global([data-management-screen="accounts"]) .currentRentalDates { font-size:11px; }
+  :global([data-management-screen="accounts"]) .currentRentalManage { min-height:40px; font-size:11px; }
+}

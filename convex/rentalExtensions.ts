@@ -435,8 +435,9 @@ export const request = mutation({
 export const state = query({
   args: { token: v.string(), bookingId: v.id("bookings"), admin: v.optional(v.boolean()) },
   handler: async (ctx, { token, bookingId, admin }) => {
+    let renterAccountId: any;
     if (admin) { if (!checkAdminToken(token)) return null; }
-    else await customer(ctx, token, bookingId);
+    else renterAccountId = (await customer(ctx, token, bookingId)).a._id;
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
     const rows = await ctx.db.query("booking_change_requests").withIndex("by_booking", q => q.eq("bookingId", bookingId)).order("desc").take(20);
@@ -444,7 +445,7 @@ export const state = query({
       const listing = await ctx.db.get(li.listingId);
       return { index: i, listingId: li.listingId, slug: listing?.slug ?? null, title: li.title, qty: li.qty, start: li.start, end: li.end, returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime, imageSources: listingRentalImages(listing) };
     }));
-    return { status: b.status, actionReady: renterRentalActionReady(b), locked: !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId || b.activePriceAdjustmentId || b.activeItemSwapId || b.returnDecision || b.cancellationDecision), pickupTime: b.pickupTime ?? null, returnTime: b.returnTime ?? null, items, requests: rows.filter(r => r.type === "extend").map(r => ({ id: r._id, status: r.status, items: r.quoteItems ?? [], amount: r.priceDelta ?? null, benefitKind: r.benefitKind, benefitLabel: r.benefitLabel, benefitSaving: r.benefitSaving ?? 0, days: r.extraDays, requestedReturnTime: r.requestedReturnTime, approvedReturnTime: r.approvedReturnTime, url: r.status === "awaiting_payment" ? r.paymentLinkUrl : undefined, expiresAt: r.expiresAt, reason: r.approvalReason, createdAt: r.createdAt })), paymentsEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" || /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") };
+    return { status: b.status, actionReady: renterRentalActionReady(b), locked: !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId || b.activePriceAdjustmentId || b.activeItemSwapId || b.returnDecision || b.cancellationDecision), pickupTime: b.pickupTime ?? null, returnTime: b.returnTime ?? null, items, requests: rows.filter(r => r.type === "extend" && (admin || r.accountId === renterAccountId)).map(r => ({ id: r._id, status: r.status, items: r.quoteItems ?? [], amount: r.priceDelta ?? null, benefitKind: r.benefitKind, benefitLabel: r.benefitLabel, benefitSaving: r.benefitSaving ?? 0, days: r.extraDays, requestedReturnTime: r.requestedReturnTime, approvedReturnTime: r.approvedReturnTime, url: r.status === "awaiting_payment" ? r.paymentLinkUrl : undefined, expiresAt: r.expiresAt, reason: r.approvalReason, createdAt: r.createdAt })), paymentsEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" || /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") };
   },
 });
 

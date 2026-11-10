@@ -61,6 +61,6 @@ const ctx = { db, scheduler: { runAfter: async () => {} } };
  await assert.rejects(identityJobs.processOne.handler(ctx, { id: missingKeyJob._id, eventId: missingKeyJob.eventId, generation: missingKeyJob.generation, attempt: missingKeyJob.attempts }), /Verified identity signal unavailable/, "A missing provider key remains fail-closed");
  const source = fs.readFileSync("convex/bookings.ts", "utf8");
  assert.match(source, /const checkRestrictedIdentity = status === "verified" && providerStatus === "Approved" && \["identity", "selfie", "address"\]\.every\([\s\S]*?\);/);
- assert.match(source, /if \(checkRestrictedIdentity\) await queueRestrictedIdentityCheck/);
+ assert.match(source, /if \(checkRestrictedIdentity && identityAttached\) \{\s*await queueRestrictedIdentityCheck/);
  console.log("PASS restricted identity notice: admin-only possible matches, provider approval gate, no automatic block, idempotent notification");
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -222,7 +222,10 @@ export const retryFailedRefund = action({
 
 function swapDescription(swap:any) {
   const changes=swap.changes?.length?swap.changes:[{oldLine:swap.oldLine,newLine:swap.newLine}];
-  return changes.map((change:any)=>`${change.oldLine.qty} × ${change.oldLine.title} → ${change.newLine.title}`).join("; ").slice(0,500);
+  return changes.map((change:any)=>change.action==="remove"||!change.newLine
+    ? `${change.oldLine.qty} × ${change.oldLine.title} → removed`
+    : `${change.oldLine.qty} × ${change.oldLine.title} → ${change.newLine.qty} × ${change.newLine.title}`
+  ).join("; ").slice(0,500);
 }
 
 async function ensureStock(ctx:any,id:any,authorize=true,allowConverted=false) {
@@ -286,6 +289,7 @@ async function ensureSession(ctx:any, swap:any) {
   await reserveStock(ctx,swap._id);
   if (process.env.RENTAL_CHECKOUT_ENABLED !== "true" && !/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "")) throw Error("Rental payments are not enabled.");
   const origin = new URL(process.env.APP_URL ?? "https://dbcinemarentals.com").origin;
+  await ctx.runMutation(internal.rentalSwapState.markSessionCreationStarted,{id:swap._id});
   const session = await client.checkout.sessions.create({mode:"payment",adaptive_pricing:{enabled:false},customer_email:swap.acceptedEmail,expires_at:Math.floor(swap.expiresAt/1000),line_items:[{quantity:1,price_data:{currency:"gbp",unit_amount:swap.quote.deltaPence,product_data:{name:"DB Cinema · equipment change",description:swapDescription(swap)}}}],success_url:`${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${origin}/account?rental=${swap.bookingId}#chat`,metadata:{itemSwapId:swap._id},payment_intent_data:{metadata:{itemSwapId:swap._id}}},{idempotencyKey:`dbc-rental-swap-${swap._id}`});
   if(!session.url)throw Error("The equipment payment link is unavailable; retry to recover it.");
   await ctx.runMutation(internal.rentalSwapState.bindSession,{id:swap._id,sessionId:session.id,url:session.url});return session;
@@ -425,7 +429,26 @@ export const refundPaidReview=action({args:{token:v.string(),id:v.id("rental_ite
   return compensate(ctx,args.id);
 }});
 export const resumeReview=action({args:{token:v.string(),id:v.id("rental_item_swaps"),confirmed:v.boolean()},handler:async(ctx,args):Promise<any>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"rentalSwapPayments.resumeReview"});if(!args.confirmed)throw Error("Confirm resuming the original equipment settlement first.");const swap:any=await ctx.runMutation(internal.rentalSwapState.resumeReview,{id:args.id});if(swap.status==="awaiting_acceptance")return {status:"awaiting_acceptance"};if(swap.compensationStartedAt)return compensate(ctx,swap._id);if(swap.quote.deltaPence<0)return finishRefund(ctx,swap);if(swap.quote.deltaPence===0){await ensureStock(ctx,swap._id);return ctx.runMutation(internal.rentalSwapState.apply,{id:swap._id});}const session:any=await ensureSession(ctx,swap);return session.status==="complete"?finishPayment(ctx,session):{url:session.url};}});
+export const checkRefundApproval=action({args:{token:v.string(),id:v.id("rental_item_swaps")},handler:async(ctx,args):Promise<any>=>{
+  await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"rentalSwapPayments.checkRefundApproval"});
+  const context:any=await ctx.runQuery(internal.rentalSwapState.context,{id:args.id}),swap=context?.swap;
+  if(!swap)throw Error("Equipment proposal is missing.");
+  if(swap.status==="refund_pending"&&swap.quote.deltaPence<0&&swap.acceptedAt&&swap.refundJobId){
+    const job:any=await ctx.runQuery(internal.rentalOperations.refundJob,{id:swap.refundJobId});
+    const pendingApproval=job?.bookingId===swap.bookingId&&job.refundReceipts?.some((receipt:RefundReceipt)=>receipt.status==="awaiting_approval"&&!!receipt.approvalRequestId);
+    if(!pendingApproval)throw Error("This equipment refund has no pending Stripe approval to check.");
+    return finishRefund(ctx,swap);
+  }
+  if(swap.status==="refund_compensating"&&swap.compensationStartedAt&&swap.compensationReceipt?.status==="awaiting_approval"&&swap.compensationReceipt.approvalRequestId)
+    return compensate(ctx,swap._id);
+  throw Error("This equipment change is not awaiting a Stripe refund approval.");
+}});
 export const withdraw=action({args:{token:v.string(),id:v.id("rental_item_swaps")},handler:async(ctx,args):Promise<any>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"rentalSwapPayments.withdraw"});const context:any=await ctx.runQuery(internal.rentalSwapState.context,{id:args.id});if(!context)throw Error("Equipment proposal missing.");const swap=context.swap;if(swap.refundJobId||swap.paymentIntentId)throw Error("The existing equipment settlement needs review before withdrawal.");let expiredSessionEvidence:any;if(swap.quote.deltaPence>0&&swap.acceptedAt){if(!swap.sessionId)throw Error("The original equipment payment needs review before withdrawal.");let session:any=await ensureSession(ctx,swap);if(session.status==="complete"){if(session.payment_status!=="paid")throw Error("The equipment payment is processing; wait for its result.");return finishPayment(ctx,session);}if(session.status==="open")session=await stripe().checkout.sessions.expire(session.id);if(session.status!=="expired")throw Error("The equipment payment needs review before withdrawal.");expiredSessionEvidence=expiredUnpaidEvidence(session);}await ctx.runMutation(internal.rentalSwapState.close,{id:swap._id,status:"withdrawn",expiredSessionEvidence});return {withdrawn:true};}});
+export const closeAcceptedWithoutPayment=action({args:{token:v.string(),id:v.id("rental_item_swaps"),confirmed:v.boolean()},handler:async(ctx,args):Promise<any>=>{
+  await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"rentalSwapPayments.closeAcceptedWithoutPayment"});
+  if(!args.confirmed)throw Error("Confirm closing this accepted change without payment.");
+  return await ctx.runMutation(internal.rentalSwapState.closeAcceptedWithoutPayment,{id:args.id});
+}});
 export const reconcile=internalAction({args:{},handler:async(ctx):Promise<void>=>{
   const rows:any[]=await ctx.runQuery(internal.rentalSwapState.pending,{});
   for(const swap of rows){
@@ -451,4 +474,16 @@ export const reconcile=internalAction({args:{},handler:async(ctx):Promise<void>=
       await ctx.runMutation(internal.rentalSwapState.reconcileResult,{...snapshot,error:error instanceof Error?error.message:"Equipment settlement needs review"});
     }
   }
+}});
+
+/** Finish an already-confirmed downgrade refund as soon as its Stripe webhook
+ * settles, rather than waiting for the five-minute recovery sweep. The swap
+ * and refund are re-read here so stale or partial webhook work cannot apply it. */
+export const reconcileRefundWebhook=internalAction({args:{id:v.id("rental_item_swaps")},handler:async(ctx,{id}):Promise<any>=>{
+  const context:any=await ctx.runQuery(internal.rentalSwapState.context,{id});
+  const swap=context?.swap;
+  if(!swap||swap.status!=="refund_pending"||!swap.refundJobId)return {ignored:true};
+  const job:any=await ctx.runQuery(internal.rentalOperations.refundJob,{id:swap.refundJobId});
+  if(!job||job.status!=="succeeded"||job.refundAmbiguity)return {ignored:true};
+  return finishRefund(ctx,swap);
 }});

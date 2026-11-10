@@ -7,7 +7,7 @@ setMock("./lib/rentalAccount", {
   accountForRental: async (_ctx, booking) => tables.get("accounts").find(account => account.email === booking.guestEmail),
 });
 setMock("./lib/rentalChat", {
-  accountForToken: async (_ctx, token) => token === "renter-session" ? tables.get("accounts")[0] : null,
+  accountForToken: async (_ctx, token) => tables.get("accounts").find(account => account.sessionToken === token) ?? null,
   ownedBooking: async (_ctx, account, bookingId) => {
     const booking = await db.get(bookingId);
     if (!booking || booking.guestEmail !== account.email) throw Error("not owned");
@@ -21,10 +21,11 @@ setMock("./lib/rentalChat", {
 setMock("./lib/rmv2SyncQueue", { queueRmv2Sync: async () => {} });
 
 const quoteMath = load("shared/rentalDeliveryQuote.ts");
+const memberDelivery = load("convex/lib/memberDelivery.ts");
 const state = load("convex/rentalDeliveryState.ts");
 const paymentSources = load("convex/lib/rentalPaymentSources.ts");
 const rmv2Sync = load("convex/rmv2_sync.ts");
-const account = put("accounts", { email: "delivery-test@rental.invalid", blockedAt: null });
+const account = put("accounts", { email: "delivery-test@rental.invalid", blockedAt: null, sessionToken: "renter-session" });
 const listing = put("listings", { title: "Camera kit" });
 const start = Date.UTC(2030, 10, 1);
 const context = { db, scheduler: { runAfter: async () => {} } };
@@ -36,9 +37,10 @@ assert.match(quoteMath.deliveryQuoteTerms("Base terms.", "one_way"), /The Grand 
 assert.match(quoteMath.deliveryQuoteTerms("Base terms.", "round_trip"), /courier collection/);
 assert.equal(quoteMath.deliveryQuoteTermsVersion("delivery-v2"), "delivery-v2+2026-11-chat-delivery-v1");
 
-function makeBooking() {
+function makeBooking(owner = account) {
   return put("bookings", {
-    guestEmail: account.email,
+    accountId: owner._id,
+    guestEmail: owner.email,
     status: "confirmed",
     idVerifyStatus: "verified",
     fulfilment: "pickup",
@@ -64,6 +66,26 @@ async function prepare(booking, requestId, legs = "one_way") {
     isStudioBenefit: false,
     termsVersion: quoteMath.deliveryQuoteTermsVersion("2026-10-delivery-v2"),
     termsText: quoteMath.deliveryQuoteTerms("Courier terms", legs),
+    expectedFingerprint: quoteMath.rentalDeliveryBookingFingerprint(booking),
+  });
+}
+
+async function prepareStudio(booking, requestId) {
+  return await state.prepareQuote.handler(context, {
+    token: process.env.ADMIN_TOKEN,
+    bookingId: booking._id,
+    requestId,
+    deliveryLegs: "one_way",
+    deliveryAddress: "10 Example Street, London, WC2N 5EJ",
+    postcode: "WC2N 5EJ",
+    baseAmountPence: 4400,
+    discountPence: 4400,
+    amountPence: 0,
+    membershipTier: "studio",
+    benefitMonth: memberDelivery.londonMonth(),
+    isStudioBenefit: true,
+    termsVersion: quoteMath.deliveryQuoteTermsVersion("2026-10-delivery-v2"),
+    termsText: quoteMath.deliveryQuoteTerms("Courier terms", "one_way"),
     expectedFingerprint: quoteMath.rentalDeliveryBookingFingerprint(booking),
   });
 }
@@ -99,6 +121,70 @@ async function prepare(booking, requestId, legs = "one_way") {
   const sources = await paymentSources.rentalPaymentSources(context, booking);
   assert(sources.some(source => source.paymentIntentId === "pi_delivery_001" && source.maxPaidPence === 4400), "delivery payment is included in the rental's refundable payment sources");
 
+  const declineBooking = makeBooking();
+  const declineQuote = await prepare(declineBooking, "delivery-decline-001");
+  const declined = await state.decline.handler(context, { token: "renter-session", id: declineQuote._id });
+  assert.equal(declined.status, "declined");
+  assert.equal(declineBooking.activeDeliveryQuoteId, undefined, "declining leaves the rental collection-only and unlocked");
+  assert.equal(messages.filter(message => message.meta?.kind === "delivery_quote_declined" && message.meta.deliveryQuoteId === declineQuote._id).length, 1, "the team receives one chat event when the renter declines");
+  await state.decline.handler(context, { token: "renter-session", id: declineQuote._id });
+  assert.equal(messages.filter(message => message.meta?.kind === "delivery_quote_declined" && message.meta.deliveryQuoteId === declineQuote._id).length, 1, "declining is idempotent");
+  await assert.rejects(state.accept.handler(context, { token: "renter-session", id: declineQuote._id, accepted: true }), /expired|already|current/i);
+
+  // An unaccepted/expired Studio quote does not reserve the monthly benefit.
+  const expiryAccount = put("accounts", {
+    email: "studio-expiry@rental.invalid", sessionToken: "studio-expiry-session",
+    membershipActive: true, membershipTier: "studio", blockedAt: null,
+  });
+  const expiredBooking = makeBooking(expiryAccount);
+  const expiredQuote = await prepareStudio(expiredBooking, "studio-expired-quote-001");
+  await state.expire.handler(context, { id: expiredQuote._id });
+  const replacementBooking = makeBooking(expiryAccount);
+  const replacementQuote = await prepareStudio(replacementBooking, "studio-replacement-quote-001");
+  await state.accept.handler(context, { token: expiryAccount.sessionToken, id: replacementQuote._id, accepted: true });
+  assert.equal(replacementBooking.deliveryBenefitConsumed, true, "expiring an unaccepted quote leaves the month's Studio benefit available");
+  assert.equal(expiredBooking.deliveryBenefitConsumed, undefined);
+
+  // Two independent quotes may both be prepared, but serialized acceptance
+  // mutations can consume the account/month entitlement only once.
+  const concurrentAccount = put("accounts", {
+    email: "studio-concurrent@rental.invalid", sessionToken: "studio-concurrent-session",
+    membershipActive: true, membershipTier: "studio", blockedAt: null,
+  });
+  const concurrentBookingA = makeBooking(concurrentAccount), concurrentBookingB = makeBooking(concurrentAccount);
+  const concurrentQuoteA = await prepareStudio(concurrentBookingA, "studio-concurrent-quote-a");
+  const concurrentQuoteB = await prepareStudio(concurrentBookingB, "studio-concurrent-quote-b");
+  let mutationQueue = Promise.resolve();
+  const acceptSerialized = id => {
+    const result = mutationQueue.then(() => state.accept.handler(context, { token: concurrentAccount.sessionToken, id, accepted: true }));
+    mutationQueue = result.catch(() => {});
+    return result;
+  };
+  const competingAccepts = await Promise.allSettled([
+    acceptSerialized(concurrentQuoteA._id), acceptSerialized(concurrentQuoteB._id),
+  ]);
+  assert.equal(competingAccepts.filter(result => result.status === "fulfilled").length, 1, "only one simultaneous quote acceptance consumes the Studio benefit");
+  assert.equal(competingAccepts.filter(result => result.status === "rejected").length, 1);
+  assert.equal([concurrentBookingA, concurrentBookingB].filter(row => row.deliveryBenefitConsumed).length, 1);
+  const winningQuote = competingAccepts[0].status === "fulfilled" ? concurrentQuoteA : concurrentQuoteB;
+  const deliveredBooking = competingAccepts[0].status === "fulfilled" ? concurrentBookingA : concurrentBookingB;
+  const deliveryMessagesBeforeReplay = messages.filter(message => message.meta?.kind === "delivery_paid" && message.meta.deliveryQuoteId === winningQuote._id).length;
+  const replay = await state.accept.handler(context, { token: concurrentAccount.sessionToken, id: winningQuote._id, accepted: true });
+  assert.equal(replay._id, winningQuote._id, "replaying accepted free delivery returns the original result");
+  assert.equal(messages.filter(message => message.meta?.kind === "delivery_paid" && message.meta.deliveryQuoteId === winningQuote._id).length, deliveryMessagesBeforeReplay, "replay does not duplicate delivery confirmation");
+  assert.equal(deliveredBooking.deliveryBenefitConsumed, true);
+
+  // Account ID, rather than the current email alone, preserves the monthly
+  // check if a renter changes their account email after using the benefit.
+  concurrentAccount.email = "studio-concurrent-new-email@rental.invalid";
+  const renamedEmailBooking = makeBooking(concurrentAccount);
+  const renamedEmailQuote = await prepareStudio(renamedEmailBooking, "studio-renamed-email-quote");
+  await assert.rejects(
+    state.accept.handler(context, { token: concurrentAccount.sessionToken, id: renamedEmailQuote._id, accepted: true }),
+    /monthly Studio delivery benefit is no longer available/,
+  );
+  assert.equal(renamedEmailBooking.fulfilment, "pickup", "a second email cannot bypass the account's consumed entitlement");
+
   const roundTripBooking = makeBooking();
   const roundTripQuote = await prepare(roundTripBooking, "delivery-round-trip-001", "round_trip");
   await state.accept.handler(context, { token: "renter-session", id: roundTripQuote._id, accepted: true });
@@ -117,5 +203,5 @@ async function prepare(booking, requestId, legs = "one_way") {
   assert.equal(failedBooking.deliveryLegs, undefined);
   assert.equal(failedBooking.activeDeliveryQuoteId, undefined, "failed payment releases the booking lock");
   assert.equal(tables.get("rental_delivery_quotes").find(row => row._id === failedQuote._id).status, "failed");
-  console.log("PASS delivery quote calculation, terms acceptance, chat payment link, paid status, and failed-payment rollback.");
+  console.log("PASS delivery quote calculation, terms acceptance, chat payment link, paid status, failed-payment rollback, and atomic Studio monthly entitlement/replay/expiry behavior.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

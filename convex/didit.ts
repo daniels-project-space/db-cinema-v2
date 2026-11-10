@@ -222,83 +222,121 @@ export const adminReview = action({
   args: {
     token: v.string(), bookingId: v.id("bookings"),
     decision: v.union(v.literal("approve"), v.literal("resubmit"), v.literal("decline")),
-    note: v.string(),
+    note: v.string(), requestId: v.string(),
   },
-  handler: async (ctx, { token, bookingId, decision, note }): Promise<{status:"updated"}> => {
-    const scopedReview = process.env.ADMIN_SESSION_DIDIT_REVIEW_V2 === "enabled";
-    if (scopedReview) await ctx.runMutation(internal.adminAccountSessionV2.authorizeDiditReview, { token });
+  handler: async (ctx, { token, bookingId, decision, note, requestId }): Promise<{ status: string; providerStatus: string }> => {
+    if (process.env.ADMIN_SESSION_DIDIT_REVIEW_V2 === "enabled")
+      await ctx.runMutation(internal.adminAccountSessionV2.authorizeDiditReview, { token });
     else await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "didit.adminReview" });
     const reason = note.trim();
-    if (reason.length < 5 || reason.length > 400) throw new Error("Record a 5–400 character review reason.");
+    if (reason.length < 5 || reason.length > 400) throw new Error("Add a 5–400 character review reason.");
+    if (!/^[a-zA-Z0-9-]{16,80}$/.test(requestId)) throw new Error("Refresh the case and try again.");
     const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId });
     if (!booking || booking.verificationProvider !== "didit" || !booking.diditSessionId ||
-        !verificationBookingOpen(booking.status) ||
-        !["manual_review", "rejected"].includes(booking.idVerifyStatus))
-      throw new Error("Only a paid rental with a completed Didit case can be reviewed here.");
-    if (decision === "approve" && booking.idVerifyStatus !== "manual_review")
-      throw new Error("The rental is not awaiting Didit review. Refresh the case or request resubmission.");
-    const cfg = config();
-    let session = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(bookingId), booking.guestEmail);
-    if (session.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
-    if (!["Approved", "Declined", "In Review", "Kyc Expired", "Abandoned", "Resubmitted"].includes(session.status))
-      throw new Error("This verification is still in progress or expired; it cannot be manually decided.");
-    const targetStatus = decision === "approve" ? "Approved" : decision === "decline" ? "Declined" : "Resubmitted";
-    if (decision === "approve" && !["Approved", "In Review"].includes(session.status))
-      throw new Error("This Didit case cannot be approved; request a resubmission for failed or expired checks.");
-    if (decision === "approve" && session.status === "In Review") {
-      const fields = ["id_verifications", "liveness_checks", "face_matches", "poa_verifications"] as const;
-      const valid = fields.every(field => Array.isArray(session[field]) && session[field].length > 0 && session[field].every((item:any) =>
-        item?.status === "Approved" || item?.status === "In Review"));
-      if (!valid) throw new Error("A required Didit check failed or is missing. Request a resubmission instead.");
-    }
-    if (session.status !== targetStatus) {
+        !verificationBookingOpen(booking.status) || booking.idVerifyStatus !== "manual_review")
+      throw new Error("Only a rental waiting for Didit review can be decided here.");
+    await ctx.runMutation(internal.diditReviewClaims.claim, {
+      bookingId, sessionId: booking.diditSessionId, requestId, decision,
+    });
+    try {
+      const cfg = config();
+      const sessionId = booking.diditSessionId;
+      let session = await retrieveSession(cfg.apiKey, sessionId, String(bookingId), booking.guestEmail);
+      if (session.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
+      if (session.status !== "In Review") {
+        throw new Error("Didit has already changed this case. Refresh the rental before deciding.");
+      }
+      const targetStatus = decision === "approve" ? "Approved" : decision === "decline" ? "Declined" : "Resubmitted";
       let response: Response;
       try {
-        response = await fetch(`${sessionApi}${booking.diditSessionId}/update-status/`, {
+        response = await fetch(`${sessionApi}${sessionId}/update-status/`, {
           method: "PATCH",
           headers: { "x-api-key": cfg.apiKey, "content-type": "application/json" },
           body: JSON.stringify({ new_status: targetStatus, comment: reason }),
           signal: AbortSignal.timeout(20_000),
         });
       } catch {
-        throw new Error("Could not update Didit. Refresh the rental before retrying.");
+        throw new Error("Didit could not be reached. Refresh the case before retrying.");
       }
       if (!response.ok) {
-        if (response.status === 409) throw new Error("The Didit case changed during review. Refresh and try again.");
-        if (response.status === 429 || response.status >= 500) throw new Error("Didit is temporarily unavailable. Refresh the case and retry shortly.");
+        if (response.status === 409) throw new Error("The Didit case changed. Refresh before deciding.");
+        if (response.status === 429 || response.status >= 500) throw new Error("Didit is temporarily unavailable. Refresh and retry shortly.");
+        if (response.status === 401 || response.status === 403) throw new Error("The Didit key cannot make review decisions. Check its session-write access.");
         throw new Error("Didit did not accept this decision. Refresh the case and check its current status.");
       }
       const acknowledgement: any = await response.json().catch(() => null);
-      if (acknowledgement?.session_id !== booking.diditSessionId) throw new Error("Didit did not confirm the case update. Refresh before retrying.");
-    }
+      if (acknowledgement?.session_id !== sessionId) throw new Error("Didit did not confirm the case update. Refresh before retrying.");
 
-    // Didit is authoritative. Re-read after every requested change before the
-    // website releases the rental's verification gate or sends its messages.
-    session = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(bookingId), booking.guestEmail);
-    if (session.workflow_id !== cfg.workflowId || session.status !== targetStatus)
-      throw new Error("Didit has not confirmed this decision yet. Refresh the rental before retrying.");
-    const mapped = mapDecision(session.status, session);
-    const expectedStatus = decision === "approve" ? "verified" : decision === "decline" ? "rejected" : "requires_input";
-    if (!mapped || mapped.status !== expectedStatus) throw new Error("The Didit decision could not be reconciled.");
-    const latest: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId });
-    if (!latest || latest.diditSessionId !== booking.diditSessionId || !verificationBookingOpen(latest.status))
-      throw new Error("The rental changed during review. Check its current status and the Didit case.");
-    if (latest.idVerifyStatus === expectedStatus) return {status:"updated"};
-    const appliedAt = Date.now();
-    const saved: boolean = await ctx.runMutation(internal.bookings.setDiditResult, {
-      bookingId, sessionId:booking.diditSessionId, eventId:`manual-review-${decision}-${booking.diditSessionId}-${appliedAt}`,
-      eventAt:appliedAt, providerStatus:session.status, ...mapped, reconciliation:true, requireApplied:true,
-      expectedEventId:latest.diditEventId ?? null, expectedEventAt:latest.diditEventAt ?? null, expectedManualDecisionAt:latest.diditManualDecisionAt ?? null,
-      ...(scopedReview ? { adminReviewSessionToken: token } : {}),
-    });
-    if (!saved) {
-      const after: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId });
-      if (after?.diditSessionId === booking.diditSessionId && after.idVerifyStatus === expectedStatus) return {status:"updated"};
-      throw new Error("The rental changed during review. Check its current status and the Didit case.");
+      // Didit remains the source of truth. Re-read its session before updating
+      // the website; the signed webhook and this recovery read share the same
+      // normal booking transition, notifications, archive and Rental Manager sync.
+      session = await retrieveSession(cfg.apiKey, sessionId, String(bookingId), booking.guestEmail);
+      if (session.workflow_id !== cfg.workflowId || session.status !== targetStatus)
+        throw new Error("Didit has not confirmed this decision yet. Refresh the rental before retrying.");
+      const mapped = mapDecision(session.status, session);
+      const expectedStatus = decision === "approve" ? "verified" : decision === "decline" ? "rejected" : "requires_input";
+      if (!mapped || mapped.status !== expectedStatus) throw new Error("The Didit decision could not be reconciled.");
+      const latest: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId });
+      if (!latest || latest.diditSessionId !== sessionId || !verificationBookingOpen(latest.status))
+        throw new Error("The rental changed during review. Check its current rental and Didit status.");
+      if (latest.idVerifyStatus !== expectedStatus) {
+        const appliedAt = Math.max(Date.now(), (latest.diditEventAt ?? 0) + 1);
+        const saved: boolean = await ctx.runMutation(internal.bookings.setDiditResult, {
+          bookingId, sessionId, eventId: `manual-review-${requestId}`, eventAt: appliedAt,
+          providerStatus: session.status, ...mapped, reconciliation: true, requireApplied: true,
+          expectedEventId: latest.diditEventId ?? null,
+          expectedEventAt: latest.diditEventAt ?? null,
+          expectedManualDecisionAt: latest.diditManualDecisionAt ?? null,
+        });
+        if (!saved) {
+          const current: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId });
+          if (current?.diditSessionId !== sessionId || current.idVerifyStatus !== expectedStatus)
+            throw new Error("Didit changed, but the rental could not be synced. Refresh the case before retrying.");
+        }
+      }
+      return { status: expectedStatus, providerStatus: targetStatus };
+    } finally {
+      await ctx.runMutation(internal.diditReviewClaims.release, { bookingId, requestId, sessionId: booking.diditSessionId });
     }
-    return {status:"updated"};
   },
 });
+
+export const adminVerificationLink = action({
+  args: { token: v.string(), bookingId: v.id("bookings") },
+  handler: async (ctx, { token, bookingId }): Promise<{
+    url: string;
+    issues: Array<{ feature: string; risk: string; summary: string; detail: string }>;
+  }> => {
+    if (process.env.ADMIN_SESSION_DIDIT_REVIEW_V2 === "enabled")
+      await ctx.runMutation(internal.adminAccountSessionV2.authorizeDiditReview, { token });
+    else await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "didit.adminVerificationLink" });
+
+    const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId });
+    if (!booking || booking.verificationProvider !== "didit" || !booking.diditSessionId ||
+        !verificationBookingOpen(booking.status) || booking.idVerifyStatus !== "manual_review")
+      throw new Error("Only an open Didit review can be opened here. Refresh the rental first.");
+
+    const cfg = config();
+    const session = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(bookingId), booking.guestEmail);
+    if (session.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
+    if (typeof session.session_url !== "string" || !hostedSessionUrl.test(session.session_url))
+      throw new Error("Didit did not return a valid verification link. Open the business console and search the case ID.");
+
+    // Keep the response limited to warnings and the provider's allowlisted URL;
+    // never return document, portrait, identity, or match payloads to the browser.
+    const cleanText = (value: unknown, max: number) => typeof value === "string"
+      ? value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, max)
+      : "";
+    const issues = Array.isArray(session.warnings) ? session.warnings.slice(0, 8).map((warning: any) => ({
+      feature: cleanText(warning?.feature, 48),
+      risk: cleanText(warning?.risk, 64),
+      summary: cleanText(warning?.short_description, 180),
+      detail: cleanText(warning?.long_description, 480),
+    })).filter((issue: any) => issue.summary || issue.detail) : [];
+
+    return { url: session.session_url, issues };
+  },
+});;
 
 /** Read the current provider decision for an authenticated, visible rental.
  * Browser-supplied results are never accepted. Webhooks remain authoritative,

@@ -49,6 +49,7 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
   const legacyReturnDecision = !!saved && saved.lateClaimPolicyVersion !== "owner-claim-v1";
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [completedResult, setCompletedResult] = useState<{ released: number; kept: number; lateAmount: number; refundState?: string } | null>(null);
   const parsedAt = new Date(returnedAt).getTime();
   const savedMinute = saved ? new Date(saved.actualReturnedAt - new Date(saved.actualReturnedAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : null;
   const at = saved && returnedAt === savedMinute ? saved.actualReturnedAt : parsedAt;
@@ -96,16 +97,24 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     try {
       const result = await submit({...selection,expectedSnapshot:reviewData.snapshot});
       if (!alive.current) return;
-      alert(refundablePolicy ? `Return recorded. Deposit retained ${formatGbp(result.kept)}; ${result.released>0?`${result.refundState==="pending"?"refund processing":"refund processed by Stripe"} to the original payment method ${formatGbp(result.released)}. Bank display can take 5–10 business days.`:"no deposit refund is due."} Damage assessed ${formatGbp(damageAmount)}. An itemised completion statement will be emailed.` : `Return recorded. Damage/loss ${formatGbp(result.kept)}; refundable security payment returned ${formatGbp(result.released)}; separate late charge assessed ${formatGbp(result.lateAmount)}. A return statement will be emailed.`);
-      onClose();
+      setCompletedResult(result);
     } catch (e: any) { if (alive.current) setError(e?.data?.code === "DEPOSIT_REFUND_REVIEW" ? "The return is saved, but the deposit refund needs Stripe review. Use the refund status panel to open the existing approval; do not create another refund." : e?.message ?? "Return could not be recorded."); }
     finally { if (alive.current) setWorking(false); }
   }
 
   function update(key: string, patch: Partial<InspectionInput>) { setConditions(previous => ({ ...previous, [key]: { key, condition: previous[key]?.condition ?? "issue", details: previous[key]?.details ?? "", openCase: previous[key]?.openCase ?? false, ...patch } })); }
   return <dialog ref={dialog} aria-labelledby="return-inspection-title" onCancel={e => { e.preventDefault(); if (!working) onClose(); }} className={styles.drawer}>
-    <header className={styles.header}><div><h4 id="return-inspection-title">Return inspection & settlement</h4><p>Inspect each item, record issues and confirm the security settlement.</p></div><button disabled={working} onClick={onClose} aria-label="Close return inspection">×</button></header>
-    <div className={styles.body}>
+    <header className={styles.header}><div><h4 id="return-inspection-title">{completedResult ? "Return recorded" : "Return inspection & settlement"}</h4><p>{completedResult ? "The rental return is saved." : "Inspect each item, record issues and confirm the security settlement."}</p></div><button disabled={working} onClick={onClose} aria-label="Close return inspection">×</button></header>
+    {completedResult ? <section className={`${styles.body} space-y-3`} role="status" aria-live="polite">
+      <div className="rounded-2xl border border-emerald-300/25 bg-emerald-300/[0.08] p-4">
+        <p className="text-sm font-semibold text-emerald-100">✓ Return saved</p>
+        {refundablePolicy ? <p className="mt-2 text-sm text-white/75">{completedResult.released > 0 ? `${completedResult.refundState === "pending" ? "Refund processing" : "Stripe confirmed refund"} of ${formatGbp(completedResult.released)} to the original payment method. Your bank may take 5–10 business days to show it.` : "No deposit refund is due."}</p> : <p className="mt-2 text-sm text-white/75">No security amount was taken, so nothing needed releasing or refunding.</p>}
+      </div>
+      {completedResult.kept > 0 && <p className="text-sm text-white/70">Recorded deduction: <strong>{formatGbp(completedResult.kept)}</strong>. The itemised reason is in the return statement.</p>}
+      {completedResult.lateAmount > 0 && <p className="text-sm text-white/70">Late claim recorded: <strong>{formatGbp(completedResult.lateAmount)}</strong>. This return step did not charge the saved card.</p>}
+      <p className="text-xs text-white/50">An itemised return statement will be sent by email.</p>
+      <button type="button" onClick={onClose} className={styles.confirm}>Done</button>
+    </section> : <div className={styles.body}>
     {saved && <p className="mt-2 text-amber-200">A return was started but settlement did not finish. The saved time and amounts are loaded so you can retry safely.</p>}
     {refundablePolicy&&<DepositRefundStatus token={token} bookingId={booking._id}/>}
     {refundablePolicy&&(booking.depositAmount??0)>0&&<DepositSettlementControl paid={booking.depositAmount} kept={depositKept} disabled={working||reviewBusy||!!saved} onChange={value=>{setDepositKept(value);if(value>damageAmount)setDamage(String(value));}}/>}
@@ -136,6 +145,6 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     {!inspectionValid && !legacyResume && <p className="mt-3 text-amber-200">Select a condition for every item and complete the required issue details. Any deduction must correspond to an item with an issue.</p>}
     <ReturnSettlementReview data={reviewData} busy={reviewBusy || working} enabled={valid} onReview={inspectReview} paymentSummary={<section className={styles.paymentSummary}><h4>Payment summary</h4><dl><div><dt>Paid refundable deposit</dt><dd>{formatGbp(booking.depositAmount ?? 0)}</dd></div>{booking.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION&&<div><dt>{savedCard?"Saved-card collection limit · not held":"Original card authorisation"}</dt><dd>{formatGbp(savedCard?booking.savedCardLimit:booking.depositHoldAmount ?? 0)}</dd></div>}</dl><p>{savedCard ? refundablePolicy ? "The deposit decision above controls the cash refund. Remaining evidenced damage is assessed separately; this action does not charge the saved card." : "No security money was taken. An assessment does not itself charge the card." : "The review checks the current card balance and calculates the cash refund separately."}</p><label>{savedCard ? "Documented damage or loss assessed (£)" : "Documented damage or loss to retain (£)"}<input type="number" disabled={working || reviewBusy || !!saved} min="0" max={Number.isFinite(damageLimit)?damageLimit:undefined} step="0.01" value={damage} onChange={e => {setDamage(e.target.value);if(refundablePolicy)setDepositKept(previous=>Math.min(previous,Math.max(0,Number(e.target.value))));}} /></label>{damageAmount > 0 && <label>Itemised evidence and reason<textarea disabled={working || reviewBusy || !!saved} value={damageNote} onChange={e => setDamageNote(e.target.value)} rows={3} placeholder="Describe the item, damage or loss, evidence, and calculation" /></label>}</section>} />
     <button type="button" disabled={!valid || working || reviewBusy || !reviewData || reviewData.alreadySettled} onClick={finish} className={styles.confirm}>{working ? "Settling…" : refundablePolicy?"Confirm deposit decision and email renter":savedCard?"Record inspected return · no payment":"Confirm settlement and email renter"}</button>
-    </div>
+    </div>}
   </dialog>;
 }

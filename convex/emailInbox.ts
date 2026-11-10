@@ -478,15 +478,9 @@ export const sendAssistantReply = action({
     if (claim.state === "sent") return { ok: true, duplicate: true };
     if (claim.state === "busy") return { ok: false, busy: true };
     const { thread, inbound, outboundId, deliveryKey } = claim;
-    const replyTo = gafferReplyAddress(thread.replyKey);
-    if (!replyTo) {
-      await ctx.runMutation(internal.emailInbox.markSendFailed, {
-        outboundId,
-        inboundId: args.inboundId,
-        error: "INBOUND_EMAIL_DOMAIN is not configured",
-      });
-      throw new Error("Gaffer email reply routing is not configured");
-    }
+    // Replies go to the monitored business Gmail. Gmail's confirmed forwarding
+    // route sends renter follow-ups back through the signed Resend inbound hook.
+    const replyTo = OWNER_EMAIL;
     const references = [...new Set([...(inbound.references ?? []), inbound.messageId].filter((value): value is string => typeof value === "string" && value.length > 0))].slice(-20);
     const delivery = await ctx.runAction(internal.emailMailer.sendBusinessReply, {
       to: thread.email,
@@ -521,7 +515,7 @@ export const adminInbox = query({
     const count = Math.min(100, Math.max(1, Math.floor(limit ?? 100)));
     const rows = await ctx.db.query("email_threads").withIndex("by_updated").order("desc").take(count);
     const replySetupStatus = businessEmailReadiness();
-    return { authorized: true as const, items: rows, replyConfigured: replySetupStatus === "ready", replySetupStatus, outboundSenderAddress: configuredBusinessSender(), inboundForwardingAddress: configuredForwardingAddress() };
+    return { authorized: true as const, items: rows, replyConfigured: replySetupStatus === "ready", replySetupStatus, outboundSenderAddress: configuredBusinessSender(), replyToAddress: OWNER_EMAIL, inboundForwardingAddress: configuredForwardingAddress() };
   },
 });
 
@@ -533,10 +527,11 @@ export const adminThread = query({
     const replySetupStatus = businessEmailReadiness();
     const replyConfigured = replySetupStatus === "ready";
     const outboundSenderAddress = configuredBusinessSender();
+    const replyToAddress = OWNER_EMAIL;
     const inboundForwardingAddress = configuredForwardingAddress();
-    if (!thread) return { authorized: true as const, thread: null, messages: [], replyConfigured, replySetupStatus, outboundSenderAddress, inboundForwardingAddress };
+    if (!thread) return { authorized: true as const, thread: null, messages: [], replyConfigured, replySetupStatus, outboundSenderAddress, replyToAddress, inboundForwardingAddress };
     const messages = (await threadMessages(ctx, threadId, 40)).reverse();
-    return { authorized: true as const, thread, messages, replyConfigured, replySetupStatus, outboundSenderAddress, inboundForwardingAddress };
+    return { authorized: true as const, thread, messages, replyConfigured, replySetupStatus, outboundSenderAddress, replyToAddress, inboundForwardingAddress };
   },
 });
 

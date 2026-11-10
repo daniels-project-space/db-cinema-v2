@@ -3,10 +3,12 @@ const { pbkdf2Sync } = require('node:crypto');
 const { ConvexError } = require('convex/values');
 const { load, db, put, tables } = require('./lib/rentalTestHarness.cjs');
 const accounts = load('convex/accounts.ts');
+const { legalVersionForPolicy, CURRENT_PRIVACY_NOTICE_VERSION } = load('shared/legalVersioning.ts');
 const { accountAuthErrorMessage, ACCOUNT_AUTH_MESSAGES } = load('shared/accountAuth.ts');
 const ctx = { db,
-  runQuery: async (ref, args) => accounts[ref.split('.')[1]].handler(ctx, args),
+  runQuery: async (ref, args) => ref === 'settings.get' ? {} : accounts[ref.split('.')[1]].handler(ctx, args),
   runMutation: async (ref, args) => accounts[ref.split('.')[1]].handler(ctx, args),
+  scheduler: { runAfter: async () => {} },
 };
 const salt = '09ab23cd45ef67890123456789abcdef';
 const password = 'FixturePassword123';
@@ -43,7 +45,7 @@ async function expectError(args, code) {
     error => error.data?.code === 'EMAIL_VERIFICATION_REQUIRED');
   await db.patch(account._id, { emailVerificationRequired: false, emailVerifiedAt: 1, hash: undefined, salt: undefined });
   await expectError({ email: account.email, password }, 'PASSWORD_NOT_SET');
-  await assert.rejects(accounts.signUp.handler(ctx, { email: account.email, password }),
+  await assert.rejects(accounts.signUp.handler(ctx, { email: account.email, password, termsAndPrivacyAcknowledged: true, termsVersion: legalVersionForPolicy({}), privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION }),
     error => error.data?.code === 'ACCOUNT_EXISTS');
   await assert.rejects(accounts.signUp.handler(ctx, { email: 'bad', password: '123' }),
     error => error.data?.code === 'SIGNUP_INVALID_INPUT');

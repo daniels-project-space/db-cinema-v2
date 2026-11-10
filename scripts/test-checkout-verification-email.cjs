@@ -29,7 +29,7 @@ delete process.env.INVOICE_SECRET;
   assert(!payload.html.includes('Saved-card collection permission'),'Historical accepted security terms remain intact');
  }
  let address='The Grand Building\nMeet outside <Waterstones> & wait';
- const verificationCtx={runQuery:async ref=>ref==='settings.pickupAddress'?{businessAddress:address}:{...booking,fulfilment:'pickup',idVerifyStatus:'verified'},
+ const verificationCtx={runQuery:async ref=>ref==='settings.pickupAddress'?{businessAddress:address}:{...booking,fulfilment:'pickup',paidConfirmedAt:Date.now(),verificationProvider:'didit',idVerificationSource:'didit',verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},idVerifiedAt:Date.now(),idVerifyStatus:'verified'},
   runAction:async()=>({attachments:[{filename:'receipt.pdf',content:'fixture'}]})};
  const verification=await notify.verificationEmail.handler(verificationCtx,{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
  assert.match(verification.html,/Your identity and address verification is approved for this rental\./);
@@ -44,7 +44,7 @@ delete process.env.INVOICE_SECRET;
  assert(!updated.html.includes('The Grand Building'));
  const pending=await notify.verificationEmail.handler({runQuery:async()=>({...booking,idVerifyStatus:'requires_input'}),runAction:async()=>{throw Error('Invoice must not run');}},{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
  assert.equal(pending,null,'An outdated approval email cannot send while verification needs input');
- const expired=await notify.verificationEmail.handler({runQuery:async()=>({...booking,idVerifyStatus:'verified',verificationExpiresAt:Date.now()-1}),runAction:async()=>{throw Error('Invoice must not run');}},{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
+ const expired=await notify.verificationEmail.handler({runQuery:async()=>({...booking,status:'confirmed',paidConfirmedAt:Date.now(),verificationProvider:'didit',idVerificationSource:'didit',verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},idVerifyStatus:'verified',idVerifiedAt:Date.now()-91*86400000,verificationExpiresAt:Date.now()-1}),runAction:async()=>{throw Error('Invoice must not run');}},{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
  assert.equal(expired,null,'An outdated approval email cannot send after verification expires');
  console.log('PASS actual confirmation and receipt renderers: new saved-card permission outside paid total, no obsolete deposit/hold copy, historical deposit/hold preserved. No emails sent.');
 })().catch(e=>{console.error(e);process.exitCode=1});

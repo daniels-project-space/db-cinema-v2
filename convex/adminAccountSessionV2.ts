@@ -74,6 +74,13 @@ export async function assertAdminScopeSession(ctx: QueryCtx | MutationCtx, sessi
       throw new Error("unauthorized");
 }
 
+export const authorizeDiditReview = internalMutation({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await assertAdminScopeSession(ctx, token, "verification:write");
+  },
+});
+
 export async function assertCustomerWriteSession(ctx: MutationCtx, sessionToken: string): Promise<void> {
   await assertAdminScopeSession(ctx, sessionToken, "customers:write");
 }
@@ -88,13 +95,5 @@ export const checkSession = query({
     if (!adminSessionMigrationReady()) throw new Error("Admin session migration is not ready.");
     await assertAdminScopeSession(ctx, token, scope);
     return { ok: true as const };
-  },
-});
-
-export const authorizeDiditReview = internalMutation({
-  args: { token: v.string() },
-  handler: async (ctx, { token }) => {
-    if (!adminSessionMigrationReady()) throw new Error("Admin session migration is not ready.");
-    await assertAdminScopeSession(ctx, token, "verification:write");
   },
 });

@@ -1,8 +1,11 @@
 import { ensureReferralCode } from "./lib/referrals";
 import { action, internalMutation } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { _applyPendingCollectiveGrant } from "./accounts";
+import { ConvexError } from "convex/values";
+import { accountAuthError } from "../shared/accountAuth";
+import { CURRENT_PRIVACY_NOTICE_VERSION, legalVersionForPolicy } from "../shared/legalVersioning";
 
 const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days — mirrors accounts.ts
 const GOOGLE_CERTS = "https://www.googleapis.com/oauth2/v3/certs";
@@ -88,6 +91,11 @@ export const _upsertGoogle = internalMutation({
     googleId: v.string(),
     picture: v.optional(v.string()),
     token: v.string(),
+    termsAndPrivacyAcknowledged: v.boolean(),
+    accountTermsVersion: v.optional(v.string()),
+    accountTermsAcceptedAt: v.optional(v.number()),
+    privacyNoticeVersion: v.optional(v.string()),
+    privacyNoticeAcknowledgedAt: v.optional(v.number()),
   },
   handler: async (ctx, a) => {
     const now = Date.now();
@@ -97,6 +105,8 @@ export const _upsertGoogle = internalMutation({
       .first();
     if (acct?.blockedAt != null) throw Error("This account is blocked. Contact DB Cinema Rentals.");
     if (!acct) {
+      if (!a.termsAndPrivacyAcknowledged || !a.accountTermsVersion || !Number.isSafeInteger(a.accountTermsAcceptedAt) || !a.privacyNoticeVersion || !Number.isSafeInteger(a.privacyNoticeAcknowledgedAt))
+        throw new ConvexError(accountAuthError("SIGNUP_TERMS_REQUIRED"));
       const id = await ctx.db.insert("accounts", {
         email: a.email,
         name: a.name,
@@ -104,6 +114,10 @@ export const _upsertGoogle = internalMutation({
         googleAvatarUrl: a.picture,
         emailVerifiedAt: now,
         emailVerificationRequired: false,
+        accountTermsVersion: a.accountTermsVersion,
+        accountTermsAcceptedAt: a.accountTermsAcceptedAt,
+        privacyNoticeVersion: a.privacyNoticeVersion,
+        privacyNoticeAcknowledgedAt: a.privacyNoticeAcknowledgedAt,
         createdAt: now,
       });
       await ensureReferralCode(ctx,id);
@@ -139,11 +153,29 @@ export const _upsertGoogle = internalMutation({
 
 /** Exchange a Google ID token for a Db Cinema session token. */
 export const signInWithGoogle = action({
-  args: { credential: v.string() },
-  handler: async (ctx, { credential }): Promise<{ token: string }> => {
+  args: { credential: v.string(), termsAndPrivacyAcknowledged: v.optional(v.boolean()), termsVersion: v.optional(v.string()), privacyNoticeVersion: v.optional(v.string()) },
+  handler: async (ctx, { credential, termsAndPrivacyAcknowledged, termsVersion, privacyNoticeVersion }): Promise<{ token: string }> => {
     const clientId = process.env.GOOGLE_CLIENT_ID;
     if (!clientId) throw new Error("Google sign-in isn't configured yet.");
     const profile = await verifyGoogleIdToken(credential, clientId);
+    const existing = await ctx.runQuery(internal.accounts._byEmail, { email: profile.email });
+    let accepted: { termsAndPrivacyAcknowledged: boolean; accountTermsVersion?: string; accountTermsAcceptedAt?: number; privacyNoticeVersion?: string; privacyNoticeAcknowledgedAt?: number } = { termsAndPrivacyAcknowledged: false };
+    if (!existing) {
+      if (termsAndPrivacyAcknowledged !== true)
+        throw new ConvexError(accountAuthError("SIGNUP_TERMS_REQUIRED"));
+      const policy = await ctx.runQuery(api.settings.get, {});
+      const currentTermsVersion = legalVersionForPolicy(policy);
+      if (termsVersion !== currentTermsVersion || privacyNoticeVersion !== CURRENT_PRIVACY_NOTICE_VERSION)
+        throw new ConvexError(accountAuthError("SIGNUP_TERMS_UPDATED"));
+      const acceptedAt = Date.now();
+      accepted = {
+        termsAndPrivacyAcknowledged: true,
+        accountTermsVersion: currentTermsVersion,
+        accountTermsAcceptedAt: acceptedAt,
+        privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION,
+        privacyNoticeAcknowledgedAt: acceptedAt,
+      };
+    }
     const token = randomHex(24);
     await ctx.runMutation(internal.googleAuth._upsertGoogle, {
       email: profile.email,
@@ -151,6 +183,7 @@ export const signInWithGoogle = action({
       googleId: profile.googleId,
       picture: profile.picture,
       token,
+      ...accepted,
     });
     return { token };
   },

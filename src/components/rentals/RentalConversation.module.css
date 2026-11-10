@@ -277,10 +277,34 @@
 .handoverDetails > a span { font-size:10px; font-weight:650; }
 .handoverDetails > a strong { font-size:10px; font-weight:500; white-space:nowrap; }
 .renterControls { flex:0 0 auto; padding:10px 20px; border-top:1px solid #ffffff0b; border-bottom:1px solid #ffffff0b; background:#111313; }
+.requestActions { display:flex; flex-wrap:wrap; gap:8px; }
+.requestAction { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:0; padding:8px 13px; border:1px solid #ffffff1b; border-radius:999px; background:linear-gradient(135deg,#ffffff0a,#ffffff03); color:#d8d6d0; font-size:12px; line-height:1.25; text-align:center; transition:background .18s ease,border-color .18s ease,color .18s ease,transform .18s ease; }
+.requestAction:hover { border-color:#c99a714d; background:#c99a7111; color:#fff4e6; }
+.requestAction:focus-visible { outline:2px solid #e5bd92; outline-offset:2px; }
+.requestAction:active { transform:translateY(1px); }
+.requestActionActive { border-color:#c99a7180; background:#c99a7118; color:#fff4e6; }
+.requestActionIcon { display:none; width:16px; height:16px; flex:0 0 auto; }
+.requestActionMobileLabel { display:none; }
 .workspace .composeForm textarea { flex:1 1 0; width:0; }
-@media(max-width:767px) { .workspace .header { gap:8px; padding:12px; flex-wrap:wrap; } .workspaceAvatar { flex-basis:46px; width:46px; height:46px; } .workspace .header h3 { font-size:19px; } .workspace .headerActions { margin-left:auto; } .workspaceCall { min-height:38px; padding:0 10px; } .workspace .handoff { padding:7px; } .workspace .messages { min-height:300px; padding:18px 12px; } .workspace .message :global(.management-conversation-message-row) { max-width:92%; } }
-@media(max-width:767px) { .handoverDetails { grid-template-columns:minmax(0,1fr); padding:10px 12px; } .handoverLocations { grid-template-columns:minmax(0,1fr); } .handoverLocations p { grid-column:auto; } .handoverDetails > a { justify-self:start; } .rentalKitGrid { grid-template-columns:minmax(0,1fr); } .renterControls { padding:9px 12px; } }
-@media(max-width:360px) { .workspace .header { gap:5px; } .workspace .header .identity { gap:8px; } .workspaceAvatar { flex-basis:40px; width:40px; height:40px; } .workspace .header h3 { font-size:18px; } .workspace .headerActions { gap:1px; } .workspaceCall { justify-content:center; width:38px; padding:0; } .workspaceCallLabel { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); } .starButton { width:26px; } .headerMenu summary { width:24px; } .workspace .composeForm textarea { min-height:42px; padding:9px 36px 9px 10px; font-size:13px; } .workspace .composeForm button { min-width:40px; min-height:42px; padding:7px; } .workspace .composeForm .emojiControl { right:48px; } .workspace .composeForm .emojiToggle { min-width:38px; min-height:42px; } }
+@media(max-width:767px) { .workspace .header { gap:8px; padding:12px; flex-wrap:wrap; } .workspaceAvatar { flex-basis:46px; width:46px; height:46px; } .workspace .header h3 { font-size:19px; } .workspace .headerActions { margin-left:auto; } .workspaceCall { min-height:38px; padding:0 10px; } .workspace .handoff { padding:7px; } .workspace .messages { min-height:300px; padding:18px 12px; } .workspace .message :global(.management-conversation-message-row) { max-width:92%; } .workspace .notificationCard { gap:9px; padding:10px; border-radius:14px; } .workspace .notificationIcon { flex-basis:32px; width:32px; height:32px; border-radius:10px; } .workspace .notificationIcon svg { width:18px; height:18px; } .workspace .notificationCopy strong { font-size:12px; } .workspace .notificationCopy p { margin:3px 0 6px; font-size:11px; line-height:1.35; } .workspace .notificationCopy > div { gap:4px; } .workspace .notificationCopy button { min-height:38px; padding:7px 9px; font-size:11px; } }
+.notificationDesktop { display:inline; }
+.notificationMobile { display:none; }
+@media(max-width:767px) {
+ .handoverDetails { grid-template-columns:minmax(0,1fr) auto; gap:8px; padding:8px 10px; }
+ .handoverLocations { grid-template-columns:minmax(0,1fr); gap:3px; }
+ .handoverLocations p { grid-column:auto; margin-top:1px; font-size:9px; line-height:1.35; }
+ .handoverDetails > a { justify-self:end; min-height:38px; padding:6px 8px; }
+ .rentalKitGrid { grid-template-columns:minmax(0,1fr); }
+ .renterControls { padding:7px 10px; }
+ .requestActions { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; max-width:100%; }
+ .requestAction { width:100%; min-width:0; min-height:48px; flex-direction:column; gap:2px; padding:3px 2px; border-radius:12px; font-size:10px; line-height:1.1; white-space:normal; }
+ .requestActionIcon { display:block; width:13px; height:13px; }
+ .requestActionDesktopLabel { display:none; }
+ .requestActionMobileLabel { display:block; white-space:nowrap; }
+ .workspace :global([data-testid="rental-extension-panel"]) { padding:9px 12px; }
+}
+@media(max-width:360px) { .workspace .header { gap:5px; } .workspace .header .identity { gap:8px; } .workspaceAvatar { flex-basis:40px; width:40px; height:40px; } .workspace .header h3 { font-size:18px; } .workspace .headerActions { gap:1px; } .workspaceCall { justify-content:center; width:38px; padding:0; } .workspaceCallLabel { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); } .starButton { width:26px; } .headerMenu summary { width:24px; } .workspace .composeForm textarea { min-height:42px; padding:9px 36px 9px 10px; font-size:13px; } .workspace .composeForm button { min-width:40px; min-height:42px; padding:7px; } .workspace .composeForm .emojiControl { right:48px; } .workspace .composeForm .emojiToggle { min-width:38px; min-height:42px; }
+}
 
 @media (min-width:1101px) and (max-width:1350px) {
   :global([data-management-screen=accounts]) .workspace .header { min-height:76px; padding:10px; gap:6px; }
@@ -335,8 +359,10 @@
 }
 @media(max-width:640px) {
  .renterInbox[data-renter-support=true] { display:flex; flex-direction:column; height:100%; min-height:0; margin:0; padding:0; gap:0; overflow:hidden; }
- .renterInbox[data-renter-support=true] .renterDirectory { flex:0 0 82px; height:82px; min-height:0; margin:0; padding:0 12px 6px; overflow-x:auto; overflow-y:hidden; }
- .renterInbox[data-renter-support=true] .renterDirectory > .renterThread { min-height:76px; height:76px; }
+ .renterInbox .renterDirectory { flex:0 0 82px; height:82px; min-height:0; margin:0; padding:0 12px 6px; overflow-x:auto; overflow-y:hidden; overscroll-behavior-x:contain; scroll-padding-inline:12px; scroll-snap-type:x mandatory; scrollbar-width:thin; scrollbar-color:#b98160 transparent; -webkit-overflow-scrolling:touch; touch-action:pan-x; }
+ .renterInbox .renterDirectory::-webkit-scrollbar { height:3px; }
+ .renterInbox .renterDirectory::-webkit-scrollbar-thumb { border-radius:99px; background:#b98160; }
+ .renterInbox .renterDirectory > .renterThread { flex:0 0 min(82vw,300px); min-height:76px; height:76px; scroll-snap-align:start; scroll-snap-stop:always; }
  .renterInbox[data-renter-support=true] > .workspace { display:flex; flex:1; flex-direction:column; height:100%; min-height:0; border-radius:0; overflow:hidden; }
  .renterInbox[data-renter-support=true] .workspace .main { flex:1; min-height:0; overflow:hidden; }
  .renterInbox[data-renter-support=true] .workspace .messages { flex:1; height:auto; min-height:120px; padding:16px 12px; }
@@ -378,4 +404,54 @@
  .renterInbox:not([data-renter-support=true]) .workspace .main { display:flex; flex:1; flex-direction:column; min-height:0; overflow:hidden; }
  .renterInbox:not([data-renter-support=true]) .workspace .messages { flex:1 1 auto; height:auto; min-height:80px; overflow-y:auto; }
  .renterInbox:not([data-renter-support=true]) .workspace .composer { flex:0 0 auto; }
+ .renterInbox .renterDirectory { flex-basis:50px; height:50px; padding:0 10px 4px; }
+ .renterInbox .renterDirectory > .renterThread { flex-basis:min(78vw,280px); min-height:44px; height:44px; padding:5px 7px; gap:7px; }
+ .renterInbox .renterThreadIcon { flex-basis:32px; width:32px; height:32px; }
+ .renterInbox .renterThreadCopy strong { font-size:11px; }
+ .renterInbox .renterThreadCopy small { display:none; }
+ .renterInbox .renterUnread { min-width:19px; height:19px; font-size:9px; }
+ .renterInbox .workspace .header { min-height:68px; padding:8px 12px; flex-wrap:nowrap; }
+ .renterInbox .workspaceAvatar { flex-basis:42px; width:42px; height:42px; }
+ .renterInbox .workspace .header h3 { font-size:17px; }
+ .renterInbox .workspace .supportStatus { font-size:9px; }
+ .renterInbox .workspace .notificationDesktop { display:none; }
+ .renterInbox .workspace .notificationMobile { display:inline; }
+ .renterInbox .workspace .notificationCard { gap:7px; padding:7px 8px; border-radius:12px; }
+ .renterInbox .workspace .notificationIcon { flex-basis:28px; width:28px; height:28px; border-radius:9px; }
+ .renterInbox .workspace .notificationIcon svg { width:16px; height:16px; }
+ .renterInbox .workspace .notificationCopy strong { font-size:11px; line-height:1.2; }
+ .renterInbox .workspace .notificationCopy p { margin:2px 0 4px; font-size:10px; line-height:1.25; }
+ .renterInbox .workspace .notificationCopy button { min-height:44px; padding:7px 9px; font-size:11px; }
+ .renterInbox .workspace .rentalItemsCard { padding:6px; }
+ .renterInbox .workspace .rentalItemsHeading { margin-bottom:5px; }
+ .renterInbox .workspace .rentalItemsHeading strong { font-size:11px; }
+ .renterInbox .workspace .rentalItemsHeading span { font-size:9px; }
+ .renterInbox .workspace .rentalItemsGrid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; }
+ .renterInbox .workspace .rentalItem { grid-template-columns:50px minmax(0,1fr); gap:5px; padding:4px; }
+ .renterInbox .workspace .rentalItemPhoto,.renterInbox .workspace .rentalItemPhotoUnavailable { width:50px; height:50px; }
+ .renterInbox .workspace .rentalItemCopy strong { font-size:9px; }
+ .renterInbox .workspace .rentalItemCopy span { font-size:8px; }
+}
+
+@media (min-width:641px) and (max-width:1023px) {
+ .renterInbox { display:flex; flex-direction:column; height:100%; min-height:0; margin:0; overflow:hidden; }
+ .renterInbox .renterDirectory { flex:0 0 82px; height:82px; min-height:0; margin:0; padding:0 12px 6px; overflow-x:auto; overflow-y:hidden; border:0; }
+ .renterInbox .renterDirectory > .renterThread { flex:0 0 220px; height:76px; min-height:76px; }
+ .renterInbox > .conversation { display:flex; flex:1 1 auto; min-height:0; overflow:hidden; border-radius:8px; }
+ .renterInbox .workspace { display:flex; flex:1 1 auto; flex-direction:column; height:100%; min-height:0; overflow:hidden; }
+ .renterInbox .workspace .main { display:flex; flex:1 1 auto; flex-direction:column; min-height:0; overflow:hidden; }
+ .renterInbox .workspace .messages { flex:1 1 auto; height:auto; min-height:160px; overflow-y:auto; }
+ .renterInbox .workspace .composer { flex:0 0 auto; }
+}
+
+/* Expanded renter forms must get their own scrollable conversation area on
+   small screens; the message composer remains docked below it. */
+@media(max-width:1023px) {
+ .requestAction { min-height:42px; }
+ .renterInbox .workspace .main:has([data-testid="extension-request-form"], [data-testid="renter-rental-tools"] form) { overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:#b9816066 transparent; }
+ .renterInbox .workspace:has([data-testid="extension-request-form"], [data-testid="renter-rental-tools"] form) { position:relative; }
+ .renterInbox .workspace:has([data-testid="extension-request-form"], [data-testid="renter-rental-tools"] form) .composer { position:absolute; z-index:5; inset:auto 0 0; width:100%; }
+ .renterInbox .workspace .main:has([data-testid="extension-request-form"], [data-testid="renter-rental-tools"] form) { padding-bottom:74px; }
+ .renterInbox .workspace .main:has([data-testid="extension-request-form"], [data-testid="renter-rental-tools"] form)::-webkit-scrollbar { width:4px; }
+ .renterInbox .workspace .main:has([data-testid="extension-request-form"], [data-testid="renter-rental-tools"] form)::-webkit-scrollbar-thumb { border-radius:99px; background:#b9816066; }
 }

@@ -24,7 +24,7 @@ export function RenterOverview({bookings,token,historyLoading,unreadMessages,onO
     .sort((a,b)=>(group==="active"?a.end??a.at:a.start??a.at)-(group==="active"?b.end??b.at:b.start??b.at)))[0];
   const remaining=featured?rentals.filter(b=>b._id!==featured._id):rentals;
   return <div className={styles.root} data-testid="renter-overview">
-    <div className={styles.toolbar}><p>Your equipment, dates and conversations.</p><nav aria-label="Rental shortcuts"><button type="button" onClick={onOpenCalendar}>Calendar</button><button type="button" onClick={()=>onOpenChat(featured?._id)}>Messages{unreadMessages>0?` (${unreadMessages})`:""}</button><Link href="/gear">Browse equipment <span aria-hidden>→</span></Link></nav></div>
+    <div className={styles.toolbar}><p>Your equipment, dates and conversations.</p><nav aria-label="Rental shortcuts"><button type="button" onClick={onOpenCalendar}>Calendar</button><button type="button" onClick={()=>onOpenChat(featured?._id)}>Messages{unreadMessages>0?` (${unreadMessages})`:""}</button><Link href="/gear">Browse gear <span aria-hidden>→</span></Link></nav></div>
     {historyLoading&&<p role="status" className={styles.loading}>Loading the rest of your rental history…</p>}
 
     {bookings===undefined?<p role="status" className={styles.loading}>Loading your rentals…</p>:featured?<BookingTile booking={featured} token={token} featured onOpenChat={onOpenChat}/>:<section className={styles.empty}><h2>{rentals.length?"Your next rental starts here":"Welcome to your rental workspace"}</h2><p>Browse equipment, choose your dates and keep the booking conversation here.</p><Link href="/gear">Find equipment →</Link></section>}

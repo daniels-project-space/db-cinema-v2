@@ -174,6 +174,8 @@ export const gafferReply = internalAction({
           slug: listing.slug,
           category: listing.category,
           daily: listing.daily,
+          ...(typeof listing.heroImage === "string" && listing.heroImage ? { heroImage: listing.heroImage } : {}),
+          ...(Array.isArray(listing.imageSources) && listing.imageSources.length ? { imageSources: listing.imageSources } : {}),
           ...(priced ? { days: rentalDays, perDay: priced.perDay, total: priced.total } : {}),
           availability: stock && Number.isFinite(stock.available) ? (stock.available > 0 ? "available" : "unavailable") : catalogueWindow ? (canCheckWindow ? "unchecked" : "times_required") : "dates_required",
           ...(dates ? { dates } : {}),

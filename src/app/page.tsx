@@ -114,7 +114,7 @@ export default async function Home() {
       <SiteHeader />
 
       {/* ───────────────── hero — the viewfinder ───────────────── */}
-      <section className="section-window relative min-h-[clamp(17rem,72vw,24rem)] overflow-hidden sm:min-h-[54svh] lg:min-h-[calc(100vh-93px)]">
+      <section className="section-window relative isolate min-h-[clamp(24rem,68svh,38rem)] overflow-hidden sm:min-h-[54svh] lg:min-h-[calc(100vh-93px)]">
         {/* cinematic film (Veo 3.1) + timed gear callouts + catchphrase/CTA */}
         <HeroCinematic rating={rating} categories={categories} />
         <ViewfinderHUD />
@@ -183,7 +183,7 @@ export default async function Home() {
 
       {/* ───────────────── categories ───────────────── */}
       {categories.length > 0 && (
-        <section className="section-glass px-6 py-20">
+        <section className="section-glass px-4 py-12 sm:px-6 sm:py-20">
           <div className="mx-auto max-w-7xl">
             <Reveal>
               <div className="hud-label !text-accent-400/90">The catalogue</div>
@@ -249,7 +249,7 @@ export default async function Home() {
               Loved by London&apos;s <span className="serif-accent gradient-text text-[1.06em]">filmmakers</span>
             </h2>
           </div>
-          {hyggloReviews.length >= 3 && <HyggloReviewRows reviews={hyggloReviews} />}
+          {hyggloReviews.length > 0 && <HyggloReviewRows reviews={hyggloReviews} />}
           <div className={hyggloReviews.length >= 3 ? "mt-8" : "mt-10"}><ReviewCarousel /></div>
           <HomeStats ratingValue={rating.ratingValue} reviewCount={rating.reviewCount} itemCount={itemCount} />
         </Reveal>

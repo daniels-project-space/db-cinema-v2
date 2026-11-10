@@ -14,6 +14,7 @@ const ctx={
       if(!bookingAvailable)throw Error('The original equipment booking needs review.');
       return 'claim';
     }
+    if(ref==='rentalSwapState.markSessionCreationStarted')return {started:true,replayed:false};
     if(ref==='rentalSwapState.bindSession')return;
     throw Error(`Unexpected mutation ${ref}`);
   },
@@ -33,7 +34,7 @@ const ctx={
   const result=await payments.accept.handler(ctx,args);
   assert.equal(result.url,'https://checkout.stripe.com/cs_test_fixture');
   assert.equal(creates,1);
-  assert.deepEqual(events,['rentalSwapState.accept','swapStockOperations.prepareSwapClaim','swapStockOperations.recover:claim','rentalSwapState.bindSession']);
+  assert.deepEqual(events,['rentalSwapState.accept','swapStockOperations.prepareSwapClaim','swapStockOperations.recover:claim','rentalSwapState.markSessionCreationStarted','rentalSwapState.bindSession']);
   assert(!events.some(event=>event.includes('beginExecution')),'a payment link is backed by a prepared reservation, not started execution');
 
   swap={...swap,_id:'swap-stale'};bookingAvailable=false;events.length=0;

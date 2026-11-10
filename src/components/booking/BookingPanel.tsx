@@ -217,13 +217,13 @@ export function BookingPanel({
             <div className="mt-3 rounded-xl bg-white/[0.03] p-3 text-xs text-white/55">
               <p className="font-medium text-white/75">{policy?.setupIntentSecurityEnabled?"Saved-card future-claim ceiling":"Rental security shown at checkout"}</p>
               <p className="mt-1">{policy === undefined ? "Checking deposit policy…" : policy.setupIntentSecurityEnabled
-                ? "No cash deposit or card hold. Stripe saves your card for itemised late-return charges and severe, permanent cosmetic damage or loss, with a £50, £100 or £200 combined ceiling based on equipment replacement value. No charge on an on-time return without a reported issue; insurance is separate."
+                ? "Stripe saves your card; no cash deposit or hold is taken. The saved card may cover itemised late-return charges or severe, permanent cosmetic damage or loss, up to a combined £50, £100 or £200 ceiling set by equipment replacement value. No charge for an on-time return without a reported issue. Insurance is separate."
                 : policy.assessmentSecurityEnabled
                 ? "£20, £50 or £100 per booking, based on the whole kit’s replacement value. Eligible members and Encore renters pay £0. No separate card hold."
                 : policy.refundableDepositEnabled
                   ? "£0, £50 or £100 per booking, based on the whole kit’s replacement value. No separate card hold."
                   : "No upfront deposit or card hold. Saved-card permission applies under your rental terms."}</p>
-              <p className="mt-1">{policy?.setupIntentSecurityEnabled?"The saved-card ceiling is not charged or held. Stripe or your bank may decline a later payment or require authentication; checkout shows the exact amount and terms.":"Your deposit is separate from the rental price. Any unused deposit is refunded to your original card after the return assessment. Checkout confirms your exact amount and eligibility."}</p>
+              <p className="mt-1">{policy?.setupIntentSecurityEnabled?"The ceiling is never charged or held. A later payment may be declined or require bank authentication. Checkout shows the exact amount and terms.":"Your deposit is separate from the rental price. Any unused deposit is refunded to your original card after the return assessment. Checkout confirms your exact amount and eligibility."}</p>
             </div>
           </div>
         ) : (

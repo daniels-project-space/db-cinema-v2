@@ -109,8 +109,8 @@ async function offerHumanForLatestRenter(bookingId) {
     assert.equal(thread.escalated, false);
 
     await rentalRequests.submit.handler(ctx, {
-      token: "renter", bookingId: booking._id, requestId: "rental-change-request-0001", kind: "dates",
-      detail: "Please move the pickup time later.",
+      token: "renter", bookingId: booking._id, requestId: "rental-change-request-0001", kind: "items",
+      detail: "Please change the kit.",
     });
     const requestTimer = latestTimer()[2];
     assert.equal(thread.escalated, true, "rental change requests hand off to the team");

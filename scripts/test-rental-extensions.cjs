@@ -45,6 +45,13 @@ function pay(r){const s=sessions.get(r.stripePaymentLinkId);s.status='complete';
  const b=rental(); const original=JSON.stringify(b.lineItems);
  const rentalState=await ext.state.handler(ctx,{token:'renter',bookingId:b._id});assert.equal(rentalState.items[0].imageSources[0],'https://cdn.example.invalid/camera-reviewed.jpg','extension cards use the canonical reviewed photo for the exact booked listing');
  assert.equal(rentalState.actionReady,true,'the rental keeps its own recorded Didit approval after the separate account reuse window expires');
+ const ownExtension=put('booking_change_requests',{bookingId:b._id,accountId:a._id,type:'extend',status:'awaiting_payment',paymentLinkUrl:'https://checkout.stripe.com/own-fixture',createdAt:Date.now(),quoteItems:[]});
+ const foreignExtension=put('booking_change_requests',{bookingId:b._id,accountId:foreign._id,type:'extend',status:'awaiting_payment',paymentLinkUrl:'https://checkout.stripe.com/foreign-fixture',createdAt:Date.now()+1,quoteItems:[]});
+ const scopedExtensionState=await ext.state.handler(ctx,{token:'renter',bookingId:b._id});
+ assert.deepEqual(scopedExtensionState.requests.map(row=>row.id),[ownExtension._id],'a renter sees only extension requests owned by their account');
+ assert.equal(JSON.stringify(scopedExtensionState).includes('foreign-fixture'),false,'a booking-linked stale request cannot leak another account’s payment link');
+ assert.equal((await ext.state.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id,admin:true})).requests.length,2,'authorized admin inspection retains access to all booking requests');
+ await db.delete(ownExtension._id);await db.delete(foreignExtension._id);
  const extensionGateCases=[
   ['unpaid',{paidConfirmedAt:undefined}],['pending-payment',{status:'pending_payment'}],['verification-pending',{idVerifyStatus:'processing'}],
   ['not-didit',{verificationProvider:'stripe'}],['missing-provenance',{idVerificationSource:undefined}],

@@ -9,8 +9,10 @@ import { v } from "convex/values";
 import { OWNER_EMAIL, sendMail } from "./lib/mailer";
 import { CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 import { bookingStockLines } from "../shared/rentalWindow";
-import { pickupMapAvailable, WATERSTONES_MAP_URL } from "../shared/pickupLocation";
+import { pickupMapAvailable } from "../shared/pickupLocation";
+import { WATERSTONES_MAP_URL } from "./lib/pickupMap";
 import { verificationExpired } from "../shared/verificationProgress";
+import { renterRentalActionReady } from "./lib/renterRentalActionGate";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -93,6 +95,7 @@ export const verificationEmail = internalAction({
   handler: async (ctx, { prepareOnly, deliveryKey, bookingId, status }):Promise<any> => {
     const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
     if (!b || !b.guestEmail || b.idVerifyStatus!==status || !["confirmed","active"].includes(b.status) || status === "verified" && verificationExpired(b)) return null;
+    if (status === "verified" && !renterRentalActionReady(b)) return null;
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
     const messages:Record<string,{title:string;body:string;button:string}>={

@@ -6,12 +6,14 @@ export function PageHero({
   accent,
   sub,
   center = false,
+  titleClassName,
 }: {
   eyebrow: string;
   lead: string;
   accent: string;
   sub?: string;
   center?: boolean;
+  titleClassName?: string;
 }) {
   return (
     <div className={`relative ${center ? "text-center" : ""}`}>
@@ -24,7 +26,7 @@ export function PageHero({
           <span className="hidden h-px w-8 bg-accent-400/60 sm:block" aria-hidden />
           <span className="hud-label !text-accent-400/90">{eyebrow}</span>
         </div>
-        <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-white sm:text-6xl">
+        <h1 className={`mt-3 font-display font-bold tracking-tight text-white ${titleClassName ?? "text-4xl sm:text-6xl"}`}>
           {lead}{" "}
           <span className="serif-accent gradient-text pr-1 text-[1.06em]">{accent}</span>
         </h1>

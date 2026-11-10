@@ -12,6 +12,12 @@ function load(file, mocks = {}, globals = {}) {
   const mod = { exports: {} };
   const req = (name) => {
     if (name in mocks) return mocks[name];
+    if (name.startsWith("@/")) {
+      let target = path.resolve(root, "src", name.slice(2));
+      if (!path.extname(target)) target += fs.existsSync(target + ".ts") ? ".ts" : fs.existsSync(target + ".tsx") ? ".tsx" : ".js";
+      if (target.endsWith(".ts") || target.endsWith(".tsx")) return load(target, mocks, globals);
+      return require(target);
+    }
     if (name.startsWith('.')) {
       let target = path.resolve(path.dirname(filename), name);
       if (!path.extname(target)) target += fs.existsSync(target + '.ts') ? '.ts' : '.js';
@@ -43,7 +49,13 @@ class StripeStub {
 }
 const serverMocks = { './_generated/server': registered, './_generated/api': { api: refs, internal: refs }, '../_generated/api': { api: refs, internal: refs }, './adminAuth': {}, stripe: StripeStub };
 const { validate } = load('convex/promo.ts', serverMocks);
-const { start, priceQuote } = load('convex/checkout.ts', serverMocks);
+// This suite exercises the checkout pricing and Gaffer offer path after the
+// release-readiness boundary. The dedicated checkout-readiness test verifies
+// that the current false production flag blocks before any side effects.
+const { start, priceQuote } = load('convex/checkout.ts', {
+  ...serverMocks,
+  '../shared/legalDocuments': { RENTAL_DRAFT_RELEASE_READY: true },
+});
 const { createPending } = load('convex/bookings.ts', serverMocks);
 const { AGREEMENTS } = load('src/lib/legal.ts');
 const { gafferDiscount } = load('convex/lib/gafferDiscount.ts');
@@ -80,7 +92,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
       runAction: async (ref,args) => { if(ref==='sync:syncHyggloReservations')return {mirrored:0,rows:0,checkedAt:123}; assert.equal(ref,'delivery:quote'); assert.equal(args.postcode,deliveryPostcode.replace(/\s/g,'').toUpperCase()); assert.equal(args.groups.flatMap(group=>group.listingIds).length,prices.length); return {ok:true,fee:quotedFee,oneWay:quotedFee/2,vehicle:'car',vehicleLabel:'Small car courier',km:1,load:1,isLondon:true,groups:args.groups.map(group=>({...group,fee:quotedFee,oneWay:quotedFee/2,vehicle:'car',vehicleLabel:'Small car courier',km:1,load:1}))}; },
       runMutation: async (ref,args) => { assert.equal(ref,'bookings:createPending'); pending=args; throw stop; },
     };
-    const args={expectedSavedCardLimit:prices.length*100*qty,items:prices.map((_,i)=>({listingId:`listing${i}`,title:submittedTitle??`Item ${i}`,start:0,end:0,qty,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),token,customer:{email:customerEmail,name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment,address,deliveryPostcode,deliveryFee,promoCode:code,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',requestId:'test-acceptance-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,documents:fulfilment==='delivery'?[...AGREEMENTS,{kind:'delivery-disclaimer',version:'2026-10-delivery-v2'}]:AGREEMENTS}};
+    const args={expectedSavedCardLimit:prices.length*100*qty,items:prices.map((_,i)=>({listingId:`listing${i}`,title:submittedTitle??`Item ${i}`,start:0,end:0,qty,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),token,customer:{email:customerEmail,name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment,address,deliveryPostcode,deliveryFee,promoCode:code,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',requestId:'test-acceptance-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,deliveryAccepted:fulfilment==='delivery',documents:fulfilment==='delivery'?[...AGREEMENTS,{kind:'delivery-disclaimer',version:'2026-10-delivery-v2'}]:AGREEMENTS}};
     if (!expectedError || expectedTotalOverride !== undefined) {
       const quote = await priceQuote.handler(ctx,{items:args.items,token,customerEmail,fulfilment,address,deliveryPostcode,promoCode:code});
       args.expectedTotalDue = expectedTotalOverride ?? quote.totalDue;args.expectedSavedCardLimit=quote.savedCardLimit;

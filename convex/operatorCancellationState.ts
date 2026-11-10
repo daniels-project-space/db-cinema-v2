@@ -1,7 +1,8 @@
 import {internalMutation,internalQuery,query,mutation} from "./_generated/server";
-import { assertSwapStockReconciled } from "./lib/swapStockFence";
+import { assertActiveItemSwapReady, assertSwapStockReconciled, expireUnacceptedItemSwap } from "./lib/swapStockFence";
 import {v,ConvexError} from "convex/values";
 import {accountForRental} from "./lib/rentalAccount";
+import {postRentalMessage} from "./lib/rentalChat";
 import {londonRentalInstant} from "../shared/rentalWindow";
 import {OPERATOR_CANCEL_GRACE_MS,operatorCancellationOptions} from "../shared/operatorCancellationCredit";
 import {queueRentalEmail} from "./lib/rentalEmailQueue";
@@ -32,14 +33,17 @@ export const begin=internalMutation({args:{bookingId:v.id("bookings"),reason:v.s
  if((b.currency??"GBP").toUpperCase()!=="GBP"||!b.stripePaymentIntentId&&b.total>0)throw Error("The original GBP rental payment needs review.");
  const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",b._id)).take(501);
  if(reservations.length>500||reservations.some(r=>r.source!=="site"))throw Error("Only direct website rental stock can be cancelled here.");
- if(b.cancellationDecision||b.returnDecision||b.activeAdditionId||b.activeExtensionId||b.activePriceAdjustmentId||b.activeItemSwapId||["starting","processing"].includes(b.depositHoldRenewalStatus??""))throw Error("Finish the active rental operation first.");
- await assertSwapStockReconciled(ctx, b._id);
+ if(b.cancellationDecision||b.returnDecision||b.activeAdditionId||b.activeExtensionId||b.activePriceAdjustmentId||["starting","processing"].includes(b.depositHoldRenewalStatus??""))throw Error("Finish the active rental operation first.");
+ await assertSwapStockReconciled(ctx, b._id, undefined, true);
+ await assertActiveItemSwapReady(ctx,b,true);
  const pickupAt=Math.min(...b.lineItems.map(line=>londonRentalInstant(line.start,line.pickupTime??b.pickupTime??"00:00")));
  if(pickupAt<=now)throw Error("The rental has already reached its pickup time.");
  const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",b._id)).take(101);
  if(refunds.length>100||refunds.some(r=>["prepared","pending"].includes(r.status)))throw Error("Finish or review the existing refund first.");
+ const expiredProposal=b.activeItemSwapId?await expireUnacceptedItemSwap(ctx,b):null;
  const id=await ctx.db.insert("operator_cancellation_offers",{bookingId:b._id,accountId:account._id,recipientEmail:account.email,reason:a.reason.trim().slice(0,400)||"Equipment unexpectedly unavailable",state:"waiting",cancelledAt:now,decisionAfter:now+OPERATOR_CANCEL_GRACE_MS,pickupAt,dueAt:now+OPERATOR_CANCEL_GRACE_MS,generation:0,attempts:0,leaseUntil:0,updatedAt:now});
  await ctx.db.patch(b._id,{status:"cancelled",cancelledAt:now,adminCancellationReason:a.reason.trim().slice(0,400),accountId:account._id,cancellationDecision:{kind:"full_refund",createdAt:now,operatorOfferId:id}});
+ if(expiredProposal)await postRentalMessage(ctx,{accountId:account._id,bookingId:b._id,sender:"system",text:"The pending equipment-change offer closed when the rental was cancelled. Your original confirmed items and price were unchanged."});
  for(const r of reservations){if(r.status==="hold")await ctx.db.delete(r._id);else if(r.status!=="cancelled")await ctx.db.patch(r._id,{status:"cancelled"});}
  await queueOwnerNotification(ctx,{eventKey:`operator-cancel-start:${id}`,kind:"booking_cancelled",accountId:account._id,bookingId:b._id,title:"Rental cancelled · settlement waiting",body:"The one-hour account decision window has started. No refund or account credit has been issued."});
  await queueRmv2Sync(ctx,b._id);

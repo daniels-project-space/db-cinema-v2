@@ -31,7 +31,7 @@ export type GearListing = {
 
 const off = (n: number, pct: number) => Math.round(n * (1 - pct / 100));
 
-export function GearCard({ listing }: { listing: GearListing }) {
+export function GearCard({ listing, mobileCompact = false, priorityImage = false }: { listing: GearListing; mobileCompact?: boolean; priorityImage?: boolean }) {
   const { slug, title, category, heroImage, pricing, quietDeal, displayOnly } = listing;
   const account = useAccount();
   const router = useRouter();
@@ -97,7 +97,7 @@ export function GearCard({ listing }: { listing: GearListing }) {
             state; naming it makes the shortlist legible as Gaffer's doing. */}
         {(picked || suggested) && (
           <span
-            className={`gaffer-pick-badge absolute right-2.5 top-2.5 z-20 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide shadow-lg ${
+            className={`gaffer-pick-badge absolute right-14 top-2.5 z-20 max-w-[calc(100%-7rem)] truncate rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide shadow-lg ${
               picked ? "bg-accent-400 text-black" : "bg-accent-400/25 text-accent-200 ring-1 ring-accent-400/50"
             }`}
           >
@@ -121,14 +121,15 @@ export function GearCard({ listing }: { listing: GearListing }) {
           src={heroImage}
           fallbackSources={listing.imageSources}
           alt={title}
-          className="aspect-[4/3]"
+          loading={priorityImage ? "eager" : "lazy"}
+          className={mobileCompact ? "aspect-[16/10] sm:aspect-[4/3]" : "aspect-[4/3]"}
           imgClassName="transition-transform duration-700 ease-out group-hover:scale-[1.07]"
         />
         {/* bottom fade so the title zone reads cleanly */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/35 to-transparent" aria-hidden />
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col gap-2 p-3 sm:p-4">
+      <div className={mobileCompact ? "flex min-w-0 flex-1 flex-col gap-1.5 p-2.5 sm:gap-2 sm:p-4" : "flex min-w-0 flex-1 flex-col gap-2 p-3 sm:p-4"}>
         <span className="hud-label !text-accent-400/90">{category}</span>
         <h3 className="line-clamp-2 flex-1 text-sm leading-snug text-white/85 transition-colors group-hover:text-white">
           {title}

@@ -21,10 +21,7 @@ const expected = [
   "convex/rentalExtensions.ts:prepare",
   "convex/rentalOperations.ts:changeHandoverTimes",
   "convex/rentalOperations.ts:changePickupTime",
-  "convex/rentalOperations.ts:removeItem",
   "convex/rentalOperations.ts:reschedule",
-  "convex/rentalReplacements.ts:accept",
-  "convex/rentalReplacements.ts:acceptBasket",
   "convex/sync.ts:applySharedStock",
 ];
 

@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { db, put, load } = require("./lib/rentalTestHarness.cjs");
+const { db, put, load, tables } = require("./lib/rentalTestHarness.cjs");
 
 delete process.env.ADMIN_SESSION_CUSTOMER_READ_V2;
 delete process.env.ADMIN_SESSION_CUSTOMER_WRITE_V2;
@@ -60,6 +60,30 @@ const ctx = { db };
     token: customerToken,
     bookingId: "synthetic-booking",
   }), { matches: [], more: false });
+  await assert.rejects(customerAdmin.verificationReviews.handler(ctx, {
+    token: customerToken,
+    accountId: account._id,
+  }), /unauthorized/);
+
+  const beforeAccount = structuredClone(tables.get("accounts").find(row => row._id === account._id));
+  const beforeAudits = (tables.get("account_admin_changes") ?? []).length;
+  const beforeNotes = (tables.get("account_admin_notes") ?? []).length;
+  const beforeNotices = (tables.get("account_restriction_notices") ?? []).length;
+  const forbiddenWrites = [
+    ["star", customerAdmin.setStarred, { token: customerToken, accountId: account._id, starred: true }],
+    ["membership", customerAdmin.setLevel, { token: customerToken, accountId: account._id, level: "pro", expectedLevel: "automatic", reason: "Fixture" }],
+    ["Encore", customerAdmin.setEncoreLevel, { token: customerToken, accountId: account._id, level: 3, expectedLevel: "automatic", reason: "Fixture" }],
+    ["combined access", customerAdmin.setRentalAccess, { token: customerToken, accountId: account._id, level: "pro", expectedLevel: "automatic", encoreLevel: 3, expectedEncoreLevel: "automatic", reason: "Fixture" }],
+    ["profile", customerAdmin.updateProfile, { token: customerToken, accountId: account._id, name: "Changed", phone: "", address: "", expected: { name: account.name, phone: null, address: null }, reason: "Fixture profile update" }],
+    ["restriction", customerAdmin.setBlocked, { token: customerToken, accountId: account._id, blocked: true, reason: "Fixture restriction", expected: { blockedAt: null, noticeId: null, reason: "", revision: 0 } }],
+    ["internal note", customerAdmin.addNote, { token: customerToken, accountId: account._id, text: "Forged internal note" }],
+  ];
+  for (const [name, mutation, args] of forbiddenWrites)
+    await assert.rejects(mutation.handler(ctx, args), /unauthorized/, `A renter cannot use the admin ${name} control.`);
+  assert.deepEqual(tables.get("accounts").find(row => row._id === account._id), beforeAccount, "Rejected customer-side controls leave the account unchanged.");
+  assert.equal((tables.get("account_admin_changes") ?? []).length, beforeAudits, "Rejected customer-side controls create no admin audit rows.");
+  assert.equal((tables.get("account_admin_notes") ?? []).length, beforeNotes, "Rejected customer-side controls create no internal notes.");
+  assert.equal((tables.get("account_restriction_notices") ?? []).length, beforeNotices, "Rejected customer-side controls send no restriction notice.");
 
   const paginationOpts = { cursor: null, numItems: 20 };
   assert.deepEqual(await rentalChat.adminInbox.handler(ctx, { token: customerToken }), {
@@ -86,7 +110,7 @@ const ctx = { db };
     text: "Forged admin reply",
   }), /unauthorized/);
 
-  console.log("PASS customer/admin boundary: a valid customer session cannot read customer-directory insights or use admin rental-chat views/actions; synthetic data only.");
+  console.log("PASS customer/admin boundary: a valid customer session cannot read account insights, verify cases or invoke profile/access/restriction/note writes, directory queries or admin rental-chat actions; no account or audit rows changed.");
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

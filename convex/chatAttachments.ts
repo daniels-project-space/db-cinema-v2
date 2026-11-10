@@ -102,7 +102,7 @@ export const publish = internalMutation({ args: { ...scope, id: v.id("chat_attac
   const expectedHash = attempt?.sha256 && /^[a-f0-9]{64}$/.test(attempt.sha256) ? btoa(String.fromCharCode(...attempt.sha256.match(/../g)!.map(byte => parseInt(byte, 16)))) : null;
   if (!attempt || attempt.status !== "scanned" || attempt.marker !== args.marker || attempt.accountId !== account._id || attempt.bookingId !== args.bookingId || attempt.admin !== args.admin || attempt.createdAt < Date.now() - 5 * 60_000 || !metadata || metadata.contentType !== attempt.marker || metadata.size !== attempt.size || !expectedHash || (metadata.sha256 !== attempt.sha256 && metadata.sha256 !== expectedHash)) throw Error("Attachment unavailable.");
   const name = chatAttachmentName(args.name, attempt.contentType ?? "");
-  const messageId = await postRentalMessage(ctx, { accountId: account._id, bookingId: args.bookingId, sender: args.admin ? "owner" : "renter", text: `Attachment: ${name}`, meta: { kind: "attachment", attachmentId: attempt._id, name } });
+  const messageId = await postRentalMessage(ctx, { accountId: account._id, bookingId: args.bookingId, sender: args.admin ? "owner" : "renter", text: `Attachment: ${name}`, meta: { kind: "attachment", attachmentId: attempt._id, name, contentType: attempt.contentType } });
   await ctx.db.patch(attempt._id, { status: "published", storageId: args.storageId, messageId, name });
 } });
 
@@ -123,7 +123,7 @@ export const download = internalMutation({ args: { ...scope, id: v.id("chat_atta
   if (!attempt || attempt.status !== "published" || attempt.accountId !== account._id || attempt.bookingId !== args.bookingId || !attempt.storageId || !attempt.messageId || !attempt.sha256 || !attempt.size || !attempt.name) throw Error("Attachment unavailable.");
   const message = await ctx.db.get(attempt.messageId);
   if (!message || message.accountId !== account._id || message.bookingId !== args.bookingId || message.meta?.attachmentId !== attempt._id) throw Error("Attachment unavailable.");
-  return { storageId: attempt.storageId, messageId: attempt.messageId, sha256: attempt.sha256, size: attempt.size, name: attempt.name };
+  return { storageId: attempt.storageId, messageId: attempt.messageId, sha256: attempt.sha256, size: attempt.size, name: attempt.name, contentType: attempt.contentType };
 } });
 
 async function openCases(ctx:any,attempt:any) {
@@ -144,22 +144,23 @@ async function openCases(ctx:any,attempt:any) {
 
 async function attachmentRetentionWindow(ctx:any,attempt:any) {
   let closedAt:number|undefined;
+  let caseArchived=false;
   if(attempt.bookingId){
-    if(await bookingHasCaseArchive(ctx,attempt.bookingId))return {closedAt:null,expiresAt:null,needsReview:false,caseArchived:true};
+    caseArchived=await bookingHasCaseArchive(ctx,attempt.bookingId);
     const booking=await ctx.db.get(attempt.bookingId);
-    if(!booking)return {closedAt:null,expiresAt:null,needsReview:true,caseArchived:false};
+    if(!booking)return {closedAt:null,expiresAt:null,needsReview:true,caseArchived};
     if(booking.status==="returned")closedAt=booking.returnedAt;
     else if(booking.status==="cancelled")closedAt=booking.cancelledAt;
-    else if(booking.status!=="returned"&&booking.status!=="cancelled")return {closedAt:null,expiresAt:null,needsReview:false,caseArchived:false};
+    else if(booking.status!=="returned"&&booking.status!=="cancelled")return {closedAt:null,expiresAt:null,needsReview:false,caseArchived};
   }else{
     const thread=await ctx.db.query("chat_threads").withIndex("by_account_booking",(q:any)=>q.eq("accountId",attempt.accountId).eq("bookingId",undefined)).unique();
     if(!thread)return {closedAt:null,expiresAt:null,needsReview:true,caseArchived:false};
     if(thread.closedAt===undefined)return {closedAt:null,expiresAt:null,needsReview:false,caseArchived:false};
     closedAt=thread.closedAt;
   }
-  if(closedAt===undefined)return {closedAt:null,expiresAt:null,needsReview:true,caseArchived:false};
-  if(!Number.isSafeInteger(closedAt)||closedAt<=0||closedAt>Date.now())return {closedAt:null,expiresAt:null,needsReview:true,caseArchived:false};
-  return {closedAt,expiresAt:closedAt+CHAT_FILE_RETENTION_MS,needsReview:false,caseArchived:false};
+  if(closedAt===undefined)return {closedAt:null,expiresAt:null,needsReview:true,caseArchived};
+  if(!Number.isSafeInteger(closedAt)||closedAt<=0||closedAt>Date.now())return {closedAt:null,expiresAt:null,needsReview:true,caseArchived};
+  return {closedAt,expiresAt:closedAt+CHAT_FILE_RETENTION_MS,needsReview:false,caseArchived};
 }
 
 async function removePublishedBytes(ctx:any,attempt:any,reason:string,action:"removed"|"retention_removed") {
@@ -202,7 +203,6 @@ export const removePublished=mutation({args:{token:v.string(),id:v.id("chat_atta
   if(attempt.status!=="published"||!attempt.storageId||!attempt.messageId)throw Error("Attachment unavailable.");
   if(attempt.retentionNeedsReview)throw Error("The file needs a retention review before removal.");
   if(!Number.isSafeInteger(args.expectedRevision)||args.expectedRevision!==(attempt.retentionHoldRevision??0))throw Error("The retention hold changed. Review it and confirm again.");
-  if(attempt.bookingId&&await bookingHasCaseArchive(ctx,attempt.bookingId))throw Error("This rental conversation is preserved in the permanent case archive.");
   if(attempt.retentionHoldReason||await openCases(ctx,attempt))throw Error("This attachment is protected by an open case or retention hold.");
   if(!await removePublishedBytes(ctx,attempt,reason,"removed"))throw Error("The file needs a retention review before removal.");
 }});
@@ -254,7 +254,6 @@ export const purgeExpired=internalMutation({args:{},handler:async ctx=>{
     let window:{closedAt:number|null;expiresAt:number|null;needsReview:boolean;caseArchived?:boolean};
     try{window=await attachmentRetentionWindow(ctx,attempt);}catch{window={closedAt:null,expiresAt:null,needsReview:true,caseArchived:false};}
     if(window.needsReview){await ctx.db.patch(attempt._id,{retentionNeedsReview:true});continue;}
-    if(window.caseArchived)continue;
     if(window.expiresAt===null||window.expiresAt>now)continue;
     let open=0;
     try{open=await openCases(ctx,attempt);}catch{await ctx.db.patch(attempt._id,{retentionNeedsReview:true});continue;}
@@ -279,7 +278,6 @@ export const purgeExpiredActionAudits=internalMutation({args:{},handler:async ct
       const attempt=await ctx.db.get(row.attachmentId);
       const removedAt=attempt?.removedAt;
       if(!attempt||attempt.status!=="removed"||typeof removedAt!=="number"||!Number.isSafeInteger(removedAt))continue;
-      if(attempt.bookingId&&await bookingHasCaseArchive(ctx,attempt.bookingId))continue;
       await ctx.db.patch(row._id,{purgeAfter:removedAt+CHAT_AUDIT_RETENTION_MS});migrated++;
     }
     backfillDone=page.isDone;
@@ -292,8 +290,6 @@ export const purgeExpiredActionAudits=internalMutation({args:{},handler:async ct
   let deleted=0;
   for(const row of page.page){
     const attempt=await ctx.db.get(row.attachmentId);
-    const caseArchived=!!row.bookingId&&await bookingHasCaseArchive(ctx,row.bookingId);
-    if(caseArchived){await ctx.db.patch(row._id,{purgeAfter:undefined});continue;}
     if(attempt&&attempt.status!=="removed"){await ctx.db.patch(row._id,{purgeAfter:undefined});continue;}
     const removedAt=attempt?.removedAt;
     if(attempt&&(typeof removedAt!=="number"||!Number.isSafeInteger(removedAt)||removedAt+CHAT_AUDIT_RETENTION_MS>now)){await ctx.db.patch(row._id,{purgeAfter:undefined});continue;}

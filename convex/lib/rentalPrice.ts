@@ -29,7 +29,7 @@ export type RentalPriceInput = {
   token?: string;
   useAccountCredit?:boolean;
   selectedMembership?: { tier: string; intro: "trial" | "credit" | "none" };
-  customer: { email: string };
+  customer: { email: string; name?: string; billingAddress?: string };
   fulfilment: "pickup" | "delivery";
   address?: string;
   deliveryPostcode?: string;
@@ -141,6 +141,9 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     securityWaiverReason = (await ctx.runQuery(internal.bookings.depositWaiverEligibility, {
       accountId: acct._id,
       replacementValuePence: Math.round(replacementSum * 100),
+      starts: a.items.map(item => item.start),
+      agreementName: a.customer.name,
+      billingAddress: a.customer.billingAddress,
     })) ?? undefined;
   }
   if(cardHoldPolicy&&securityWaiverReason)depositHoldAmount=0;

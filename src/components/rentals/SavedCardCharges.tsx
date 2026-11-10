@@ -66,6 +66,7 @@ function ChargeRow({row,token,bookingId,admin,immediateClaim}:{row:any;token:str
   {row.state==="paid"&&<p>Bank-confirmed payment: {formatGbp(row.paid)}.</p>}
   {row.state==="paid"&&<button disabled={busy} onClick={()=>run(statement)}>Download assessment statement</button>}
   {row.refunded>0&&<p>Refunded to the original payment method: {formatGbp(row.refunded)}. This does not restore the used collection allowance.</p>}
+  {admin&&row.refunded>0&&row.refundEmailStatus&&<small>Refund email · {row.refundEmailStatus}{row.refundEmailAt?` · accepted ${when(row.refundEmailAt)}`:""}{row.refundEmailError?` · ${row.refundEmailError}`:""}</small>}
   {row.refundStatus&&<p>Refund status: {row.refundStatus.replaceAll('_',' ')}.</p>}
   {row.error&&<p className={styles.error}>{row.error}</p>}
   {admin&&<div className={styles.actions}>

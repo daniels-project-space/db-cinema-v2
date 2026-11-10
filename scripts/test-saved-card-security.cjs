@@ -1,7 +1,7 @@
 /** Actual application handlers with isolated fixtures; no real customers or money. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const {load, db, put, setMock} = require('./lib/rentalTestHarness.cjs');
+const {load, db, put, setMock, tables} = require('./lib/rentalTestHarness.cjs');
 const policy = load('shared/rentalSecurity.ts');
 const consent = load('shared/savedCardSecurity.ts');
 const agreement = load('shared/rentalAgreement.ts');
@@ -101,6 +101,13 @@ const actionCtx={runQuery:async(ref,args)=>{
  assert.equal((await actions.collect.handler(actionCtx,{token:owner,id:late})).status,'paid');assert.equal(createCalls,2);assert.equal(b.savedCardChargePaidPence,25000);assert.equal(b.lateFeePaidFromCard,50);
  const frozen=await state.beginRefund.handler(ctx,{id:late,amountPence:5000,reason:'Owner corrected return time'});
  await state.recordRefund.handler(ctx,{id:late,receipt:{...frozen.receipt,stripeRefundId:'re_fixture',status:'succeeded'},refundedPence:5000});
+ const refundNotice=tables.get('rental_security_refund_notices').find(row=>row.chargeId===late);
+ assert(refundNotice,'A bank-confirmed assessment refund creates a durable renter email job');assert.equal(refundNotice.amountPence,5000);assert.equal(refundNotice.cumulativePence,5000);assert.equal(refundNotice.reason,'Owner corrected return time');
+ assert(scheduled.some(([,ref,args])=>ref==='securityCharges.sendRefundNotice'&&args.noticeId===refundNotice._id),'The refund email job is dispatched immediately');
+ const claimedNotice=await state.claimRefundNotice.handler(ctx,{noticeId:refundNotice._id});assert.equal(claimedNotice.status,'sending');
+ const noticeContext=await state.refundNoticeContext.handler(ctx,{noticeId:refundNotice._id});assert.equal(noticeContext.account._id,account._id);assert.equal(noticeContext.charge._id,late);
+ await state.finishRefundNotice.handler(ctx,{noticeId:refundNotice._id,sent:true,recipient:account.email,subject:'Refund confirmed',html:'Updated assessment statement'});
+ assert.equal((await db.get(refundNotice._id)).status,'sent');assert.equal((await db.get(late)).refundEmailStatus,'sent');assert.equal((await state.claimRefundNotice.handler(ctx,{noticeId:refundNotice._id})),null,'A sent refund email is not replayed');
  assert.equal(b.savedCardChargePaidPence,25000,'Refund does not restore automatic billing allowance');assert.equal(b.lateFeePaidFromCard,0);
  await state.recordRefund.handler(ctx,{id:late,receipt:{...frozen.receipt,stripeRefundId:'re_fixture',status:'failed'},refundedPence:0});assert.equal(b.lateFeePaidFromCard,50,'Refund reversals update net paid from the bank receipt');
  await assert.rejects(prepare(b,'late',1,'after-refund'),/combined/);

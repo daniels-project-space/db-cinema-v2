@@ -1,32 +1,34 @@
 const assert=require('node:assert/strict');
 const{load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
 const requests=load('convex/rentalRequests.ts'),operations=load('convex/rentalOperations.ts'),bookings=load('convex/bookings.ts');
-process.env.ADMIN_TOKEN='receipt-owner';const jobs=[],ctx={db,scheduler:{runAfter:async(...a)=>jobs.push(a)}};
-const a=put('accounts',{email:'request-receipts@example.invalid'}),other=put('accounts',{email:a.email});
+process.env.ADMIN_TOKEN='receipt-owner';const jobs=[],ctx={db,scheduler:{runAfter:async(...a)=>jobs.push(a)},runQuery:async(ref,args)=>{if(String(ref).endsWith('rentalOperations.renterReschedulePreview'))return operations.renterReschedulePreview.handler(ctx,args);if(String(ref).endsWith('rentalOperations.previewReschedule'))return operations.previewReschedule.handler(ctx,args);throw Error('Unexpected query '+ref)}};
+const a=put('accounts',{email:'request-receipts@example.invalid'}),other=put('accounts',{email:a.email}),v22Account=put('accounts',{email:'request-receipts-v22@example.invalid'});
 put('sessions',{token:'renter',accountId:a._id,expiresAt:Date.now()+600000});
+put('sessions',{token:'renter-v22',accountId:v22Account._id,expiresAt:Date.now()+600000});
 const unit=put('inventory_units',{name:'Camera pool',quantityOwned:3});
 const listing=put('listings',{title:'Camera',active:true,depositAmount:200,components:[{inventoryUnitId:unit._id,qty:1}]});
 const start=Date.UTC(2030,0,1),end=start+86400000;
 const b=put('bookings',{accountId:a._id,guestEmail:a.email,status:'confirmed',lineItems:[{listingId:listing._id,title:listing.title,start,end,qty:1,lineTotal:80}],total:100,subtotal:80,depositAmount:20,paidConfirmedAt:Date.now(),verificationProvider:'didit',idVerifyStatus:'verified',idVerificationSource:'didit',idVerifiedAt:Date.now(),verificationChecks:{identity:'approved',selfie:'approved',address:'approved'}});
 put('reservations',{bookingId:b._id,listingId:listing._id,inventoryUnitId:unit._id,start,end,qty:1,source:'site',status:'confirmed'});
-async function create(kind,requestId){await requests.submit.handler(ctx,{token:'renter',bookingId:b._id,requestId,kind,detail:'Please arrange the agreed customer rental change.'});return tables.get('rental_change_requests').at(-1);}
+async function create(kind,requestId,proposedStart){await requests.submit.handler(ctx,{token:'renter',bookingId:b._id,requestId,kind,detail:'Please arrange the agreed customer rental change.',...(proposedStart===undefined?{}:{proposedStart})});return tables.get('rental_change_requests').at(-1);}
 (async()=>{
-const request=await create('dates','date-request-receipt-0001');
-const args={token:process.env.ADMIN_TOKEN,bookingId:b._id,changeRequestId:request._id,start:start+7*86400000,end:end+7*86400000,reason:'Agreed date change from this customer request.'};
+const request=await create('dates','date-request-receipt-0001',start+7*86400000);
+const args={token:process.env.ADMIN_TOKEN,bookingId:b._id,changeRequestId:request._id,start:start+7*86400000,reason:'Agreed date change from this customer request.'};
 await assert.rejects(operations.reschedule.handler(ctx,args),/approved request/);
 await requests.review.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id,id:request._id,decision:'approved',note:'We agree to arrange the new dates subject to stock confirmation.'});
+args.expectedSnapshot=request.requestedSnapshot;
 const foreignRequest=put('rental_change_requests',{bookingId:b._id,accountId:other._id,kind:'dates',status:'approved'});
 await assert.rejects(operations.reschedule.handler(ctx,{...args,changeRequestId:foreignRequest._id}),/approved request/);
 await db.patch(foreignRequest._id,{status:'declined'});
 await assert.rejects(create('cancel','cancel-request-receipt-0001'),/already awaiting the team/,'A second request stays blocked while the approved date change still needs its stock checked and applied.');
 await assert.rejects(operations.reschedule.handler(ctx,{...args,token:'renter'}),/unauthorized/);
-const conflict=put('reservations',{listingId:listing._id,inventoryUnitId:unit._id,start:args.start,end:args.end,qty:3,source:'hygglo',status:'confirmed'});
+const conflict=put('reservations',{listingId:listing._id,inventoryUnitId:unit._id,start:args.start,end:end+7*86400000,qty:3,source:'hygglo',status:'confirmed'});
 await assert.rejects(operations.reschedule.handler(ctx,args),/already reserved/);
 assert.equal(request.execution,undefined);assert.equal(b.lineItems[0].start,start);
 await db.delete(conflict._id);
 await operations.reschedule.handler(ctx,args);
-assert.equal(b.lineItems[0].start,args.start);assert.equal(b.lineItems[0].end,args.end);assert.equal(b.total,100);
-const reserved=tables.get('reservations').filter(r=>r.bookingId===b._id&&r.status==='confirmed');assert.equal(reserved.length,1);assert.equal(reserved[0].start,args.start);assert.equal(reserved[0].end,args.end);
+assert.equal(b.lineItems[0].start,args.start);assert.equal(b.lineItems[0].end,end+7*86400000);assert.equal(b.total,100);
+const reserved=tables.get('reservations').filter(r=>r.bookingId===b._id&&r.status==='confirmed');assert.equal(reserved.length,1);assert.equal(reserved[0].start,args.start);assert.equal(reserved[0].end,end+7*86400000);
 assert.equal(request.execution.status,'applied');assert.equal(request.execution.operation,'reschedule');assert(request.execution.appliedAt);
 const cancelRequest=await create('cancel','cancel-request-receipt-0001');
 await requests.review.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id,id:cancelRequest._id,decision:'approved',note:'Cancellation is agreed under the accepted terms.'});
@@ -61,6 +63,10 @@ const originalNow=Date.now,now=originalNow(),todayParts=new Intl.DateTimeFormat(
 const todayValue=kind=>Number(todayParts.find(part=>part.type===kind).value),futureStart=Date.UTC(todayValue('year'),todayValue('month')-1,todayValue('day')+10,15),cancelBooking=put('bookings',{accountId:a._id,guestEmail:a.email,status:'confirmed',lineItems:[{listingId:listing._id,title:listing.title,start:futureStart,end:futureStart+86400000,qty:1,lineTotal:80}],total:100,subtotal:80,depositAmount:20,pickupTime:'15:00',agreementDocs:[{kind:'cancellation',version:'2026-11-v21'}],paidConfirmedAt:Date.now(),verificationProvider:'didit',idVerifyStatus:'verified',idVerificationSource:'didit',idVerifiedAt:Date.now(),verificationChecks:{identity:'approved',selfie:'approved',address:'approved'}});
 const timingRequest=await requests.submit.handler(ctx,{token:'renter',bookingId:cancelBooking._id,requestId:'cancel-timing-request-0001',kind:'cancel',detail:'Please cancel under my accepted terms.',cancellationChoice:'credit'}),timingRow=tables.get('rental_change_requests').find(row=>row.requestId==='cancel-timing-request-0001');
 assert.equal(timingRow.cancellationKindAtRequest,'full_refund');
+const timingMessage=tables.get('messages').find(row=>row._id===timingRequest.messageId);
+assert.match(timingMessage.text,/More than seven London calendar days before the earliest equipment start/,'v21 chat copy uses the seven-day start-date clock');
+assert.match(timingMessage.text,/Renter chose 100% account credit/);
+assert.doesNotMatch(timingMessage.text,/before pickup/,'v21 chat copy does not conflate earliest-start and pickup timing');
 await requests.review.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:cancelBooking._id,id:timingRow._id,decision:'approved',note:'Approved under the renter’s chosen settlement.'});
 try {
  Date.now=()=>futureStart-7*86400000;
@@ -70,6 +76,24 @@ try {
  assert.equal(saved.kind,'full_refund','the renter’s eligibility is fixed at the recorded request time, not reduced by team review delay');
  assert.equal(saved.customerChoice,'credit','the selected account-credit settlement reaches the cancellation operation');
  assert.equal(timingRow.execution.status,'processing');
+} finally { Date.now=originalNow; }
+const futureStartV22=Date.UTC(todayValue('year'),todayValue('month')-1,todayValue('day')+10,15),cancelBookingV22=put('bookings',{accountId:v22Account._id,guestEmail:v22Account.email,status:'confirmed',lineItems:[{listingId:listing._id,title:listing.title,start:futureStartV22,end:futureStartV22+86400000,qty:1,lineTotal:80}],total:100,subtotal:80,depositAmount:20,pickupTime:'15:00',agreementDocs:[{kind:'cancellation',version:'2026-11-v22'}],paidConfirmedAt:Date.now(),verificationProvider:'didit',idVerifyStatus:'verified',idVerificationSource:'didit',idVerifiedAt:Date.now(),verificationChecks:{identity:'approved',selfie:'approved',address:'approved'}});
+const v22RequestId='cancel-v22-receipt-0001';
+await assert.rejects(requests.submit.handler(ctx,{token:'renter-v22',bookingId:cancelBookingV22._id,requestId:v22RequestId,kind:'cancel',detail:'Please cancel under my accepted rental terms.'}),/Choose a full refund or 100% account credit/);
+await requests.submit.handler(ctx,{token:'renter-v22',bookingId:cancelBookingV22._id,requestId:v22RequestId,kind:'cancel',detail:'Please cancel under my accepted rental terms.',cancellationChoice:'credit'});
+const v22Request=tables.get('rental_change_requests').find(row=>row.requestId===v22RequestId);
+assert.equal(v22Request.cancellationTermsVersion,'2026-11-v22');assert.equal(v22Request.cancellationKindAtRequest,'full_refund');assert.equal(v22Request.cancellationChoice,'credit');
+const v22Message=tables.get('messages').find(row=>row._id===v22Request.messageId);
+assert.match(v22Message.text,/More than seven London calendar days before the earliest equipment start/,'v22 chat copy retains the v21 cancellation clock');
+assert.doesNotMatch(v22Message.text,/before pickup/);
+await requests.review.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:cancelBookingV22._id,id:v22Request._id,decision:'approved',note:'Approved under the renter’s selected settlement.'});
+try {
+ Date.now=()=>futureStartV22-5*86400000;
+ assert.equal(require('./lib/rentalTestHarness.cjs').load('src/lib/cancellationPolicy.ts').bookingCancelKind(cancelBookingV22,Date.now()),'store_credit','At processing time, v22 is within its credit-only window');
+ const prepared=await bookings.prepareCancellation.handler(ctx,{bookingId:cancelBookingV22._id,changeRequestId:v22Request._id,expectedCancellationKind:'full_refund',customerChoice:'credit'});
+ assert.equal(prepared.kind,'full_refund','The saved v22 request-time eligibility survives team review delay');
+ assert.equal(prepared.customerChoice,'credit','The selected v22 settlement remains attached to the prepared cancellation');
+ assert.equal(v22Request.execution.status,'processing');
 } finally { Date.now=originalNow; }
 console.log('PASS actual request execution: approval/account/type fences, stock failure remains unapplied, atomic date receipt and real chat linkage, lost-response/no-inventory-change replay after pickup, changed-payload rejection, cancellation binding and no completion without settlement job. Controlled database; no provider writes.');
 })().catch(e=>{console.error(e);process.exitCode=1});

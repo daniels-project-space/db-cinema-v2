@@ -1,6 +1,8 @@
-import { AGREEMENTS, LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, CARD_HOLD_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS, IMMEDIATE_CLAIM_LEGAL_VERSION, agreementsForSecurityPolicy } from "../src/lib/legal";
+import { LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, CARD_HOLD_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS, IMMEDIATE_CLAIM_LEGAL_VERSION, IMMEDIATE_CLAIM_LEGAL_VERSIONS, agreementsForSecurityPolicy } from "../src/lib/legal";
 import { ASSESSMENT_SECURITY_POLICY_VERSION, CARD_HOLD_SECURITY_POLICY_VERSION, isCardHoldSecurityPolicy, isSetupIntentSecurityPolicy, isImmediateClaimSecurityPolicy } from "./rentalSecurity";
 import { LEGAL_DOCS, LEGAL_ARCHIVE, RENTAL_DRAFT_RELEASE_READY, type LegalDoc } from "./legalDocuments";
+import { CURRENT_PRIVACY_NOTICE } from "./currentPrivacyNotice";
+import { TRAFALGAR_PICKUP_AREA } from "./pickupLocation";
 
 export const DELIVERY_TERMS_VERSION = "2026-10-delivery-v2";
 export const DELIVERY_ACCEPTANCE_TEXT = "Delivery uses an agreed third-party courier. Times are estimates and may be affected by traffic. The final delivery price is shown in your accepted quotation. Courier delays do not remove statutory rights; tell us promptly so we can assess the delay and available remedy.";
@@ -16,7 +18,7 @@ export type AgreementSnapshot = {
   documents: (Accepted & { text: LegalDoc })[];
   particulars: {
     customerName: string; email: string; billingAddress: string;
-    fulfilment: string; address: string | null; pickupTime: string; returnTime: string;
+    fulfilment: string; address: string | null; pickupArea: string | null; deliveryTermsAccepted: boolean; pickupTime: string; returnTime: string;
     timeZone: "Europe/London";
     lineItems: { listingId: string; title: string; start: number; end: number; qty: number; lineTotal: number; dailyRate?: number;pickupTime?:string|null;returnTime?:string|null }[];
     subtotal: number; discount: number; deliveryFee: number; securityPayment: number;
@@ -27,7 +29,7 @@ export type AgreementSnapshot = {
   };
 };
 
-export function assertCurrentAgreement(a: { name?: string; securityHoldConsent?: boolean; laterChargeConsent?: boolean; documents?: Accepted[]; securityPolicyVersion?: string; cancellationProtectionEnabled?:boolean } | undefined, fulfilment: string) {
+export function assertCurrentAgreement(a: { name?: string; securityHoldConsent?: boolean; laterChargeConsent?: boolean; deliveryAccepted?:boolean; documents?: Accepted[]; securityPolicyVersion?: string; cancellationProtectionEnabled?:boolean } | undefined, fulfilment: string) {
   if (!a?.name || a.name.trim().length < 3 || !a.securityHoldConsent || (!isCardHoldSecurityPolicy(a.securityPolicyVersion) && !a.laterChargeConsent))
     throw Error("Please sign the rental agreement to continue.");
   if(isCardHoldSecurityPolicy(a.securityPolicyVersion)&&a.laterChargeConsent)
@@ -36,12 +38,14 @@ export function assertCurrentAgreement(a: { name?: string; securityHoldConsent?:
   if (fulfilment === "delivery") expected.push({kind:"delivery-disclaimer",version:DELIVERY_TERMS_VERSION});
   if (a.documents?.length !== expected.length || !expected.every(e => a.documents!.filter(d => d.kind === e.kind && d.version === e.version).length === 1))
     throw Error("Please review and accept the current rental agreements before paying.");
+  if (fulfilment === "delivery" && a.deliveryAccepted !== true)
+    throw Error("Please accept the delivery arrangements before paying.");
 }
 
 /** Created only inside the booking transaction from its canonical saved price.
  * Never reconstruct accepted text from whatever the public pages now say. */
 export function snapshotAgreement(a: any, acceptedAt: number, chargedTotal: number, creditApplied: number): string {
-  assertCurrentAgreement({name:a.agreementName,securityHoldConsent:a.securityHoldConsent,laterChargeConsent:a.laterChargeConsent,documents:a.agreementDocs,securityPolicyVersion:a.securityPolicyVersion,cancellationProtectionEnabled:a.cancellationProtectionEnabled},a.fulfilment);
+  assertCurrentAgreement({name:a.agreementName,securityHoldConsent:a.securityHoldConsent,laterChargeConsent:a.laterChargeConsent,deliveryAccepted:a.deliveryAccepted,documents:a.agreementDocs,securityPolicyVersion:a.securityPolicyVersion,cancellationProtectionEnabled:a.cancellationProtectionEnabled},a.fulfilment);
   if (!a.customerName?.trim() || !a.billingAddress?.trim() || !a.pickupTime || !a.returnTime || !a.lineItems?.length)
     throw Error("Complete booking particulars are required for agreement acceptance.");
   const legalVersion = agreementsForSecurityPolicy(a.securityPolicyVersion,a.cancellationProtectionEnabled).find(doc=>doc.kind==="rental-agreement")!.version;
@@ -50,9 +54,10 @@ export function snapshotAgreement(a: any, acceptedAt: number, chargedTotal: numb
     format:1, version:legalVersion, acceptedAt, signer:a.agreementName.trim(),
     documents:a.agreementDocs.map((d:Accepted) => ({...d,text:d.kind === "delivery-disclaimer"
       ? {title:"Delivery arrangements",updated:"October 2026",sections:[{h:"Delivery",p:DELIVERY_ACCEPTANCE_TEXT}]}
-      : docs[d.kind]})),
+      : d.kind === "privacy" ? CURRENT_PRIVACY_NOTICE : docs[d.kind]})),
     particulars:{customerName:a.customerName.trim(),email:a.customerEmail.trim().toLowerCase(),billingAddress:a.billingAddress,
-      fulfilment:a.fulfilment,address:a.address??null,pickupTime:a.pickupTime,returnTime:a.returnTime,timeZone:"Europe/London",
+      fulfilment:a.fulfilment,address:a.address??null,pickupArea:a.fulfilment === "pickup" ? TRAFALGAR_PICKUP_AREA : null,
+      deliveryTermsAccepted:a.fulfilment === "delivery" && a.deliveryAccepted === true,pickupTime:a.pickupTime,returnTime:a.returnTime,timeZone:"Europe/London",
       lineItems:a.lineItems.map((line:any)=>({...line})),subtotal:a.subtotal,discount:a.discount??0,deliveryFee:a.deliveryFee,
       ...(a.useAccountCredit!==undefined?{useAccountCredit:a.useAccountCredit}:{}),securityPayment:a.depositAmount,securityHold:a.depositHoldAmount??0,total:chargedTotal,creditApplied,currency:a.currency,
       securityPolicyVersion:a.securityPolicyVersion??null,securityWaiverReason:a.securityWaiverReason??null,
@@ -77,9 +82,9 @@ export function assertAgreementBeforeRelease(b: any) {
       !b.agreementDocs?.some((d:Accepted)=>d.kind==="rental-agreement" && !!d.version))
     throw Error("Retained agreement acceptance is required before handover; do not backfill or infer consent.");
   const acceptedVersion=b.agreementDocs.find((d:Accepted)=>d.kind==="rental-agreement")?.version??"";
-  if ([LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,"2026-10-v15","2026-10-v16",ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,...SETUP_INTENT_LEGAL_VERSIONS,IMMEDIATE_CLAIM_LEGAL_VERSION].includes(acceptedVersion)) {
+  if ([LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,"2026-10-v15","2026-10-v16",ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,...SETUP_INTENT_LEGAL_VERSIONS,...IMMEDIATE_CLAIM_LEGAL_VERSIONS].includes(acceptedVersion)) {
     const s=readAgreementSnapshot(b.agreementSnapshot);
-    const allowedVersions=isImmediateClaimSecurityPolicy(b.securityPolicyVersion)?[IMMEDIATE_CLAIM_LEGAL_VERSION]:isSetupIntentSecurityPolicy(b.securityPolicyVersion)?SETUP_INTENT_LEGAL_VERSIONS:b.securityPolicyVersion===CARD_HOLD_SECURITY_POLICY_VERSION?[CARD_HOLD_LEGAL_VERSION]:b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION
+    const allowedVersions=isImmediateClaimSecurityPolicy(b.securityPolicyVersion)?IMMEDIATE_CLAIM_LEGAL_VERSIONS:isSetupIntentSecurityPolicy(b.securityPolicyVersion)?SETUP_INTENT_LEGAL_VERSIONS:b.securityPolicyVersion===CARD_HOLD_SECURITY_POLICY_VERSION?[CARD_HOLD_LEGAL_VERSION]:b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION
       ?b.cancellationProtectionEnabled?["2026-10-v16",CANCELLATION_PROTECTION_LEGAL_VERSION]:["2026-10-v15",ASSESSMENT_DEPOSIT_LEGAL_VERSION]
       :b.securityPolicyVersion===REFUNDABLE_DEPOSIT_LEGAL_VERSION?[REFUNDABLE_DEPOSIT_LEGAL_VERSION]:[LEGAL_VERSION];
     if (!s || !allowedVersions.includes(acceptedVersion) || s.version!==acceptedVersion || s.signer!==b.agreementName.trim() || s.acceptedAt!==b.agreementSignedAt ||

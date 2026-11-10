@@ -45,6 +45,18 @@ const block = blocked=>admin.setBlocked.handler(ctx,{token:'fixture-admin',accou
   assert.equal(account.adminEncoreLevel,1,'Stale Encore change cannot overwrite a newer one');
   await admin.setEncoreLevel.handler(ctx,{token:'fixture-admin',accountId:account._id,level:1,expectedLevel:'automatic',reason:'Retry'});
   await encore('automatic');
+  await assert.rejects(admin.setRentalAccess.handler(ctx,{token:session.token,accountId:account._id,level:'studio',expectedLevel:'automatic',encoreLevel:2,expectedEncoreLevel:'automatic',reason:'Renter cannot promote accounts'}),/unauthorized/,'A renter session cannot use the combined membership control');
+  const combined=await admin.setRentalAccess.handler(ctx,{token:'fixture-admin',accountId:account._id,level:'studio',expectedLevel:'automatic',encoreLevel:2,expectedEncoreLevel:'automatic',reason:'Combined membership correction'});
+  assert.deepEqual(combined,{updated:true,levelChanged:true,encoreChanged:true});
+  assert.equal(account.adminMembershipTier,'studio');assert.equal(account.adminEncoreLevel,2,'Both selected access values update in one mutation');
+  const combinedAudit=(tables.get('account_admin_changes')??[]).filter(row=>row.accountId===account._id&&['level','encore_level'].includes(row.kind)&&row.reason==='Combined membership correction');
+  assert.deepEqual(combinedAudit.map(row=>row.kind).sort(),['encore_level','level'],'A combined promotion records both changed entitlement fields');
+  assert.equal(combinedAudit[0].at,combinedAudit[1].at,'Both audit entries share one atomic change timestamp');
+  await assert.rejects(admin.setRentalAccess.handler(ctx,{token:'fixture-admin',accountId:account._id,level:'pro',expectedLevel:'automatic',encoreLevel:3,expectedEncoreLevel:'automatic',reason:'Stale combined edit'}),/changed in another session/,'A stale field prevents both changes from being applied');
+  assert.equal(account.adminMembershipTier,'studio');assert.equal(account.adminEncoreLevel,2,'A rejected stale save cannot partially change membership');
+  assert.deepEqual(await admin.setRentalAccess.handler(ctx,{token:'fixture-admin',accountId:account._id,level:'studio',expectedLevel:'studio',encoreLevel:2,expectedEncoreLevel:2,reason:'No-op membership save'}),{updated:false},'Saving unchanged access values is a no-op');
+  await admin.setRentalAccess.handler(ctx,{token:'fixture-admin',accountId:account._id,level:'automatic',expectedLevel:'studio',encoreLevel:'automatic',expectedEncoreLevel:2,reason:'Restore earned access'});
+  assert.equal(account.adminMembershipTier,undefined);assert.equal(account.adminEncoreLevel,undefined,'Returning both selectors to automatic restores earned access');
   for(const [level,percent] of [[1,2],[2,4],[3,10]]) {
     await encore(level);
     assert.equal(account.adminEncoreLevel,level);

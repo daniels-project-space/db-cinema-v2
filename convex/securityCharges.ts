@@ -92,6 +92,29 @@ export const sendReceipt=internalAction({args:idArgs,handler:async(ctx,{id}):Pro
  const email={to:account.email,subject:`DB Cinema Rentals: ${money(r.paidPence??0)} assessment payment receipt`,html:`<h2>Payment confirmed</h2><p>Stripe confirmed ${money(r.paidPence??0)} for your ${r.kind==='late'?'late-return':'damage/loss'} assessment, reference ${esc(String(r._id).slice(-8))}.</p><p>${esc(r.reason)}</p><p>This is a separate saved-card payment. No deposit or card hold was captured. ${attachment?'Your assessment statement is attached.':'A PDF statement could not be attached; contact us if you need one.'}</p><p>Reply if any receipt detail is wrong.</p>`,...(attachment?{attachments:[attachment]}:{})};const sent=await sendMail(email);
  await ctx.runMutation(internal.securityChargeState.noticeResult,{id,sent,receipt:true,recipient:email.to,subject:email.subject,html:email.html});
 }});
+export const sendRefundNotice=internalAction({args:{noticeId:v.id('rental_security_refund_notices')},handler:async(ctx,{noticeId}):Promise<void>=>{
+ const notice=await ctx.runMutation(internal.securityChargeState.claimRefundNotice,{noticeId});if(!notice)return;
+ try{
+  const data:any=await ctx.runQuery(internal.securityChargeState.refundNoticeContext,{noticeId});
+  if(!data||data.invalid||data.charge._id!==notice.chargeId||data.booking._id!==notice.bookingId||data.account._id!==notice.accountId||!data.account.email)throw Error('The refund notice no longer matches the renter’s saved rental account.');
+  const {charge:r,account}=data;
+  const app=process.env.APP_URL??'https://dbcinemarentals.com',secret=process.env.INVOICE_SECRET;
+  let attachment:{filename:string;content:string}|undefined;
+  if(secret)try{
+   const url=new URL(`/api/invoice/${encodeURIComponent(String(r.bookingId))}`,app);url.searchParams.set('phase','assessment');url.searchParams.set('assessment',String(r._id));
+   const response=await fetch(url,{headers:{'x-invoice-key':secret},signal:AbortSignal.timeout(20000)});
+   if(!response.ok||response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()!=='application/pdf')throw Error('Updated assessment statement unavailable');
+   const bytes=Buffer.from(await response.arrayBuffer());if(bytes.length<5||bytes.length>10_000_000||bytes.subarray(0,5).toString('ascii')!=='%PDF-')throw Error('Updated assessment statement invalid');
+   attachment={filename:`DbCinema-assessment-update-${String(r._id).slice(-8)}-${notice.sequence}.pdf`,content:bytes.toString('base64')};
+  }catch(error){console.error('Updated assessment statement could not be attached',String(error));}
+  const subject=`DB Cinema Rentals: ${money(notice.amountPence)} assessment refund confirmed`;
+  const html=`<h2>Assessment refund confirmed</h2><p>Stripe confirmed a refund of <strong>${money(notice.amountPence)}</strong> to the original payment method for assessment ${esc(String(r._id).slice(-8))}.</p><p>Reason: ${esc(notice.reason).replace(/\n/g,'<br>')}</p><p>Refunded to date for this assessment: ${money(notice.cumulativePence)}. The assessment statement shows the original payment, confirmed refunds and remaining net payment. ${attachment?'The updated assessment statement is attached.':'Download the latest assessment statement from your rental account.'}</p><p>The refund is not account credit. Your bank or card issuer controls when it appears.</p><p><a href="${esc(app+'/account?rental='+encodeURIComponent(String(r.bookingId))+'#chat')}">View this rental and assessment</a></p>`;
+  const sent=await sendMail({deliveryKey:notice.eventKey,to:account.email,subject,html,...(attachment?{attachments:[attachment]}:{})});
+  await ctx.runMutation(internal.securityChargeState.finishRefundNotice,{noticeId,sent,recipient:account.email,subject,html,...(!sent?{error:'The mail service did not accept the refund email.'}:{})});
+ }catch(error:any){
+  await ctx.runMutation(internal.securityChargeState.finishRefundNotice,{noticeId,sent:false,error:String(error?.message??error)});
+ }
+}});
 export const resendNotice=action({args:{token:v.string(),...idArgs},handler:async(ctx,{token,id}):Promise<void>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:'securityCharges.resendNotice'});await ctx.runAction(internal.securityCharges.sendNotice,{id});}});
 export const resendReceipt=action({args:{token:v.string(),...idArgs},handler:async(ctx,{token,id}):Promise<void>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:'securityCharges.resendReceipt'});await ctx.runAction(internal.securityCharges.sendReceipt,{id});}});
 export const collect=action({args:{token:v.string(),...idArgs},handler:async(ctx,{token,id}):Promise<{status:string}>=>{
@@ -139,6 +162,8 @@ export const processPending=internalAction({args:{},handler:async(ctx):Promise<v
  for(const id of ids){try{await ctx.runAction(internal.securityCharges.reconcile,{id});}catch(error:any){await ctx.runMutation(internal.securityChargeState.reconciliationFailed,{id,permanent:[400,401,403,404].includes(error?.statusCode)});}}
  const refunds:any[]=await ctx.runQuery(internal.securityChargeState.pendingRefunds,{});
  for(const id of refunds){try{await ctx.runAction(internal.securityCharges.reconcileRefund,{id});}catch(error:any){await ctx.runMutation(internal.securityChargeState.reconciliationFailed,{id,refund:true,permanent:[400,401,403,404].includes(error?.statusCode)});}}
+ const notices:any[]=await ctx.runQuery(internal.securityChargeState.pendingRefundNotices,{});
+ for(const noticeId of notices){try{await ctx.runAction(internal.securityCharges.sendRefundNotice,{noticeId});}catch(error){console.error('Assessment refund notice retry failed',String(error));}}
 }});
 async function refundTotals(sb:Stripe,r:any){
  const refunds=await sb.refunds.list({payment_intent:r.intentId,limit:100});if(refunds.has_more)throw new RefundReviewRequired('Refund history needs manual review. No new refund was requested.');

@@ -45,7 +45,14 @@ async function flagSupplementalFailure(ctx:any,archive:any){
  await queueOwnerNotification(ctx,{eventKey:`verification-images-failed:${archive._id}:${archive.supplementalGeneration??0}`,kind:"verification_archive",...(account?{accountId:account._id}:{}),bookingId:archive.bookingId,title:"Verification images need attention",body:"Some additional provider images could not be saved. Review this rental's documents."});
 }
 function rentalClosedAt(booking: any): number | undefined {
-  return booking?.status === "returned" ? booking.returnedAt : booking?.status === "cancelled" ? booking.cancelledAt : undefined;
+  if (booking?.status === "returned") {
+    // Physical return starts the verification-file retention clock. `returnedAt`
+    // is recorded when the return/deposit settlement is finalized, which can be
+    // later; use it only for legacy rentals without a physical-return timestamp.
+    const physicalReturn = booking.actualReturnedAt ?? booking.returnDecision?.actualReturnedAt;
+    return physicalReturn ?? booking.returnedAt;
+  }
+  return booking?.status === "cancelled" ? booking.cancelledAt : undefined;
 }
 
 /** One retention decision shared by the admin screen and byte deletion. */
@@ -465,11 +472,11 @@ export const retentionHold = mutation({ args: { token: v.string(), archiveId: v.
   const archive = await ctx.db.get(args.archiveId);
   if (!archive || archive.status === "deleted") throw Error("Archive unavailable");
   const reason = args.reason.trim();
-  if (!args.confirmed || reason.length > 500 || (reason && reason.length < 10)) throw Error("Review the insurance hold and record a reason of 10–500 characters.");
-  if ((archive.retentionHoldReason ?? "") !== args.expectedReason || (archive.retentionHoldRevision ?? 0) !== args.expectedRevision) throw Error("The insurance hold changed in another session. Review the current hold before continuing.");
+  if (!args.confirmed || reason.length > 500 || (reason && reason.length < 10)) throw Error("Review the document retention hold and record a reason of 10–500 characters.");
+  if ((archive.retentionHoldReason ?? "") !== args.expectedReason || (archive.retentionHoldRevision ?? 0) !== args.expectedRevision) throw Error("The document retention hold changed in another session. Review the current hold before continuing.");
   const retention = await archiveRetention(ctx, archive);
   const needsReview = "needsReview" in retention && retention.needsReview;
-  if (!reason && needsReview && archive.retentionHoldReason) throw Error("Resolve the retention review before removing this insurance hold.");
+  if (!reason && needsReview && archive.retentionHoldReason) throw Error("Resolve the retention review before removing this hold.");
   if (reason && !needsReview && !retention.viewable) throw Error("Verification retention has already expired. Expired copies cannot be revived.");
   if ((archive.retentionHoldReason ?? "") === reason) return;
   await ctx.db.patch(archive._id, { retentionHoldReason: reason || undefined, retentionHoldRevision: (archive.retentionHoldRevision ?? 0) + 1 });

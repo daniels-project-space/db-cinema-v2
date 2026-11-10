@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const { createHash, webcrypto } = require('node:crypto');
 const harness = require('./lib/rentalTestHarness.cjs');
+const { CURRENT_PRIVACY_NOTICE_VERSION } = harness.load('shared/legalVersioning.ts');
 global.crypto ??= webcrypto;
 const routes = [];
 harness.setMock('convex/server', { ...require('convex/server'), httpRouter: () => ({ route: route => routes.push(route) }) });
@@ -12,7 +13,7 @@ const route = routes.find(item => item.path === '/admin-private-portrait' && ite
 const now = Date.now(), token = 'fixture-admin', bytes = Buffer.from('synthetic-image');
 process.env.ADMIN_TOKEN = token;
 process.env.PRIVATE_VERIFICATION_PHOTO_ENABLED = 'true';
-const account = harness.put('accounts', { email: 'portrait@example.invalid', createdAt: now - 90000000, privateVerificationPortraitNoticeVersion: '2026-11-06', privateVerificationPortraitConsentVersion: '2026-11-06', privateVerificationPortraitNotifiedAt: now - 10000, privateVerificationPortraitConsentedAt: now - 9000 });
+const account = harness.put('accounts', { email: 'portrait@example.invalid', createdAt: now - 90000000, privateVerificationPortraitNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION, privateVerificationPortraitConsentVersion: CURRENT_PRIVACY_NOTICE_VERSION, privateVerificationPortraitNotifiedAt: now - 10000, privateVerificationPortraitConsentedAt: now - 9000 });
 const booking = harness.put('bookings', { accountId: account._id, diditSessionId: 'fixture' });
 account.rentalVerification = { sourceBookingId: booking._id };
 const archive = harness.put('verification_archives', { accountId: account._id, bookingId: booking._id, sessionId: 'fixture', status: 'complete' });

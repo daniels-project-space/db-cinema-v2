@@ -16,6 +16,7 @@ export type GafferPolicyFlags = {
   assessmentSecurityEnabled?: boolean;
   cancellationProtectionEnabled?: boolean;
   cancellationPolicyEnabled?: boolean;
+  inclusiveSevenDayCancellationBoundary?: boolean;
   refundableDepositEnabled?: boolean;
 };
 
@@ -39,7 +40,8 @@ export function faqsForSecurityPolicy(flags: GafferPolicyFlags): CurrentFaq[] {
       return { ...faq, a: "Message us in your account to request an extension or compatible extra gear. We need to check the dates, stock and price, and the change is not complete until your account shows the updated rental." };
     }
     if (faq.q === "How do cancellations work?") {
-      if (flags.cancellationPolicyEnabled === true) return { ...faq, a: "Under the current terms, cancel more than seven London calendar days before pickup for a full refund or 100% rental credit. More than 48 hours and seven or fewer days before pickup is credit only. At 48 hours or less, no rental refund or credit. Separately refundable security is settled separately, and statutory rights take priority. Existing rentals keep their signed terms." };
+      if (flags.cancellationPolicyEnabled === true && flags.inclusiveSevenDayCancellationBoundary === true) return { ...faq, a: "For rentals on v23 terms, cancelling seven or more London calendar days before the earliest equipment start allows a full refund or 100% account credit. Cancelling more than 48 hours before scheduled pickup, but fewer than seven London calendar days before that start, allows account credit only. At 48 hours or less before scheduled pickup, there is no rental refund or credit. Any separately refundable security is settled separately. Older rentals keep their signed terms. Statutory rights take priority." };
+      if (flags.cancellationPolicyEnabled === true) return { ...faq, a: "For rentals on v21/v22 terms, cancelling more than seven London calendar days before the earliest equipment start allows a full refund or 100% account credit. Cancelling more than 48 hours before scheduled pickup, but within seven or fewer London calendar days of the earliest equipment start, allows account credit only. At 48 hours or less before scheduled pickup, there is no rental refund or credit. Any separately refundable security is settled separately. Older rentals keep their signed terms. Statutory rights take priority." };
       if (setupIntent || cardHold) return { ...faq, a: "Under the current signed-card terms, cancel more than seven London calendar days before pickup for a full refund. At seven days or less, paid rental value becomes account credit. Refundable security is settled separately. Existing rentals keep their signed terms." };
       return faq;
     }

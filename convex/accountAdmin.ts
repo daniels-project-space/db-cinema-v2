@@ -10,7 +10,7 @@ import { paginationOptsValidator } from "convex/server";
 import { accountVerificationReady } from "./lib/accountVerificationReady";
 import { verificationValidUntil } from "../shared/verificationProgress";
 import { customerAdminVisual, customerSubscriptionTier } from "../shared/customerAdminVisual";
-import { loyaltyProgressWithin } from "./lib/loyalty";
+import { earnedEncoreProgress } from "./lib/loyalty";
 import { approvedRestrictedIdentitySource, restrictedIdentityMatches } from "./lib/restrictedIdentityMatch";
 import { internal } from "./_generated/api";
 import { queueRestrictedAccountRecheck } from "./restrictedIdentityAlerts";
@@ -57,17 +57,15 @@ export const possibleRestrictedIdentityMatches = query({
 });
 
 const directoryView = v.optional(v.union(v.literal("all"), v.literal("unread"), v.literal("starred")));
+const ENCORE_FILTER_SCAN_PAGE = 20;
 
 function effectiveAccessTier(account: any) {
   return membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard";
 }
 
 async function effectiveEncoreTier(ctx: any, account: any) {
-  if (account.adminEncoreLevel != null) return account.adminEncoreLevel;
-  const progress = await loyaltyProgressWithin(ctx, account, 100);
-  // A capped scan is unknown, not evidence that the renter has no Encore.
-  // Keep unknown records visible in a tier filter so staff can inspect them.
-  return progress?.completed ?? null;
+  const progress = await earnedEncoreProgress(ctx, account);
+  return progress.completed;
 }
 
 function tierFilterMatches(filter: string, subscriptionTier: string | null) {
@@ -162,7 +160,11 @@ export const directory = query({
     if (args.search.length > 254) throw Error("Customer search is too long.");
     if (!Number.isInteger(args.paginationOpts.numItems) || args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > 100)
       throw Error("Invalid customer page size.");
-    const result = await ctx.db.query("accounts").order("desc").paginate(args.paginationOpts);
+    const encoreFilter = args.encore && ["1", "2", "3"].includes(args.encore);
+    const pageOpts = encoreFilter
+      ? { ...args.paginationOpts, numItems: Math.min(args.paginationOpts.numItems, ENCORE_FILTER_SCAN_PAGE) }
+      : args.paginationOpts;
+    const result = await ctx.db.query("accounts").order("desc").paginate(pageOpts);
     const search = args.search.trim().toLocaleLowerCase("en-GB");
     const checked=await Promise.all(result.page.map(async account=>({account,readiness:await accountVerificationReady(ctx,account),viewMatch:await matchesDirectoryView(ctx,account,args.view)})));
     const baseMatches = checked.filter(({account,viewMatch}) => {
@@ -180,7 +182,7 @@ export const directory = query({
     const filtered = matches.filter(({account,readiness,effectiveEncore,accessTier}) => {
       const verified = !!readiness;
       const encoreMatch = !args.encore || args.encore === "all" ||
-        (args.encore === "automatic" ? account.adminEncoreLevel == null : effectiveEncore === null || String(effectiveEncore) === args.encore);
+        (args.encore === "automatic" ? account.adminEncoreLevel == null : effectiveEncore !== null && String(effectiveEncore) === args.encore);
       return encoreMatch &&
         (!args.verification || args.verification === "all" || (args.verification === "verified" ? verified : !verified)) &&
         (args.filter === "all" || args.filter === "members" && accessTier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified);
@@ -214,9 +216,13 @@ export const searchMessages = query({
     if (!Number.isInteger(args.paginationOpts.numItems) || args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > 100)
       throw Error("Invalid customer message page size.");
     if (search.length < 2) return { page: [], isDone: true, continueCursor: "" };
+    const encoreFilter = args.encore && ["1", "2", "3"].includes(args.encore);
+    const pageOpts = encoreFilter
+      ? { ...args.paginationOpts, numItems: Math.min(args.paginationOpts.numItems, ENCORE_FILTER_SCAN_PAGE) }
+      : args.paginationOpts;
     const result = await ctx.db.query("messages")
       .withSearchIndex("search_text", q => q.search("text", search))
-      .paginate(args.paginationOpts);
+      .paginate(pageOpts);
     const seen = new Set<string>();
     const page = [];
     for (const message of result.page) {
@@ -235,7 +241,7 @@ export const searchMessages = query({
         ? await effectiveEncoreTier(ctx, account)
         : account.adminEncoreLevel ?? 0;
       const encoreMatch = !args.encore || args.encore === "all" ||
-        (args.encore === "automatic" ? account.adminEncoreLevel == null : effectiveEncore === null || String(effectiveEncore) === args.encore);
+        (args.encore === "automatic" ? account.adminEncoreLevel == null : effectiveEncore !== null && String(effectiveEncore) === args.encore);
       if (!tierFilterMatches(args.tier, subscriptionTier)) continue;
       if (!encoreMatch) continue;
       if (args.verification && args.verification !== "all" && (args.verification === "verified" ? !verified : verified)) continue;
@@ -277,14 +283,15 @@ export const directoryMetrics = query({
         Promise.all(recentThreads.map(thread => belongsToCustomerConversation(ctx, account, thread))),
       ]);
       const latestThread = recentThreads.find((_, index) => validRecent[index]);
-      const progress = !account.adminEncoreLevel ? await loyaltyProgressWithin(ctx, account, 100) : null;
-      const earnedEncoreLevel = progress?.completed ?? 0;
+      const progress = await earnedEncoreProgress(ctx, account);
+      const earnedEncoreLevel = progress.completed;
       const count = owned.length + legacy.length;
       return { id, activeRentals: Math.min(count, 100), activeRentalsMore: count > 100,
         credit: credits.reduce((n: number, c: any) => n + c.availablePence, 0) / 100,
         unreadMessages: Math.min(100, unreadThreads.reduce((n, thread, index) => n + (validUnread[index] ? thread.unreadOwner ?? 0 : 0), 0)),
         lastMessage: typeof latestThread?.lastMessage === "string" ? latestThread.lastMessage.slice(0, 150) : null,
-        visualTier: customerAdminVisual(account, earnedEncoreLevel), encoreLevel: account.adminEncoreLevel ?? (progress ? earnedEncoreLevel : null) };
+        visualTier: customerAdminVisual(account, earnedEncoreLevel ?? undefined), earnedEncoreLevel,
+        encoreLevel: account.adminEncoreLevel ?? earnedEncoreLevel };
     }));
   },
 });
@@ -408,6 +415,60 @@ export const setEncoreLevel = mutation({
     });
   },
 });
+/** Update the two account-level rental entitlements together. Keeping this as
+ * one mutation means an operator can promote or correct a member without a
+ * partial tier change if one of the fields became stale in another session. */
+export const setRentalAccess = mutation({
+  args: {
+    token: v.string(),
+    accountId: v.id("accounts"),
+    level,
+    expectedLevel: level,
+    encoreLevel: v.union(v.literal("automatic"), v.literal(1), v.literal(2), v.literal(3)),
+    expectedEncoreLevel: v.union(v.literal("automatic"), v.literal(1), v.literal(2), v.literal(3)),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await authorizeCustomerWrite(ctx, args.token, "accountAdmin.setRentalAccess");
+    const account = await ctx.db.get(args.accountId);
+    if (!account) throw Error("Account no longer exists.");
+    const reason = args.reason.trim();
+    if (!reason || reason.length > 500) throw Error("Add a reason of up to 500 characters.");
+
+    const currentLevel = account.adminMembershipTier ?? "automatic";
+    const currentEncore = account.adminEncoreLevel == null ? "automatic" : account.adminEncoreLevel;
+    if (currentLevel !== args.expectedLevel || currentEncore !== args.expectedEncoreLevel)
+      throw Error("Membership access changed in another session. Review both current levels and try again.");
+
+    const nextEncore = args.encoreLevel === "automatic" ? undefined : args.encoreLevel;
+    const levelChanged = currentLevel !== args.level;
+    const encoreChanged = currentEncore !== args.encoreLevel;
+    if (!levelChanged && !encoreChanged) return { updated: false };
+
+    await ctx.db.patch(account._id, {
+      ...(levelChanged ? { adminMembershipTier: args.level === "automatic" ? undefined : args.level } : {}),
+      ...(encoreChanged ? { adminEncoreLevel: nextEncore } : {}),
+    });
+    const at = Date.now();
+    if (levelChanged) await ctx.db.insert("account_admin_changes", {
+      accountId: account._id,
+      at,
+      kind: "level",
+      before: currentLevel,
+      after: args.level,
+      reason,
+    });
+    if (encoreChanged) await ctx.db.insert("account_admin_changes", {
+      accountId: account._id,
+      at,
+      kind: "encore_level",
+      before: String(currentEncore),
+      after: String(args.encoreLevel),
+      reason,
+    });
+    return { updated: true, levelChanged, encoreChanged };
+  },
+});
 export const updateProfile = mutation({
   args: {
     token: v.string(),
@@ -490,7 +551,7 @@ export const setBlocked = mutation({
     if (!Number.isSafeInteger(lastRestrictedAt) || lastRestrictedAt < 0 || lastRestrictedAt >= Number.MAX_SAFE_INTEGER) throw Error("Restriction history needs review.");
     const blockedAt = a.blocked ? Math.max(Date.now(), lastRestrictedAt + 1) : undefined;
     const noticeId = blockedAt == null ? undefined : await ctx.db.insert("account_restriction_notices", {
-      accountId: account._id, blockedAt, recipient: account.email,
+      accountId: account._id, blockedAt, recipient: account.email, reason,
       state: "pending", dueAt: blockedAt, createdAt: blockedAt, updatedAt: blockedAt,
     });
     await ctx.db.patch(account._id, {

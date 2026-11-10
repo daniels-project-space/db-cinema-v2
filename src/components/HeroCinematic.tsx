@@ -36,6 +36,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
   const [t, setT] = useState(0);
   const [phase, setPhase] = useState<"c1" | "c2" | "loop">("c1");
   const [reduce, setReduce] = useState(false);
+  const [playbackBlocked, setPlaybackBlocked] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [mobileCtaReady, setMobileCtaReady] = useState(false);
 
@@ -62,11 +63,17 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     if (!c1 || !c2 || !loopV) return;
     // React's `muted` JSX prop is unreliable for autoplay — set it on the element.
     c1.muted = c2.muted = loopV.muted = true;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      c1.pause();
+    c1.setAttribute("webkit-playsinline", "true");
+    c2.setAttribute("webkit-playsinline", "true");
+    loopV.setAttribute("webkit-playsinline", "true");
+    const failPlayback = () => {
+      setPlaybackBlocked(true);
       setReduce(true);
-      return;
-    }
+    };
+    const playbackStarted = () => {
+      setPlaybackBlocked(false);
+      setReduce(false);
+    };
 
     // keep the initial load light: don't touch clip 2 / loop until needed.
     // clip 2 starts buffering ~40% into clip 1; the loop lazy-loads only once
@@ -84,7 +91,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     };
     const toC2 = () => {
       setPhase("c2");
-      void c2.play().catch(() => {});
+      void c2.play().catch(failPlayback);
       if (!loopQueued) {
         loopQueued = true;
         loopV.preload = "auto";
@@ -93,20 +100,88 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     };
     const toLoop = () => {
       setPhase("loop");
-      void loopV.play().catch(() => {});
+      void loopV.play().catch(failPlayback);
     };
     c1.addEventListener("timeupdate", onTime);
     c1.addEventListener("ended", toC2);
     c2.addEventListener("ended", toLoop);
+    c1.addEventListener("playing", playbackStarted);
+    c2.addEventListener("playing", playbackStarted);
+    loopV.addEventListener("playing", playbackStarted);
+    c1.addEventListener("error", failPlayback);
+    c2.addEventListener("error", failPlayback);
+    loopV.addEventListener("error", failPlayback);
     // play from the top. on iOS, seeking a muted autoplay video while it is
     // still loading blacks it out a second in — so never set currentTime here.
-    void c1.play().catch(() => setReduce(true)); // autoplay blocked -> static + CTA
+    const mobileViewport = window.matchMedia("(max-width: 767px)").matches;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion && !mobileViewport) {
+      c1.pause();
+      setReduce(true);
+      setPlaybackBlocked(true);
+    } else {
+      void c1.play().catch(failPlayback); // autoplay blocked -> show an explicit play control
+    }
     return () => {
       c1.removeEventListener("timeupdate", onTime);
       c1.removeEventListener("ended", toC2);
       c2.removeEventListener("ended", toLoop);
+      c1.removeEventListener("playing", playbackStarted);
+      c2.removeEventListener("playing", playbackStarted);
+      loopV.removeEventListener("playing", playbackStarted);
+      c1.removeEventListener("error", failPlayback);
+      c2.removeEventListener("error", failPlayback);
+      loopV.removeEventListener("error", failPlayback);
     };
   }, []);
+
+  // `mobile` starts false during server rendering to avoid a hydration
+  // mismatch. Retry the first muted play after the client has identified a
+  // phone: Safari can reject the pre-hydration attempt before it is ready.
+  useEffect(() => {
+    if (!mobile || phase !== "c1") return;
+    const video = c1Ref.current;
+    if (!video || !video.paused) return;
+    video.muted = true;
+    video.playsInline = true;
+    video.autoplay = true;
+    video.setAttribute("webkit-playsinline", "true");
+    const retry = () => {
+      if (document.hidden || !video.paused) return;
+      void video.play().then(() => {
+        setPlaybackBlocked(false);
+        setReduce(false);
+      }).catch(() => {
+        setPlaybackBlocked(true);
+        setReduce(true);
+      });
+    };
+    video.addEventListener("canplay", retry, { once: true });
+    retry();
+    return () => {
+      video.removeEventListener("canplay", retry);
+    };
+  }, [mobile, phase]);
+
+  const playFilm = () => {
+    const first = c1Ref.current;
+    const second = c2Ref.current;
+    const loop = loopRef.current;
+    if (!first) return;
+    second?.pause();
+    loop?.pause();
+    first.muted = true;
+    first.playsInline = true;
+    if (first.ended && first.readyState >= 2) first.currentTime = 0;
+    setPhase("c1");
+    setT(0);
+    setReduce(false);
+    setPlaybackBlocked(false);
+    void first.play().catch(() => {
+      setReduce(true);
+      setPlaybackBlocked(true);
+    });
+  };
 
   const gearVisible = !reduce && phase === "c1" && t > 0.5 && t < 4.6;
   const ctaVisible = reduce || phase !== "c1" || t > (mobile ? 0.4 : 0) || (mobile && mobileCtaReady);
@@ -124,18 +199,18 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         src="/intro-poster.jpg"
         alt=""
         aria-hidden
-        className="absolute inset-0 h-full w-full scale-[1.2] object-contain object-center lg:scale-100 lg:object-cover"
+        className="absolute inset-0 h-full w-full object-cover object-center"
       />
       {/* three stacked clips, instant hard-cut hand-off (clip 2 + loop preload while clip 1 plays) */}
       <video
         ref={c1Ref}
-        className="absolute inset-0 h-full w-full scale-[1.2] object-contain object-center lg:scale-100 lg:object-cover"
+        className="absolute inset-0 h-full w-full object-cover object-center"
         // the clip1->clip2 anamorphic match is now baked into intro.mp4 itself
         // (scaleX 1.0325 scaleY 1.0125), so no CSS transform — alignment is in
         // the pixels and immune to window size / sub-pixel rendering.
         style={{ opacity: reduce || phase === "c1" ? 1 : 0 }}
         poster="/intro-poster.jpg"
-        autoPlay
+        autoPlay={mobile && phase === "c1"}
         muted
         playsInline
         preload="auto"
@@ -151,9 +226,10 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       </video>
       <video
         ref={c2Ref}
-        className="absolute inset-0 h-full w-full scale-[1.2] object-contain object-center lg:scale-100 lg:object-cover"
+        className="absolute inset-0 h-full w-full object-cover object-center"
         style={{ opacity: !reduce && phase === "c2" ? 1 : 0 }}
         poster="/intro2-poster.jpg"
+        autoPlay={mobile && phase === "c2"}
         muted
         playsInline
         preload="none"
@@ -165,9 +241,10 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       </video>
       <video
         ref={loopRef}
-        className="absolute inset-0 h-full w-full scale-[1.2] object-contain object-center lg:scale-100 lg:object-cover"
+        className="absolute inset-0 h-full w-full object-cover object-center"
         style={{ opacity: !reduce && phase === "loop" ? 1 : 0 }}
         poster="/loop-poster.jpg"
+        autoPlay={mobile && phase === "loop"}
         muted
         loop
         playsInline
@@ -190,28 +267,25 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         aria-hidden
       />
 
-      <nav
-        aria-label="Shop by gear category"
-        data-testid="hero-mobile-category-nav"
-        className="absolute inset-x-0 top-3 z-20 px-4 md:hidden"
-      >
-        <div className="mx-auto grid max-w-sm grid-cols-2 gap-2">
-          {CALLOUTS.map(({ cat }) => (
-            <Link
-              key={cat}
-              href={`/gear?cat=${encodeURIComponent(cat)}`}
-              className="flex min-h-10 min-w-0 items-center justify-between gap-2 rounded-xl border border-white/15 bg-black/35 px-3 py-2 text-left text-white/90 shadow-lg backdrop-blur-md transition-colors hover:border-accent-300/50 hover:bg-black/50"
-            >
-              <span className="truncate font-display text-xs font-semibold">{cat}</span>
-              <IconArrowRight className="h-3.5 w-3.5 shrink-0 text-accent-300" />
-            </Link>
-          ))}
+      {playbackBlocked && (
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 z-30 flex -translate-y-1/2 justify-center px-4">
+          <button
+            type="button"
+            data-testid="hero-video-play"
+            onClick={playFilm}
+            className="pointer-events-auto inline-flex min-h-11 items-center gap-2 rounded-full border border-white/25 bg-black/60 px-5 py-2.5 text-sm font-medium text-white shadow-xl backdrop-blur-xl transition hover:border-accent-300/60 hover:bg-black/75 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent-300"
+            aria-label="Play the landing page film"
+          >
+            <span aria-hidden="true" className="text-accent-300">▶</span>
+            Play the film
+          </button>
         </div>
-      </nav>
+      )}
 
       {/* ── minimal gear callouts (desktop) ── */}
       <svg
-        className="pointer-events-none absolute inset-0 hidden h-full w-full transition-opacity duration-[900ms] md:block"
+        data-testid="hero-gear-callouts"
+        className="hero-gear-callouts pointer-events-none absolute inset-0 hidden h-full w-full transition-opacity duration-[900ms] min-[1024px]:block"
         viewBox="0 0 1600 900"
         preserveAspectRatio="xMidYMid slice"
         style={{ opacity: gearVisible ? 1 : 0, zIndex: 6, color: "var(--color-accent-400)" }}
@@ -298,11 +372,11 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         Camera Hire in London — rent cinema cameras, lenses, lighting, audio and drones from Db Cinema Rentals
       </h1>
       <div
-        className="absolute inset-x-0 bottom-[5%] z-20 flex flex-col items-center px-6 text-center"
+        className="absolute inset-x-0 bottom-[4%] z-20 flex flex-col items-center px-3 text-center sm:bottom-[5%] sm:px-6"
         style={{ pointerEvents: ctaVisible ? "auto" : "none" }}
       >
         <p
-          className="serif-accent text-2xl text-white/90 max-[359px]:hidden lg:text-5xl"
+          className="serif-accent text-[clamp(1.05rem,5vw,1.5rem)] text-white/90 lg:text-5xl"
           style={{
             opacity: ctaVisible ? 1 : 0,
             transform: ctaVisible ? "translateY(0)" : "translateY(26px)",
@@ -312,7 +386,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
           the gear that <span className="gradient-text">makes the shot.</span>
         </p>
         <div
-          className="mt-4 flex flex-wrap items-center justify-center gap-2.5 lg:mt-6 lg:gap-3"
+          className="mt-3 grid w-full max-w-[28rem] grid-cols-[1.15fr_1fr] items-center justify-items-stretch gap-2 sm:mt-4 sm:flex sm:w-auto sm:max-w-none sm:justify-center sm:gap-2.5 lg:mt-6 lg:gap-3"
           style={{
             opacity: ctaVisible ? 1 : 0,
             transform: ctaVisible ? "translateY(0)" : "translateY(26px)",
@@ -322,23 +396,23 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         >
           {/* all three are the same frosted material, and none of them move:
               no magnetic lean over the footage, just light and colour */}
-          <Link href="/gear" className="btn-glass btn-glass-accent px-5 py-2.5 text-sm lg:px-8 lg:py-3 lg:text-base">
+          <Link href="/gear" className="btn-glass btn-glass-accent min-h-11 w-full justify-center whitespace-nowrap px-2 py-2 text-xs sm:w-auto sm:px-5 sm:py-2.5 sm:text-sm lg:px-8 lg:py-3 lg:text-base">
             Book rental gear
             <IconArrowRight className="h-4 w-4" />
           </Link>
-          <Link href="/how-it-works" className="btn-glass px-5 py-2.5 text-sm lg:px-8 lg:py-3 lg:text-base">
+          <Link href="/how-it-works" className="btn-glass min-h-11 w-full justify-center whitespace-nowrap px-2 py-2 text-xs sm:w-auto sm:px-5 sm:py-2.5 sm:text-sm lg:px-8 lg:py-3 lg:text-base">
             How it works
           </Link>
           {/* straight into a live voice call with Gaffer */}
           <GafferCall
             variant="glass"
             label="Call us"
-            className="!px-5 !py-2.5 !text-sm !font-medium lg:!px-8 lg:!py-3 lg:!text-base"
+            className="col-span-2 min-h-11 justify-self-center !min-h-11 !px-4 !py-2 !text-xs !font-medium sm:!px-5 sm:!py-2.5 sm:!text-sm lg:!px-8 lg:!py-3 lg:!text-base"
           />
         </div>
         {rating && (
           <div
-            className="max-[359px]:hidden"
+            className="max-w-full"
             style={{
               opacity: ctaVisible ? 1 : 0,
               transition: `opacity ${mobile ? ".7s" : "1s"} cubic-bezier(0.16,1,0.3,1)`,
@@ -351,11 +425,11 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
             <a
               href="#reviews"
               aria-label={`Rated ${rating.ratingValue.toFixed(2)} out of 5 from ${rating.reviewCountLabel} renter reviews; read all reviews`}
-              className="group mt-3 inline-flex items-center gap-3 rounded-full border border-white/15 bg-black/30 px-4 py-2 text-sm text-white/70 shadow-lg backdrop-blur-md transition-colors hover:border-accent-400/40 hover:bg-black/45 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent-400/70 lg:mt-5"
+              className="group mt-3 inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border border-white/15 bg-black/30 px-2.5 py-1.5 text-xs text-white/70 shadow-lg backdrop-blur-md transition-colors hover:border-accent-400/40 hover:bg-black/45 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent-400/70 sm:gap-3 sm:px-4 sm:py-2 sm:text-sm lg:mt-5"
             >
               <span aria-hidden="true" className="flex text-accent-400">
                 {Array.from({ length: 5 }).map((_, i) => (
-                  <IconStar key={i} className="h-4 w-4" />
+                  <IconStar key={i} className="h-3 w-3 sm:h-4 sm:w-4" />
                 ))}
               </span>
               <span className="font-mono font-semibold text-white">{rating.ratingValue.toFixed(2)}</span>

@@ -1,18 +1,51 @@
 import { loyaltyProgress } from "./loyalty";
 import { returnInspectionSchedule } from "./returnInspection";
 import { sameReturnInspection } from "../../shared/returnInspection";
+import { accountVerificationReady } from "./accountVerificationReady";
 
 const MAX_PRIOR_RENTALS = 100;
 const MAX_RENTAL_HISTORY = 100;
+
+export function checkoutCreditFullyCoversDue(booking:any){
+  const fullDue=booking?.subtotal+(booking?.deliveryFee??0)+(booking?.depositAmount??0)-(booking?.discount??0);
+  const applied=booking?.creditApplied??0;
+  return Number.isFinite(fullDue)&&fullDue>0&&Number.isFinite(applied)&&applied>0&&
+    Math.round(applied*100)>=Math.round(fullDue*100);
+}
+
+function hasCheckoutPaymentProof(booking:any,expectedPaidPence:number){
+  const at=booking?.checkoutPaidAt;
+  if(!Number.isSafeInteger(at)||at<=0||!Number.isSafeInteger(booking?.checkoutPaymentAmountPence===undefined?0:booking.checkoutPaymentAmountPence))return false;
+  const currency=typeof booking.checkoutPaymentCurrency==="string"?booking.checkoutPaymentCurrency:booking.currency;
+  if(typeof currency!=="string"||currency.toLowerCase()!==String(booking.currency??"GBP").toLowerCase()||booking.currency?.toLowerCase()!=="gbp")return false;
+  const hasNewFields=booking.checkoutPaymentAmountPence!==undefined||booking.checkoutPaymentCurrency!==undefined||booking.checkoutPaymentStatus!==undefined;
+  if(hasNewFields){
+    const amount=booking.checkoutPaymentAmountPence;
+    if(!Number.isSafeInteger(amount)||amount<expectedPaidPence||booking.checkoutPaymentCurrency?.toLowerCase()!==booking.currency?.toLowerCase())return false;
+    if(Number.isSafeInteger(booking.checkoutExpectedAmountPence)&&amount!==booking.checkoutExpectedAmountPence)return false;
+    if(amount>0)return !!booking.stripePaymentIntentId&&booking.checkoutPaymentStatus==="paid";
+    return booking.checkoutPaymentStatus==="no_payment_required"&&expectedPaidPence===0&&checkoutCreditFullyCoversDue(booking)&&booking.checkoutCreditState==="spent";
+  }
+  // Legacy confirmed rentals recorded a paid Checkout timestamp and intent ID
+  // before amount/currency fields were persisted. Stripe Checkout's paid state
+  // is already the committed agreement for these closed rentals; preserve that
+  // evidence without retroactively changing their terms.
+  if(booking.stripePaymentIntentId)return expectedPaidPence>0;
+  return expectedPaidPence===0&&checkoutCreditFullyCoversDue(booking)&&booking.checkoutCreditState==="spent";
+}
 
 async function cleanCompletedRental(ctx: any, booking: any, account: any) {
   const decision = booking?.returnDecision;
   const statement = booking?.returnStatement;
   const inspection = decision?.inspection;
+  const expectedPaidPence=Number.isSafeInteger(booking?.rentalPaidPence)?booking.rentalPaidPence:Math.round((booking?.total??0)*100);
+  const paymentProof=hasCheckoutPaymentProof(booking,expectedPaidPence);
   if (!booking || booking.status !== "returned" || booking.accountId !== account._id ||
       !Number.isSafeInteger(booking.paidConfirmedAt) || !Number.isSafeInteger(booking.actualReturnedAt) ||
+      !Number.isSafeInteger(expectedPaidPence) || expectedPaidPence < 0 || !paymentProof ||
       !decision || decision.actualReturnedAt !== booking.actualReturnedAt || decision.chargeLate ||
       (decision.lateClaimReason ?? "").trim() || (decision.damageKept ?? 0) !== 0 || (decision.depositKept ?? 0) !== 0 ||
+      booking.stripeDisputedAt != null ||
       !statement || statement.actualReturnedAt !== booking.actualReturnedAt || !Array.isArray(inspection) || !inspection.length ||
       !Array.isArray(statement.inspection) || !sameReturnInspection(inspection, statement.inspection) ||
       (booking.depositKept ?? 0) !== 0 || (booking.depositHoldCapturedForDamage ?? 0) !== 0 ||
@@ -74,9 +107,18 @@ async function cleanCompletedRental(ctx: any, booking: any, account: any) {
   return true;
 }
 
-export async function strictDepositWaiverReason(ctx: any, account: any, replacementValuePence: number, now = Date.now()) {
+export async function strictDepositWaiverReason(
+  ctx: any,
+  account: any,
+  replacementValuePence: number,
+  starts: number[] = [Date.now()],
+  agreementName = account?.name,
+  billingAddress = account?.address,
+  now = Date.now(),
+) {
   if (!account?._id || account.blockedAt != null || !Number.isSafeInteger(replacementValuePence) ||
       replacementValuePence <= 0 || replacementValuePence >= 400000) return undefined;
+  if (!await accountVerificationReady(ctx, account, agreementName, billingAddress, starts)) return undefined;
 
   const history = await ctx.db.query("bookings")
     .withIndex("by_account_status", (q: any) => q.eq("accountId", account._id).eq("status", "returned"))

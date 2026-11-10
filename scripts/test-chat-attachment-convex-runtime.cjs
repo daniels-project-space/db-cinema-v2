@@ -61,16 +61,22 @@ async function main() {
   assert.equal((await fetch(url, { method: "POST", headers, body: different })).status, 403, "A reused key cannot report a different file as sent");
   assert.equal((await fetch(url, { method: "POST", headers: { ...headers, "x-chat-filename": "another.png" }, body: png })).status, 403, "A reused key cannot report a differently named attachment as sent");
   let state = await client.query(inspect, { accountId: fixture.accountId });
-  assert.equal(state.attempts.length, 1); assert.equal(state.attempts[0].status, "published"); assert.equal(state.messages.length, 1);
+  assert.equal(state.attempts.length, 1); assert.equal(state.attempts[0].status, "published"); assert.equal(state.messages.length, 1);assert.equal(state.messages[0].meta.contentType,"image/png","Published message binds the validated image type");
   const download = `${endpoint}?bookingId=${fixture.bookingId}&download=${state.attempts[0]._id}`;
   const result = await fetch(download, { method: "POST", headers }); assert.equal(result.status, 200); assert.deepEqual(Buffer.from(await result.arrayBuffer()), png);
+  const preview=`${endpoint}?bookingId=${fixture.bookingId}&preview=${state.attempts[0]._id}`;
+  const previewResponse=await fetch(preview,{method:"POST",headers});assert.equal(previewResponse.status,200);assert.equal(previewResponse.headers.get("content-type"),"image/png");assert.match(previewResponse.headers.get("content-disposition"),/^inline;/);assert.match(previewResponse.headers.get("content-security-policy"),/sandbox/);assert.deepEqual(Buffer.from(await previewResponse.arrayBuffer()),png,"Authenticated preview returns the same integrity-checked bytes as download");
+  assert.equal((await fetch(`${preview}&download=${state.attempts[0]._id}`,{method:"POST",headers})).status,400,"A request cannot mix preview and download modes");
   assert.equal((await fetch(download, { method: "POST", headers: { ...headers, authorization: "Bearer synthetic-other" } })).status, 403);
+  assert.equal((await fetch(preview, { method: "POST", headers: { ...headers, authorization: "Bearer synthetic-other" } })).status, 403);
   assert.equal((await fetch(`${endpoint}?bookingId=${fixture.bookingId}&key=${"b".repeat(32)}`, { method: "POST", headers: { ...headers, authorization: "Bearer synthetic-other" }, body: png })).status, 403);
   const binding = makeFunctionReference("chat_attachment_qualify:setMessageBinding"), messageId = state.attempts[0].messageId;
   await client.mutation(binding, { messageId });
   assert.equal((await fetch(download, { method: "POST", headers })).status, 403, "An unbound conversation message cannot expose attachment bytes");
+  assert.equal((await fetch(preview, { method: "POST", headers })).status, 403, "An unbound conversation message cannot preview attachment bytes");
   await client.mutation(binding, { messageId, attachmentId: state.attempts[0]._id });
   assert.equal((await fetch(download, { method: "POST", headers })).status, 200, "Restoring the original binding restores the original owner's access");
+  assert.equal((await fetch(preview, { method: "POST", headers })).status, 200, "Restoring the original binding restores the original owner's preview");
   if (socket) {
     const eicar = Buffer.from(['X5O!P%@AP[4\\PZX54(P^)7CC)7}', '$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'].join(''));
     const data = Buffer.concat([Buffer.from('Comment\0'), eicar]), type = Buffer.from('tEXt'), chunk = Buffer.alloc(data.length + 12);

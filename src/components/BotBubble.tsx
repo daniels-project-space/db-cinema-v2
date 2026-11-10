@@ -36,7 +36,7 @@ type Msg = {
   meta?: { offerHuman?: boolean };
 };
 const GREETING =
-  "Hi! I'm **Gaffer**, the Db Cinema kit assistant. Tell me what you're shooting and your dates and I'll build your kit — or ask me anything about gear, prices and availability.";
+  "Hi! I'm Gaffer, the Db Cinema kit assistant. Tell me what you're shooting and your dates and I'll build your kit — or ask me anything about gear, prices and availability.";
 const SHOOTS = [
   "Interview",
   "Music video",
@@ -375,7 +375,7 @@ export function BotBubble() {
         data-speaking={onCall && gafferSpeaking ? "true" : undefined}
         // colours live in globals.css keyed on data-on-call, so amber→red is a
         // slow crossfade rather than a class swap that snaps
-        className="group launcher fixed bottom-5 right-5 z-50 hidden h-14 w-14 items-center justify-center gap-0 rounded-full border p-0 hover:scale-105 active:scale-95 sm:flex lg:w-auto lg:justify-start lg:gap-2.5 lg:px-4"
+        className="group launcher fixed bottom-3 right-3 z-50 flex h-12 w-12 items-center justify-center gap-0 rounded-full border p-0 hover:scale-105 active:scale-95 sm:bottom-5 sm:right-5 sm:h-14 sm:w-14 lg:w-auto lg:justify-start lg:gap-2.5 lg:px-4"
       >
         {(!open || onCall) && <span className="launcher-ring" aria-hidden />}
         {onCall ? (
@@ -407,7 +407,7 @@ export function BotBubble() {
       </button>
 
       {open && (
-        <div className="chat-panel toast-in fixed bottom-24 right-5 z-50 flex h-[74vh] max-h-[640px] w-[92vw] max-w-sm flex-col overflow-hidden rounded-3xl border border-white/10 bg-charcoal-900/95 shadow-2xl shadow-black/60 backdrop-blur-xl">
+        <div className="chat-panel toast-in fixed bottom-[72px] right-3 z-50 flex h-[68dvh] max-h-[560px] w-[calc(100vw-24px)] max-w-sm flex-col overflow-hidden rounded-2xl border border-white/10 bg-charcoal-900/95 shadow-2xl shadow-black/60 backdrop-blur-xl sm:bottom-24 sm:right-5 sm:h-[74vh] sm:max-h-[640px] sm:w-[92vw] sm:rounded-3xl">
           <div className="chat-bg" aria-hidden />
           <div className="chat-scanline" aria-hidden />
 
@@ -468,7 +468,7 @@ export function BotBubble() {
               <div className="space-y-2.5">
                 <ChatBubble
                   role="assistant"
-                  text="Hi! I'm **Gaffer**. Let's build your kit — what are you shooting?"
+                  text="Hi! I'm Gaffer. Let's build your kit — what are you shooting?"
                 />
                 {onb >= 1 && <ChatBubble role="user" text={brief.shoot} />}
                 {onb === 0 && (
@@ -688,18 +688,30 @@ export function BotBubble() {
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && send()}
-                placeholder="e.g. a music video kit for 12–14 July"
+                placeholder="Ask about gear or dates…"
                 aria-label="Message Gaffer"
                 className="input min-w-0 flex-1 rounded-full"
               />
               <button
                 onClick={() => send()}
                 disabled={busy || !text.trim()}
-                aria-label="Send"
+                aria-label={busy ? "Sending message" : "Send message"}
+                aria-describedby="gaffer-send-hint"
+                title={busy ? "Sending message" : text.trim() ? "Send message" : "Type a message to enable sending"}
                 className="btn-primary h-10 w-10 shrink-0 !rounded-full !p-0"
+                style={busy || !text.trim() ? {
+                  backgroundColor: "#262320",
+                  color: "#c5ab91",
+                  opacity: 1,
+                  border: "1px solid #62574c",
+                  boxShadow: "none",
+                } : undefined}
               >
                 <IconSend className="h-4 w-4" />
               </button>
+              <span id="gaffer-send-hint" className="sr-only">
+                {busy ? "Sending your message." : text.trim() ? "Ready to send." : "Type a message to enable sending."}
+              </span>
             </div>
             <div className="mt-2 text-center font-mono text-[9px] uppercase tracking-[0.18em] text-white/20">
               Gaffer checks live stock{" "}

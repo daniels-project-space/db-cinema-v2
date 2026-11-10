@@ -609,10 +609,14 @@ body {
 .hygglo-review-track {
   display: flex;
   width: max-content;
-  animation: hygglo-marquee-x var(--review-speed, 56s) linear infinite;
+  /* Keep the homepage review rail moving even if a broad animation reset or
+     utility class is added elsewhere. This rail is an explicit user-requested
+     carousel and never pauses on hover or focus. */
+  animation: hygglo-marquee-x var(--review-speed, 56s) linear infinite !important;
+  animation-play-state: running !important;
   will-change: transform;
 }
-.hygglo-review-track[data-direction="reverse"] { animation-direction: reverse; }
+.hygglo-review-track[data-direction="reverse"] { animation-direction: reverse !important; }
 .hygglo-review-group { display: flex; flex: 0 0 auto; gap: 1rem; padding-right: 1rem; }
 .hygglo-review-quote {
   display: -webkit-box;
@@ -675,19 +679,38 @@ body {
   from { opacity: 0; transform: translateY(4px); filter: blur(2px); }
   to { opacity: 1; transform: translateY(0); filter: blur(0); }
 }
-@media (max-width: 640px), (prefers-reduced-motion: reduce) {
+@media (max-width: 640px) {
   .hygglo-review-marquee {
-    overflow-x: auto;
-    -webkit-mask-image: none;
-    mask-image: none;
-    scroll-snap-type: x mandatory;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  }
+  .hygglo-review-group {
+    padding-left: max(0px, calc(9vw - 1rem));
+  }
+}
+@media (min-width: 391px) and (max-width: 640px) {
+  .hygglo-review-group {
+    padding-left: max(0px, calc(50vw - 176px));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hygglo-review-marquee {
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
     scrollbar-width: none;
-    overscroll-behavior-x: contain;
   }
   .hygglo-review-marquee::-webkit-scrollbar { display: none; }
-  .hygglo-review-track { animation: none; will-change: auto; }
-  .hygglo-review-group[aria-hidden="true"] { display: none; }
-  .hygglo-review-group figure { scroll-snap-align: start; }
+  /* The review ticker is explicitly requested to keep moving. The site-wide
+     reduced-motion rule below sets every animation to one near-instant frame,
+     so these more specific important values preserve a calm, continuous crawl. */
+  .hygglo-review-track {
+    animation-name: hygglo-marquee-x !important;
+    animation-duration: var(--review-speed, 64s) !important;
+    animation-iteration-count: infinite !important;
+    animation-play-state: running !important;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .hygglo-trust-review-fade { animation: none; }
@@ -1970,6 +1993,13 @@ html[data-gaffer-nav="1"] .tile-in {
   .cursor-glow { display: none; }
   .hero-push { animation: none !important; }
   .meteor { display: none; }
+  /* This ticker is intentionally continuous even for reduced-motion users;
+     keep its slow, steady travel after the global one-frame motion override. */
+  .hygglo-review-track {
+    animation-duration: var(--review-speed, 64s) !important;
+    animation-iteration-count: infinite !important;
+    animation-play-state: running !important;
+  }
 }
 
 /* hero-haze removed — the blend-mode + blur veil composited over the playing
@@ -3194,9 +3224,6 @@ body[data-aperture-transition="revealing"] #main-content { position: relative; z
   .f7-reveal--tail { display: none; }
 }
 @media (max-width: 639px) {
-  .f7-reveal--lead { display: none; }
-}
-@media (max-width: 359px) {
   .f7-lockup, .site-collab-separator { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -3412,3 +3439,25 @@ body[data-aperture-transition="revealing"] #main-content { position: relative; z
 
 body[data-aperture-transition] .launcher:not([data-on-call="true"]),
 body[data-aperture-transition] .chat-panel { opacity:0; pointer-events:none; visibility:hidden; transition:opacity .3s ease,visibility 0s linear .3s; }
+
+/* Final cascade guard: the review rail is intentionally always in motion on
+   every viewport, including phones and reduced-motion profiles. Keep this at
+   the end of the global sheet so later site-wide animation resets cannot freeze it. */
+.hygglo-review-track {
+  animation-name: hygglo-marquee-x !important;
+  animation-duration: var(--review-speed, 64s) !important;
+  animation-timing-function: linear !important;
+  animation-iteration-count: infinite !important;
+  animation-play-state: running !important;
+}
+@media (max-width: 640px) {
+  .hygglo-review-track {
+    /* Keep the long rail readable on phones; its length-aware duration sets
+       a similar calm travel speed for both short and long review feeds. */
+    animation-duration: var(--review-speed, 64s) !important;
+    animation-play-state: running !important;
+  }
+}
+@media (max-width: 767px) {
+  .hero-gear-callouts { display: none !important; }
+}

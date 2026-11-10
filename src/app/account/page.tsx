@@ -35,6 +35,7 @@ import { ManagementShell } from "@/components/management/ManagementShell";
 import { InvoiceLibrary } from "@/components/management/InvoiceLibrary";
 import { accountAuthErrorMessage } from "../../../shared/accountAuth";
 import { PrivatePortraitPreference } from "@/components/account/PrivatePortraitPreference";
+import { legalVersionForPolicy, CURRENT_PRIVACY_NOTICE_VERSION } from "../../../shared/legalVersioning";
 
 export default function AccountPage() {
   const account = useAccount();
@@ -57,11 +58,14 @@ export default function AccountPage() {
 function AuthForm() {
   const account = useAccount();
   const requestSignIn = useAction(api.accountAccess.requestSignIn);
-  const [linkSent, setLinkSent] = useState(false);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const accountPolicy = useQuery(api.settings.get, mode === "signup" ? {} : "skip");
+  const termsVersion = accountPolicy ? legalVersionForPolicy(accountPolicy) : null;
+  const [linkSent, setLinkSent] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [termsAndPrivacyAcknowledged, setTermsAndPrivacyAcknowledged] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -77,14 +81,19 @@ function AuthForm() {
     const submittedEmail = String(values.get("email") ?? "").trim();
     const submittedPassword = String(values.get("password") ?? "");
     const submittedName = String(values.get("name") ?? "").trim();
+    const acceptedLegalTerms = values.get("termsAndPrivacyAcknowledged") === "on";
     setEmail(submittedEmail);
     setPassword(submittedPassword);
     setBusy(true);
     setErr(null);
     try {
       if (mode === "signup") {
+        if (!acceptedLegalTerms || !termsVersion) {
+          setErr(!termsVersion ? "The current terms are still loading. Please try again." : "Please agree to the Terms and Conditions and read the Privacy Notice.");
+          return;
+        }
         const target = reviewReturn();
-        await account.signUp(submittedEmail, submittedPassword, submittedName || undefined, target.next, target.bookingId);
+        await account.signUp(submittedEmail, submittedPassword, submittedName || undefined, target.next, target.bookingId, { termsVersion, privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION });
         setLinkSent(true);
       }
       else await account.signIn(submittedEmail, submittedPassword);
@@ -109,13 +118,13 @@ function AuthForm() {
       <p className="mt-2 text-sm text-white/40">
         {mode === "signup" ? "Already have one? " : "New here? "}
         <button
-          onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setErr(null); setLinkSent(false); }}
+          onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setTermsAndPrivacyAcknowledged(false); setErr(null); setLinkSent(false); }}
           className="text-accent-400 underline-offset-2 hover:underline"
         >
           {mode === "signup" ? "Sign in" : "Create one"}
         </button>
       </p>
-      {mode === "signup" && <p className="mt-4 rounded-xl border border-accent-400/15 bg-accent-400/5 px-4 py-3 text-xs leading-relaxed text-white/65">Create an account to reuse a fully approved ID and proof-of-address check for eligible rentals starting within 90 days. We show a verified badge only while your details, ID and saved documents remain valid and accessible; otherwise, we’ll ask you to verify again. Files are kept through an active rental and for 90 days after it closes, or longer while a case is open.</p>}
+      {mode === "signup" && <p className="mt-4 rounded-xl border border-accent-400/15 bg-accent-400/5 px-4 py-3 text-xs leading-relaxed text-white/65">Reuse a passed Didit check for 90 days while your details remain valid. We keep files during rentals and for 90 days after closure, or longer if a case is open.</p>}
       <form className="mt-6 flex flex-col gap-3" onSubmit={e => { e.preventDefault(); if (!busy) void go(new FormData(e.currentTarget)); }}>
         {mode === "signup" && (
           <input
@@ -152,16 +161,20 @@ function AuthForm() {
           required
           className="input"
         />
+        {mode === "signup" && <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.025] px-3 py-3 text-xs leading-5 text-white/65">
+          <input name="termsAndPrivacyAcknowledged" type="checkbox" checked={termsAndPrivacyAcknowledged} onChange={e => setTermsAndPrivacyAcknowledged(e.target.checked)} disabled={!termsVersion} required className="mt-1 h-4 w-4 shrink-0 accent-[#c49a6c]" />
+          <span>I agree to the current <Link href={termsVersion ? `/legal/terms?version=${encodeURIComponent(termsVersion)}` : "/legal/terms"} target="_blank" rel="noreferrer" className="text-accent-300 underline underline-offset-2">Terms and Conditions</Link> and acknowledge the <Link href="/legal/privacy" target="_blank" rel="noreferrer" className="text-accent-300 underline underline-offset-2">Privacy Notice</Link>.</span>
+        </label>}
         {err && (
           <div role="alert" className="rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">
             {err}
           </div>
         )}
-        <button type="submit" disabled={busy} className="btn-primary py-3">
+        <button type="submit" disabled={busy || (mode === "signup" && (!termsAndPrivacyAcknowledged || !termsVersion))} className="btn-primary py-3">
           {busy ? "…" : mode === "signup" ? "Create account" : "Sign in"}
         </button>
         {mode === "signup" && linkSent && <p role="status" className="text-xs text-accent-300">Check your email to confirm account creation and activate your password. Private rentals stay locked until then.</p>}
-        <GoogleSignIn onError={setErr} />
+        <GoogleSignIn onError={setErr} requireTermsAcceptance={mode === "signup"} termsAcceptance={mode === "signup" && termsAndPrivacyAcknowledged && termsVersion ? { termsVersion, privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION } : null} />
         {mode === "signin" && <>
           <Link href="/account/setup?purpose=reset" className="text-sm text-accent-300 hover:underline">Forgot password?</Link>
           <div className="mt-2 border-t border-white/10 pt-4 text-xs text-white/50">Booked without a password? Sign in with your rental email.</div>

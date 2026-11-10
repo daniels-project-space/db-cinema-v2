@@ -1,3 +1,5 @@
+call convex/accountCodes.ts:settings.get
+call convex/accounts.ts:settings.get
 call convex/checkout.ts:accounts.me
 call convex/checkout.ts:analytics.track
 call convex/checkout.ts:availability.forCart
@@ -8,17 +10,23 @@ call convex/checkout.ts:membershipInvoiceReviews.adminReserveRetry
 call convex/checkout.ts:settings.get
 call convex/delivery.ts:settings.get
 call convex/gaffer.ts:availability.forListing
+call convex/googleAuth.ts:settings.get
 call convex/holdRenewal.ts:accounts.me
 call convex/http.ts:privateVerificationPortrait.selected
 call convex/invoice.ts:bookings.invoiceData
 call convex/lib/rentalPrice.ts:delivery.quote
 call convex/lib/rentalPrice.ts:promo.validate
+call convex/membershipBenefits.ts:settings.get
 call convex/rentalAdditions.ts:checkout.finalize
 call convex/rentalAdditions.ts:rentalAdditionState.customerState
 call convex/rentalDelivery.ts:delivery.quote
 call convex/rentalDelivery.ts:settings.get
 call convex/rentalPricePayments.ts:checkout.refundRental
 call convex/rentalPricePayments.ts:rentalPriceState.preview
+call convex/rentalRequests.ts:rentalOperations.previewHandoverTimes
+call convex/rentalRequests.ts:rentalOperations.previewReschedule
+call convex/rentalRequests.ts:rentalOperations.renterHandoverPreview
+call convex/rentalRequests.ts:rentalOperations.renterReschedulePreview
 call convex/securityCharges.ts:securityChargeState.prepare
 call convex/securityCharges.ts:securityCharges.collect
 call convex/sync.ts:availability.forCalendar
@@ -33,9 +41,11 @@ call src/app/account/page.tsx:accounts.myBookingsPage
 call src/app/account/page.tsx:catalog.listingsByIds
 call src/app/account/page.tsx:checkout.billingPortal
 call src/app/account/page.tsx:rentalChat.unreadTotals
+call src/app/account/page.tsx:settings.get
 call src/app/account/setup/page.tsx:accountCodes.complete
 call src/app/account/setup/page.tsx:accountCodes.request
 call src/app/account/setup/page.tsx:accountCodes.verify
+call src/app/account/setup/page.tsx:settings.get
 call src/app/account/verification-claim/page.tsx:verificationReuseClaims.redeem
 call src/app/admin/page.tsx:adminNotifications.latest
 call src/app/admin/page.tsx:bookings.adminAuthorized
@@ -90,6 +100,7 @@ call src/app/checkout/success/page.tsx:checkout.syncHold
 call src/app/checkout/success/page.tsx:rentalAdditions.sync
 call src/app/contact/page.tsx:chat.send
 call src/app/contact/page.tsx:contact.submit
+call src/app/contact/page.tsx:settings.get
 call src/app/film-fund/page.tsx:filmFund.schedule
 call src/app/film-fund/unsubscribe/page.tsx:filmFundNotifications.unsubscribe
 call src/app/gear/GearCatalogueClient.tsx:analytics.track
@@ -192,12 +203,12 @@ call src/components/admin/AccountAdmin.tsx:accountAdmin.history
 call src/components/admin/AccountAdmin.tsx:accountAdmin.possibleRestrictedIdentityMatches
 call src/components/admin/AccountAdmin.tsx:accountAdmin.searchMessages
 call src/components/admin/AccountAdmin.tsx:accountAdmin.setBlocked
-call src/components/admin/AccountAdmin.tsx:accountAdmin.setEncoreLevel
-call src/components/admin/AccountAdmin.tsx:accountAdmin.setLevel
+call src/components/admin/AccountAdmin.tsx:accountAdmin.setRentalAccess
 call src/components/admin/AccountAdmin.tsx:accountAdmin.setStarred
 call src/components/admin/AccountAdmin.tsx:accountAdmin.updateProfile
 call src/components/admin/AccountAdmin.tsx:accountAdmin.verificationReviews
 call src/components/admin/AccountAdmin.tsx:checkout.adminBillingPortal
+call src/components/admin/AccountAdmin.tsx:checkout.adminRefreshMembership
 call src/components/admin/AccountAdmin.tsx:privateVerificationPortrait.availability
 call src/components/admin/AccountCreditPanel.tsx:accountCredits.grantAdmin
 call src/components/admin/AccountCreditPanel.tsx:accountCredits.grantStatus
@@ -228,6 +239,9 @@ call src/components/admin/MarketingListingsAdmin.tsx:marketingAdmin.list
 call src/components/admin/MarketingListingsAdmin.tsx:marketingAdmin.removeSavedDraft
 call src/components/admin/MarketingListingsAdmin.tsx:marketingAdmin.saveThroughManager
 call src/components/admin/MarketingListingsAdmin.tsx:marketingAdmin.savedDrafts
+call src/components/admin/MembershipInvoiceRecovery.tsx:checkout.adminInspectMembershipInvoice
+call src/components/admin/MembershipInvoiceRecovery.tsx:checkout.adminRetryMembershipInvoice
+call src/components/admin/MembershipInvoiceRecovery.tsx:membershipInvoiceReviews.adminList
 call src/components/admin/NotificationSettings.tsx:adminNotifications.disable
 call src/components/admin/NotificationSettings.tsx:adminNotifications.preferences
 call src/components/admin/NotificationSettings.tsx:adminNotifications.retry
@@ -272,7 +286,6 @@ call src/components/admin/RentalOrderTools.tsx:rentalAdditions.start
 call src/components/admin/RentalOrderTools.tsx:rentalAdditions.withdrawByOwner
 call src/components/admin/RentalOrderTools.tsx:rentalOperations.changeHandoverTimes
 call src/components/admin/RentalOrderTools.tsx:rentalOperations.details
-call src/components/admin/RentalOrderTools.tsx:rentalOperations.removeItem
 call src/components/admin/RentalOrderTools.tsx:rentalOperations.reschedule
 call src/components/admin/RentalReviewRequest.tsx:reviewInvitations.adminStatus
 call src/components/admin/RentalReviewRequest.tsx:reviewInvitations.sendByAdmin
@@ -282,6 +295,8 @@ call src/components/admin/RentalSwapProposal.tsx:rentalSwapState.previewForAdmin
 call src/components/admin/RentalSwapProposal.tsx:rentalSwapState.propose
 call src/components/admin/RentalSwapProposal.tsx:rentalSwapState.proposeBasket
 call src/components/admin/RentalSwapProposal.tsx:rentalSwapState.readiness
+call src/components/admin/RentalSwapRecovery.tsx:rentalSwapPayments.checkRefundApproval
+call src/components/admin/RentalSwapRecovery.tsx:rentalSwapPayments.closeAcceptedWithoutPayment
 call src/components/admin/RentalSwapRecovery.tsx:rentalSwapPayments.refundPaidReview
 call src/components/admin/RentalSwapRecovery.tsx:rentalSwapPayments.resolveRefundAmbiguity
 call src/components/admin/RentalSwapRecovery.tsx:rentalSwapPayments.resumeReview
@@ -396,6 +411,7 @@ call src/components/rentals/RentalConversation.tsx:rentalChat.setHandler
 call src/components/rentals/RentalCreditOffer.tsx:checkout.acceptFullCredit
 call src/components/rentals/RentalCreditOffer.tsx:rentalCreditOffers.get
 call src/components/rentals/RentalDeliveryQuoteApproval.tsx:rentalDelivery.accept
+call src/components/rentals/RentalDeliveryQuoteApproval.tsx:rentalDelivery.decline
 call src/components/rentals/RentalDeliveryQuoteApproval.tsx:rentalDeliveryState.customerQuote
 call src/components/rentals/RentalExtensionPanel.tsx:cartReplacements.forCart
 call src/components/rentals/RentalExtensionPanel.tsx:rentalExtensionPayments.approve
@@ -412,8 +428,10 @@ call src/components/rentals/RentalPricePanel.tsx:rentalPriceState.list
 call src/components/rentals/RentalPricePanel.tsx:rentalPriceState.preview
 call src/components/rentals/RentalPricePanel.tsx:rentalPriceState.propose
 call src/components/rentals/RentalRequestApply.tsx:checkout.cancelByAdmin
+call src/components/rentals/RentalRequestApply.tsx:rentalOperations.changeHandoverTimes
 call src/components/rentals/RentalRequestApply.tsx:rentalOperations.details
 call src/components/rentals/RentalRequestApply.tsx:rentalOperations.reschedule
+call src/components/rentals/RentalRequestHistory.tsx:rentalOperations.changeHandoverTimes
 call src/components/rentals/RentalRequestHistory.tsx:rentalRequests.list
 call src/components/rentals/RentalRequestHistory.tsx:rentalRequests.review
 call src/components/rentals/RentalSwapApproval.tsx:rentalSwapPayments.accept
@@ -421,10 +439,12 @@ call src/components/rentals/RentalSwapApproval.tsx:rentalSwapState.customerDecli
 call src/components/rentals/RentalSwapApproval.tsx:rentalSwapState.customerProposal
 call src/components/rentals/RentalVerificationSummary.tsx:bookings.verificationProgress
 call src/components/rentals/RentalVerificationSummary.tsx:didit.adminReview
+call src/components/rentals/RentalVerificationSummary.tsx:didit.adminVerificationLink
 call src/components/rentals/RentalVerificationSummary.tsx:didit.refreshProgress
 call src/components/rentals/RentalVerificationSummary.tsx:rentalOperations.details
 call src/components/rentals/RenterRentalTools.tsx:cancellationRecovery.renterStatus
 call src/components/rentals/RenterRentalTools.tsx:checkout.cancelUnpaidByCustomer
+call src/components/rentals/RenterRentalTools.tsx:rentalOperations.renterHandoverPreview
 call src/components/rentals/RenterRentalTools.tsx:rentalOperations.renterReschedulePreview
 call src/components/rentals/RenterRentalTools.tsx:rentalRequests.context
 call src/components/rentals/RenterRentalTools.tsx:rentalRequests.submit
@@ -501,6 +521,7 @@ export convex/accountAdmin.ts:searchMessages
 export convex/accountAdmin.ts:setBlocked
 export convex/accountAdmin.ts:setEncoreLevel
 export convex/accountAdmin.ts:setLevel
+export convex/accountAdmin.ts:setRentalAccess
 export convex/accountAdmin.ts:setStarred
 export convex/accountAdmin.ts:updateProfile
 export convex/accountAdmin.ts:verificationReviews
@@ -671,6 +692,7 @@ export convex/bookings.ts:claimReturnStatementEmail
 export convex/bookings.ts:clearPreviousHold
 export convex/bookings.ts:confirm
 export convex/bookings.ts:createPending
+export convex/bookings.ts:currentCheckoutWaiver
 export convex/bookings.ts:depositSettlementStatus
 export convex/bookings.ts:depositWaiverEligibility
 export convex/bookings.ts:dueLateFeeReceiptEmails
@@ -810,6 +832,7 @@ export convex/checkout.ts:adminBillingPortal
 export convex/checkout.ts:adminInspectMembershipInvoice
 export convex/checkout.ts:adminRefreshMembership
 export convex/checkout.ts:adminRetryMembershipInvoice
+export convex/checkout.ts:assertRentalBasketTrialAllowed
 export convex/checkout.ts:billingPortal
 export convex/checkout.ts:cancelByAdmin
 export convex/checkout.ts:cancelByCustomer
@@ -850,6 +873,7 @@ export convex/checkout.ts:startMembership
 export convex/checkout.ts:stripeWebhook
 export convex/checkout.ts:syncHold
 export convex/checkout.ts:syncStripeMembership
+export convex/checkout.ts:verifiedCheckoutReceipt
 export convex/checkoutCartData.ts:cartLine
 export convex/checkoutCartData.ts:create
 export convex/checkoutCartData.ts:get
@@ -882,12 +906,15 @@ export convex/credits.ts:redeem
 export convex/delivery.ts:quote
 export convex/delivery.ts:specsFor
 export convex/didit.ts:adminReview
+export convex/didit.ts:adminVerificationLink
 export convex/didit.ts:bookingSession
 export convex/didit.ts:reconcileOpenSessions
 export convex/didit.ts:refreshForGaffer
 export convex/didit.ts:refreshProgress
 export convex/didit.ts:reuseVerification
 export convex/didit.ts:webhook
+export convex/diditReviewClaims.ts:claim
+export convex/diditReviewClaims.ts:release
 export convex/diditSweep.ts:batch
 export convex/diditSweep.ts:configurationFailure
 export convex/diditSweep.ts:finish
@@ -1003,6 +1030,7 @@ export convex/invoice.ts:swapAdjustmentEmail
 export convex/invoiceAdjustments.ts:claimSwapAdjustmentEmail
 export convex/invoiceAdjustments.ts:dueSwapAdjustmentEmails
 export convex/invoiceAdjustments.ts:markSwapAdjustmentEmailSent
+export convex/invoiceAdjustments.ts:swapAdjustmentInvoiceData
 export convex/kitPlans.ts:list
 export convex/kitPlans.ts:preview
 export convex/kitPlans.ts:remove
@@ -1054,6 +1082,8 @@ export convex/lib/checkoutRecovery.ts:linkMatchingRecovery
 export convex/lib/checkoutRecovery.ts:recoveryBookingState
 export convex/lib/checkoutRecovery.ts:recoveryBookingsForAccount
 export convex/lib/checkoutRecovery.ts:stopMatchingRecovery
+export convex/lib/checkoutSessionRecovery.ts:checkoutSessionState
+export convex/lib/checkoutSessionRecovery.ts:expireUnpaidCheckoutSession
 export convex/lib/compatibilityEvidence.ts:verifiedKitEvidence
 export convex/lib/conversationReplyState.ts:conversationReplyState
 export convex/lib/creditLedger.ts:creditDebit
@@ -1091,6 +1121,7 @@ export convex/lib/kitPlanning.ts:requireAccount
 export convex/lib/lateFee.ts:lateFeeQuote
 export convex/lib/loyalty.ts:ENCORE_POLICY_VERSION
 export convex/lib/loyalty.ts:celebratedLoyaltyLevel
+export convex/lib/loyalty.ts:earnedEncoreProgress
 export convex/lib/loyalty.ts:encoreGate
 export convex/lib/loyalty.ts:loyaltyProgress
 export convex/lib/loyalty.ts:loyaltyProgressWithin
@@ -1122,6 +1153,7 @@ export convex/lib/mount.ts:mountCompat
 export convex/lib/mount.ts:normalizeMount
 export convex/lib/mount.ts:parseMounts
 export convex/lib/mp4Duration.ts:mp4Duration
+export convex/lib/pickupMap.ts:WATERSTONES_MAP_URL
 export convex/lib/pricing.ts:NextTier
 export convex/lib/pricing.ts:PROTECTION_LABEL
 export convex/lib/pricing.ts:Pricing
@@ -1181,6 +1213,7 @@ export convex/lib/rentalRequestExecution.ts:RequestOperation
 export convex/lib/rentalRequestExecution.ts:approvedRequest
 export convex/lib/rentalRequestExecution.ts:cancellationRequestKey
 export convex/lib/rentalRequestExecution.ts:finishRequest
+export convex/lib/rentalRequestExecution.ts:handoverRequestKey
 export convex/lib/rentalRequestExecution.ts:rescheduleRequestKey
 export convex/lib/rentalRequestExecution.ts:startRequest
 export convex/lib/rentalStripeBalance.ts:remainingRentalPayment
@@ -1239,9 +1272,12 @@ export convex/lib/stockWindows.ts:rentalSlots
 export convex/lib/stockWindows.ts:stockTimePrecision
 export convex/lib/stockWindows.ts:stockWindow
 export convex/lib/stockWindows.ts:windowCapacity
+export convex/lib/strictDepositWaiver.ts:checkoutCreditFullyCoversDue
 export convex/lib/strictDepositWaiver.ts:strictDepositWaiverReason
 export convex/lib/stripeCustomer.ts:ensureCheckoutCustomer
+export convex/lib/swapStockFence.ts:assertActiveItemSwapReady
 export convex/lib/swapStockFence.ts:assertSwapStockReconciled
+export convex/lib/swapStockFence.ts:expireUnacceptedItemSwap
 export convex/lib/taxonomy.ts:CATEGORY_OF
 export convex/lib/taxonomy.ts:COMPLEMENTS
 export convex/lib/taxonomy.ts:DELIVERY_BY_TYPE
@@ -1449,6 +1485,7 @@ export convex/rentalCreditOffers.ts:get
 export convex/rentalDelivery.ts:accept
 export convex/rentalDelivery.ts:cancelQuote
 export convex/rentalDelivery.ts:createQuote
+export convex/rentalDelivery.ts:decline
 export convex/rentalDelivery.ts:expire
 export convex/rentalDelivery.ts:finalizePaid
 export convex/rentalDelivery.ts:markFailed
@@ -1458,6 +1495,7 @@ export convex/rentalDeliveryState.ts:adminQuote
 export convex/rentalDeliveryState.ts:bindSession
 export convex/rentalDeliveryState.ts:bookingContext
 export convex/rentalDeliveryState.ts:customerQuote
+export convex/rentalDeliveryState.ts:decline
 export convex/rentalDeliveryState.ts:expire
 export convex/rentalDeliveryState.ts:markFailed
 export convex/rentalDeliveryState.ts:markPaid
@@ -1496,6 +1534,7 @@ export convex/rentalOperations.ts:details
 export convex/rentalOperations.ts:equipmentCatalog
 export convex/rentalOperations.ts:paymentSources
 export convex/rentalOperations.ts:prepareRefund
+export convex/rentalOperations.ts:previewHandoverTimes
 export convex/rentalOperations.ts:previewReschedule
 export convex/rentalOperations.ts:recordRefund
 export convex/rentalOperations.ts:recordRefundPart
@@ -1503,6 +1542,7 @@ export convex/rentalOperations.ts:recordRefundReceipt
 export convex/rentalOperations.ts:refundContext
 export convex/rentalOperations.ts:refundJob
 export convex/rentalOperations.ts:removeItem
+export convex/rentalOperations.ts:renterHandoverPreview
 export convex/rentalOperations.ts:renterReschedulePreview
 export convex/rentalOperations.ts:reschedule
 export convex/rentalOperations.ts:resolveSwapRefundAmbiguity
@@ -1534,8 +1574,11 @@ export convex/rentalRequests.ts:list
 export convex/rentalRequests.ts:review
 export convex/rentalRequests.ts:submit
 export convex/rentalSwapPayments.ts:accept
+export convex/rentalSwapPayments.ts:checkRefundApproval
+export convex/rentalSwapPayments.ts:closeAcceptedWithoutPayment
 export convex/rentalSwapPayments.ts:finalize
 export convex/rentalSwapPayments.ts:reconcile
+export convex/rentalSwapPayments.ts:reconcileRefundWebhook
 export convex/rentalSwapPayments.ts:refundPaidReview
 export convex/rentalSwapPayments.ts:resolveRefundAmbiguity
 export convex/rentalSwapPayments.ts:resumeReview
@@ -1551,6 +1594,7 @@ export convex/rentalSwapState.ts:beginRefundRetry
 export convex/rentalSwapState.ts:beginReviewedCompensation
 export convex/rentalSwapState.ts:bindSession
 export convex/rentalSwapState.ts:close
+export convex/rentalSwapState.ts:closeAcceptedWithoutPayment
 export convex/rentalSwapState.ts:context
 export convex/rentalSwapState.ts:customerDecline
 export convex/rentalSwapState.ts:customerProposal
@@ -1558,6 +1602,7 @@ export convex/rentalSwapState.ts:finishCompensation
 export convex/rentalSwapState.ts:list
 export convex/rentalSwapState.ts:markRefundAmbiguityReview
 export convex/rentalSwapState.ts:markRefundFailureReview
+export convex/rentalSwapState.ts:markSessionCreationStarted
 export convex/rentalSwapState.ts:notifyApproval
 export convex/rentalSwapState.ts:notifyConvertedStockRisk
 export convex/rentalSwapState.ts:pending
@@ -1665,20 +1710,24 @@ export convex/securityChargeState.ts:beginRefund
 export convex/securityChargeState.ts:byIntent
 export convex/securityChargeState.ts:claim
 export convex/securityChargeState.ts:claimNotice
+export convex/securityChargeState.ts:claimRefundNotice
 export convex/securityChargeState.ts:closePrepared
 export convex/securityChargeState.ts:context
 export convex/securityChargeState.ts:dispute
 export convex/securityChargeState.ts:evidence
 export convex/securityChargeState.ts:externalRefund
+export convex/securityChargeState.ts:finishRefundNotice
 export convex/securityChargeState.ts:list
 export convex/securityChargeState.ts:noticeResult
 export convex/securityChargeState.ts:pending
+export convex/securityChargeState.ts:pendingRefundNotices
 export convex/securityChargeState.ts:pendingRefunds
 export convex/securityChargeState.ts:prepare
 export convex/securityChargeState.ts:proposeResolution
 export convex/securityChargeState.ts:reconciliationFailed
 export convex/securityChargeState.ts:record
 export convex/securityChargeState.ts:recordRefund
+export convex/securityChargeState.ts:refundNoticeContext
 export convex/securityCharges.ts:collect
 export convex/securityCharges.ts:processPending
 export convex/securityCharges.ts:reconcile
@@ -1692,6 +1741,7 @@ export convex/securityCharges.ts:resendNotice
 export convex/securityCharges.ts:resendReceipt
 export convex/securityCharges.ts:sendNotice
 export convex/securityCharges.ts:sendReceipt
+export convex/securityCharges.ts:sendRefundNotice
 export convex/securityCharges.ts:submitClaim
 export convex/settings.ts:adminGet
 export convex/settings.ts:adminUpdate
@@ -1708,6 +1758,7 @@ export convex/swapStockAudit.ts:manualCheckResult
 export convex/swapStockAudit.ts:prepareManualCheck
 export convex/swapStockAudit.ts:recheck
 export convex/swapStockAudit.ts:record
+export convex/swapStockAudit.ts:recoverSafeLegacyReceipts
 export convex/swapStockAudit.ts:retryLegacyDelivery
 export convex/swapStockAudit.ts:runDue
 export convex/swapStockOperations.ts:assertStockExecution

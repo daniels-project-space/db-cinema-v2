@@ -1,52 +1,47 @@
-const {createHash}=require('node:crypto');const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
-const sessions=new Map(),trace=[],createOptions=[];let creates=0,retrieves=0,sourceOk=true,sessionStatus='open',sessionMismatch=false,transportError=false,createFailure;
-class StripeFixture {
- static errors={StripeInvalidRequestError:class extends Error{}};
- paymentMethodConfigurations={retrieve:async()=>({active:true,card:{display_preference:{value:'on'}},apple_pay:{display_preference:{value:'off'}},google_pay:{display_preference:{value:'off'}},link:{display_preference:{value:'off'}}})};
- checkout={sessions:{create:async (params,options)=>{creates++;createOptions.push(options);if(createFailure==='invalid')throw new StripeFixture.errors.StripeInvalidRequestError('Provider rejected request');if(createFailure==='unknown')throw Error('Unknown create outcome');const s={id:'cs-fixture-'+creates,status:'open',url:createFailure==='no-url'?null:'https://fixture.invalid/payment/'+creates,metadata:params.metadata};sessions.set(s.id,s);return s},retrieve:async id=>{retrieves++;if(transportError)throw Error('Unknown provider outcome');const s=sessions.get(id);return {...s,status:sessionStatus,...(sessionMismatch?{metadata:{bookingId:'wrong-booking'}}:{})}}}};
-}
-h.setMock('stripe',{default:StripeFixture});
-const checkout=h.load('convex/checkout.ts'),bookings=h.load('convex/bookings.ts'),catalog=h.load('convex/catalog.ts'),availability=h.load('convex/availability.ts'),sync=h.load('convex/sync.ts'),memberBenefits=h.load('convex/membershipBenefits.ts'),{agreementRequestFingerprint}=h.load('shared/rentalAgreement.ts'),{AGREEMENTS}=h.load('src/lib/legal.ts');
-Object.assign(process.env,{RMV2_WEBHOOK_URL:'https://fixture-manager.convex.site/dbcinema/booking-sync',RMV2_WEBHOOK_SECRET:'fixture-private-read',RENTAL_CHECKOUT_ENABLED:'true',DIDIT_API_KEY:'test',DIDIT_WORKFLOW_ID:'test',DIDIT_WEBHOOK_SECRET:'test',DIDIT_APPLICATION_ID:'test',DIDIT_ENVIRONMENT:'sandbox',STRIPE_WEBHOOK_SECRET:'test',STRIPE_SECRET_KEY:'test',STRIPE_RENTAL_PAYMENT_METHOD_CONFIGURATION_ID:'test',INVOICE_SECRET:'test',APP_URL:'https://fixture.invalid',BUSINESS_LEGAL_NAME:'Fixture supplier',BUSINESS_INVOICE_ADDRESS:'Fixture address',RESEND_API_KEY:'test'});
-const unit=h.put('inventory_units',{name:'Source camera',sku:'mi-body',rmv2ItemId:'body',quantityOwned:1,active:true,replacementCost:1000}),listing=h.put('listings',{title:'Source camera',slug:'source-camera',category:'Cameras',itemType:'camera-body',active:true,stockMappingStatus:'complete',components:[{inventoryUnitId:unit._id,qty:1}],pricing:{daily:50},depositAmount:1000});
-const start=Date.UTC(2030,0,1),end=start+86400000,realFetch=global.fetch;
-global.fetch=async()=>{trace.push('source-http');if(!sourceOk)throw Error('Source unavailable');return {ok:true,status:200,json:async()=>({protocolVersion:1,status:'success',path:'items:sharedStockForStorefront',value:[{version:1,checkedAt:Date.now(),units:[{masterItemId:'body',active:true,quantityOwned:1,windows:[]}]}]})}};
-const ctx={db:h.db,scheduler:{runAfter:async()=>{}},runAction:async(ref,args)=>{trace.push(ref);assert.equal(ref,'sync.syncHyggloReservations');return sync.syncHyggloReservations.handler(ctx,args)},runQuery:async(ref,args)=>{trace.push(ref);if(ref==='membershipBenefits.byRequest')return memberBenefits.byRequest.handler(ctx,args);if(ref==='settings.get')return {acceptingOrders:true};if(ref==='accounts._byEmail')return null;if(ref==='bookings.assertCheckoutReservation')return bookings.assertCheckoutReservation.handler(ctx,args);if(ref==='bookings.checkoutAttempt')return bookings.checkoutAttempt.handler(ctx,args);if(ref==='catalog.repriceLines')return catalog.repriceLines.handler(ctx,args);if(ref==='availability.forListing')return availability.forListing.handler(ctx,args);if(ref==='availability.forCart')return availability.forCart.handler(ctx,args);throw Error('Unexpected query '+ref)},runMutation:async(ref,args)=>{trace.push(ref);if(ref==='sync.applySharedStock')return sync.applySharedStock.handler(ctx,args);if(ref.startsWith('membershipBenefits.'))return memberBenefits[ref.split('.')[1]].handler(ctx,args);assert(ref.startsWith('bookings.'));return bookings[ref.split('.')[1]].handler(ctx,args)}};
-const args={items:[{listingId:listing._id,title:listing.title,start,end,qty:1,total:100,deposit:1000}],customer:{email:'fixture@example.invalid',name:'Fixture Renter',billingAddress:'123 Fixture Street, London'},fulfilment:'pickup',deliveryFee:0,expectedTotalDue:0,expectedSavedCardLimit:100,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Fixture Renter',requestId:'fixture-bound-payment-acceptance',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS}};
-(async()=>{try{
- args.expectedTotalDue=(await checkout.priceQuote.handler(ctx,{items:args.items,customerEmail:args.customer.email,fulfilment:'pickup'})).combinedTotalDue;
- const first=await checkout.start.handler(ctx,structuredClone(args));assert.equal(creates,1);const b=h.tables.get('bookings')[0];assert.equal(createOptions[0].idempotencyKey,`dbc-rental-checkout-${b._id}`);assert.match(b.checkoutInputFingerprint,/^[a-f0-9]{64}$/);const allocation=JSON.stringify(h.tables.get('reservations'));let frozen=JSON.stringify([...h.tables]);assert.equal((await availability.forListing.handler(ctx,{listingId:listing._id,start,end})).available,1,'An unpaid checkout leaves the last camera available to other renters');
- const heldRows=h.tables.get('reservations').filter(r=>r.bookingId===b._id),heldExpiry=heldRows[0].holdExpiresAt;const beforeRejectRetrievals=retrieves;
- heldRows[0].holdExpiresAt=Date.now()-1;await assert.rejects(checkout.start.handler(ctx,structuredClone(args)),/no longer has available stock/);assert.equal(retrieves,beforeRejectRetrievals);assert.equal(creates,1);heldRows[0].holdExpiresAt=heldExpiry;
- listing.marketingOnly=true;await assert.rejects(checkout.start.handler(ctx,structuredClone(args)),/no longer has available stock/);assert.equal(retrieves,beforeRejectRetrievals);delete listing.marketingOnly;
- if(process.env.DBC_RECOVERY_BASELINE){const baseline=h.load(process.env.DBC_RECOVERY_BASELINE);await assert.rejects(baseline.start.handler(ctx,structuredClone(args)),/isn't available/);assert.equal(creates,1);console.log('NEGATIVE CONTROL: prior actual checkout rejects its own last-unit hold before session recovery.');frozen=JSON.stringify([...h.tables]);}
- sourceOk=false;trace.length=0;const retry=await checkout.start.handler(ctx,structuredClone(args));assert.equal(retry.url,first.url);assert.equal(creates,1);assert.equal(retrieves,1);assert(!trace.includes('source-http'));assert(!trace.includes('catalog.repriceLines'));assert(!trace.some(x=>x.startsWith('bookings.')&&!['bookings.checkoutAttempt','bookings.assertCheckoutReservation'].includes(x)));assert.equal(JSON.stringify([...h.tables]),frozen,'Recovery does not change bookings, stock, credit or accepted agreement');
- const reordered={...structuredClone(args),customer:{billingAddress:args.customer.billingAddress,name:args.customer.name,email:args.customer.email},token:'rotated-session'};assert.equal((await checkout.start.handler(ctx,reordered)).url,first.url,'Object key order and rotated session token do not change accepted particulars');
- for(const change of [a=>a.items[0].end+=86400000,a=>a.items.push({...a.items[0]}),a=>a.customer.email='different@example.invalid',a=>a.customer.billingAddress+=' changed',a=>a.expectedTotalDue+=1,a=>a.pickupTime='11:00',a=>a.protection='deposit',a=>a.selectedMembership={tier:'studio',intro:'none',termsVersion:'fixture',requestId:'a'.repeat(40)}]){const changed=structuredClone(args);change(changed);const previous=retrieves;await assert.rejects(checkout.start.handler(ctx,changed),/different booking details/);assert.equal(retrieves,previous,'Changed particulars cannot recover another session');}
- sessionMismatch=true;await assert.rejects(checkout.start.handler(ctx,structuredClone(args)),/does not match/);sessionMismatch=false;sessionStatus='complete';await assert.rejects(checkout.start.handler(ctx,structuredClone(args)),/completed or expired/);sessionStatus='open';transportError=true;await assert.rejects(checkout.start.handler(ctx,structuredClone(args)),/Unknown provider outcome/);transportError=false;
- const saved=b.stripeCheckoutSessionId;await h.db.patch(b._id,{stripeCheckoutSessionId:undefined});await assert.rejects(checkout.start.handler(ctx,structuredClone(args)),/pending reconciliation/);assert.equal(creates,1,'Unknown unbound outcome never starts another payment');await h.db.patch(b._id,{stripeCheckoutSessionId:saved,status:'confirmed'});await assert.rejects(checkout.start.handler(ctx,structuredClone(args)),/completed or closed/);await h.db.patch(b._id,{status:'pending_payment'});assert.equal(JSON.stringify(h.tables.get('reservations')),allocation,'All failed/recovered retries retain the exact stock allocation');
- const member=h.put('membership_checkouts',{state:'open',bookingId:b._id,sessionId:saved});await h.db.patch(b._id,{membershipCheckoutId:member._id});assert.equal((await checkout.start.handler(ctx,structuredClone(args))).url,first.url,'Bound membership-linked booking uses the same exact recovery receipt');
- await h.db.patch(b._id,{securityWaiverReason:'membership_checkout'});assert.equal((await checkout.start.handler(ctx,structuredClone(args))).url,first.url,'A previously issued waiver session retains its accepted terms');await h.db.patch(b._id,{securityWaiverReason:undefined});
- const memberArgs={...structuredClone(args),selectedMembership:{tier:'studio',intro:'none',termsVersion:'fixture',requestId:'m'.repeat(40)}};const account=h.put('accounts',{email:args.customer.email});await h.db.patch(member._id,{accountId:account._id,requestId:memberArgs.selectedMembership.requestId,bookingId:b._id,state:'open'});await h.db.patch(b._id,{stripeCheckoutSessionId:undefined,checkoutInputFingerprint:createHash('sha256').update(agreementRequestFingerprint({...memberArgs,token:undefined})).digest('hex')});
- assert.equal((await checkout.start.handler(ctx,structuredClone(memberArgs))).url,first.url,'Membership binding can recover when its booking-session write was interrupted');
- await h.db.patch(member._id,{bookingId:'foreign-booking'});await assert.rejects(checkout.start.handler(ctx,structuredClone(memberArgs)),/membership checkout does not match/);await h.db.patch(member._id,{bookingId:b._id,state:'expired'});await assert.rejects(checkout.start.handler(ctx,structuredClone(memberArgs)),/membership checkout has completed or closed/);
- await h.db.patch(member._id,{state:'creating',sessionId:undefined,sessionParams:JSON.stringify({metadata:{bookingId:'foreign-booking'}})});await assert.rejects(checkout.start.handler(ctx,structuredClone(memberArgs)),/payment setup does not match/);assert.equal(creates,1,'Conflicting frozen membership setup never creates a payment');
- await h.db.patch(member._id,{sessionParams:JSON.stringify({metadata:{bookingId:b._id}})});const restored=await checkout.start.handler(ctx,structuredClone(memberArgs));assert.equal(creates,2);assert.equal(createOptions[1].idempotencyKey,`dbc-member-checkout-${member._id}`,'Membership session key remains unchanged');assert.equal(b.stripeCheckoutSessionId,'cs-fixture-2');assert.equal((await checkout.start.handler(ctx,structuredClone(memberArgs))).url,restored.url);assert.equal(creates,2,'Prepared membership recovery binds once and future retry retrieves it');
- await h.db.patch(b._id,{checkoutInputFingerprint:undefined});assert.equal(await bookings.checkoutAttempt.handler(ctx,{requestId:args.agreement.requestId,checkoutInputFingerprint:'0'.repeat(64)}),null,'Legacy records are not assigned guessed input receipts');
- sourceOk=true;
- for(const [index,kind] of ['invalid','unknown','alert-unavailable','no-url','bind-failure'].entries()){
-  const failure=structuredClone(args);failure.agreement.requestId=`fixture-create-failure-${index}-long`;failure.customer.email=`failure-${index}@example.invalid`;failure.items[0].start+=(40+index*5)*86400000;failure.items[0].end+=(40+index*5)*86400000;
-  failure.expectedTotalDue=(await checkout.priceQuote.handler(ctx,{items:failure.items,customerEmail:failure.customer.email,fulfilment:'pickup'})).combinedTotalDue;
-  createFailure=kind==='invalid'?'invalid':kind==='no-url'?'no-url':kind==='bind-failure'?undefined:'unknown';const runMutation=ctx.runMutation;
-  if(kind==='alert-unavailable')ctx.runMutation=async(ref,params)=>{if(ref==='bookings.flagCheckoutSessionFailure')throw Error('Synthetic alert failure');return runMutation(ref,params)};
-  if(kind==='bind-failure')ctx.runMutation=async(ref,params)=>{if(ref==='bookings.bindCheckoutSession')throw Error('Synthetic binding failure');return runMutation(ref,params)};
-  await assert.rejects(checkout.start.handler(ctx,structuredClone(failure)),kind==='invalid'?/Provider rejected request/:kind==='no-url'?/did not return a checkout URL/:kind==='bind-failure'?/Synthetic binding failure/:/Unknown create outcome/);
-  ctx.runMutation=runMutation;createFailure=undefined;
-  const failed=h.tables.get('bookings').find(row=>row.agreementRequestId===failure.agreement.requestId);assert(failed);
-  assert.equal(failed.status,kind==='invalid'?'cancelled':'pending_payment','only attested provider rejection releases the pending booking');
-  const alert=(h.tables.get('admin_notifications')??[]).find(row=>row.eventKey===`checkout-session-failed:${failed._id}`);
-  assert.equal(!!alert,kind!=='alert-unavailable','alert failures must not replace the original provider error');
-  if(['unknown','no-url','bind-failure'].includes(kind)){const before=creates;await assert.rejects(checkout.start.handler(ctx,structuredClone(failure)),/pending reconciliation/);assert.equal(creates,before,'unknown outcomes cannot create another provider session');}
- }
- console.log('PASS actual first checkout and exact saved-session recovery: pending checkout does not hold the last unit, outage recovery before source/repricing/new writes, stable frozen agreement/allocation, changed particulars rejected, provider binding/status/errors, unknown unbound outcome retained, linked/interrupted/prepared membership recovery, foreign/closed setup rejection and explicit legacy compatibility. Synthetic source/database/Stripe; no provider writes.');
-}finally{global.fetch=realFetch}})().catch(e=>{console.error(e);process.exitCode=1});
+const assert=require('node:assert/strict');
+const {load}=require('./lib/rentalTestHarness.cjs');
+const {checkoutSessionState,expireUnpaidCheckoutSession}=load('convex/lib/checkoutSessionRecovery.ts');
+const {checkoutStartDestination}=load('src/lib/checkoutStartResult.ts');
+
+(async()=>{
+  const expiredCalls=[],bookingCalls=[];
+  const open={id:'cs-open',status:'open',payment_status:'unpaid'};
+  assert.equal(checkoutSessionState(open),'open_unpaid');
+  const expired=await expireUnpaidCheckoutSession({session:open,
+    expireStripe:async id=>{expiredCalls.push(id);return {...open,status:'expired'};},
+    retrieveStripe:async()=>{throw Error('expiry should succeed');},
+    expireBooking:async id=>{bookingCalls.push(id);return true;},
+  });
+  assert.deepEqual(expired,{state:'expired_unpaid',session:{...open,status:'expired'},bookingExpired:true});
+  assert.deepEqual(expiredCalls,['cs-open']);assert.deepEqual(bookingCalls,['cs-open']);
+
+  const paidRace={id:'cs-race',status:'complete',payment_status:'paid',amount_total:12000,currency:'gbp'};
+  const raced=await expireUnpaidCheckoutSession({session:open,
+    expireStripe:async()=>paidRace,
+    retrieveStripe:async()=>{throw Error('provider read is not needed after expiry succeeds');},
+    expireBooking:async()=>{throw Error('an already-paid session must not be expired locally');},
+  });
+  assert.equal(raced.state,'paid');assert.equal(raced.session,paidRace);assert.equal(raced.bookingExpired,false);
+  assert.equal(checkoutSessionState({id:'cs-already-paid',status:'complete',payment_status:'paid'}),'paid');
+  assert.equal(checkoutSessionState({id:'cs-zero-paid',status:'complete',payment_status:'no_payment_required'}),'paid');
+  assert.equal(checkoutStartDestination({url:'https://checkout.example.test/session'}),'https://checkout.example.test/session');
+  assert.equal(checkoutStartDestination({bookingId:'booking-fixture',alreadyPaid:true,sessionId:'cs-paid-race'}),'/checkout/success?session_id=cs-paid-race');
+  assert.equal(checkoutStartDestination({bookingId:'booking-fixture',alreadyPaid:true,sessionId:'cs+paid/race'}),'/checkout/success?session_id=cs%2Bpaid%2Frace');
+
+  let expiredBooking=false;
+  const terminal=await expireUnpaidCheckoutSession({session:{id:'cs-expired',status:'expired',payment_status:'unpaid'},
+    expireStripe:async()=>{throw Error('expired session should not be sent for expiry again');},
+    retrieveStripe:async()=>{throw Error('expired session is already authoritative');},
+    expireBooking:async()=>{expiredBooking=true;return true;},
+  });
+  assert.equal(terminal.state,'expired_unpaid');assert.equal(expiredBooking,true);
+
+  let preserved=false;
+  const processing=await expireUnpaidCheckoutSession({session:{id:'cs-processing',status:'complete',payment_status:'unpaid'},
+    expireStripe:async()=>{throw Error('indeterminate completed session must not be expired');},
+    retrieveStripe:async()=>{throw Error('no expiry attempt expected');},
+    expireBooking:async()=>{preserved=true;return true;},
+  });
+  assert.equal(processing.state,'indeterminate');assert.equal(preserved,false);
+  console.log('PASS checkout retry recovery: open unpaid expires, expiry race preserves completed payment, terminal unpaid releases only after provider state, processing remains untouched.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

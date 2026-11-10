@@ -83,6 +83,12 @@ function addAttachment({ account, booking, thread, closedAt, createdAt = now, ho
   const caseSupportThread = put("chat_threads", { accountId: caseAccount._id, escalated: false, updatedAt: now, closedAt: old });
   const caseSupportFile = addAttachment({ account: caseAccount, thread: caseSupportThread, closedAt: old });
 
+  const manualCaseAccount = put("accounts", { email: "manual-case@example.invalid" });
+  const manualCaseBooking = put("bookings", { accountId: manualCaseAccount._id, status: "returned", returnedAt: now - 10 * day });
+  const closedCase = put("rental_damage_cases", { accountId: manualCaseAccount._id, bookingId: manualCaseBooking._id, status: "closed", openedAt: now - 5 * day, closedAt: now - day });
+  const manualCaseThread = put("chat_threads", { accountId: manualCaseAccount._id, bookingId: manualCaseBooking._id, escalated: false, updatedAt: now });
+  const manualArchiveFile = addAttachment({ account: manualCaseAccount, booking: manualCaseBooking });
+
   const activeAccount = put("accounts", { email: "active@example.invalid" });
   const activeBooking = put("bookings", { accountId: activeAccount._id, status: "confirmed" });
   const active = addAttachment({ account: activeAccount, booking: activeBooking });
@@ -129,6 +135,14 @@ function addAttachment({ account, booking, thread, closedAt, createdAt = now, ho
   assert.equal((await db.query("chat_case_archives").withIndex("by_case", q => q.eq("caseId", claim._id)).first()).bookingId, caseBooking._id);
   assert.equal(caseThread.caseArchivedAt, old, "The permanent archive is attached to the case's rental conversation");
   assert.equal((await attachments.retention.handler(ctx,{token:"fixture-admin",id:caseSupportFile.attempt._id})).caseArchived,false,"An unrelated account support chat is not made permanent by a rental case");
+  const manualArchive = await db.query("chat_case_archives").withIndex("by_case", q => q.eq("caseId", closedCase._id)).first();
+  assert.equal(manualArchive.threadId, manualCaseThread._id, "Closed case chats remain in the permanent archive");
+  const manualWindow = await attachments.retention.handler(ctx,{token:"fixture-admin",id:manualArchiveFile.attempt._id});
+  assert.equal(manualWindow.caseArchived,true, "The file can belong to an archived chat without being retained forever");
+  assert.equal(manualWindow.expiresAt, manualCaseBooking.returnedAt + 90 * day, "Case-linked files keep the 90-day rental-close deadline");
+  await attachments.removePublished.handler(ctx, { token: "fixture-admin", id: manualArchiveFile.attempt._id, reason: "Remove file after review", confirmed: true, expectedRevision: 0 });
+  assert.equal(manualArchiveFile.attempt.status, "removed", "An archived chat can keep its history while an admin removes file bytes");
+  assert.equal((await db.get(manualArchiveFile.messageId)).text, "Attachment removed");
 
   let sweep = await attachments.purgeExpired.handler(ctx, {});
   assert(sweep.scanned >= 7);
@@ -153,10 +167,10 @@ function addAttachment({ account, booking, thread, closedAt, createdAt = now, ho
   claim.status = "closed";
   claim.closedAt = now;
   sweep = await attachments.purgeExpired.handler(ctx, {});
-  assert.equal(protectedByCase.attempt.status, "published", "The case rental chat stays archived after the case closes");
+  assert.equal(protectedByCase.attempt.status, "removed", "An expired case attachment is deleted when its open-case hold ends");
+  assert.equal((await db.get(protectedByCase.messageId)).text, "Attachment removed", "Deleting file bytes leaves the permanent case chat entry");
+  assert.equal((await db.query("chat_case_archives").withIndex("by_case", q => q.eq("caseId", claim._id)).first()).threadId, caseThread._id, "The case chat archive remains after its attachment is removed");
   assert.equal(caseSupportFile.attempt.status, "removed", "A separate support chat returns to normal expiry after the case closes");
-  process.env.ADMIN_TOKEN = "fixture-admin";
-  await assert.rejects(attachments.removePublished.handler(ctx, { token: "fixture-admin", id: protectedByCase.attempt._id, reason: "Attempt to remove archived case evidence", confirmed: true, expectedRevision: 0 }), /permanent case archive/);
 
   const currentNow = now + 91 * day;
   Date.now = () => currentNow;
@@ -166,6 +180,10 @@ function addAttachment({ account, booking, thread, closedAt, createdAt = now, ho
   await attachments.purgeExpiredActionAudits.handler(ctx, {});
   assert.equal((await db.query("chat_attachment_actions").withIndex("by_attachment", q => q.eq("attachmentId", expired.attempt._id)).collect()).length, 0, "Deletion audit metadata expires 90 days after the attachment is deleted");
   assert.equal(await db.get(expired.attempt._id), null, "The removed upload metadata and its account/booking link expire with the final deletion-audit row");
+  assert.equal((await db.query("chat_attachment_actions").withIndex("by_attachment", q => q.eq("attachmentId", protectedByCase.attempt._id)).collect()).length, 0, "Case-linked deletion audit metadata also expires 90 days after file deletion");
+  assert.equal(await db.get(protectedByCase.attempt._id), null, "Case-linked file metadata does not outlive its 90-day audit record");
+  assert((await db.query("chat_case_archives").withIndex("by_case", q => q.eq("caseId", claim._id)).first()), "The permanent chat archive remains after file metadata and audit expiry");
+  assert.equal(caseThread.caseArchivedAt, old, "The preserved rental conversation remains marked as a case archive");
 
   const manyThreads = Array.from({ length: 51 }, (_, index) => put("chat_threads", {
     accountId: put("accounts", { email: `batch-${index}@example.invalid` })._id,

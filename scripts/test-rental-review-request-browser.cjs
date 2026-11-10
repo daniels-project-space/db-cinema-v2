@@ -36,7 +36,7 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
     assert.deepEqual(await client.evaluate("window.calls"), [{ token: "fixture-admin", bookingId: "rental-one" }]);
     assert.match(await client.evaluate('document.querySelector("[role=status]").textContent'), /review request is in this rental conversation/i);
     await client.evaluate("window.fixtureState='sent';window.fixture.setState('sent')"); await wait(80);
-    assert.match(await client.evaluate('document.querySelector("[data-testid=admin-review-request]").textContent'), /already in this rental conversation/i);
+    assert.match(await client.evaluate('document.querySelector("[data-testid=admin-review-request]").textContent'), /review request was already sent/i);
     assert.equal(await client.evaluate('document.querySelectorAll("[data-testid=admin-review-request] button").length'), 0);
     await client.evaluate("window.fixtureState='not_settled';window.fixture.setState('not_settled')"); await wait(80);
     assert.match(await client.evaluate('document.querySelector("[data-testid=admin-review-request]").textContent'), /settlement must be complete/i);

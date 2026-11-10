@@ -1,6 +1,7 @@
 import { assertVerificationArchive } from "./verificationArchive";
 import { retainVerificationArchiveLink } from "./lib/verificationArchiveLink";
 import { renterVerificationNote, verificationValidUntil } from "../shared/verificationProgress";
+import { renterRentalActionReady } from "./lib/renterRentalActionGate";
 import { ensureReferralCode } from "./lib/referrals";
 import { belongsToRentalAccount, rentalsForAccount } from "./lib/rentalAccount";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
@@ -20,7 +21,7 @@ import {
   internalQuery,
   internalMutation,
 } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { listingRentalImages } from "./lib/catalogImages";
@@ -28,6 +29,7 @@ import { stream, mergedStream } from "convex-helpers/server/stream";
 import schema from "./schema";
 import { accountAuthError, validAccountEmail } from "../shared/accountAuth";
 import { LEO_SUPPORT_PHONE, TRAFALGAR_PICKUP_ADDRESS, TRAFALGAR_PICKUP_INSTRUCTIONS } from "../shared/pickupLocation";
+import { CURRENT_PRIVACY_NOTICE_VERSION, legalVersionForPolicy } from "../shared/legalVersioning";
 
 // ── crypto helpers (Web Crypto, available in Convex actions) ──────
 const toHex = (b: Uint8Array) =>
@@ -89,6 +91,10 @@ export const _create = internalMutation({
     name: v.optional(v.string()),
     token: v.string(),
     pendingEmailVerification: v.optional(v.boolean()),
+    accountTermsVersion: v.string(),
+    accountTermsAcceptedAt: v.number(),
+    privacyNoticeVersion: v.string(),
+    privacyNoticeAcknowledgedAt: v.number(),
   },
   handler: async (ctx, a) => {
     if(await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",a.email)).first())throw new ConvexError(accountAuthError("ACCOUNT_EXISTS"));
@@ -98,6 +104,10 @@ export const _create = internalMutation({
       hash: a.hash,
       emailVerificationRequired: !!a.pendingEmailVerification,
       name: a.name,
+      accountTermsVersion: a.accountTermsVersion,
+      accountTermsAcceptedAt: a.accountTermsAcceptedAt,
+      privacyNoticeVersion: a.privacyNoticeVersion,
+      privacyNoticeAcknowledgedAt: a.privacyNoticeAcknowledgedAt,
       createdAt: Date.now(),
     });
     await ensureReferralCode(ctx,accountId);
@@ -161,17 +171,28 @@ export const sweepExpiredSessions = internalMutation({
 
 // ── public actions ───────────────────────────────────────────────
 export const signUp = action({
-  args: { email: v.string(), password: v.string(), name: v.optional(v.string()), next: v.optional(v.union(v.literal("chat"),v.literal("review"))), bookingId: v.optional(v.id("bookings")) },
-  handler: async (ctx, { email, password, name, next, bookingId }): Promise<{ token: string }> => {
+  args: { email: v.string(), password: v.string(), name: v.optional(v.string()), next: v.optional(v.union(v.literal("chat"),v.literal("review"))), bookingId: v.optional(v.id("bookings")), termsAndPrivacyAcknowledged: v.boolean(), termsVersion: v.string(), privacyNoticeVersion: v.string() },
+  handler: async (ctx, { email, password, name, next, bookingId, termsAndPrivacyAcknowledged, termsVersion, privacyNoticeVersion }): Promise<{ token: string }> => {
     const e = email.trim().toLowerCase();
     if (!validAccountEmail(e) || password.length < 6)
       throw new ConvexError(accountAuthError("SIGNUP_INVALID_INPUT"));
+    if (!termsAndPrivacyAcknowledged)
+      throw new ConvexError(accountAuthError("SIGNUP_TERMS_REQUIRED"));
+    const policy = await ctx.runQuery(api.settings.get, {});
+    const currentTermsVersion = legalVersionForPolicy(policy);
+    if (termsVersion !== currentTermsVersion || privacyNoticeVersion !== CURRENT_PRIVACY_NOTICE_VERSION)
+      throw new ConvexError(accountAuthError("SIGNUP_TERMS_UPDATED"));
     const existing = await ctx.runQuery(internal.accounts._byEmail, { email: e });
     if (existing) throw new ConvexError(accountAuthError("ACCOUNT_EXISTS"));
     const salt = randomHex(16);
     const hash = await pbkdf2(password, salt);
     const token = randomHex(24);
-    await ctx.runMutation(internal.accounts._create, { email: e, salt, hash, name, token, pendingEmailVerification: true });
+    const acceptedAt = Date.now();
+    await ctx.runMutation(internal.accounts._create, {
+      email: e, salt, hash, name, token, pendingEmailVerification: true,
+      accountTermsVersion: currentTermsVersion, accountTermsAcceptedAt: acceptedAt,
+      privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION, privacyNoticeAcknowledgedAt: acceptedAt,
+    });
     await ctx.scheduler.runAfter(0,internal.accountAccess.sendForSignup,{email:e,credentialHash:hash,next,bookingId});
     return { token: "" };
   },
@@ -611,8 +632,9 @@ async function enrichBookings(ctx:any,rows:any[]) {
       const starts = b.lineItems.map((li: any) => li.start);
       const ends = b.lineItems.map((li: any) => li.end);
       const verificationExpiresAt = verificationValidUntil(b);
-      const handoverReady = ["confirmed", "active"].includes(b.status) && !!b.paidConfirmedAt &&
-        b.idVerifyStatus === "verified" && (verificationExpiresAt ?? 0) > Date.now();
+      // Keep this projection aligned with the renter chat gate: confirmed,
+      // paid, and all required checks approved by the recorded Didit result.
+      const handoverReady = renterRentalActionReady(b);
       out.push({
         _id: b._id,
         status: b.status,

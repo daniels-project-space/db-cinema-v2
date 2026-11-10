@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { useAccount } from "@/components/account/AccountProvider";
@@ -12,12 +12,16 @@ import { HOURS_WINDOWS } from "@/lib/site";
 import { EmailLink } from "@/components/EmailLink";
 import { AskGaffer } from "@/components/gaffer/AskGaffer";
 import { OpenGafferChat } from "@/components/gaffer/OpenGafferChat";
+import { legalVersionForPolicy, CURRENT_PRIVACY_NOTICE_VERSION } from "../../../shared/legalVersioning";
 
 export default function ContactPage() {
   const submit = useMutation(api.contact.submit);
   const sendToAccountChat = useMutation(api.chat.send);
   const { token, me, signUp, loading: accountLoading } = useAccount();
   const [creating, setCreating] = useState(false);
+  const accountPolicy = useQuery(api.settings.get, creating ? {} : "skip");
+  const termsVersion = accountPolicy ? legalVersionForPolicy(accountPolicy) : null;
+  const [termsAndPrivacyAcknowledged, setTermsAndPrivacyAcknowledged] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmationSent, setConfirmationSent] = useState(false);
   const [name, setName] = useState("");
@@ -78,16 +82,24 @@ export default function ContactPage() {
                 </span>
                 <p className="mt-4 font-display text-lg font-semibold text-white/90">Message sent</p>
                 <p className="mt-2 text-sm leading-relaxed text-white/60">{me ? "Your enquiry is in your account support conversation. Gaffer will reply there." : `Gaffer will read your enquiry and reply to ${email} with answers and next steps.`}</p>
-                {me ? <Link href="/account?conversation=general#chat" className="btn-primary mt-6 py-3">Continue in your Gaffer chat →</Link> : !creating ? <button type="button" className="btn-primary mt-6 py-3" onClick={() => setCreating(true)}>Create an account &amp; start a Gaffer chat</button> : confirmationSent ? <div className="mt-6 rounded-xl border border-accent-300/20 bg-accent-500/10 p-4 text-sm text-white/75" role="status">Check {email} for your confirmation link. Confirm once to activate your password, then start a Gaffer chat from your account.</div> : <form className="mt-6 space-y-3 text-left" onSubmit={async event => {
+                {me ? <Link href="/account?conversation=general#chat" className="btn-primary mt-6 py-3">Continue in your Gaffer chat →</Link> : !creating ? <button type="button" className="btn-primary mt-6 py-3" onClick={() => { setTermsAndPrivacyAcknowledged(false); setCreating(true); }}>Create an account &amp; start a Gaffer chat</button> : confirmationSent ? <div className="mt-6 rounded-xl border border-accent-300/20 bg-accent-500/10 p-4 text-sm text-white/75" role="status">Check {email} for your confirmation link. Confirm once to activate your password, then start a Gaffer chat from your account.</div> : <form className="mt-6 space-y-3 text-left" onSubmit={async event => {
                   event.preventDefault(); setBusy(true); setErr(null);
-                  try { await signUp(email, password, name, "chat"); setConfirmationSent(true); }
+                  try {
+                    if (!termsAndPrivacyAcknowledged || !termsVersion) throw new Error("Please agree to the current Terms and Conditions and read the Privacy Notice.");
+                    await signUp(email, password, name, "chat", undefined, { termsVersion, privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION });
+                    setConfirmationSent(true);
+                  }
                   catch { setErr("Couldn’t create the account. If you already have one, sign in below with this email."); }
                   finally { setBusy(false); }
                 }}>
                   <p className="text-sm text-white/65">{name} · {email}</p>
                   <label htmlFor="contact-account-password" className="hud-label block">Choose a password</label>
                   <input id="contact-account-password" type="password" autoComplete="new-password" minLength={6} required value={password} onChange={event => setPassword(event.target.value)} className="input w-full" />
-                  <button type="submit" className="btn-primary w-full py-3" disabled={busy || password.length < 6}>{busy ? "Creating…" : "Save password & create account"}</button>
+                  <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.025] px-3 py-3 text-xs leading-5 text-white/65">
+                    <input type="checkbox" checked={termsAndPrivacyAcknowledged} onChange={event => setTermsAndPrivacyAcknowledged(event.target.checked)} disabled={!termsVersion} required className="mt-1 h-4 w-4 shrink-0 accent-[#c49a6c]" />
+                    <span>I agree to the current <Link href={termsVersion ? `/legal/terms?version=${encodeURIComponent(termsVersion)}` : "/legal/terms"} target="_blank" rel="noreferrer" className="text-accent-300 underline underline-offset-2">Terms and Conditions</Link> and acknowledge the <Link href="/legal/privacy" target="_blank" rel="noreferrer" className="text-accent-300 underline underline-offset-2">Privacy Notice</Link>.</span>
+                  </label>
+                  <button type="submit" className="btn-primary w-full py-3" disabled={busy || password.length < 6 || !termsAndPrivacyAcknowledged || !termsVersion}>{busy ? "Creating…" : "Save password & create account"}</button>
                   <p className="text-xs leading-relaxed text-white/45">Confirm your email to keep your conversation private. Your name and email are already filled in.</p>
                   <Link className="block text-sm text-accent-300" href="/account?conversation=general#chat">Already have an account? Sign in →</Link>
                 </form>}

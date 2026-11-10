@@ -1,18 +1,7 @@
 import {ConvexHttpClient} from "convex/browser";
 import {api} from "@cvx/_generated/api";
-import {LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,IMMEDIATE_CLAIM_LEGAL_VERSION} from "./legal";
-
-type LegalPolicyFlags = {
- setupIntentSecurityEnabled?: boolean;
- cardHoldSecurityEnabled?: boolean;
- assessmentSecurityEnabled?: boolean;
- cancellationProtectionEnabled?: boolean;
- refundableDepositEnabled?: boolean;
-};
-
-export function legalVersionForPolicy(flags: LegalPolicyFlags) {
- return flags.setupIntentSecurityEnabled?IMMEDIATE_CLAIM_LEGAL_VERSION:flags.cardHoldSecurityEnabled?CARD_HOLD_LEGAL_VERSION:flags.assessmentSecurityEnabled?(flags.cancellationProtectionEnabled?CANCELLATION_PROTECTION_LEGAL_VERSION:ASSESSMENT_DEPOSIT_LEGAL_VERSION):flags.refundableDepositEnabled?REFUNDABLE_DEPOSIT_LEGAL_VERSION:LEGAL_VERSION;
-}
+import { legalVersionForPolicy, type LegalPolicyFlags } from "../../shared/legalVersioning";
+export { legalVersionForPolicy } from "../../shared/legalVersioning";
 
 function configuredPolicyFlags(): LegalPolicyFlags {
  const assessmentSecurityEnabled=process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true";

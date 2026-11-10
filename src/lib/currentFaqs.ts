@@ -8,15 +8,18 @@ import {
   REFUNDABLE_DEPOSIT_LEGAL_VERSION,
   SETUP_INTENT_LEGAL_VERSION,
   PREVIOUS_SETUP_INTENT_LEGAL_VERSION,
+  PREVIOUS_IMMEDIATE_CLAIM_LEGAL_VERSION,
   IMMEDIATE_CLAIM_LEGAL_VERSION,
+  INCLUSIVE_SEVEN_DAY_CANCELLATION_LEGAL_VERSION,
 } from "./legal";
 
 export type CurrentFaq = (typeof FAQS)[number];
 
 export function faqsForLegalVersion(version: string): CurrentFaq[] {
   return faqsForSecurityPolicy({
-    setupIntentSecurityEnabled: [PREVIOUS_SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, IMMEDIATE_CLAIM_LEGAL_VERSION].includes(version),
-    cancellationPolicyEnabled: [SETUP_INTENT_LEGAL_VERSION, IMMEDIATE_CLAIM_LEGAL_VERSION].includes(version),
+    setupIntentSecurityEnabled: [PREVIOUS_SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, PREVIOUS_IMMEDIATE_CLAIM_LEGAL_VERSION, IMMEDIATE_CLAIM_LEGAL_VERSION].includes(version),
+    cancellationPolicyEnabled: [SETUP_INTENT_LEGAL_VERSION, PREVIOUS_IMMEDIATE_CLAIM_LEGAL_VERSION, IMMEDIATE_CLAIM_LEGAL_VERSION].includes(version),
+    inclusiveSevenDayCancellationBoundary: version === INCLUSIVE_SEVEN_DAY_CANCELLATION_LEGAL_VERSION,
     cardHoldSecurityEnabled: version === CARD_HOLD_LEGAL_VERSION,
     assessmentSecurityEnabled: [ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, "2026-10-v15", "2026-10-v16"].includes(version),
     refundableDepositEnabled: version === REFUNDABLE_DEPOSIT_LEGAL_VERSION,

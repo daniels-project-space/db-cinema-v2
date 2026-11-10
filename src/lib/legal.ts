@@ -1,4 +1,5 @@
 import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, isCardHoldSecurityPolicy, isSetupIntentSecurityPolicy, isImmediateClaimSecurityPolicy } from "../../shared/rentalSecurity";
+import { CURRENT_PRIVACY_NOTICE_VERSION } from "../../shared/privacyNoticeVersion";
 
 /**
  * Versioned legal agreements the renter must e-sign at checkout. The accepted
@@ -16,7 +17,7 @@ export const AGREEMENTS = [
   { kind: "deposit-agreement", title: "Saved Card & Later Damage/Late-Fee Payment Agreement", version: LEGAL_VERSION },
   { kind: "cancellation", title: "Cancellation & Refund Policy", version: LEGAL_VERSION },
   { kind: "insurance", title: "Equipment Protection & Liability Policy", version: LEGAL_VERSION },
-  { kind: "data-processing", title: "Data Processing Terms", version: LEGAL_VERSION },
+  { kind: "privacy", title: "Privacy Notice", version: CURRENT_PRIVACY_NOTICE_VERSION },
 ] as const;
 
 export type AgreementDoc = { kind: string; version: string };
@@ -28,7 +29,10 @@ export const CARD_HOLD_LEGAL_VERSION = "2026-11-v19";
 export const PREVIOUS_SETUP_INTENT_LEGAL_VERSION = "2026-11-v20";
 export const SETUP_INTENT_LEGAL_VERSION = "2026-11-v21";
 export const SETUP_INTENT_LEGAL_VERSIONS = [PREVIOUS_SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION];
-export const IMMEDIATE_CLAIM_LEGAL_VERSION = "2026-11-v22";
+export const PREVIOUS_IMMEDIATE_CLAIM_LEGAL_VERSION = "2026-11-v22";
+export const IMMEDIATE_CLAIM_LEGAL_VERSION = "2026-11-v23";
+export const IMMEDIATE_CLAIM_LEGAL_VERSIONS = [PREVIOUS_IMMEDIATE_CLAIM_LEGAL_VERSION, IMMEDIATE_CLAIM_LEGAL_VERSION] as const;
+export const INCLUSIVE_SEVEN_DAY_CANCELLATION_LEGAL_VERSION = IMMEDIATE_CLAIM_LEGAL_VERSION;
 export function agreementsForSecurityPolicy(policy?: string | null, cancellationProtection=false) {
   if (!hasCashDepositPolicy(policy) && !isCardHoldSecurityPolicy(policy) && !isSetupIntentSecurityPolicy(policy)) return AGREEMENTS;
   const setupIntentPolicy=isSetupIntentSecurityPolicy(policy),immediateClaim=isImmediateClaimSecurityPolicy(policy);

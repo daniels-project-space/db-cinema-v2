@@ -14,3 +14,12 @@
 .chosen { background: #f0bc87; border-color: #f0bc87; color: #20150b; font-weight: 600; }
 
 .trigger:disabled{opacity:.55;cursor:not-allowed;}
+.mobilePrompt { display: none; }
+@media (max-width: 380px) {
+  .label { margin-bottom: 5px; font-size: 10px; letter-spacing: .06em; }
+  .trigger { gap: 7px; padding: 9px; }
+  .trigger svg { width: 16px; height: 16px; }
+  .trigger .chevron { width: 14px; }
+  .fullPrompt { display: none; }
+  .mobilePrompt { display: inline; }
+}

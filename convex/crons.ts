@@ -21,6 +21,7 @@ crons.interval("reconcile-rental-additions",{minutes:5},internal.rentalAdditions
 crons.interval("reconcile-rental-delivery-quotes",{minutes:5},internal.rentalDelivery.reconcile,{});
 crons.interval("reconcile-rental-item-swaps",{minutes:5},internal.rentalSwapPayments.reconcile,{});
 crons.interval("reconcile-swap-stock-operations",{minutes:5},internal.swapStockOperations.reconcile,{});
+crons.interval("recover-safe-legacy-swap-receipts",{minutes:5},internal.swapStockAudit.recoverSafeLegacyReceipts,{});
 crons.interval("audit-converted-swap-stock",{minutes:5},internal.swapStockAudit.runDue,{});
 crons.interval("backfill-converted-swap-audits",{minutes:5},internal.swapStockAudit.backfill,{});
 crons.interval("retry-owner-phone-alerts", { minutes: 5 }, internal.adminPushDelivery.retryDue, {});

@@ -1,5 +1,6 @@
 const assert=require('node:assert/strict');
 const {load,db,put,tables,setMock}=require('./lib/rentalTestHarness.cjs');
+const {legalVersionForPolicy,CURRENT_PRIVACY_NOTICE_VERSION}=load('shared/legalVersioning.ts');
 const claims=load('convex/accountClaims.ts');
 (async()=>{
  const recoveryJobs=[];const ctx={db,scheduler:{runAfter:async(...args)=>recoveryJobs.push(args)}};await assert.rejects(load('convex/rateLimit.ts').hit.handler(ctx,{key:'account-signin:owner@example.invalid',limit:999,windowMs:1}),/Reserved/);const account=put('accounts',{email:'owner@example.invalid',createdAt:Date.now()});
@@ -22,7 +23,7 @@ const claims=load('convex/accountClaims.ts');
  const rental=await claims.exchange.handler(ctx,{secretHash:'rental',sessionToken:'rental-session'});
  assert.equal(rental.bookingId,booking._id,'rental invitation retains exact conversation routing');
  const accounts=load('convex/accounts.ts'),chat=load('convex/lib/rentalChat.ts');
- const pendingId=await accounts._create.handler(ctx,{email:'pending@example.invalid',hash:'pending-password-hash',salt:'salt',token:'should-not-exist',pendingEmailVerification:true});
+ const acceptedAt=Date.now(),pendingId=await accounts._create.handler(ctx,{email:'pending@example.invalid',hash:'pending-password-hash',salt:'salt',token:'should-not-exist',pendingEmailVerification:true,accountTermsVersion:legalVersionForPolicy({}),accountTermsAcceptedAt:acceptedAt,privacyNoticeVersion:CURRENT_PRIVACY_NOTICE_VERSION,privacyNoticeAcknowledgedAt:acceptedAt});
  const pending=await db.get(pendingId);assert.equal(tables.get('sessions').some(s=>s.accountId===pendingId),false,'password signup cannot create an authenticated session before email proof');
  put('sessions',{accountId:pendingId,token:'forged-pending',expiresAt:Date.now()+10000});
  assert.equal(await chat.accountForToken(ctx,'forged-pending'),null);assert.equal(await accounts._byToken.handler(ctx,{token:'forged-pending'}),null);

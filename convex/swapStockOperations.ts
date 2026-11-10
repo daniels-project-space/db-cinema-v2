@@ -6,6 +6,7 @@ import { queueOwnerNotification } from "./lib/adminPush";
 import { bookingStockLines, rentalWindow } from "../shared/rentalWindow";
 import { stockTimePrecision } from "./lib/stockWindows";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
+import { reserveSwapBasketStock, reserveSwapStock } from "./lib/rentalSwapStock";
 
 const item = v.object({ itemId:v.string(), start:v.number(), returnAt:v.number(), quantity:v.number() });
 const operation = v.union(v.literal("acquire"),v.literal("beginExecution"),v.literal("releasePrepared"));
@@ -35,7 +36,19 @@ export async function releaseClosedClaim(ctx:any, swap:any) {
   if (!swap || !["withdrawn", "declined", "expired"].includes(swap.status)) return;
   const find=(kind:string)=>ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",(q:any)=>q.eq("swapId",swap._id).eq("operation",kind)).unique();
   const acquire=await find("acquire");
-  if (!acquire || acquire.state!=="confirmed" || !acquire.receipt?.requestId || !acquire.receipt?.fingerprint) return;
+  if (!acquire) return;
+  if (acquire.state==="capacity_conflict") {
+    const execution=await find("beginExecution");
+    if (!safeToRelease(swap) || execution) { await notifyStockReview(ctx,acquire); return; }
+    const booking=swap.bookingId?await ctx.db.get(swap.bookingId):null;
+    if (booking?.activeItemSwapId===swap._id) {
+      const reservations=await ctx.db.query("reservations").withIndex("by_booking",(q:any)=>q.eq("bookingId",booking._id)).collect();
+      for (const reservation of reservations) if (reservation.status==="hold"&&reservation.externalRef===`swap:${swap._id}`) await ctx.db.patch(reservation._id,{status:"cancelled"});
+      await ctx.db.patch(booking._id,{activeItemSwapId:undefined});
+    }
+    return;
+  }
+  if (acquire.state!=="confirmed" || !acquire.receipt?.requestId || !acquire.receipt?.fingerprint) return;
   if (!safeToRelease(swap) || await find("beginExecution")) { await notifyStockReview(ctx,acquire); return; }
   if (await find("releasePrepared")) return;
   const now=Date.now();
@@ -153,6 +166,25 @@ async function prepareOperation(ctx:any,args:any) {
     return ctx.db.insert("swap_stock_operations",{swapId:args.swapId,operation:args.operation,request,state:"pending",createdAt:now,updatedAt:now,reconcileAfter:now,reconcileAttempts:0});
 }
 
+async function projectSwapAvailability(ctx:any,booking:any,swap:any) {
+  const reservations=await ctx.db.query("reservations").withIndex("by_booking",(q:any)=>q.eq("bookingId",booking._id)).collect();
+  if(reservations.some((row:any)=>row.status==="hold"&&row.externalRef===`swap:${swap._id}`))return;
+  if(swap.changes?.length){
+    const originalLines=bookingStockLines(booking),replacements=new Map<number,any|null>();
+    for(const change of swap.changes){
+      if(!Number.isSafeInteger(change.lineIndex)||change.lineIndex<0||change.lineIndex>=originalLines.length||!sameRequest(originalLines[change.lineIndex],change.oldLine))throw Error("The original equipment booking needs review.");
+      replacements.set(change.lineIndex,(change.action??"replace")==="remove"?null:change.newLine);
+    }
+    const nextLines=originalLines.flatMap((line:any,index:number)=>!replacements.has(index)?[line]:replacements.get(index)===null?[]:[replacements.get(index)]);
+    await reserveSwapBasketStock(ctx,booking,originalLines,nextLines,swap._id,swap.expiresAt);
+    return;
+  }
+  const originalLines=bookingStockLines(booking);
+  if(!Number.isSafeInteger(swap.lineIndex)||swap.lineIndex<0||swap.lineIndex>=originalLines.length||!sameRequest(originalLines[swap.lineIndex],swap.oldLine))throw Error("The original equipment booking needs review.");
+  const nextLines=originalLines.slice();nextLines[swap.lineIndex]=swap.newLine;
+  await reserveSwapStock(ctx,booking,swap.oldLine,swap.newLine,nextLines,swap._id,swap.expiresAt);
+}
+
 export const prepare = internalMutation({
   args:{swapId:v.id("rental_item_swaps"),operation,items:v.optional(v.array(item)),reason:v.optional(reason)},
   handler:prepareOperation,
@@ -162,18 +194,36 @@ export const prepareSwapClaim = internalMutation({args:{swapId:v.id("rental_item
   const swap=await ctx.db.get(args.swapId);
   if(!swap)throw Error("Swap not found.");
   const existing=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",q=>q.eq("swapId",args.swapId).eq("operation","acquire")).unique();
-  if(existing)return existing._id;
+  if(existing){
+    const booking=await ctx.db.get(swap.bookingId),release=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",q=>q.eq("swapId",args.swapId).eq("operation","releasePrepared")).unique(),compensated=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",q=>q.eq("swapId",args.swapId).eq("operation","releaseCompensated")).unique();
+    const releaseConfirmed=release?.state==="confirmed"||compensated?.state==="confirmed";
+    // Backfill the site-side projection for swaps accepted before this fix. A
+    // pending or uncertain manager claim remains unavailable until a proven
+    // release or the atomic booking conversion settles it.
+    if(existing.state!=="capacity_conflict"&&!releaseConfirmed&&!swap.stockAppliedAt&&swap.status!=="applied"&&booking?.activeItemSwapId===swap._id&&booking.status==="confirmed")await projectSwapAvailability(ctx,booking,swap);
+    return existing._id;
+  }
   const booking=await ctx.db.get(swap.bookingId);
   if(!booking||booking.activeItemSwapId!==swap._id||booking.status!=="confirmed"||booking.cancellationDecision||booking.returnDecision)throw Error("The original equipment booking needs review.");
   if(swap.changes?.length){
-    const originalLines=bookingStockLines(booking),nextLines=[...originalLines],seen=new Set<number>();
+    const originalLines=bookingStockLines(booking),seen=new Set<number>(),replacements=new Map<number,any|null>();
     for(const change of swap.changes){
-      if(!Number.isSafeInteger(change.lineIndex)||change.lineIndex<0||change.lineIndex>=originalLines.length||seen.has(change.lineIndex)||!sameRequest(originalLines[change.lineIndex],change.oldLine)||!change.newLine||String(change.newLine.listingId)!==String(change.newListingId)||String(change.oldLine.listingId)!==String(change.oldListingId)||!Number.isSafeInteger(change.oldLine.qty)||change.oldLine.qty<1||change.oldLine.qty!==change.newLine.qty)throw Error("The original equipment booking needs review.");
+      const action=change.action??"replace";
+      if(!Number.isSafeInteger(change.lineIndex)||change.lineIndex<0||change.lineIndex>=originalLines.length||seen.has(change.lineIndex)||!sameRequest(originalLines[change.lineIndex],change.oldLine)||String(change.oldLine.listingId)!==String(change.oldListingId)||!Number.isSafeInteger(change.oldLine.qty)||change.oldLine.qty<1)throw Error("The original equipment booking needs review.");
+      seen.add(change.lineIndex);
+      if(action==="remove"){
+        if(change.newLine!==null||String(change.newListingId)!==String(change.oldListingId))throw Error("The removed equipment record needs review.");
+        replacements.set(change.lineIndex,null);
+        continue;
+      }
+      if(action!=="replace"||!change.newLine||String(change.newLine.listingId)!==String(change.newListingId)||change.oldLine.qty!==change.newLine.qty)throw Error("The replacement equipment record needs review.");
       for(const field of ["start","end","pickupTime","returnTime"] as const)if((change.oldLine[field]??null)!==(change.newLine[field]??null))throw Error("The equipment change must keep its original rental window.");
       const listing:any=await ctx.db.get(change.newListingId);
       if(!listing?.components?.length||!listing.active||listing.suppressed||listing.marketingOnly)throw Error("The equipment stock mapping needs review.");
-      seen.add(change.lineIndex);nextLines[change.lineIndex]=change.newLine;
+      replacements.set(change.lineIndex,change.newLine);
     }
+    const nextLines=originalLines.flatMap((line:any,index:number)=>!replacements.has(index)?[line]:replacements.get(index)===null?[]:[replacements.get(index)]);
+    if(!nextLines.length)throw Error("Use Cancel rental to remove the last item.");
     const precision=await stockTimePrecision(ctx);
     const managerTotals=async(lines:any[])=>{
       const totals=new Map<string,{itemId:string;start:number;returnAt:number;quantity:number}>(),unitIds=new Map<string,string>();
@@ -200,9 +250,14 @@ export const prepareSwapClaim = internalMutation({args:{swapId:v.id("rental_item
       const request={operation:"acquireZero",args:{requestId:`swap_${args.swapId}`,bookingId:String(booking._id),oldItems:entries(oldTotals),newItems:entries(newTotals)}};
       const now=Date.now();return ctx.db.insert("swap_stock_operations",{swapId:args.swapId,operation:"acquire",request,state:"pending",createdAt:now,updatedAt:now,reconcileAfter:now,reconcileAttempts:0});
     }
+    // The manager claim is authoritative, while storefront availability reads
+    // the local reservations ledger. Project the accepted swap's incremental
+    // stock before requesting the remote claim so it is never shown as free.
+    await projectSwapAvailability(ctx,booking,swap);
     return prepareOperation(ctx,{swapId:args.swapId,operation:"acquire",items});
   }
-  if(!sameRequest(bookingStockLines(booking)[swap.lineIndex],swap.oldLine))throw Error("The original equipment booking needs review.");
+  const originalLines=bookingStockLines(booking);
+  if(!Number.isSafeInteger(swap.lineIndex)||swap.lineIndex<0||swap.lineIndex>=originalLines.length||!sameRequest(originalLines[swap.lineIndex],swap.oldLine))throw Error("The original equipment booking needs review.");
   const previous=await ctx.db.get(swap.oldListingId), next=await ctx.db.get(swap.newListingId);
   if(!previous?.components?.length||!next?.components?.length||String(swap.oldLine?.listingId)!==String(swap.oldListingId)||String(swap.newLine?.listingId)!==String(swap.newListingId)||!Number.isSafeInteger(swap.oldLine?.qty)||swap.oldLine.qty<1||swap.oldLine.qty!==swap.newLine?.qty)throw Error("The equipment stock mapping needs review.");
   for(const field of ["start","end","pickupTime","returnTime"] as const)if((swap.oldLine?.[field]??null)!==(swap.newLine?.[field]??null))throw Error("The equipment change must keep its original rental window.");
@@ -218,14 +273,36 @@ export const prepareSwapClaim = internalMutation({args:{swapId:v.id("rental_item
   };
   const old=await totals(previous),replacement=await totals(next);
   for(const [id,unit] of replacement.unitIds)if(old.unitIds.has(id)&&old.unitIds.get(id)!==unit)throw Error("The manager stock mapping needs review.");
-  const window=rentalWindow(swap.newLine,await stockTimePrecision(ctx));
+  const precision=await stockTimePrecision(ctx);
+  const window=rentalWindow(swap.newLine,precision);
   const items=[...replacement.result].map(([itemId,quantity])=>({itemId,start:window.start,returnAt:window.end,quantity:quantity-(old.result.get(itemId)??0)})).filter(line=>line.quantity>0).sort((a,b)=>a.itemId.localeCompare(b.itemId));
   if(!items.length){
     if(swap.status!=="accepted"||swap.sessionId||swap.paymentIntentId||swap.refundJobId||swap.stockAppliedAt||swap.compensationStartedAt)throw Error("The equipment settlement needs review.");
-    const entries=(map:Map<string,number>)=>[...map].map(([itemId,quantity])=>({itemId,start:window.start,returnAt:window.end,quantity})).sort((a,b)=>a.itemId.localeCompare(b.itemId));
-    const request={operation:"acquireZero",args:{requestId:`swap_${args.swapId}`,bookingId:String(booking._id),oldItems:entries(old.result),newItems:entries(replacement.result)}};
+    const managerTotals=async(lines:any[])=>{
+      const totals=new Map<string,{itemId:string;start:number;returnAt:number;quantity:number}>(),unitIds=new Map<string,string>();
+      for(const line of lines){
+        const listing:any=await ctx.db.get(line.listingId);
+        if(!listing?.components?.length||!Number.isSafeInteger(line.qty)||line.qty<1)throw Error("The equipment stock mapping needs review.");
+        const lineWindow=rentalWindow(line,precision);
+        for(const component of listing.components){
+          if(!Number.isSafeInteger(component.qty)||component.qty<1)throw Error("The equipment stock mapping needs review.");
+          const unit:any=await ctx.db.get(component.inventoryUnitId),itemId=unit?.rmv2ItemId;
+          if(typeof itemId!=="string"||!itemId||itemId.length>255||unitIds.has(itemId)&&unitIds.get(itemId)!==String(component.inventoryUnitId))throw Error("The manager stock mapping needs review.");
+          unitIds.set(itemId,String(component.inventoryUnitId));
+          const key=JSON.stringify([itemId,lineWindow.start,lineWindow.end]),current=totals.get(key);
+          totals.set(key,{itemId,start:lineWindow.start,returnAt:lineWindow.end,quantity:(current?.quantity??0)+component.qty*line.qty});
+        }
+      }
+      return [...totals.values()].sort((a,b)=>a.itemId.localeCompare(b.itemId)||a.start-b.start||a.returnAt-b.returnAt);
+    };
+    const nextLines=originalLines.slice();
+    nextLines[swap.lineIndex]=swap.newLine;
+    const oldItems=await managerTotals(originalLines);
+    const newItems=await managerTotals(nextLines);
+    const request={operation:"acquireZero",args:{requestId:`swap_${args.swapId}`,bookingId:String(booking._id),oldItems,newItems}};
     const now=Date.now();return ctx.db.insert("swap_stock_operations",{swapId:args.swapId,operation:"acquire",request,state:"pending",createdAt:now,updatedAt:now,reconcileAfter:now,reconcileAttempts:0});
   }
+  await projectSwapAvailability(ctx,booking,swap);
   return prepareOperation(ctx,{swapId:args.swapId,operation:"acquire",items});
 }});
 
@@ -303,8 +380,18 @@ export const record = internalMutation({
     if(row.state!=="pending")return row.state;
     if(row.leaseToken!==args.token)return "stale";
     const receipt=args.receipt;
-    if(row.operation==="beginExecution"&&receipt?.state==="capacity_conflict"){
+    if(["acquire","beginExecution"].includes(row.operation)&&receipt?.state==="capacity_conflict"){
       await ctx.db.patch(row._id,{state:"capacity_conflict",receipt:{state:"capacity_conflict"},leaseToken:undefined,leaseUntil:undefined,reconcileAfter:undefined,reconcileError:"capacity_conflict",updatedAt:Date.now()});
+      if(row.operation==="acquire"){
+        const swap=await ctx.db.get(row.swapId);
+        // This confirmed manager response means no shared claim was granted;
+        // release the local projection so the renter may choose another item.
+        if(swap){
+          const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",swap.bookingId)).collect();
+          for(const reservation of reservations)if(reservation.status==="hold"&&reservation.externalRef===`swap:${row.swapId}`)await ctx.db.patch(reservation._id,{status:"cancelled"});
+        }
+        if(swap&&["withdrawn","declined","expired"].includes(swap.status))await releaseClosedClaim(ctx,swap);
+      }
       return "capacity_conflict";
     }
     const expected=row.operation==="acquire"?"prepared":row.operation==="beginExecution"?"execution_started":row.operation==="releaseCompensated"?"compensated_released":"released";
@@ -373,7 +460,7 @@ export const recover = internalAction({
     if(lease.status!=="leased")return {status:lease.status};
     try{
       const result=await ctx.runAction(internal.sharedStockBridge.send,{request:lease.request});
-      if(result.status==="capacity_conflict"&&lease.request.operation==="beginExecution"){
+      if(result.status==="capacity_conflict"&&["acquire","beginExecution"].includes(lease.request.operation)){
         const status=await ctx.runMutation(internal.swapStockOperations.record,{id:args.id,token,request:lease.request,receipt:{state:"capacity_conflict"}});
         return {status};
       }

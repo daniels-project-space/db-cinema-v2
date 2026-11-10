@@ -56,14 +56,23 @@ export default function MembershipPage() {
       {!checkout.enabled && <div className="mx-auto max-w-5xl px-6"><CheckoutPauseNotice loading={checkout.loading}/></div>}
         <section className="mx-auto mt-6 max-w-2xl rounded-2xl border border-white/10 p-5" aria-label="How membership works">
           <h2 className="font-display text-lg text-white">Membership, in three steps</h2>
-          <ol className="mt-4 space-y-3 text-sm leading-6 text-white/65">
-            <li><strong className="text-white/90">1. Pay monthly, receive rental credit.</strong> Each paid month adds your plan’s credit, including its bonus. Unused credit stacks and expires one year after it is issued.</li>
-            <li><strong className="text-white/90">2. Choose your rental saving.</strong> Use membership credit or an eligible offer. Checkout shows the saving; these do not stack. A qualifying one-time joining credit is added separately.</li>
-            <li><strong className="text-white/90">3. See everything before you pay.</strong> Checkout lists the membership fee, rental saving, remaining credit and any applicable rental-security terms separately. Verification and the consent in your rental agreement still apply.</li>
+          <ol className="mt-4 grid gap-2.5 text-sm leading-5 text-white/65">
+            <li className="flex gap-3 rounded-xl border border-white/[.07] bg-white/[.02] p-3">
+              <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-accent-300/25 bg-accent-300/[.08] font-mono text-xs text-accent-200">1</span>
+              <span><strong className="text-white/90">Pay monthly.</strong> Paid months add plan credit; it stacks and lasts one year.</span>
+            </li>
+            <li className="flex gap-3 rounded-xl border border-white/[.07] bg-white/[.02] p-3">
+              <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-accent-300/25 bg-accent-300/[.08] font-mono text-xs text-accent-200">2</span>
+              <span><strong className="text-white/90">Choose your saving.</strong> Use credit or one eligible rental offer; joining credit is separate.</span>
+            </li>
+            <li className="flex gap-3 rounded-xl border border-white/[.07] bg-white/[.02] p-3">
+              <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-accent-300/25 bg-accent-300/[.08] font-mono text-xs text-accent-200">3</span>
+              <span><strong className="text-white/90">See the full price.</strong> Checkout shows security terms before payment; rental verification still applies.</span>
+            </li>
           </ol>
           <details className="mt-4 border-t border-white/10 pt-3 text-xs leading-6 text-white/55">
             <summary className="cursor-pointer text-white/80">Joining with a rental: thresholds and first-booking details</summary>
-            <p className="mt-2">Starter is available from £100 of rental and delivery charges before VAT; Pro from £200; Studio from £300. Security payments do not count towards these thresholds. A paid plan added in rental checkout includes a one-time joining credit: £5 for Starter or £10 for Pro and Studio.</p>
+            <p className="mt-2">Starter is available from £100 of rental and delivery charges before VAT; Pro from £200; Studio from £300. Any separately payable rental-security amount does not count towards these thresholds. A paid plan added in rental checkout includes a one-time joining credit: £5 for Starter or £10 for Pro and Studio.</p>
             <p className="mt-2">Refund credit is separate: it can pay remaining eligible rental and delivery charges after a saving. It cannot pay membership fees or any separately payable rental-security amount.</p>
             <p className="mt-2">Your first paid month’s credit can be used on that rental when it gives the better saving. Membership does not itself waive rental-security terms or authorise future rental claims; those are shown in the final quote and accepted rental agreement. Other member perks begin after that combined booking is confirmed. A separately purchased membership follows its activation status.</p>
           </details>

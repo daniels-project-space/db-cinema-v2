@@ -6,6 +6,7 @@ class StripeFixture {
  checkout={sessions:{retrieve:async()=>({status:'open',url:'https://fixture.invalid/existing-payment'})}};
 }
 h.setMock('stripe',{default:StripeFixture});
+h.setMock('../shared/legalDocuments',{RENTAL_DRAFT_RELEASE_READY:true});
 const sync=h.load('convex/sync.ts'),stockFreshness=h.load('convex/lib/shared_stock_sync.ts'),availability=h.load('convex/availability.ts'),catalog=h.load('convex/catalog.ts'),bookings=h.load('convex/bookings.ts'),checkout=h.load('convex/checkout.ts'),{AGREEMENTS}=h.load('src/lib/legal.ts');
 const now=Date.now(),start=Date.UTC(2030,0,1),end=start+86400000,ctx={db:h.db};
 const unit=h.put('inventory_units',{name:'Source camera',sku:'mi-body',rmv2ItemId:'body',quantityOwned:2,active:true,replacementCost:1000});const listing=h.put('listings',{title:'Source camera',slug:'source-camera',category:'Cameras',itemType:'camera-body',active:true,stockMappingStatus:'complete',components:[{inventoryUnitId:unit._id,qty:1}],pricing:{daily:50},depositAmount:1000});

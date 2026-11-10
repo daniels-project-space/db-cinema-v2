@@ -55,7 +55,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
  await assert.rejects(()=>bookings.beginReturnDecision.handler(ctx,{...decision,inspection:input}),/already in progress/);
  await assert.rejects(()=>cases.validate.handler(ctx,{bookingId:b._id,inspection:input,damage:0}),/saved item inspection/,'Reject changed inspection before any Stripe operation');
  await db.patch(unit._id,{name:'Edited catalogue name'});assert.deepEqual(await returnInspectionSchedule(ctx,b),schedule,'Saved equipment identity survives catalogue edits');
- await archives.queueVerificationArchive(ctx,b);const archive=tables.get('verification_archives')[0];await db.patch(b._id,{status:'returned',returnedAt:Date.now()-91*86400000});
+ await archives.queueVerificationArchive(ctx,b);const archive=tables.get('verification_archives')[0];await db.patch(b._id,{status:'returned',returnedAt:Date.now()-91*86400000,actualReturnedAt:Date.now()-91*86400000});
  assert.equal(await archives.purgeExpired.handler(ctx,{}),0,'An actual open damage case preserves verification evidence');
  const damageCase=tables.get('rental_damage_cases')[0];await assert.rejects(()=>cases.closeCase.handler(ctx,{token:process.env.ADMIN_TOKEN,caseId:damageCase._id,bookingId:'other-rental',resolution:'Resolved by insurance',confirmed:true}),/does not belong/);await assert.rejects(()=>cases.closeCase.handler(ctx,{token:'wrong',caseId:damageCase._id,bookingId:b._id,resolution:'Resolved by insurance',confirmed:true}),/unauthorized/);
  await cases.closeCase.handler(ctx,{token:process.env.ADMIN_TOKEN,caseId:damageCase._id,bookingId:b._id,resolution:'Resolved by insurance without further claim',confirmed:true});
@@ -67,7 +67,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
  await db.patch(damageCase._id,{openedAt:Date.now()-92*86400000,closedAt:Date.now()-91*86400000});await db.patch(otherCase._id,{openedAt:Date.now()-92*86400000,closedAt:Date.now()-91*86400000});
  assert.equal(await archives.purgeExpired.handler(ctx,{}),1,'Files expire after the last resolved claim retention window');assert(b.rmv2Revision>=2,'Case opening and closure queue fresh durable website revisions');
  const legacy=put('bookings',{lineItems:[{title:'Legacy camera',qty:2}]});assert.equal((await returnInspectionSchedule(ctx,legacy)).length,2);
- const fenced=put('bookings',{status:'confirmed',activeItemSwapId:'swap-pending-release',lineItems:[]}),fencedReservation=put('reservations',{bookingId:fenced._id,status:'confirmed'});
+ const fenced=put('bookings',{status:'confirmed',lineItems:[]}),fencedSwap=put('rental_item_swaps',{bookingId:fenced._id,status:'applied'}),fencedReservation=put('reservations',{bookingId:fenced._id,status:'confirmed'});fenced.activeItemSwapId=fencedSwap._id;
  await assert.rejects(bookings.markReturnedStatus.handler(ctx,{bookingId:fenced._id}),/stock reconciliation/);assert.equal(fenced.status,'confirmed');assert.equal(fencedReservation.status,'confirmed','An in-flight equipment settlement cannot free booked stock');
  await bookings.markReturnedStatus.handler(ctx,{bookingId:b._id});assert.equal(removed.status,'cancelled','Return never revives cancelled inventory lines');
  const statement={number:'RETURN-FIXTURE',issuedAt:Date.now(),actualReturnedAt:Date.now(),supplierName:'DB Cinema fixture',customerEmail:account.email,

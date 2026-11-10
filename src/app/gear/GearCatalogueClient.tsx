@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState, useEffect, useRef, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useGafferFocus } from "@/components/gaffer/GafferFocus";
 import { IconSearch } from "@/components/icons";
 import { AssemblyShowcase } from "@/components/AssemblyShowcase";
@@ -73,12 +73,14 @@ const isPackageListing = (listing: GearListing) =>
 
 function GearPageInner() {
   const params = useSearchParams();
+  const router = useRouter();
   const { suggestedIds } = useGafferFocus();
   const [cat, setCat] = useState(() => catParam(params) ?? "All");
   const [search, setSearch] = useState(() => qParam(params) ?? "");
   const [brandFilter, setBrandFilter] = useState("all");
   const [maxDailyPrice, setMaxDailyPrice] = useState("");
   const [packageFilter, setPackageFilter] = useState("all");
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
 
   // Gaffer filters this page by pushing a new URL. Without this the page is
   // already mounted, so the initialisers above never run again and the grid
@@ -127,6 +129,8 @@ function GearPageInner() {
     return true;
   }), [listings, brandFilter, maxDailyPrice, packageFilter]);
   const hasRefinements = brandFilter !== "all" || !!maxDailyPrice || packageFilter !== "all";
+  const hasActiveSelection = hasRefinements || !!search.trim() || cat !== "All";
+  const activeRefinementCount = Number(brandFilter !== "all") + Number(!!maxDailyPrice) + Number(packageFilter !== "all");
 
   function clearFilters() {
     setSearch("");
@@ -134,6 +138,8 @@ function GearPageInner() {
     setBrandFilter("all");
     setMaxDailyPrice("");
     setPackageFilter("all");
+    setShowMobileFilters(false);
+    router.replace("/gear", { scroll: false });
   }
 
   // log searches that return nothing (demand signal for the owner dashboard)
@@ -157,8 +163,14 @@ function GearPageInner() {
   return (
     <>
       <SiteHeader />
-      <GearLoopBanner motion compact mobileTight />
-      <main data-gaffer-route={route} data-gaffer-ready={listings !== undefined && cat === (urlCat || "All") && search === (urlQ ?? "")} className="section-window mx-auto flex min-h-screen min-w-0 max-w-7xl flex-col px-4 pb-12 pt-6 sm:px-6 sm:pt-8">
+      <GearLoopBanner
+        motion
+        compact
+        mobileTight
+        browseCompact
+        sub="Cameras, lenses, lighting and audio for hire across London."
+      />
+      <main data-gaffer-route={route} data-gaffer-ready={listings !== undefined && cat === (urlCat || "All") && search === (urlQ ?? "")} className="section-window mx-auto flex min-h-screen min-w-0 max-w-7xl flex-col px-4 pb-12 pt-3 sm:px-6 sm:pt-8">
         <div className="order-5 px-2 lg:order-1 sm:px-4 xl:px-6">
           <AssemblyShowcase
             listings={[...best, ...(filteredListings ?? [])]}
@@ -183,23 +195,44 @@ function GearPageInner() {
             it, filtering to a category and finding several matches left the
             customer still looking at the hero/assembly card up top, with the
             actual results a full screen below the fold. */}
-        <div id="gear-toolbar" className="order-1 scroll-mt-24 -mx-4 mt-4 rounded-2xl border border-white/10 border-b border-white/[0.06] bg-white/[0.035] px-4 py-3 backdrop-blur-xl lg:order-3 sm:-mx-6 sm:mt-8 sm:px-6 sm:py-4">
+        <div id="gear-toolbar" className="order-1 scroll-mt-24 -mx-4 mt-2 rounded-2xl border border-white/10 border-b border-white/[0.06] bg-white/[0.035] px-3 py-2 backdrop-blur-xl lg:order-3 sm:-mx-6 sm:mt-8 sm:px-6 sm:py-4">
           <div className="flex min-w-0 flex-col gap-2.5 lg:flex-row lg:items-center lg:gap-3">
-            <div className="relative w-full max-w-md">
+            <div className="flex min-w-0 gap-2 sm:block sm:w-full sm:max-w-md">
+            <div className="relative min-w-0 flex-1 sm:w-full sm:max-w-md sm:flex-none">
               <IconSearch className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search gear…"
-                className="input w-full rounded-full !border-white/15 !bg-white/[0.04] !pl-11 shadow-inner focus:!border-accent-300/50"
+                className="input h-11 w-full rounded-full !border-white/15 !bg-white/[0.04] !pl-11 shadow-inner focus:!border-accent-300/50"
               />
             </div>
-            <div className="rail flex gap-2 overflow-x-auto lg:flex-wrap">
+            <button
+              type="button"
+              onClick={() => setShowMobileFilters((open) => !open)}
+              aria-expanded={showMobileFilters}
+              aria-controls="gear-refinements"
+              className="glass inline-flex h-11 shrink-0 items-center gap-2 rounded-full px-3 text-xs font-semibold text-white/80 transition hover:border-accent-300/40 hover:text-white sm:hidden"
+            >
+              <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.5" strokeLinecap="round">
+                <path d="M3 5h14M3 10h14M3 15h14" />
+                <circle cx="7" cy="5" r="1.5" className="fill-charcoal-950" />
+                <circle cx="13" cy="10" r="1.5" className="fill-charcoal-950" />
+                <circle cx="8" cy="15" r="1.5" className="fill-charcoal-950" />
+              </svg>
+              Filters
+              {activeRefinementCount > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-accent-400 px-1 text-[10px] font-bold text-black">{activeRefinementCount}</span>}
+            </button>
+            </div>
+            <div role="group" aria-label="Gear categories" className="rail flex min-w-0 flex-wrap gap-1.5 overflow-visible sm:gap-2">
               {tabs.map((t) => (
                 <button
                   key={t.name}
                   onClick={() => setCat(t.name)}
-                  className={`ci-host flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-sm transition-all ${
+                  aria-pressed={cat === t.name}
+                  aria-label={`Browse ${t.name}, ${t.count} ${t.count === 1 ? "item" : "items"}`}
+                  title={`${t.name} · ${t.count}`}
+                  className={`ci-host flex min-h-11 shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-all sm:gap-1.5 sm:px-4 sm:py-1.5 sm:text-sm ${
                     cat === t.name
                       ? "accent-glow bg-accent-500 text-white"
                       : "glass text-white/50 hover:text-white"
@@ -210,20 +243,22 @@ function GearPageInner() {
                   }`}
                 >
                   {t.name !== "All" && <CategoryIcon name={t.name} className="h-4 w-4" />}
-                  {t.name}{" "}
+                  <span className="sm:hidden">{{ Cameras: "Camera", Lenses: "Lens", Lighting: "Light", Packages: "Kits" }[t.name] ?? t.name}</span>
+                  <span className="hidden sm:inline">{t.name}</span>{" "}
                   <span className="font-mono text-xs opacity-60">{t.count}</span>
                 </button>
               ))}
             </div>
           </div>
-          <div className="mt-3 grid min-w-0 grid-cols-2 items-end gap-x-3 gap-y-2 sm:mt-4 sm:flex sm:flex-wrap sm:gap-3">
+          <div className="mt-2 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 sm:mt-4 sm:flex sm:flex-wrap sm:gap-3">
+          <div id="gear-refinements" className={`${showMobileFilters ? "grid" : "hidden"} col-span-2 min-w-0 grid-cols-2 items-end gap-x-3 gap-y-2 sm:col-span-1 sm:flex sm:flex-wrap sm:gap-3`}>
             <label className="grid min-w-0 gap-1.5 text-[10px] uppercase tracking-[0.12em] text-white/40">
               Brand
               <select
                 value={brandFilter}
                 onChange={(e) => setBrandFilter(e.target.value)}
                 aria-label="Filter gear by brand"
-                className="input h-10 w-full min-w-0 rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80 sm:w-auto sm:min-w-[145px]"
+                className="input h-9 w-full min-w-0 rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80 sm:h-10 sm:w-auto sm:min-w-[145px]"
               >
                 <option value="all">All brands</option>
                 {brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
@@ -235,7 +270,7 @@ function GearPageInner() {
                 value={maxDailyPrice}
                 onChange={(e) => setMaxDailyPrice(e.target.value)}
                 aria-label="Filter by maximum daily rental price"
-                className="input h-10 w-full min-w-0 rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80 sm:w-auto sm:min-w-[155px]"
+                className="input h-9 w-full min-w-0 rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80 sm:h-10 sm:w-auto sm:min-w-[155px]"
               >
                 <option value="">Any daily rate</option>
                 <option value="25">Up to £25/day</option>
@@ -250,29 +285,32 @@ function GearPageInner() {
                 value={packageFilter}
                 onChange={(e) => setPackageFilter(e.target.value)}
                 aria-label="Filter by kit type"
-                className="input h-10 w-full min-w-0 rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80 sm:w-auto sm:min-w-[155px]"
+                className="input h-9 w-full min-w-0 rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80 sm:h-10 sm:w-auto sm:min-w-[155px]"
               >
                 <option value="all">All gear</option>
                 <option value="packages">Complete kits</option>
                 <option value="individual">Individual items</option>
               </select>
             </label>
-            <div role="status" aria-live="polite" className="min-w-0 pb-2 text-right text-[10px] text-white/45 sm:ml-auto sm:text-xs">
+          </div>
+          <div className="col-span-2 flex min-w-0 items-center justify-between gap-3 border-t border-white/[0.06] pt-2 text-[11px] text-white/45 sm:col-span-1 sm:ml-auto sm:border-0 sm:pt-0 sm:pb-2 sm:text-xs">
+            <div role="status" aria-live="polite" className="min-w-0">
               {listings === undefined
                 ? "Loading gear…"
-                : `${visibleListings.length} ${visibleListings.length === 1 ? "item" : "items"} ${hasRefinements ? "match these filters" : search || cat !== "All" ? "match your search" : "in the catalogue"}`}
+                : `${visibleListings.length} ${visibleListings.length === 1 ? "item" : "items"} ${hasRefinements ? "match these filters" : search.trim() ? "match your search" : cat !== "All" ? "in this category" : "in the catalogue"}`}
             </div>
-            {hasRefinements && (
-              <button type="button" onClick={clearFilters} className="col-span-2 justify-self-start pb-1 text-xs text-accent-300 underline underline-offset-4 sm:col-span-1 sm:pb-2">
-                Clear filters
+            {hasActiveSelection && (
+              <button type="button" onClick={clearFilters} aria-label="Reset gear search and filters" className="min-h-11 shrink-0 rounded-full border border-white/10 px-3 py-1.5 text-[11px] text-white/65 transition hover:border-accent-300/40 hover:text-white sm:text-xs">
+                Reset
               </button>
             )}
+          </div>
           </div>
         </div>
 
         {/* best sellers (data-driven) — only on All, no search */}
         {cat === "All" && !search && !hasRefinements && best.length > 0 && (
-        <section className="order-3 mt-10 lg:order-4">
+        <section className="order-3 mt-10 hidden lg:order-4 lg:block">
             <h2 className="flex items-center gap-3 font-display text-lg font-semibold text-white/85">
               <span className="hud-label !text-accent-400/90">Best sellers</span>
               <span className="h-px flex-1 bg-white/[0.07]" aria-hidden />
@@ -291,7 +329,7 @@ function GearPageInner() {
         {/* grid */}
         <div className="order-4 lg:order-5">
         {listings === undefined ? (
-          <div className="mt-8 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
+          <div className="mt-8 grid grid-cols-1 gap-3 min-[600px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 sm:gap-4">
             {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="glass overflow-hidden rounded-2xl">
                 <div className="aspect-[4/3] animate-pulse bg-charcoal-800" />
@@ -308,17 +346,18 @@ function GearPageInner() {
             <div className="hud-label">No matches</div>
             <p className="mt-3 text-white/40">Nothing matches that search.</p>
             <button
+              type="button"
               onClick={clearFilters}
-              className="btn-ghost mt-5 px-6 py-2.5 text-sm"
+              className="btn-ghost mt-5 min-h-11 px-6 py-2.5 text-sm"
             >
-              Clear filters
+              Reset search and filters
             </button>
           </div>
         ) : (
-          <div className="dim-grid mt-8 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
+          <div className={`dim-grid mt-4 grid gap-3 sm:mt-8 sm:gap-4 ${visibleListings.length === 1 ? "mx-auto w-full max-w-3xl grid-cols-1" : "grid-cols-1 min-[600px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"}`}>
             {visibleListings.map((l, i) => (
               <Reveal key={l._id} delay={Math.min(i, 8) * 50}>
-                <GearCard listing={l} />
+                <GearCard listing={l} mobileCompact priorityImage={i < 2} />
               </Reveal>
             ))}
           </div>

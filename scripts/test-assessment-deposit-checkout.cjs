@@ -1,5 +1,6 @@
 const captured=[];
 const {createHash}=require('node:crypto');const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
+const {seedVerificationFiles}=require('./lib/verificationFiles.cjs');
 const sessions=new Map(),trace=[];let creates=0,retrieves=0,sourceOk=true,sessionStatus='open',sessionMismatch=false,transportError=false;
 class StripeFixture {
  static errors={StripeInvalidRequestError:class extends Error{}};
@@ -7,17 +8,26 @@ class StripeFixture {
  checkout={sessions:{create:async params=>{creates++;captured.push(params);const s={id:'cs-fixture-'+creates,status:'open',url:'https://fixture.invalid/payment/'+creates,metadata:params.metadata};sessions.set(s.id,s);return s},retrieve:async id=>{retrieves++;if(transportError)throw Error('Unknown provider outcome');const s=sessions.get(id);return {...s,status:sessionStatus,...(sessionMismatch?{metadata:{bookingId:'wrong-booking'}}:{})}}}};
 }
 h.setMock('stripe',{default:StripeFixture});
+h.setMock('../shared/legalDocuments',{RENTAL_DRAFT_RELEASE_READY:true});
 const checkout=h.load('convex/checkout.ts'),bookings=h.load('convex/bookings.ts'),catalog=h.load('convex/catalog.ts'),availability=h.load('convex/availability.ts'),sync=h.load('convex/sync.ts'),memberBenefits=h.load('convex/membershipBenefits.ts'),{agreementRequestFingerprint}=h.load('shared/rentalAgreement.ts'),{AGREEMENTS}=h.load('src/lib/legal.ts');
 Object.assign(process.env,{RMV2_WEBHOOK_URL:'https://fixture-manager.convex.site/dbcinema/booking-sync',RMV2_WEBHOOK_SECRET:'fixture-private-read',RENTAL_CHECKOUT_ENABLED:'true',DIDIT_API_KEY:'test',DIDIT_WORKFLOW_ID:'test',DIDIT_WEBHOOK_SECRET:'test',DIDIT_APPLICATION_ID:'test',DIDIT_ENVIRONMENT:'sandbox',STRIPE_WEBHOOK_SECRET:'test',STRIPE_SECRET_KEY:'test',STRIPE_RENTAL_PAYMENT_METHOD_CONFIGURATION_ID:'test',INVOICE_SECRET:'test',APP_URL:'https://fixture.invalid',BUSINESS_LEGAL_NAME:'Fixture supplier',BUSINESS_INVOICE_ADDRESS:'Fixture address',RESEND_API_KEY:'test'});
 const unit=h.put('inventory_units',{name:'Source camera',sku:'mi-body',rmv2ItemId:'body',quantityOwned:1,active:true,replacementCost:160}),listing=h.put('listings',{title:'Source camera',slug:'source-camera',category:'Cameras',itemType:'camera-body',active:true,stockMappingStatus:'complete',components:[{inventoryUnitId:unit._id,qty:1}],pricing:{daily:50},depositAmount:160});
 assert.equal(h.load('shared/rentalSecurity.ts').assessmentDepositFor(160),20);assert.equal(h.load('shared/rentalSecurity.ts').assessmentDepositFor(999),20);assert.equal(h.load('shared/rentalSecurity.ts').assessmentDepositFor(1000),50);assert.equal(h.load('shared/rentalSecurity.ts').assessmentDepositFor(4000),100);
-const start=Date.UTC(2030,0,1),end=start+86400000,realFetch=global.fetch;
+const utcDayOffset=offset=>{const date=new Date(Date.now()+offset*86400000);return Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate())};
+const start=utcDayOffset(30),end=start+86400000,realFetch=global.fetch;
 global.fetch=async()=>{trace.push('source-http');if(!sourceOk)throw Error('Source unavailable');return {ok:true,status:200,json:async()=>({protocolVersion:1,status:'success',path:'items:sharedStockForStorefront',value:[{version:1,checkedAt:Date.now(),units:[{masterItemId:'body',active:true,quantityOwned:1,windows:[]}]}]})}};
 const ctx={db:h.db,scheduler:{runAfter:async()=>{}},runAction:async(ref,args)=>{trace.push(ref);assert.equal(ref,'sync.syncHyggloReservations');return sync.syncHyggloReservations.handler(ctx,args)},runQuery:async(ref,args)=>{trace.push(ref);if(ref==='membershipBenefits.byRequest')return memberBenefits.byRequest.handler(ctx,args);if(ref==='settings.get')return {acceptingOrders:true};if(ref==='accounts._byEmail')return accounts._byEmail.handler(ctx,args);if(ref==='accounts._byToken')return accounts._byToken.handler(ctx,args);if(ref==='bookings.availableCheckoutCredit')return bookings.availableCheckoutCredit.handler(ctx,args);if(ref==='referrals.offers')return referrals.offers.handler(ctx,args);if(ref==='promo.validate')return args.code.toLowerCase()==='db10off'?promo.validate.handler(ctx,args):{valid:true,code:'QA',discount:20};if(ref==='bookings.assertCheckoutReservation')return bookings.assertCheckoutReservation.handler(ctx,args);if(ref==='bookings.depositWaiverEligibility')return bookings.depositWaiverEligibility.handler(ctx,args);if(ref==='bookings.checkoutAttempt')return bookings.checkoutAttempt.handler(ctx,args);if(ref==='catalog.repriceLines')return catalog.repriceLines.handler(ctx,args);if(ref==='availability.forListing')return availability.forListing.handler(ctx,args);if(ref==='availability.forCart')return availability.forCart.handler(ctx,args);throw Error('Unexpected query '+ref)},runMutation:async(ref,args)=>{trace.push(ref);if(ref.startsWith('accounts.'))return accounts[ref.split('.')[1]].handler(ctx,args);if(ref==='sync.applySharedStock')return sync.applySharedStock.handler(ctx,args);if(ref.startsWith('membershipBenefits.'))return memberBenefits[ref.split('.')[1]].handler(ctx,args);assert(ref.startsWith('bookings.'));return bookings[ref.split('.')[1]].handler(ctx,args)}};
 const args={items:[{listingId:listing._id,title:listing.title,start,end,qty:1,total:100,deposit:160}],customer:{email:'fixture@example.invalid',name:'Fixture Renter',billingAddress:'123 Fixture Street, London'},fulfilment:'pickup',deliveryFee:0,expectedTotalDue:0,expectedSavedCardLimit:100,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Fixture Renter',requestId:'fixture-bound-payment-acceptance',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS}};
 function cleanPriorRental(account,index){
  const start=Date.UTC(2025,0,1+index*5),end=start+86400000,returnedAt=Date.now()-((index+1)*86400000),inspection=[{key:'legacy:0:0',title:listing.title,condition:'good',details:'',openCase:false}],line={listingId:listing._id,title:listing.title,qty:1,start,end,lineTotal:100};
- return h.put('bookings',{accountId:account._id,guestEmail:account.email,status:'returned',stripeCheckoutSessionId:`cs-clean-${account._id}-${index}`,depositAmount:0,depositHoldAmount:0,total:100,subtotal:100,paidConfirmedAt:returnedAt-86400000,returnedAt,actualReturnedAt:returnedAt,lineItems:[line],returnDecision:{actualReturnedAt:returnedAt,damageKept:0,depositKept:0,chargeLate:false,lateClaimPolicyVersion:'owner-claim-v1',inspection},returnStatement:{number:`R-${index}`,issuedAt:returnedAt+1000,actualReturnedAt:returnedAt,supplierName:'Fixture supplier',customerEmail:account.email,lineItems:[line],subtotal:100,discount:0,deliveryFee:0,creditApplied:0,checkoutPaid:100,rentalRefunded:0,securityPaid:0,securityRefunded:0,holdStatus:'not_applicable',damageTotal:0,damageFromHold:0,inspection,lateAssessed:0,lateWaived:0,lateBreakdown:[]}});
+ return h.put('bookings',{accountId:account._id,guestEmail:account.email,status:'returned',stripeCheckoutSessionId:`cs-clean-${account._id}-${index}`,stripePaymentIntentId:`pi-clean-${account._id}-${index}`,depositAmount:0,depositHoldAmount:0,total:100,subtotal:100,rentalPaidPence:10000,checkoutExpectedAmountPence:10000,checkoutPaidAt:returnedAt-86400000,checkoutPaymentAmountPence:10000,checkoutPaymentCurrency:'GBP',checkoutPaymentStatus:'paid',currency:'GBP',paidConfirmedAt:returnedAt-86400000,returnedAt,actualReturnedAt:returnedAt,lineItems:[line],returnDecision:{actualReturnedAt:returnedAt,damageKept:0,depositKept:0,chargeLate:false,lateClaimPolicyVersion:'owner-claim-v1',inspection},returnStatement:{number:`R-${index}`,issuedAt:returnedAt+1000,actualReturnedAt:returnedAt,supplierName:'Fixture supplier',customerEmail:account.email,lineItems:[line],subtotal:100,discount:0,deliveryFee:0,creditApplied:0,checkoutPaid:100,rentalRefunded:0,securityPaid:0,securityRefunded:0,holdStatus:'not_applicable',damageTotal:0,damageFromHold:0,inspection,lateAssessed:0,lateWaived:0,lateBreakdown:[]}});
+}
+function attachVerifiedDidit(account){
+ const now=Date.now();account.name??='Fixture Renter';account.address??='123 Fixture Road, London';account.emailVerifiedAt??=now;
+ const source=h.put('bookings',{accountId:account._id,accountAccessRequired:false,guestEmail:account.email,agreementName:account.name,billingAddress:account.address,lineItems:[],diditSessionId:`didit-${account._id}`,verificationProvider:'didit',idVerificationSource:'didit',idVerifyStatus:'verified',verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},status:'confirmed'});
+ account.rentalVerification={sourceBookingId:source._id,name:account.name.trim().toLowerCase(),address:account.address.trim().toLowerCase(),verifiedAt:now,expiresAt:now+90*86400000};
+ const archive=h.put('verification_archives',{bookingId:source._id,accountId:account._id,sessionId:source.diditSessionId,email:account.email,source:'didit',status:'complete',attempts:1,dueAt:now,createdAt:now});seedVerificationFiles(h.put,archive);
+ return account;
 }
 function paidMembership(account){
  h.put('membership_credit_grants',{accountId:account._id,subscriptionId:account.stripeSubscriptionId,invoiceId:`in-${account.stripeSubscriptionId}`,paidMembershipPence:1900,creditPence:1900,earnedCreditPence:1900,bonusPence:0,revokedPence:0,membershipRefundedPence:0,periodEnd:account.membershipPaidThrough,createdAt:Date.now()});
@@ -47,25 +57,25 @@ StripeFixture.prototype.prices={list:async()=>({data:[{id:'price_fixture',unit_a
   assert.doesNotMatch(text,/Eligible active members\/subscribers and verified Encore renters have no cash deposit/);
  }
  const waiverChecker=h.load('convex/lib/strictDepositWaiver.ts');
- const claimAccount=h.put('accounts',{email:'member-with-prior-claim@example.invalid',stripeCustomerId:'cus_claim',stripeSubscriptionId:'sub_claim',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+30*86400000});
+ const claimAccount=attachVerifiedDidit(h.put('accounts',{email:'member-with-prior-claim@example.invalid',stripeCustomerId:'cus_claim',stripeSubscriptionId:'sub_claim',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+30*86400000}));
  paidMembership(claimAccount);
  const claimBooking=cleanPriorRental(claimAccount,99);
  assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,claimAccount,99900),'active_membership');
  assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,claimAccount,400000),undefined,'The waiver does not apply at the £4,000 equipment threshold.');
  h.put('rental_security_charges',{bookingId:claimBooking._id,accountId:claimAccount._id,requestId:'prior-claim-00000001',kind:'damage',amountPence:1000,reason:'Previously claimed item damage',customerId:'cus_claim',paymentMethodId:'pm_claim',consentSnapshot:'{}',state:'voided',createdAt:Date.now(),updatedAt:Date.now()});
  assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,claimAccount,99900),undefined,'A prior rental with any security claim is not issue-free, even if that claim was later voided.');
- const incompleteAccount=h.put('accounts',{email:'member-incomplete-return@example.invalid',stripeCustomerId:'cus_incomplete',stripeSubscriptionId:'sub_incomplete',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+30*86400000});
+ const incompleteAccount=attachVerifiedDidit(h.put('accounts',{email:'member-incomplete-return@example.invalid',stripeCustomerId:'cus_incomplete',stripeSubscriptionId:'sub_incomplete',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+30*86400000}));
  paidMembership(incompleteAccount);
  const incompleteBooking=cleanPriorRental(incompleteAccount,98);
  incompleteBooking.returnStatement=undefined;
  assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,incompleteAccount,99900),undefined,'A returned booking without its completed return statement is not eligible.');
- const uncleanAccount=h.put('accounts',{email:'member-unclean-return@example.invalid',stripeCustomerId:'cus_unclean',stripeSubscriptionId:'sub_unclean',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+30*86400000});
+ const uncleanAccount=attachVerifiedDidit(h.put('accounts',{email:'member-unclean-return@example.invalid',stripeCustomerId:'cus_unclean',stripeSubscriptionId:'sub_unclean',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+30*86400000}));
  paidMembership(uncleanAccount);
  const uncleanBooking=cleanPriorRental(uncleanAccount,97);
  uncleanBooking.returnDecision.inspection[0].condition='fair';
  uncleanBooking.returnStatement.inspection[0].condition='fair';
  assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,uncleanAccount,99900),undefined,'A completed return with any item below good condition is not eligible.');
- const staleSubscriptionAccount=h.put('accounts',{email:'member-stale-subscription@example.invalid',stripeCustomerId:'cus_stale',stripeSubscriptionId:'sub_current',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+30*86400000});
+ const staleSubscriptionAccount=attachVerifiedDidit(h.put('accounts',{email:'member-stale-subscription@example.invalid',stripeCustomerId:'cus_stale',stripeSubscriptionId:'sub_current',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+30*86400000}));
  cleanPriorRental(staleSubscriptionAccount,96);
  h.put('membership_credit_grants',{accountId:staleSubscriptionAccount._id,subscriptionId:'sub_previous',invoiceId:'in-previous',paidMembershipPence:1900,creditPence:1900,earnedCreditPence:1900,bonusPence:0,revokedPence:0,membershipRefundedPence:0,periodEnd:staleSubscriptionAccount.membershipPaidThrough,createdAt:Date.now()});
  assert.equal(await waiverChecker.strictDepositWaiverReason(ctx,staleSubscriptionAccount,99900),undefined,'A successful payment from an old subscription cannot qualify a different current subscription.');
@@ -78,7 +88,8 @@ StripeFixture.prototype.prices={list:async()=>({data:[{id:'price_fixture',unit_a
  for(const [index,signedIn] of [false,true].entries()){
   const email=(signedIn?'new-account':'guest')+'@example.invalid',token=signedIn?'new-account-token':undefined;
   if(signedIn){const account=h.put('accounts',{email,emailVerifiedAt:Date.now(),stripeCustomerId:'cus_fixture'});h.put('sessions',{token,accountId:account._id,expiresAt:Date.now()+86400000});}
-  const selectedMembership={tier:'plus',intro:'none',termsVersion:h.load('shared/membership.ts').MEMBERSHIP_TERMS_VERSION,requestId:(signedIn?'s':'g').repeat(40)};
+ const {legalVersionForPolicy,CURRENT_PRIVACY_NOTICE_VERSION}=h.load('shared/legalVersioning.ts');
+ const selectedMembership={tier:'plus',intro:'none',termsVersion:h.load('shared/membership.ts').MEMBERSHIP_TERMS_VERSION,requestId:(signedIn?'s':'g').repeat(40),...(!signedIn?{accountTermsPrivacyAcknowledged:true,accountTermsVersion:legalVersionForPolicy({}),privacyNoticeVersion:CURRENT_PRIVACY_NOTICE_VERSION}:{})};
   const signup=structuredClone(args);signup.token=token;signup.customer.email=email;signup.selectedMembership=selectedMembership;
   signup.items[0].start+=(70+index*5)*86400000;signup.items[0].end+=(70+index*5)*86400000;
   signup.agreement.documents=legal.agreementsForSecurityPolicy(policy.ASSESSMENT_SECURITY_POLICY_VERSION);signup.agreement.requestId='fixture-signup-no-waiver-'+index;
@@ -99,6 +110,7 @@ StripeFixture.prototype.prices={list:async()=>({data:[{id:'price_fixture',unit_a
  for(const [index,kind] of ['plain','credit','member','member-no-history','trial','manual-encore-no-history','manual-encore','referral','voucher','encore','threshold'].entries()){
   const paid=['member','member-no-history','threshold'].includes(kind),trial=kind==='trial',periodEnd=Date.now()+86400000;
   const account=h.put('accounts',{email:kind+'@example.invalid',emailVerifiedAt:Date.now(),stripeCustomerId:'cus_fixture',...(paid?{stripeSubscriptionId:'sub-'+kind,membershipActive:true,membershipTier:'pro',membershipStatus:'active',membershipPaidThrough:periodEnd}:{}),...(trial?{stripeSubscriptionId:'sub-trial',membershipActive:true,membershipTier:'pro',membershipStatus:'trialing',membershipPaidThrough:periodEnd}:{}),...(['manual-encore','manual-encore-no-history'].includes(kind)?{adminEncoreLevel:3,loyaltyLevel:3,loyaltyPolicyVersion:'review-earned-v1',loyaltyEligible:true,loyaltyCompleted:1}:{})});
+  if(['member','member-no-history','trial','manual-encore-no-history','manual-encore','threshold','encore'].includes(kind))attachVerifiedDidit(account);
   if(paid)paidMembership(account);
   if(['member','trial','manual-encore','threshold'].includes(kind))cleanPriorRental(account,0);
   if(kind==='encore'){
@@ -114,7 +126,7 @@ StripeFixture.prototype.prices={list:async()=>({data:[{id:'price_fixture',unit_a
   if(kind==='voucher')a.promoCode='DB10OFF';
   if(kind==='threshold'){unit.replacementCost=4000;listing.depositAmount=4000;}
   const quote=await checkout.priceQuote.handler(ctx,{items:a.items,token,customerEmail:account.email,fulfilment:'pickup',promoCode:a.promoCode});
-  const waiver=['member','encore'].includes(kind),cash=waiver?0:kind==='threshold'?100:20;assert.equal(quote.depositAmount,cash);assert.equal(quote.savedCardLimit,0);assert.equal(quote.securityWaiverReason,kind==='member'?'active_membership':waiver?'encore':undefined);
+  const waiver=['member','encore'].includes(kind),cash=waiver?0:kind==='threshold'?100:20;assert.equal(quote.depositAmount,cash,kind);assert.equal(quote.savedCardLimit,0);assert.equal(quote.securityWaiverReason,kind==='member'?'active_membership':waiver?'encore':undefined,kind);
   a.expectedTotalDue=quote.combinedTotalDue;a.expectedSavedCardLimit=quote.savedCardLimit;
   let guardTested=false;const runMutation=ctx.runMutation;
   if(['member-no-history','trial','manual-encore-no-history'].includes(kind))ctx.runMutation=async(ref,input)=>{if(ref==='bookings.createPending'){guardTested=true;await assert.rejects(runMutation(ref,{...input,securityWaiverReason:kind==='manual-encore-no-history'?'encore':'active_membership',depositAmount:0}),/deposit eligibility changed/);}return runMutation(ref,input)};
@@ -187,9 +199,10 @@ StripeFixture.prototype.prices={list:async()=>({data:[{id:'price_fixture',unit_a
  for(const [index,hasCleanReturn,expectedHold,expectedReason] of [[0,false,50,undefined],[1,true,0,'active_membership']]){
   const periodEnd=Date.now()+86400000,email=`card-hold-member-${index}@example.invalid`,token=`card-hold-member-token-${index}`;
   const account=h.put('accounts',{email,emailVerifiedAt:Date.now(),stripeCustomerId:'cus_fixture',stripeSubscriptionId:`sub-card-hold-${index}`,membershipActive:true,membershipTier:'pro',membershipStatus:'active',membershipPaidThrough:periodEnd});
+  if(hasCleanReturn)attachVerifiedDidit(account);
   h.put('sessions',{token,accountId:account._id,expiresAt:Date.now()+86400000});paidMembership(account);
   if(hasCleanReturn)cleanPriorRental(account,index);
-  const items=[{...args.items[0],start:Date.UTC(2031,0,index+1),end:Date.UTC(2031,0,index+2),deposit:999}];
+  const holdStart=utcDayOffset(30+index*5),items=[{...args.items[0],start:holdStart,end:holdStart+86400000,deposit:999}];
   const quote=await checkout.priceQuote.handler(ctx,{items,token,customerEmail:email,fulfilment:'pickup'});
   assert.equal(quote.depositHoldAmount,expectedHold);assert.equal(quote.securityWaiverReason,expectedReason);
  }

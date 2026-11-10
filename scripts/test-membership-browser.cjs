@@ -57,14 +57,13 @@ async function connect(url, existingId) {
 
 const { ConvexHttpClient } = require("convex/browser"),
   { api } = require("../convex/_generated/api.js");
+const { resolveConvexTestTarget } = require("./lib/convexTestTarget.cjs");
 const { marketingRedirect } = require("./lib/rentalTestHarness.cjs").load("convex/lib/marketingInventory.ts");
 const {ASSESSMENT_SECURITY_POLICY_VERSION,CARD_HOLD_SECURITY_POLICY_VERSION,REFUNDABLE_DEPOSIT_POLICY_VERSION,SECURITY_POLICY_VERSION,SETUP_INTENT_SECURITY_POLICY_VERSION,assessmentDepositFor,cardHoldFor,setupIntentSecurityLimit}=require("./lib/rentalTestHarness.cjs").load("shared/rentalSecurity.ts");
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
   const root = process.env.DBC_BROWSER_ROOT || "http://127.0.0.1:41795",
-    cv = new ConvexHttpClient(
-      process.env.DBC_CONVEX_URL || "https://veracious-wombat-196.convex.cloud",
-    );
+    cv = new ConvexHttpClient(resolveConvexTestTarget());
   const checkoutEnabled = (await cv.query(api.settings.get, {})).checkoutEnabled === true;
   const r = await cv.query(api.catalog.listListings, {}),
     rows = (Array.isArray(r) ? r : (r.items ?? r.listings ?? [])).filter(l => !(l.marketingOnly ?? !!marketingRedirect(l)));

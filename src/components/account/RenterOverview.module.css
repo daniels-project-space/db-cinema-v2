@@ -154,3 +154,34 @@
 .kitItem strong { font-size:11px; line-height:1.35; margin-top:6px; }
 .kitStrip { padding-bottom:0; }
 .kitImage { height:98px; }
+
+.toolbar nav button,
+.toolbar nav a {
+  display:inline-flex;
+  min-height:44px;
+  align-items:center;
+  justify-content:center;
+  border:1px solid #ffffff20;
+  border-radius:999px;
+  background:rgba(255,255,255,.035);
+  color:#e3ded7;
+  white-space:nowrap;
+  backdrop-filter:blur(12px);
+}
+.toolbar nav a {
+  border-color:#c89b6d66;
+  background:linear-gradient(135deg,rgba(200,155,109,.24),rgba(200,155,109,.08));
+  color:#f3dfc8;
+}
+.root :global([data-rental-layout]) > div:first-child > details > summary { min-height:44px; }
+
+@media(max-width:700px) {
+  /* The featured card already owns the whole kit gallery; keep its additional
+     real listing photos visible and remove the repeated second strip. */
+  .root :global([data-rental-layout]) > div:first-child > div[aria-label] { display:grid; padding:0 14px 8px; }
+  .root :global([data-rental-layout]) > div:first-child > div:first-child > div > div:first-child { min-height:0; max-height:none; aspect-ratio:16 / 10; }
+  .toolbar nav button { padding:0 8px; font-size:11px; }
+  .toolbar nav a { padding:0 8px; font-size:10px; }
+  .toolbar nav a span { margin-left:5px; }
+  .kit { display:none; }
+}

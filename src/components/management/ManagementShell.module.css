@@ -11,6 +11,10 @@
 .managementHeader .actor { flex: none; }
 .management .shell[data-management-role=admin][data-management-screen=accounts] .heading { display: none; }
 @media (min-width:1351px) { .management .shell[data-management-role=admin][data-management-screen=accounts] { grid-template-columns:200px minmax(0,1fr); } }
+@media (min-width:1601px) {
+  .management .shell[data-management-role=admin][data-management-screen=accounts] { grid-template-columns:228px minmax(0,1fr); }
+  .management .shell[data-management-role=admin][data-management-screen=accounts] .content { max-width:none; padding:24px 6px 24px 20px; }
+}
 @media (max-width: 640px) { .managementHeader { gap: 9px; padding: 8px 12px; min-height: 60px; } .managementHeader .headerLogo { font-size: 15px; gap: 3px; } .managementHeader .headerLogo small { display: none; } .managementHeader .breadcrumb { gap: 6px; } .managementHeader .breadcrumb i { display: inline; } .managementHeader .actor > span:not(.avatar) { display: none; } .managementHeader .actor { gap: 5px; } .managementHeader .avatar { display: none; } }
 @media (max-width: 640px) {
   .management:has(.shell[data-management-role=admin][data-management-screen=accounts]) .managementHeader { gap: 6px; padding-inline: 9px; }
@@ -187,4 +191,11 @@
  .management .shell[data-management-role=admin] .topbar { padding:12px 14px; gap:10px; }
  .management .shell[data-management-role=admin] .topbar .actor > span:not(.avatar) { display:none; }
  .shell :global(.admin-tool-panel) { padding:14px; }
+}
+
+@media (min-width:641px) and (max-width:1023px) {
+  .shell[data-management-role=renter][data-management-screen=messages] { height:calc(100dvh - var(--management-site-header-height)); min-height:0; overflow:hidden; }
+  .shell[data-management-role=renter][data-management-screen=messages] .workspace { height:100%; min-height:0; overflow:hidden; }
+  .shell[data-management-role=renter][data-management-screen=messages] .content { display:flex; flex-direction:column; height:100%; min-height:0; padding:0; max-width:none; overflow:hidden; }
+  .shell[data-management-role=renter][data-management-screen=messages] .content > :global(#renter-chat) { flex:1; min-height:0; margin:0; }
 }

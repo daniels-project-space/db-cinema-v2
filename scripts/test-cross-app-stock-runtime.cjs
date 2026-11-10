@@ -66,7 +66,7 @@ async function launch(name, source, fixture) {
   fs.rmSync(path.join(dir, 'convex', 'crons.ts'), { force: true });
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, CONVEX_AGENT_MODE: 'anonymous', XDG_CONFIG_HOME: path.join(dir, 'config') };
   const cli = path.join(source, 'node_modules/.bin/convex');
-  const child = spawn(cli, ['dev', '--typecheck', 'disable', '--codegen', 'disable', '--tail-logs', 'disable'], { cwd: dir, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(cli, ['dev', '--configure', 'new', '--project', `cross-stock-${name}`, '--dev-deployment', 'local', '--typecheck', 'disable', '--codegen', 'disable', '--tail-logs', 'disable'], { cwd: dir, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(child);
   let output = '';
   child.stdout.on('data', data => { output += data; }); child.stderr.on('data', data => { output += data; });

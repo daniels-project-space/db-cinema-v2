@@ -5,6 +5,7 @@ import { assertAdmin, checkAdminToken } from './adminAuth';
 import { accountForToken, ownedBooking, postRentalMessage } from './lib/rentalChat';
 import { assertSavedCardCollection, retainedDepositPence, isSavedCardRental, SECURITY_COLLECTION_NOTICE_HOURS, SECURITY_COLLECTION_DAYS } from '../shared/savedCardSecurity';
 import { internal } from './_generated/api';
+import { queueOwnerNotification } from './lib/adminPush';
 const released = (state:string) => ['failed','voided'].includes(state);
 const idArgs={id:v.id('rental_security_charges')};
 export const list = query({args:{token:v.string(),bookingId:v.id('bookings'),admin:v.optional(v.boolean())},handler:async(ctx,a)=>{
@@ -14,7 +15,7 @@ export const list = query({args:{token:v.string(),bookingId:v.id('bookings'),adm
  const gross=b!.savedCardChargePaidPence??0,refunded=rows.reduce((n,r)=>n+(r.refundedPence??0),0);
  return {depositPaid:b!.depositAmount??0,depositRetained:retainedDepositPence(b)/100,depositRefunded:b!.depositRefundAmount??0,remaining:b!.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?null:Math.max(0,Math.round((b!.savedCardLimit??0)*100)-gross-(b!.savedCardChargeReservedPence??0)-retainedDepositPence(b))/100,limit:b!.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?null:b!.savedCardLimit??0,used:gross/100,paid:Math.max(0,gross-refunded)/100,reserved:(b!.savedCardChargeReservedPence??0)/100,cardStatus:b!.savedCardStatus??'awaiting_payment',
   damageAssessed:b!.savedCardDamageAssessed??b!.returnDecision?.damageKept??0,lateAssessed:b!.lateFeeAmount??0,returnedAt:b!.actualReturnedAt??null,
-  securityPolicyVersion:b!.securityPolicyVersion??null,rows:rows.map(r=>({id:r._id,kind:r.kind,claimBasis:r.claimBasis??null,amount:r.amountPence/100,reason:r.reason,state:r.state,paid:(r.paidPence??0)/100,createdAt:r.createdAt,noticeAt:r.noticeAt??null,collectAfter:r.collectAfter??null,disputeReason:r.disputeReason??null,disputeResolution:r.disputeResolution??null,disputeResolvedAt:r.disputeResolvedAt??null,refunded:(r.refundedPence??0)/100,refundStatus:r.refundReceipt?.status??null,refundReason:r.refundReason??null,...(a.admin?{refundApprovalUrl:r.refundReceipt?.approvalUrl??null,receiptNoticeAt:r.receiptNoticeAt??null}:{}),error:r.error??null}))};
+  securityPolicyVersion:b!.securityPolicyVersion??null,rows:rows.map(r=>({id:r._id,kind:r.kind,claimBasis:r.claimBasis??null,amount:r.amountPence/100,reason:r.reason,state:r.state,paid:(r.paidPence??0)/100,createdAt:r.createdAt,noticeAt:r.noticeAt??null,collectAfter:r.collectAfter??null,disputeReason:r.disputeReason??null,disputeResolution:r.disputeResolution??null,disputeResolvedAt:r.disputeResolvedAt??null,refunded:(r.refundedPence??0)/100,refundStatus:r.refundReceipt?.status??null,refundReason:r.refundReason??null,refundEmailStatus:r.refundEmailStatus??null,...(a.admin?{refundApprovalUrl:r.refundReceipt?.approvalUrl??null,receiptNoticeAt:r.receiptNoticeAt??null,refundEmailAt:r.refundEmailAt??null,refundEmailError:r.refundEmailError??null}:{}),error:r.error??null}))};
 }});
 export const prepare = mutation({args:{token:v.string(),bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),amount:v.number(),reason:v.string(),immediate:v.optional(v.boolean())},handler:async(ctx,a)=>{
  await assertAdmin(ctx,a.token,'securityCharges.prepare');
@@ -169,13 +170,22 @@ export const beginRefund=internalMutation({args:{...idArgs,reason:v.string(),amo
  await ctx.db.patch(r._id,{refundNonce:nonce,refundReceipt:receipt,refundReason:a.reason.trim(),refundLeaseUntil:Date.now()+120000,refundHistory:r.refundReceipt?[...(r.refundHistory??[]),r.refundReceipt]:r.refundHistory});return {receipt,nonce};
 }});
 const refundReceipt=v.object({paymentIntentId:v.string(),amountPence:v.number(),attemptedAt:v.number(),stripeRefundId:v.optional(v.string()),approvalRequestId:v.optional(v.string()),approvalUrl:v.optional(v.string()),status:v.union(v.literal('unknown'),v.literal('awaiting_approval'),v.literal('pending'),v.literal('succeeded'),v.literal('failed'))});
+async function enqueueRefundNotice(ctx:any,charge:any,sequence:number,amountPence:number,cumulativePence:number,reason:string){
+ const eventKey=`security-refund:${charge._id}:${sequence}`;
+ const prior=await ctx.db.query('rental_security_refund_notices').withIndex('by_event',(q:any)=>q.eq('eventKey',eventKey)).first();
+ if(prior)return prior._id;
+ const now=Date.now(),noticeId=await ctx.db.insert('rental_security_refund_notices',{chargeId:charge._id,bookingId:charge.bookingId,accountId:charge.accountId,sequence,eventKey,amountPence,cumulativePence,reason,createdAt:now,status:'pending',attempts:0,nextAttemptAt:now});
+ await ctx.scheduler.runAfter(0,internal.securityCharges.sendRefundNotice,{noticeId});
+ return noticeId;
+}
 export const recordRefund=internalMutation({args:{...idArgs,receipt:refundReceipt,refundedPence:v.number()},handler:async(ctx,a)=>{
  const r=await ctx.db.get(a.id);if(!r||!r.refundReceipt||r.intentId!==a.receipt.paymentIntentId||r.refundReceipt.attemptedAt!==a.receipt.attemptedAt||r.refundReceipt.amountPence!==a.receipt.amountPence)throw Error('Refund receipt differs from the exact saved fee settlement.');
  if(!Number.isSafeInteger(a.refundedPence)||a.refundedPence<0||a.refundedPence>(r.paidPence??0))throw Error('Invalid fee refund receipt.');
- const previous=r.refundedPence??0;
+ const previous=r.refundedPence??0,delta=a.refundedPence-previous;
  const count=(r.refundReconcileCount??0)+1,finished=['succeeded','failed'].includes(a.receipt.status);
- await ctx.db.patch(r._id,{refundReceipt:a.receipt,refundedPence:a.refundedPence,refundLeaseUntil:undefined,updatedAt:Date.now(),refundReconcileCount:count,refundReconcileAt:finished||count>=12?undefined:Date.now()+Math.min(6*3600000,300000*2**Math.min(count,7))});
- const delta=a.refundedPence-previous;
+ const refundNoticeSequence=delta>0?(r.refundNoticeSequence??0)+1:r.refundNoticeSequence;
+ await ctx.db.patch(r._id,{refundReceipt:a.receipt,refundedPence:a.refundedPence,refundLeaseUntil:undefined,updatedAt:Date.now(),refundReconcileCount:count,refundReconcileAt:finished||count>=12?undefined:Date.now()+Math.min(6*3600000,300000*2**Math.min(count,7)),...(delta>0?{refundNoticeSequence,refundEmailStatus:'queued' as const,refundEmailError:undefined}:{})});
+ if(delta>0)await enqueueRefundNotice(ctx,r,refundNoticeSequence!,delta,a.refundedPence,r.refundReason??'Refund confirmed by Stripe.');
  if(delta!==0&&r.kind==='late'){
   const b=await ctx.db.get(r.bookingId);
   if(b){const net=Math.max(0,(b.lateFeePaidFromCard??0)-delta/100);await ctx.db.patch(b._id,{lateFeePaidFromCard:net,lateFeeStatus:net>=(b.lateFeeAmount??0)?'paid':net>0?'partial':'refunded'});}
@@ -189,6 +199,34 @@ export const recordRefund=internalMutation({args:{...idArgs,receipt:refundReceip
 export const byIntent=internalQuery({args:{paymentIntentId:v.string()},handler:(ctx,a)=>ctx.db.query('rental_security_charges').withIndex('by_intent',q=>q.eq('intentId',a.paymentIntentId)).unique()});
 export const externalRefund=internalMutation({args:{...idArgs,refundedPence:v.number()},handler:async(ctx,a)=>{
  const r=await ctx.db.get(a.id);if(!r||r.state!=='paid'||!Number.isSafeInteger(a.refundedPence)||a.refundedPence<0||a.refundedPence>(r.paidPence??0))throw Error('Invalid bank-confirmed fee refund total.');
- const delta=a.refundedPence-(r.refundedPence??0);await ctx.db.patch(r._id,{refundedPence:a.refundedPence,updatedAt:Date.now()});
- if(delta!==0){const b=await ctx.db.get(r.bookingId);if(b&&r.kind==='late'){const net=Math.max(0,(b.lateFeePaidFromCard??0)-delta/100);await ctx.db.patch(b._id,{lateFeePaidFromCard:net,lateFeeStatus:net>=(b.lateFeeAmount??0)?'paid':net>0?'partial':'refunded'});}}
+ const previous=r.refundedPence??0,delta=a.refundedPence-previous,refundNoticeSequence=delta>0?(r.refundNoticeSequence??0)+1:r.refundNoticeSequence;
+ await ctx.db.patch(r._id,{refundedPence:a.refundedPence,updatedAt:Date.now(),...(delta>0?{refundNoticeSequence,refundEmailStatus:'queued' as const,refundEmailError:undefined}:{})});
+ if(delta>0)await enqueueRefundNotice(ctx,r,refundNoticeSequence!,delta,a.refundedPence,r.refundReason??'Refund confirmed directly in Stripe.');
+ if(delta!==0){const b=await ctx.db.get(r.bookingId);if(b&&r.kind==='late'){const net=Math.max(0,(b.lateFeePaidFromCard??0)-delta/100);await ctx.db.patch(b._id,{lateFeePaidFromCard:net,lateFeeStatus:net>=(b.lateFeeAmount??0)?'paid':net>0?'partial':'refunded'});}
+  if(delta>0&&await ctx.db.get(r.accountId))await postRentalMessage(ctx,{accountId:r.accountId,bookingId:r.bookingId,sender:'system',text:`Stripe confirmed £${(delta/100).toFixed(2)} refunded to the original payment method for assessment ${String(r._id).slice(-8)}. Reason: ${r.refundReason??'Refund confirmed directly in Stripe.'} This is a cash refund, not account credit.`});
+ }
+}});
+export const refundNoticeContext=internalQuery({args:{noticeId:v.id('rental_security_refund_notices')},handler:async(ctx,{noticeId})=>{
+ const notice=await ctx.db.get(noticeId);if(!notice)return null;const charge=await ctx.db.get(notice.chargeId),booking=await ctx.db.get(notice.bookingId),account=await ctx.db.get(notice.accountId);
+ if(!charge||!booking||booking._id!==charge.bookingId||booking.accountId!==charge.accountId||account?._id!==charge.accountId)return {notice,invalid:true};
+ return {notice,charge,booking,account};
+}});
+export const claimRefundNotice=internalMutation({args:{noticeId:v.id('rental_security_refund_notices')},handler:async(ctx,{noticeId})=>{
+ const notice=await ctx.db.get(noticeId);if(!notice||notice.status==='sent'||notice.status==='failed'||notice.nextAttemptAt>Date.now()||(notice.status==='sending'&&(notice.leaseUntil??0)>Date.now())||notice.attempts>=8)return null;
+ const now=Date.now();await ctx.db.patch(noticeId,{status:'sending',attempts:notice.attempts+1,leaseUntil:now+120000,nextAttemptAt:now+120000});
+ const charge=await ctx.db.get(notice.chargeId);if(charge?.refundNoticeSequence===notice.sequence)await ctx.db.patch(charge._id,{refundEmailStatus:'sending',refundEmailError:undefined});
+ return {...notice,status:'sending',attempts:notice.attempts+1};
+}});
+export const finishRefundNotice=internalMutation({args:{noticeId:v.id('rental_security_refund_notices'),sent:v.boolean(),recipient:v.optional(v.string()),subject:v.optional(v.string()),html:v.optional(v.string()),error:v.optional(v.string())},handler:async(ctx,a)=>{
+ const notice=await ctx.db.get(a.noticeId);if(!notice||notice.status!=='sending')return;
+ const now=Date.now(),finished=a.sent||notice.attempts>=8,status=a.sent?'sent':finished?'failed':'pending';
+ const nextAttemptAt=status==='pending'?now+Math.min(6*3600000,60000*2**Math.min(notice.attempts-1,8)):now;
+ await ctx.db.patch(notice._id,{status,nextAttemptAt,leaseUntil:undefined,...(a.sent?{sentAt:now,recipient:a.recipient,subject:a.subject,html:a.html,lastError:undefined}:{lastError:(a.error??'Refund email was not accepted by the mail service.').slice(0,500)})});
+ const charge=await ctx.db.get(notice.chargeId);
+ if(charge?.refundNoticeSequence===notice.sequence)await ctx.db.patch(charge._id,{refundEmailStatus:status==='pending'?'queued':status==='sent'?'sent':'failed',...(a.sent?{refundEmailAt:now,refundEmailError:undefined}:{refundEmailError:(a.error??'Refund email was not accepted by the mail service.').slice(0,500)})});
+ if(finished&&!a.sent)await queueOwnerNotification(ctx,{eventKey:`security-refund-email-failure:${notice.eventKey}`,kind:'email_failure',accountId:notice.accountId,bookingId:notice.bookingId,title:'Assessment refund email needs attention',body:'Stripe confirmed a refund, but its email and updated statement could not be sent. The payment and chat record are unchanged.'});
+}});
+export const pendingRefundNotices=internalQuery({args:{},handler:async(ctx)=>{
+ const now=Date.now(),pending=await ctx.db.query('rental_security_refund_notices').withIndex('by_status_due',(q:any)=>q.eq('status','pending').lte('nextAttemptAt',now)).take(25),expired=await ctx.db.query('rental_security_refund_notices').withIndex('by_status_due',(q:any)=>q.eq('status','sending').lte('nextAttemptAt',now)).take(25);
+ return [...pending,...expired].map(row=>row._id);
 }});

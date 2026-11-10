@@ -47,6 +47,7 @@ const actionCtx={
  runQuery:async(ref,args)=>{
   if(ref==='securityChargeState.context')return state.context.handler(ctx,args);
   if(ref==='securityChargeState.byIntent')return state.byIntent.handler(ctx,args);
+  if(ref==='securityChargeState.refundNoticeContext')return state.refundNoticeContext.handler(ctx,args);
   throw Error('Unexpected query '+ref);
  },
  runMutation:async(ref,args)=>{
@@ -98,6 +99,16 @@ function rental(policyVersion,agreementVersion){
  assert(notice.html.includes('£20.00'));assert(notice.html.includes(reason),'notice email includes the exact recorded reason');
  const chatNotice=tables.get('messages').find(message=>message.bookingId===clean._id&&message.text.includes(reason));
  assert(chatNotice?.text.includes('£20.00'),'renter chat has the same amount and reason as the email');
+ const assessmentRefund=await state.beginRefund.handler(ctx,{id:first.id,amountPence:1000,reason:'We corrected the repair estimate after review.'});
+ await state.recordRefund.handler(ctx,{id:first.id,receipt:{...assessmentRefund.receipt,stripeRefundId:'re_fixture_assessment',status:'succeeded'},refundedPence:1000});
+ const refundNotice=tables.get('rental_security_refund_notices').find(row=>row.chargeId===first.id);assert(refundNotice,'Confirmed refund creates a durable email event');
+ const originalFetch=global.fetch;
+ try{
+  global.fetch=async(url)=>{assert.match(String(url),/phase=assessment/);return new Response(Buffer.from('%PDF-fixture-assessment-statement'),{status:200,headers:{'content-type':'application/pdf'}});};
+  await actions.sendRefundNotice.handler(actionCtx,{noticeId:refundNotice._id});
+ }finally{global.fetch=originalFetch;}
+ const refundEmail=emailCalls.at(-1);assert.match(refundEmail.subject,/refund confirmed/i);assert.match(refundEmail.html,/£10\.00/);assert.match(refundEmail.html,/corrected the repair estimate/);assert.match(refundEmail.html,/not account credit/);assert.equal(refundEmail.deliveryKey,refundNotice.eventKey);assert.match(refundEmail.attachments[0].filename,/assessment-update/);
+ assert.equal((await db.get(refundNotice._id)).status,'sent');assert.equal((await db.get(first.id)).refundEmailStatus,'sent');
  const replay=await actions.submitClaim.handler(actionCtx,args);
  assert.equal(replay.status,'paid');assert.equal(createCalls,1,'Replaying the same request does not make a second charge');
  const paid=await db.query('rental_security_charges').withIndex('by_booking',q=>q.eq('bookingId',clean._id)).first();

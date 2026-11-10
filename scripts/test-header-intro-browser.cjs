@@ -11,6 +11,16 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     await client.cmd('Page.enable');
     await client.cmd('Network.enable');
     await client.cmd('Network.setBlockedURLs', { urls: ['*convex.cloud*', '*convex.site*'] });
+    for (const width of [320, 390, 430, 639]) {
+      await client.cmd('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: false });
+      await client.cmd('Page.navigate', { url: process.env.DBC_TEST_URL || 'http://127.0.0.1:41901/' });
+      for (let attempt = 0; attempt < 100 && !(await client.evaluate('!!document.querySelector("header a[href=\"/\"]")')); attempt++) await delay(100);
+      const mobileHeader = await client.evaluate(`(() => { const header=document.querySelector('header'), lockup=header?.querySelector('.f7-lockup'), separator=header?.querySelector('.site-collab-separator'); return { logo:!!header?.querySelector('a[href="/"]'), lockupVisible:!!lockup&&getComputedStyle(lockup).display!=='none', separatorVisible:!!separator&&getComputedStyle(separator).display!=='none', overflow:document.documentElement.scrollWidth>innerWidth }; })()`);
+      assert(mobileHeader.logo, `The DB Cinema logo stays visible at ${width}px`);
+      assert.equal(mobileHeader.lockupVisible, false, `The FORM / SEVEN mark is removed from the phone header at ${width}px`);
+      assert.equal(mobileHeader.separatorVisible, false, `No orphan collaboration separator remains at ${width}px`);
+      assert.equal(mobileHeader.overflow, false, `The phone header does not create page overflow at ${width}px`);
+    }
     for (const width of [768, 1024, 1280, 1440]) {
       await client.cmd('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
       await client.cmd('Page.navigate', { url: process.env.DBC_TEST_URL || 'http://127.0.0.1:41901/' });

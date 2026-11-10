@@ -9,6 +9,7 @@ import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { sendMail } from "./lib/mailer";
+import { swapAdjustmentDocumentIdentity } from "../shared/swapAdjustmentDocument";
 
 const amount = (value: number) => `£${value.toFixed(2)}`;
 const esc = (value: string) => value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -101,8 +102,14 @@ export const returnSettlementEmail = internalAction({
 const poundsFromPence=(pence:number)=>amount(pence/100);
 
 export const swapAdjustmentEmail=internalAction({args:{receiptId:v.id("rental_swap_adjustment_receipts")},handler:async(ctx,{receiptId})=>{
+  const secret=process.env.INVOICE_SECRET;
+  if(!secret)throw Error("The equipment adjustment PDF cannot be issued until invoice rendering is configured.");
   const receipt:any=await ctx.runMutation(internal.invoiceAdjustments.claimSwapAdjustmentEmail,{receiptId});
   if(!receipt)return {sent:false,waiting:true};
+  const identity=swapAdjustmentDocumentIdentity(String(receipt.swapId),receipt.cardChargePence,receipt.cardRefundPence);
+  if((receipt.documentType&&receipt.documentType!==identity.documentType)||(receipt.documentNumber&&receipt.documentNumber!==identity.documentNumber))throw Error("The equipment adjustment document identity needs review.");
+  const documentType=receipt.documentType??identity.documentType;
+  const documentNumber=receipt.documentNumber??identity.documentNumber;
   const equipmentRows=receipt.changes.map((change:any)=>`<tr><td style="padding:9px 12px;border-bottom:1px solid #eee">${esc(change.oldTitle)} → ${esc(change.newTitle)}<br><span style="color:#777">Qty ${change.oldQty} to ${change.newQty}</span></td><td style="padding:9px 12px;border-bottom:1px solid #eee;text-align:right">${poundsFromPence(change.oldLineTotalPence)} → ${poundsFromPence(change.newLineTotalPence)}</td></tr>`).join("");
   const settlements:string[]=[];
   if(receipt.cardChargePence>0)settlements.push(`<p><strong>Additional card payment:</strong> ${poundsFromPence(receipt.cardChargePence)}</p>`);
@@ -110,17 +117,20 @@ export const swapAdjustmentEmail=internalAction({args:{receiptId:v.id("rental_sw
   if(receipt.accountCreditRestoredPence>0)settlements.push(`<p><strong>Account credit restored:</strong> ${poundsFromPence(receipt.accountCreditRestoredPence)}</p>`);
   if(!settlements.length)settlements.push("<p>No additional card payment or refund was needed.</p>");
   const app=process.env.APP_URL??"https://dbcinemarentals.com";
+  const pdf=await fetchInvoicePdf(`${app}/api/invoice/${encodeURIComponent(String(receipt.bookingId))}?phase=swap-adjustment&receiptId=${encodeURIComponent(String(receiptId))}`,secret);
+  const documentTitle=documentType==="supplementary_invoice"?"supplementary invoice":documentType==="credit_note"?"credit note":"account credit adjustment";
   const url=`${app}/account?rental=${encodeURIComponent(String(receipt.bookingId))}#chat`;
   const result=await sendMail({
     deliveryKey:`swap-adjustment-${receipt._id}`,
     to:receipt.recipientEmail,
-    subject:`Equipment change adjustment · ${receipt.originalInvoiceNumber}`,
+    subject:`Equipment change ${documentTitle} · ${documentNumber}`,
     html:rentalEmail({
-      title:"Equipment change adjustment",
-      preview:`Your equipment change is recorded against invoice ${receipt.originalInvoiceNumber}.`,
+      title:`Equipment change ${documentTitle}`,
+      preview:`Your ${documentTitle} ${documentNumber} is ready.`,
       url,button:"View rental details",
-      body:`<p>This itemised adjustment applies to rental invoice <strong>${esc(receipt.originalInvoiceNumber)}</strong>. It does not replace the original rental invoice; it records only the accepted equipment change and its settlement.</p><table role="presentation" style="width:100%;border-collapse:collapse"><thead><tr><th align="left" style="padding:8px 12px;border-bottom:1px solid #ddd">Equipment</th><th align="right" style="padding:8px 12px;border-bottom:1px solid #ddd">Rental line</th></tr></thead><tbody>${equipmentRows}</tbody></table><div style="margin-top:14px">${settlements.join("")}</div><p style="font-size:12px;color:#777">Issued ${new Date(receipt.issuedAt).toLocaleDateString("en-GB",{timeZone:"Europe/London",day:"numeric",month:"short",year:"numeric"})}. This is an itemised adjustment, not a second rental charge.</p>`,
+      body:`<p>Your equipment change ${documentTitle} is attached as a PDF. It references rental invoice <strong>${esc(receipt.originalInvoiceNumber)}</strong>; the original invoice remains unchanged.</p><table role="presentation" style="width:100%;border-collapse:collapse"><thead><tr><th align="left" style="padding:8px 12px;border-bottom:1px solid #ddd">Equipment</th><th align="right" style="padding:8px 12px;border-bottom:1px solid #ddd">Rental line</th></tr></thead><tbody>${equipmentRows}</tbody></table><div style="margin-top:14px">${settlements.join("")}</div><p style="font-size:12px;color:#777">Document ${esc(documentNumber)} · issued ${new Date(receipt.issuedAt).toLocaleDateString("en-GB",{timeZone:"Europe/London",day:"numeric",month:"short",year:"numeric"})}. DB Cinema Rentals Ltd is not VAT registered; no VAT is charged.</p>`,
     }),
+    attachments:[{filename:`${documentNumber}.pdf`,content:pdf.toString("base64")}],
   });
   if(result)await ctx.runMutation(internal.invoiceAdjustments.markSwapAdjustmentEmailSent,{receiptId,claimAt:receipt.claimAt});
   return {sent:result};

@@ -40,7 +40,7 @@ export function CartItemDates({ item }: { item: CartItem }) {
       {open ? "Close date editor" : "Change dates"}
     </button>
     {open && <div id={id} className="mt-2 rounded-xl border border-white/10 bg-black/20 p-3">
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-2">
         <label className="min-w-0 text-[10px] text-white/50">Pickup<input aria-label={`Pickup date for ${item.title}`} type="date" min={today} value={start} disabled={busy} onChange={e => { setStart(e.target.value); if (e.target.value > end) setEnd(e.target.value); setError(null); }} className="input mt-1 w-full min-w-0 !px-2 !py-2 text-xs [color-scheme:dark]"/></label>
         <label className="min-w-0 text-[10px] text-white/50">Return<input aria-label={`Return date for ${item.title}`} type="date" min={start || today} value={end} disabled={busy} onChange={e => { setEnd(e.target.value); setError(null); }} className="input mt-1 w-full min-w-0 !px-2 !py-2 text-xs [color-scheme:dark]"/></label>
       </div>

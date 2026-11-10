@@ -146,21 +146,25 @@ http.route({ path: "/chat-attachment", method: "POST", handler: httpAction(async
   const headers = { ...cors, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
   const url = new URL(req.url);
   const download = url.searchParams.get("download");
-  if (!download && !chatAttachmentsReady()) return new Response("Attachments are temporarily unavailable.", { status: 503, headers });
+  const preview = url.searchParams.get("preview");
+  if (download && preview) return new Response("Choose download or preview.", { status: 400, headers });
+  if (!download && !preview && !chatAttachmentsReady()) return new Response("Attachments are temporarily unavailable.", { status: 503, headers });
   const admin = url.searchParams.get("admin") === "1";
   let id: any, marker: string | undefined, storageId: any;
   try {
     const scope = { token: adminHttpToken(req, admin && process.env.ADMIN_SESSION_ATTACHMENTS_V2 === "enabled"), admin, bookingId: (url.searchParams.get("bookingId") || undefined) as any, accountId: (url.searchParams.get("accountId") || undefined) as any };
-    if (download) {
-      const file = await ctx.runMutation(internal.chatAttachments.download, { ...scope, id: download as any });
+    if (download || preview) {
+      const attachmentId = (download || preview) as any;
+      const file = await ctx.runMutation(internal.chatAttachments.download, { ...scope, id: attachmentId });
+      if (preview && !isChatImageType(file.contentType ?? "")) return new Response("Inline previews support verified JPG, PNG and WebP images only.", { status: 415, headers });
       const stored = await ctx.storage.get(file.storageId);
       if (!stored || stored.size !== file.size) throw Error("File unavailable.");
       const bytes = new Uint8Array(await stored.arrayBuffer());
       const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(part => part.toString(16).padStart(2, "0")).join("");
       if (hash !== file.sha256) throw Error("File unavailable.");
-      const current = await ctx.runMutation(internal.chatAttachments.download, { ...scope, id: download as any });
-      if (current.storageId !== file.storageId || current.messageId !== file.messageId || current.sha256 !== file.sha256 || current.size !== file.size || current.name !== file.name) throw Error("File unavailable.");
-      return new Response(bytes, { headers: { ...headers, "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${file.name}"` } });
+      const current = await ctx.runMutation(internal.chatAttachments.download, { ...scope, id: attachmentId });
+      if (current.storageId !== file.storageId || current.messageId !== file.messageId || current.sha256 !== file.sha256 || current.size !== file.size || current.name !== file.name || current.contentType !== file.contentType) throw Error("File unavailable.");
+      return new Response(bytes, { headers: { ...headers, "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Type": preview ? file.contentType ?? "application/octet-stream" : "application/octet-stream", "Content-Disposition": `${preview ? "inline" : "attachment"}; filename="${file.name}"` } });
     }
     // The browser's availability check is only a convenience. Authenticate the
     // exact upload scope and repeat the scanner self-test at the server edge so

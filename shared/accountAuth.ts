@@ -6,6 +6,8 @@ export const ACCOUNT_AUTH_MESSAGES = {
   EMAIL_VERIFICATION_REQUIRED: "Confirm your signup email or request a private sign-in link first.",
   PASSWORD_NOT_SET: "Use an email sign-in link or Continue with Google for this account. You can also use Forgot password to set a password.",
   SIGNUP_INVALID_INPUT: "Enter a valid email and a password of 6+ characters.",
+  SIGNUP_TERMS_REQUIRED: "Please agree to the current Terms and Conditions and read the Privacy Notice to create an account.",
+  SIGNUP_TERMS_UPDATED: "The Terms and Conditions or Privacy Notice changed. Review the current versions and try again.",
   ACCOUNT_EXISTS: "An account with that email already exists. Sign in or use Forgot password.",
 } as const;
 

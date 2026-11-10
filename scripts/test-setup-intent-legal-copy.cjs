@@ -6,6 +6,7 @@ const { LEGAL_ARCHIVE } = load("shared/legalDocuments.ts");
 const agreement = LEGAL_ARCHIVE["2026-11-v20"];
 const newAgreement = LEGAL_ARCHIVE["2026-11-v21"];
 const immediateAgreement = LEGAL_ARCHIVE["2026-11-v22"];
+const currentAgreement = LEGAL_ARCHIVE["2026-11-v23"];
 const rentalSecurityHeading = agreement["rental-terms"].sections.find(section => section.h.startsWith("2."))?.h;
 assert.equal(rentalSecurityHeading, "2. Saved-card security claims");
 
@@ -14,16 +15,38 @@ assert(!agreementText.includes("New rentals use a Stripe card authorisation hold
 assert(!agreementText.includes("Security payment and hold"));
 assert(agreement.terms.sections.find(section => section.h === "Cancellation and refunds").p.includes("Cancelling seven or fewer London calendar days"));
 const newCancellation = newAgreement.cancellation.sections.find(section => section.h === "Your cancellation").p;
+const immediateCancellation = immediateAgreement.cancellation.sections.find(section => section.h === "Your cancellation").p;
+const currentCancellation = currentAgreement.cancellation.sections.find(section => section.h === "Your cancellation").p;
 assert.match(newCancellation, /full refund.*100% of that remaining rental value as account credit/);
 assert.match(newCancellation, /more than 48 hours.*account credit only/);
 assert.match(newCancellation, /48 hours or less.*no rental refund and no account credit/);
+assert.equal(immediateCancellation, newCancellation, "v22 retains the v21 cancellation boundary already accepted by renters");
+assert.match(currentCancellation, /cancelling seven or more London calendar days before the earliest equipment start/);
+assert.match(currentCancellation, /more than 48 hours but fewer than seven London calendar days before the earliest equipment start/);
+assert.match(currentCancellation, /48 hours or less.*no rental refund and no account credit/);
+for(const kind of ["terms","rental-terms","rental-agreement","cancellation"]){
+ const section=currentAgreement[kind].sections.find(section=>section.h===(kind==="cancellation"?"Your cancellation":"Cancellation and refunds"));
+ assert.match(section.p,/seven or more London calendar days/);
+}
+const newClaimText = Object.values(newAgreement).flatMap(document => document.sections.map(section => section.p)).join(" ");
+assert.match(newClaimText, /allow at least seven days to query or dispute/);
 assert.match(newAgreement.terms.sections.find(section => section.h === "Free cancellation protection").p, /rejected or restricted/);
 const oldClaimText = Object.values(agreement).flatMap(document => document.sections.map(section => section.p)).join(" ");
 assert.match(oldClaimText, /at least seven days to query or dispute/);
-const immediateClaimText = immediateAgreement["deposit-agreement"].sections.map(section => section.p).join(" ");
+const immediateClaimText = currentAgreement["deposit-agreement"].sections.map(section => section.p).join(" ");
 assert.match(immediateClaimText, /one off-session collection attempt using the saved card/);
 assert.match(immediateClaimText, /may happen immediately after notice/);
 assert.doesNotMatch(immediateClaimText, /at least seven days/);
+const membershipPage = fs.readFileSync("src/app/legal/membership/page.tsx", "utf8");
+const v22MembershipCopy = membershipPage.slice(membershipPage.indexOf("if(setupIntentPolicy){"));
+assert.match(v22MembershipCopy, /sends itemised notice, and may make one immediate attempt within 30 days after return/);
+assert.doesNotMatch(v22MembershipCopy, /allow at least seven days to dispute/);
+assert.doesNotMatch(v22MembershipCopy, /new rental deposit exemption/i);
+assert.doesNotMatch(v22MembershipCopy, /upfront refundable security payment, applicable card hold/i);
+const sharedMembership = fs.readFileSync("shared/membership.ts", "utf8");
+assert.doesNotMatch(sharedMembership, /Refundable deposit waived on qualifying rentals/);
+assert.doesNotMatch(sharedMembership, /No separate card hold under the current policy/);
+assert.match(sharedMembership, /Monthly rental credit \(plan bonus\)/);
 const { assertAgreementBeforeRelease } = load("shared/rentalAgreement.ts");
 const { SETUP_INTENT_SECURITY_POLICY_VERSION } = load("shared/rentalSecurity.ts");
 const historicAgreement = {

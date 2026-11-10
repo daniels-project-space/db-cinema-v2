@@ -3,7 +3,7 @@ import { SmartImage } from "@/components/SmartImage";
 
 import Link from "next/link";
 import { useCheckoutStatus, CheckoutPauseNotice } from "@/components/cart/CheckoutStatus";
-import { Fragment } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { ReplacementSets } from "@/components/cart/ReplacementSets";
 import { useCartStockCheck } from "@/components/cart/useCartStockCheck";
 import { CartStockNotice } from "@/components/cart/CartStockNotice";
@@ -39,12 +39,36 @@ export default function CartPage() {
 
   const stock=useCartStockCheck(items),avail=stock.availability,router=useRouter();
   const blocked = !!items.length && !stock.needsTimes && !stock.invalidTimeOrder && (!stock.ready || !avail || items.some(i => !avail[i.listingId]?.ok));
+  const checkoutActionRef = useRef<HTMLDivElement | null>(null);
+  const [showCheckoutDock, setShowCheckoutDock] = useState(true);
+  const basketDue = quote ? formatGbp(Math.round((quote.combinedTotalDue - quote.depositAmount) * 100) / 100) : "Calculating…";
+  useEffect(() => {
+    const target = checkoutActionRef.current;
+    if (!items.length || !target || !("IntersectionObserver" in window)) return;
+    const observer = new IntersectionObserver(([entry]) => setShowCheckoutDock(!entry.isIntersecting), { threshold: 0.15 });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [items.length]);
   async function continueCheckout(){
     if (!checkout.enabled) return;
     if (stock.needsTimes||stock.invalidTimeOrder) { router.push("/checkout"); return; }
     const receipt=await stock.recheck();
     if(receipt&&items.every(i=>receipt.availability[i.listingId]?.ok))router.push("/checkout");
   }
+  const checkoutControl = (className: string, compact = false) => !checkout.enabled ? (
+    <button type="button" data-testid={!checkout.enabled ? "checkout-paused-button" : undefined} disabled className={`${className} cursor-not-allowed bg-white/10 text-white/50`}>
+      {compact ? "Checkout paused" : "Checkout temporarily paused"}
+    </button>
+  ) : blocked ? (
+    <button type="button" disabled className={`${className} cursor-not-allowed bg-white/10 text-center text-white/40`}>
+      {stock.error ? (compact ? "Check availability" : "Check availability to checkout") : stock.checking ? "Checking availability…" : (compact ? "Resolve availability" : "Resolve availability to checkout")}
+    </button>
+  ) : (
+    <button type="button" onClick={() => void continueCheckout()} className={className}>
+      Secure checkout
+      <IconArrowRight className="h-4 w-4" />
+    </button>
+  );
 
   const first = items[0];
 
@@ -56,8 +80,10 @@ export default function CartPage() {
         lead="Review &"
         accent="checkout"
         sub="Check your dates and gear, then book securely."
+        compact
+        mobileTight
       />
-      <main className="section-window mx-auto max-w-5xl px-6 pb-12 pt-8">
+      <main className="section-window mx-auto max-w-5xl px-6 pb-28 pt-8 sm:pb-12">
         {items.length === 0 ? (
           <div className="mt-16 text-center">
             <div className="hud-label">Empty slate</div>
@@ -88,7 +114,7 @@ export default function CartPage() {
                   return (
                     <Fragment key={it.key}>
                     <div
-                      className={`spot grid grid-cols-[64px_minmax(0,1fr)_auto] gap-x-3 rounded-2xl p-4 sm:grid-cols-[80px_minmax(0,1fr)_auto] ${dim ? "opacity-50 ring-1 ring-rec-500/40" : ""}`}
+                      className={`spot grid grid-cols-[64px_minmax(0,1fr)] gap-x-3 rounded-2xl p-3 sm:grid-cols-[80px_minmax(0,1fr)_auto] sm:p-4 ${dim ? "opacity-50 ring-1 ring-rec-500/40" : ""}`}
                       style={{
                         animation: `card-in 0.5s var(--ease-out-expo) ${idx * 60}ms both`,
                       }}
@@ -102,7 +128,7 @@ export default function CartPage() {
                       <div className="min-w-0 flex-1">
                         <Link
                           href={`/gear/${it.slug}`}
-                          className="text-white/85 transition-colors hover:text-white"
+                          className="break-words leading-snug text-white/85 transition-colors hover:text-white [overflow-wrap:anywhere]"
                         >
                           {it.title}
                         </Link>
@@ -120,8 +146,8 @@ export default function CartPage() {
                           </div>
                         ) : null}
                       </div>
-                      <div className="flex flex-col items-end justify-between">
-                        <div className="font-display text-lg font-bold text-accent-400">
+                      <div className="col-start-2 row-start-2 flex flex-row items-center justify-end gap-3 sm:col-start-auto sm:row-start-auto sm:flex-col sm:items-end sm:justify-between">
+                        <div className="whitespace-nowrap font-display text-lg font-bold text-accent-400">
                           {formatGbp(quote?.items[idx]?.total ?? it.total)}
                         </div>
                         <button
@@ -132,7 +158,7 @@ export default function CartPage() {
                           <IconX className="h-3.5 w-3.5" />
                         </button>
                       </div>
-                      <div className="col-span-3"><CartItemDates item={it} /><button type="button" onClick={() => duplicateItem(it.key)} className="mt-2 text-xs text-white/60 hover:text-white">+ Add another of this item</button></div>
+                      <div className="col-span-full"><CartItemDates item={it} /><button type="button" onClick={() => duplicateItem(it.key)} className="mt-2 text-xs text-white/60 hover:text-white">+ Add another of this item</button></div>
                     </div>
                     {dim && <ReplacementSets item={it} />}
                     </Fragment>
@@ -140,7 +166,7 @@ export default function CartPage() {
                 })}
               </div>
 
-              <aside data-testid="basket-summary" className="ticket spot gradient-border h-fit rounded-2xl p-5 lg:sticky! lg:top-24">
+              <aside data-testid="basket-summary" className="ticket spot gradient-border h-fit rounded-2xl p-4 sm:p-5 lg:sticky! lg:top-24">
                 <div className="hud-label !text-accent-400/90">Summary</div>
 
                 {/* promo */}
@@ -229,30 +255,15 @@ export default function CartPage() {
                   )}
                   <div className="flex justify-between font-display text-lg font-bold text-white">
                     <span>Estimated basket total</span>
-                    <span data-testid="basket-due" className="font-mono">
-                      {quote
-                        ? formatGbp(Math.round((quote.combinedTotalDue - quote.depositAmount) * 100) / 100)
-                        : "Calculating…"}
-                    </span>
+                    <span data-testid="basket-due" className="font-mono">{basketDue}</span>
                   </div>
                   <p className="text-[11px] leading-relaxed text-white/40">Rental charges{membership ? " + subscription" : ""}, after applied credit. Delivery and saved-card permission are calculated at checkout.</p>
                 </div>
 
-                {!checkout.enabled ? <><button data-testid="checkout-paused-button" type="button" disabled className="mt-5 w-full cursor-not-allowed rounded-full bg-white/10 py-3 text-white/50">Checkout temporarily paused</button><CheckoutPauseNotice loading={checkout.loading}/></> : blocked ? (
-                  <button
-                    disabled
-                    className="mt-5 w-full cursor-not-allowed rounded-full bg-white/10 py-3 text-center font-medium text-white/40"
-                  >
-                    {stock.error ? "Check availability to checkout" : stock.checking ? "Checking availability…" : "Resolve availability to checkout"}
-                  </button>
-                ) : (
-                  <button type="button" onClick={()=>void continueCheckout()}
-                    className="btn-primary mt-5 w-full py-3"
-                  >
-                    Secure checkout
-                    <IconArrowRight className="h-4 w-4" />
-                  </button>
-                )}
+                <div ref={checkoutActionRef} className="mt-5">
+                  {checkoutControl(checkout.enabled && !blocked ? "btn-primary w-full py-3" : "w-full rounded-full py-3 font-medium")}
+                  {!checkout.enabled && <CheckoutPauseNotice loading={checkout.loading}/>}
+                </div>
                 <p className="mt-3 flex items-center justify-center gap-1.5 text-center font-mono text-[10px] uppercase tracking-[0.15em] text-white/25">
                   <IconLock className="h-3 w-3" /> Secured by Stripe
                 </p>
@@ -284,6 +295,15 @@ export default function CartPage() {
           </>
         )}
       </main>
+      {items.length > 0 && showCheckoutDock && <div className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-[#111313]/95 px-3 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] shadow-[0_-12px_36px_rgba(0,0,0,.38)] backdrop-blur-xl sm:hidden" data-testid="mobile-checkout-dock">
+        <div className="mx-auto flex max-w-5xl items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[9px] uppercase tracking-[0.12em] text-white/45">Estimated total</div>
+            <div className="truncate font-mono text-sm font-semibold text-white" data-testid="mobile-basket-due">{basketDue}</div>
+          </div>
+          {checkoutControl(checkout.enabled && !blocked ? "btn-primary min-h-11 min-w-[150px] px-4 py-2 text-sm" : "min-h-11 min-w-[150px] rounded-full px-3 py-2 text-center text-xs", true)}
+        </div>
+      </div>}
     </>
   );
 }

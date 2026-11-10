@@ -8,8 +8,8 @@ const root = path.resolve(__dirname, '..');
 const refs = new Proxy({}, {get: (_, group) => new Proxy({}, {get: (_, name) => `${String(group)}:${String(name)}`})});
 const registered = {action: x => x, internalAction: x => x, query: x => x, internalQuery: x => x, mutation: x => x, internalMutation: x => x};
 const sessions = {
-  paid: {id:'paid',status:'complete',payment_status:'paid',payment_intent:'pi_paid'},
-  verification: {id:'verification',status:'complete',payment_status:'paid',payment_intent:'pi_verification'},
+  paid: {id:'paid',status:'complete',payment_status:'paid',payment_intent:'pi_paid',amount_total:10000,currency:'gbp'},
+  verification: {id:'verification',status:'complete',payment_status:'paid',payment_intent:'pi_verification',amount_total:10000,currency:'gbp'},
   expired: {id:'expired',status:'expired',payment_status:'unpaid'},
   open: {id:'open',status:'open',payment_status:'unpaid'},
   processing: {id:'processing',status:'complete',payment_status:'unpaid'},
@@ -18,6 +18,10 @@ class FakeStripe {
   checkout = {sessions: {
     retrieve: async id => {if(id==='failed')throw Error('provider temporarily unavailable');return sessions[id];},
     expire: async id => ({...sessions[id],status:'expired'}),
+  }};
+  paymentIntents = {retrieve: async id => {
+    const session=Object.values(sessions).find(row=>row.payment_intent===id);
+    return {id,status:'succeeded',amount_received:session?.amount_total??0,currency:session?.currency??'gbp'};
   }};
 }
 function load(file) {

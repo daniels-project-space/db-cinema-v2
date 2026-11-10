@@ -50,7 +50,7 @@ const pixel = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQ
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const profile = path.join(directory, "chrome-profile");
-  const chrome = spawn("/opt/google/chrome/chrome", ["--headless=new", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
+  const chrome = spawn("/opt/google/chrome/chrome", ["--headless=new", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore", detached: true });
   let client;
   async function until(expression) { for (let attempt = 0; attempt < 100; attempt++) { if (await client.evaluate(expression)) return; await wait(50); } throw Error(`Timed out: ${expression}`); }
   try {
@@ -76,7 +76,15 @@ const pixel = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQ
     console.log("PASS private portrait browser: feature-off, authenticated consent, private display, account switch and withdrawal; local synthetic fixtures only");
   } finally {
     if (client) { client.close(); await fetch(`${process.env.DBC_CDP_URL || 'http://localhost:9224'}/json/close/${client.tabId}`); }
-    if (chrome.exitCode === null) { const exited = new Promise(resolve => chrome.once("exit", resolve)); chrome.kill(); await exited; }
-    server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); fs.rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    if (chrome.pid) try { process.kill(-chrome.pid, "SIGTERM"); } catch (error) { if (error.code !== "ESRCH") throw error; }
+    if (chrome.exitCode === null && chrome.signalCode === null) {
+      await new Promise(resolve => {
+        const timer = setTimeout(resolve, 2000);
+        chrome.once("exit", () => { clearTimeout(timer); resolve(); });
+      });
+    }
+    if (chrome.pid) try { process.kill(-chrome.pid, "SIGKILL"); } catch (error) { if (error.code !== "ESRCH") throw error; }
+    server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
+    fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });

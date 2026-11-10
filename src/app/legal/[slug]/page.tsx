@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import {currentLegalVersion} from "@/lib/currentLegalVersion";
 import { CancellationPolicyQuickGuide } from "@/components/CancellationPolicyQuickGuide";
@@ -7,6 +7,7 @@ import { LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,SETUP_INTENT_LEGAL_
 
 import { LEGAL_DOCS as DOCS, LEGAL_ARCHIVE } from "../../../../shared/legalDocuments";
 import { CURRENT_PRIVACY_NOTICE, CURRENT_PRIVACY_NOTICE_VERSION } from "../../../../shared/currentPrivacyNotice";
+import { DELIVERY_ACCEPTANCE_TEXT, DELIVERY_TERMS_VERSION } from "../../../../shared/rentalAgreement";
 
 export function generateStaticParams() {
   return Object.keys(DOCS).map((slug) => ({ slug }));
@@ -21,9 +22,13 @@ export default async function LegalPage({
 }) {
   const { slug } = await params;
   const selected=await searchParams;
+  if (slug === "data-processing" && !selected.version) redirect("/legal/privacy");
   const version=selected.version??await currentLegalVersion();
-  const currentPrivacy = slug === "privacy" && !selected.version;
-  const doc = currentPrivacy ? CURRENT_PRIVACY_NOTICE : version === LEGAL_VERSION ? DOCS[slug] : LEGAL_ARCHIVE[version]?.[slug];
+  const currentPrivacy = slug === "privacy" && (!selected.version || selected.version === CURRENT_PRIVACY_NOTICE_VERSION);
+  const deliveryTerms = slug === "delivery-disclaimer" && version === DELIVERY_TERMS_VERSION;
+  const doc = currentPrivacy ? CURRENT_PRIVACY_NOTICE : deliveryTerms
+    ? { title: "Delivery arrangements", updated: "October 2026", sections: [{ h: "Delivery", p: DELIVERY_ACCEPTANCE_TEXT }] }
+    : version === LEGAL_VERSION ? DOCS[slug] : LEGAL_ARCHIVE[version]?.[slug];
   if (!doc) notFound();
   return (
     <>

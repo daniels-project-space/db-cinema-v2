@@ -3,7 +3,8 @@ const {load, db, put, tables, setMock} = require('./lib/rentalTestHarness.cjs');
 process.env.ADMIN_TOKEN = 'fixture-admin';
 delete process.env.RMV2_WEBHOOK_URL;
 let sends = 0, transportFails = false;
-setMock('./lib/mailer', {sendBusinessMail: async message => { sends++; assert(!message.html.includes('private reason')); if (transportFails) throw Error('Simulated uncertain delivery'); return true; }});
+const sentMessages = [];
+setMock('./lib/mailer', {sendBusinessMail: async message => { sends++; sentMessages.push(message); if (transportFails) throw Error('Simulated uncertain delivery'); return true; }});
 const admin = load('convex/accountAdmin.ts');
 const notices = load('convex/accountRestrictionNotice.ts');
 const mail = load('convex/accountRestrictionMail.ts');
@@ -17,11 +18,13 @@ const ctx = {db, scheduler: {runAfter: async (_delay, ref, args) => scheduled.pu
   }};
 const account = put('accounts', {email: 'renter@example.invalid', emailVerifiedAt: 1, createdAt: 1});
 const expected = value => ({blockedAt:value.blockedAt ?? null, noticeId:value.restrictionNoticeId ?? null, reason:value.blockedReason ?? '',revision:value.restrictionRevision ?? 0});
-const block = blocked => admin.setBlocked.handler(ctx, {token: 'fixture-admin', accountId: account._id, blocked, reason: 'private reason', expected:expected(account)});
+const restrictionReason = 'Identity & <review> "needs follow-up"\nPlease reply.';
+const block = blocked => admin.setBlocked.handler(ctx, {token: 'fixture-admin', accountId: account._id, blocked, reason: restrictionReason, expected:expected(account)});
 (async () => {
   await assert.rejects(admin.setBlocked.handler(ctx, {token: 'bad', accountId: account._id, blocked: true, reason: 'reason'}));
   await block(true);
   const first = tables.get('account_restriction_notices')[0];
+  assert.equal(first.reason, restrictionReason, 'The notice snapshots the bounded reason entered with this restriction');
   await block(true);
   assert.equal(tables.get('account_restriction_notices').length, 1);
   await notices.dispatchOne.handler(ctx, {noticeId: first._id});
@@ -29,6 +32,9 @@ const block = blocked => admin.setBlocked.handler(ctx, {token: 'fixture-admin', 
   await Promise.all([mail.deliver.handler(ctx, {noticeId: first._id}), mail.deliver.handler(ctx, {noticeId: first._id})]);
   assert.equal(sends, 1, 'Duplicate action execution must not send twice');
   assert.equal(first.state, 'sent');
+  assert.match(sentMessages[0].html, /Identity &amp; &lt;review&gt; &quot;needs follow-up&quot;<br>Please reply\./, 'Customer-provided reason text is escaped before insertion into HTML');
+  assert.equal(sentMessages[0].html.includes('<review>'), false, 'Reason text cannot inject HTML into the notification');
+  assert(sentMessages[0].text.includes(`Reason provided to our team:\n${restrictionReason}`), 'The email also includes a readable plain-text reason');
   const detail = await admin.detail.handler(ctx, {token:'fixture-admin',accountId:account._id});
   assert.equal(detail.restrictionNotice.state, 'sent');
   assert.equal('recipient' in detail.restrictionNotice, false, 'The notice projection does not expose the stored recipient');
@@ -45,12 +51,14 @@ const block = blocked => admin.setBlocked.handler(ctx, {token: 'fixture-admin', 
   assert.equal(unsafe.state, 'attention');
   assert((tables.get('admin_notifications') ?? []).some(row => row.accountId === unverified._id));
   const pending = tables.get('account_restriction_notices')[2];
+  await db.patch(pending._id, {dueAt: 0});
   await notices.dispatchOne.handler(ctx, {noticeId:pending._id});
-  pending.dueAt = 0;
+  assert.equal(pending.state, 'sending', 'The first dispatch must claim the notice before simulating an uncertain attempt');
+  await db.patch(pending._id, {dueAt: 0});
   await notices.dispatchOne.handler(ctx, {noticeId:pending._id});
   assert.equal(pending.state, 'attention', 'An ambiguous transport attempt is never automatically repeated');
   const uncertainAccount = put('accounts', {email:'uncertain@example.invalid',emailVerifiedAt:1,createdAt:1});
-  await admin.setBlocked.handler(ctx, {token:'fixture-admin',accountId:uncertainAccount._id,blocked:true,reason:'private reason',expected:expected(uncertainAccount)});
+  await admin.setBlocked.handler(ctx, {token:'fixture-admin',accountId:uncertainAccount._id,blocked:true,reason:restrictionReason,expected:expected(uncertainAccount)});
   const uncertain = tables.get('account_restriction_notices').at(-1);
   await notices.dispatchOne.handler(ctx, {noticeId:uncertain._id});
   transportFails = true;
@@ -59,5 +67,5 @@ const block = blocked => admin.setBlocked.handler(ctx, {token: 'fixture-admin', 
   assert.equal(uncertain.state, 'attention');
   await mail.deliver.handler(ctx, {noticeId:uncertain._id});
   assert.equal(sends, afterUncertain, 'An uncertain provider result is never automatically sent again');
-  console.log('PASS simulated serialized restriction notices: authorization, verified recipient, stale prevention, duplicate claim and uncertain transport.');
+  console.log('PASS simulated serialized restriction notices: authorization, reason snapshot and HTML escaping, plain text, verified recipient, replay/idempotency, stale prevention and email failure.');
 })().catch(error => { console.error(error); process.exitCode=1; });

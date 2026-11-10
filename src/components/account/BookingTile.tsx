@@ -162,15 +162,12 @@ export function BookingTile({
       {/* actions */}
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-white/[0.06] pt-2.5 text-xs">
         <CancelButton booking={booking} />
-        <button onClick={chat} className="font-medium text-white/55 hover:text-white">Request a change</button>
+        <button onClick={chat} className="font-medium text-white/55 hover:text-white">{["confirmed", "active"].includes(booking.status) ? "Rental chat & requests" : "Chat"}</button>
         {booking.lineItems.length > 0 && (
           <Link href={`/plan?booking=${booking._id}`} className="font-medium text-white/55 hover:text-white">
             Rent this kit again
           </Link>
         )}
-        <button onClick={chat} className="font-medium text-white/55 hover:text-white">
-          Chat
-        </button>
         {["confirmed", "active", "returned"].includes(booking.status) && token && token !== "preview" && (
           <AuthenticatedBookingDownload bookingId={booking._id} token={token} kind="invoice" label="Invoice" className="font-medium text-white/55 hover:text-white" />
         )}

@@ -67,12 +67,49 @@ function DiditReviewCard({
   sessionId?: string;
 }) {
   const refresh = useAction(api.didit.refreshProgress);
+  const openLink = useAction(api.didit.adminVerificationLink);
   const review = useAction(api.didit.adminReview);
   const [checking, setChecking] = useState(false);
-  const [refreshMessage, setRefreshMessage] = useState("");
   const [decision, setDecision] = useState<"approve" | "resubmit" | "decline" | null>(null);
   const [reviewReason, setReviewReason] = useState("");
-  const [decisionMessage, setDecisionMessage] = useState("");
+  const [refreshMessage, setRefreshMessage] = useState("");
+  const [caseIdCopied, setCaseIdCopied] = useState(false);
+  const [openingLink, setOpeningLink] = useState(false);
+  const [diditIssues, setDiditIssues] = useState<Array<{feature:string;risk:string;summary:string;detail:string}>>([]);
+
+  async function copyCaseId() {
+    if (!sessionId) return;
+    try {
+      await navigator.clipboard.writeText(sessionId);
+      setCaseIdCopied(true);
+    } catch {
+      setCaseIdCopied(false);
+      setRefreshMessage("Copy unavailable · select the case ID.");
+    }
+  }
+
+  async function openDiditVerification() {
+    if (!sessionId || openingLink || checking || decision !== null) return;
+    const popup = window.open("about:blank", "_blank");
+    if (!popup) {
+      setRefreshMessage("Allow pop-ups to open the Didit verification.");
+      return;
+    }
+    popup.opener = null;
+    setOpeningLink(true);
+    setRefreshMessage("");
+    try {
+      const result = await openLink({ bookingId: bookingId as any, token });
+      popup.location.replace(result.url);
+      setDiditIssues(result.issues ?? []);
+      setRefreshMessage(result.issues?.length ? `Didit returned ${result.issues.length} finding${result.issues.length === 1 ? "" : "s"}.` : "Didit opened · no warning detail returned.");
+    } catch (error) {
+      popup.close();
+      setRefreshMessage(error instanceof Error ? error.message : "Could not open the Didit verification.");
+    } finally {
+      setOpeningLink(false);
+    }
+  }
 
   async function refreshDecision() {
     setChecking(true);
@@ -93,17 +130,23 @@ function DiditReviewCard({
 
   async function submitDecision(next: "approve" | "resubmit" | "decline") {
     if (reviewReason.trim().length < 5) {
-      setDecisionMessage("Add a short reason first.");
+      setRefreshMessage("Add a short decision reason first.");
       return;
     }
     setDecision(next);
-    setDecisionMessage("");
+    setRefreshMessage("");
     try {
-      await review({ bookingId: bookingId as any, token, decision: next, note: reviewReason.trim() });
+      await review({
+        bookingId: bookingId as any,
+        token,
+        decision: next,
+        note: reviewReason.trim(),
+        requestId: globalThis.crypto?.randomUUID?.() ?? `review-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      });
       setReviewReason("");
-      setDecisionMessage(next === "approve" ? "Approved in Didit and synced to this rental." : next === "resubmit" ? "Resubmission requested in Didit and sent to the renter." : "Declined in Didit and synced to this rental.");
+      setRefreshMessage(next === "approve" ? "Approved · rental updated." : next === "resubmit" ? "Resubmission sent to the renter." : "Declined · rental updated.");
     } catch (error) {
-      setDecisionMessage(error instanceof Error ? error.message : "Decision not confirmed · refresh the case.");
+      setRefreshMessage(error instanceof Error ? error.message : "Decision not confirmed · refresh the case.");
     } finally {
       setDecision(null);
     }
@@ -123,39 +166,46 @@ function DiditReviewCard({
       </div>
 
       <div className="space-y-2.5 p-3 text-[#decdb9]">
-        {reason && (
-          <details className="rounded-xl border border-white/[.08] bg-black/15 px-3 py-2">
-            <summary className="cursor-pointer text-[#e4c49b]">Why flagged</summary>
-            <p className="mt-2 break-words" role="status">{reason}</p>
-          </details>
-        )}
-        <details className="rounded-xl border border-white/[.08] bg-black/15 px-3 py-2">
-          <summary className="cursor-pointer text-[#e4c49b]">Session ID</summary>
-          <code className="mt-2 block break-all font-mono text-[10px] text-[#f0e2d1]">{sessionId || "Unavailable"}</code>
-        </details>
-        <p className="text-[10px] text-[#c6b5a1]">The choice updates Didit and this rental.</p>
+        {reason && <p className="rounded-xl border border-white/[.08] bg-black/15 px-3 py-2 text-[11px] leading-4" aria-label="Didit review reason">{reason}</p>}
+        {diditIssues.length > 0 && <section aria-label="Didit findings" className="rounded-xl border border-amber-100/10 bg-amber-100/[.035] p-3">
+          <p className="text-[9px] font-semibold uppercase tracking-[.12em] text-[#e4c49b]">Didit findings · {diditIssues.length}</p>
+          <ul className="mt-2 space-y-2">
+            {diditIssues.map((issue, index) => <li key={`${issue.feature}-${issue.risk}-${index}`} className="rounded-lg border border-white/[.06] bg-black/10 px-2.5 py-2">
+              <p className="text-[10px] font-medium text-[#f0d3ad]">{issue.feature || "Verification"}{issue.risk ? ` · ${issue.risk}` : ""}</p>
+              {issue.summary && <p className="mt-0.5 text-[11px] leading-4 text-[#eadfce]">{issue.summary}</p>}
+              {issue.detail && <details className="mt-1">
+                <summary className="cursor-pointer text-[10px] text-[#c6b5a1]">More detail</summary>
+                <p className="mt-1 text-[10px] leading-4 text-[#c6b5a1]">{issue.detail}</p>
+              </details>}
+            </li>)}
+          </ul>
+        </section>}
+        <div className="rounded-xl border border-white/[.08] bg-black/15 px-3 py-2">
+          <div className="flex items-center justify-between gap-2"><p className="text-[9px] font-semibold uppercase tracking-[.12em] text-[#bda991]">Case ID</p><button type="button" aria-label="Copy Didit case ID" disabled={!sessionId} onClick={() => void copyCaseId()} className="min-h-8 shrink-0 rounded-lg border border-white/10 px-2 text-[10px] font-medium text-[#edc89f] disabled:opacity-40">{caseIdCopied ? "Copied" : "Copy ID"}</button></div>
+          <code className="mt-1 block break-all font-mono text-[10px] text-[#f0e2d1]">{sessionId || "Unavailable"}</code>
+        </div>
+        <p className="text-[10px] text-[#c6b5a1]">Search this ID in Didit.</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" aria-label="Open Didit verification" disabled={!sessionId || openingLink || checking || decision !== null} onClick={() => void openDiditVerification()} className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#d5a474]/30 bg-white/[.025] px-3 font-semibold text-[#edc89f] transition hover:bg-white/[.06] disabled:opacity-50">{openingLink ? "Opening…" : "Open verification ↗"}</button>
+          <button type="button" aria-label="Refresh Didit decision" disabled={checking || decision !== null} className="min-h-10 rounded-xl bg-gradient-to-br from-[#e4bb8e] to-[#c89b6d] px-3 font-semibold text-[#21170e] shadow-[0_8px_18px_rgba(200,155,109,.14)] transition hover:brightness-105 disabled:opacity-50" onClick={() => void refreshDecision()}>{checking ? "Refreshing…" : "Refresh status"}</button>
+        </div>
         <label className="block text-[10px] font-medium text-[#e4c49b]" htmlFor={`didit-review-reason-${bookingId}`}>Decision reason</label>
         <textarea
           id={`didit-review-reason-${bookingId}`}
           value={reviewReason}
           maxLength={400}
           rows={2}
-          disabled={decision !== null}
+          disabled={decision !== null || checking}
           onChange={event => setReviewReason(event.target.value)}
-          placeholder="Why are you approving, requesting a resubmission, or declining?"
+          placeholder="Short reason for this decision"
           className="min-h-[56px] w-full resize-y rounded-xl border border-white/[.1] bg-black/20 px-3 py-2 text-[11px] leading-4 text-white outline-none placeholder:text-white/35 focus:border-[#e4b77d]/45 disabled:opacity-50"
         />
-        <div className="grid grid-cols-3 gap-1.5">
-          <button type="button" disabled={decision !== null} onClick={() => void submitDecision("approve")} className="min-h-10 rounded-xl border border-emerald-200/20 bg-emerald-200/[.08] px-2 text-[10px] font-semibold text-emerald-100 transition hover:bg-emerald-200/[.14] disabled:opacity-50">{decision === "approve" ? "Saving…" : "Approve"}</button>
-          <button type="button" disabled={decision !== null} onClick={() => void submitDecision("resubmit")} className="min-h-10 rounded-xl border border-[#e4b77d]/20 bg-[#e4b77d]/[.08] px-2 text-[10px] font-semibold text-[#f0d3ad] transition hover:bg-[#e4b77d]/[.14] disabled:opacity-50">{decision === "resubmit" ? "Saving…" : "Resubmit"}</button>
-          <button type="button" disabled={decision !== null} onClick={() => void submitDecision("decline")} className="min-h-10 rounded-xl border border-rose-200/20 bg-rose-200/[.06] px-2 text-[10px] font-semibold text-rose-100 transition hover:bg-rose-200/[.12] disabled:opacity-50">{decision === "decline" ? "Saving…" : "Decline"}</button>
-        </div>
         <div className="grid grid-cols-2 gap-2">
-          <a href="https://business.didit.me" target="_blank" rel="noopener noreferrer" aria-label="Open Didit Business Console" className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#d5a474]/30 bg-white/[.025] px-3 font-semibold text-[#edc89f] transition hover:bg-white/[.06]">Open Didit ↗</a>
-          <button type="button" aria-label="Refresh Didit decision" disabled={checking} className="min-h-10 rounded-xl bg-gradient-to-br from-[#e4bb8e] to-[#c89b6d] px-3 font-semibold text-[#21170e] shadow-[0_8px_18px_rgba(200,155,109,.14)] transition hover:brightness-105 disabled:opacity-50" onClick={() => void refreshDecision()}>{checking ? "Checking…" : "Refresh"}</button>
+          <button type="button" aria-label="Approve Didit review" disabled={decision !== null || checking} onClick={() => void submitDecision("approve")} className="min-h-10 rounded-xl border border-emerald-200/20 bg-emerald-200/[.08] px-2 text-[10px] font-semibold text-emerald-100 transition hover:bg-emerald-200/[.14] disabled:opacity-50">{decision === "approve" ? "Saving…" : "Approve"}</button>
+          <button type="button" aria-label="Request Didit resubmission" disabled={decision !== null || checking} onClick={() => void submitDecision("resubmit")} className="min-h-10 rounded-xl border border-[#e4b77d]/20 bg-[#e4b77d]/[.08] px-2 text-[10px] font-semibold text-[#f0d3ad] transition hover:bg-[#e4b77d]/[.14] disabled:opacity-50">{decision === "resubmit" ? "Sending…" : "Request resubmission"}</button>
+          <button type="button" aria-label="Decline Didit review" disabled={decision !== null || checking} onClick={() => void submitDecision("decline")} className="col-span-2 min-h-10 rounded-xl border border-rose-200/20 bg-rose-200/[.06] px-2 text-[10px] font-semibold text-rose-100 transition hover:bg-rose-200/[.12] disabled:opacity-50">{decision === "decline" ? "Saving…" : "Decline"}</button>
         </div>
         {refreshMessage && <p role="status" className="rounded-xl border border-white/[.08] bg-black/15 px-3 py-2 text-[10px]">{refreshMessage}</p>}
-        {decisionMessage && <p role="status" className="rounded-xl border border-white/[.08] bg-black/15 px-3 py-2 text-[10px]">{decisionMessage}</p>}
       </div>
     </section>
   );

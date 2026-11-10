@@ -1,7 +1,8 @@
 import { queueOwnerNotification } from "./lib/adminPush";
-import { assertSwapStockReconciled } from "./lib/swapStockFence";
+import { assertActiveItemSwapReady, assertSwapStockReconciled, expireUnacceptedItemSwap } from "./lib/swapStockFence";
 import { assertBookingClaimExecution, bookingClaimEnabled, recordBookingStockApplication, reviewOutstandingBookingClaim } from "./bookingStockClaims";
 import { queueRestrictedIdentityCheck } from "./restrictedIdentityAlerts";
+import { notifyRestrictedIdentityMatch } from "./lib/restrictedIdentityMatch";
 import { checkoutCreditSources, checkoutLineAllocation } from "../shared/checkoutLineAllocation";
 import { bump } from "./rateLimit";
 import {operatorCancellationOptions} from "../shared/operatorCancellationCredit";
@@ -27,6 +28,7 @@ import { reviewContext } from "./lib/reviewContext";
 import { studioDeliveryAvailable, londonMonth } from "./lib/memberDelivery";
 import { membershipActiveNow } from "../shared/membership";
 import { checkoutMembershipCredit, membershipSignupOffer } from "../shared/checkoutMembershipCredit";
+import { tierByKey } from "./lib/membership";
 import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecovery";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { isLegacyStripeIdentity } from "../shared/identityProvider";
@@ -61,13 +63,13 @@ import { approvedRequest, startRequest, finishRequest, cancellationRequestKey } 
 import { inspectionInput } from "./lib/returnInspectionFields";
 import { returnInspectionSchedule } from "./lib/returnInspection";
 import { archiveCaseConversation } from "./lib/chatCaseArchive";
-import { strictDepositWaiverReason } from "./lib/strictDepositWaiver";
+import { checkoutCreditFullyCoversDue, strictDepositWaiverReason } from "./lib/strictDepositWaiver";
 import { normalizeReturnInspection, sameReturnInspection } from "../shared/returnInspection";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage, saveAccountDiditVerification, verificationReuseOwnerMatches } from "./lib/verificationReuse";
 import { assertCreditOffer } from "./lib/rentalCreditPolicy";
-import { rentalCancellationStart, bookingCancelKind,CANCELLATION_CREDIT_DAYS,NO_REFUND_WITHIN_48_HOURS_CANCELLATION_VERSION } from "../src/lib/cancellationPolicy";
-import { LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, CARD_HOLD_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS, IMMEDIATE_CLAIM_LEGAL_VERSION } from "../src/lib/legal";
+import { rentalCancellationStart, bookingCancelKind,cancellationTimingBasis,CANCELLATION_CREDIT_DAYS,isNoRefundWithin48HoursCancellationVersion } from "../src/lib/cancellationPolicy";
+import { LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, CARD_HOLD_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS, IMMEDIATE_CLAIM_LEGAL_VERSION, IMMEDIATE_CLAIM_LEGAL_VERSIONS } from "../src/lib/legal";
 import { assertAgreementBeforeRelease, snapshotAgreement, readAgreementSnapshot, agreementRequestFingerprint as fingerprintAgreement } from "../shared/rentalAgreement";
 
 
@@ -150,16 +152,39 @@ export const checkoutAttempt = internalQuery({
   handler:async(ctx,a)=>{
     const b=await ctx.db.query("bookings").withIndex("by_agreement_request",q=>q.eq("agreementRequestId",a.requestId)).unique();
     if(!b?.checkoutInputFingerprint)return null;
-    if(b.checkoutInputFingerprint!==a.checkoutInputFingerprint)throw Error("This acceptance attempt belongs to different booking details. Review and accept again.");
     if(b.status!=="pending_payment")throw new ConvexError({code:"CHECKOUT_CLOSED",message:"This checkout has completed or closed. Open your existing booking, or refresh checkout and review a new attempt."});
-    return {bookingId:b._id,sessionId:b.stripeCheckoutSessionId,membershipCheckoutId:b.membershipCheckoutId};
+    return {bookingId:b._id,sessionId:b.stripeCheckoutSessionId,membershipCheckoutId:b.membershipCheckoutId,
+      securityWaiverReason:b.securityWaiverReason,fingerprintMatches:b.checkoutInputFingerprint===a.checkoutInputFingerprint};
   },
 });
 
 export const depositWaiverEligibility = internalQuery({
-  args: { accountId: v.id("accounts"), replacementValuePence: v.number() },
-  handler: async (ctx, { accountId, replacementValuePence }) =>
-    strictDepositWaiverReason(ctx, await ctx.db.get(accountId), replacementValuePence),
+  args: {
+    accountId: v.id("accounts"), replacementValuePence: v.number(), starts: v.array(v.number()),
+    agreementName: v.optional(v.string()), billingAddress: v.optional(v.string()),
+  },
+  handler: async (ctx, { accountId, replacementValuePence, starts, agreementName, billingAddress }) =>
+    strictDepositWaiverReason(ctx, await ctx.db.get(accountId), replacementValuePence, starts, agreementName, billingAddress),
+});
+
+/** Re-check the exact waiver basis captured by a pending booking before an
+ * unpaid Checkout URL is reused. Existing completed payments use their saved
+ * agreement and never pass through this query. */
+export const currentCheckoutWaiver = internalQuery({
+  args:{bookingId:v.id("bookings")},
+  handler:async(ctx,{bookingId})=>{
+    const booking=await ctx.db.get(bookingId);
+    if(!booking||booking.membershipCheckoutId||!(booking.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION||isCardHoldSecurityPolicy(booking.securityPolicyVersion)))return undefined;
+    const values=booking.replacementValues;
+    if(!Array.isArray(values)||!Array.isArray(booking.lineItems)||!booking.lineItems.length)return undefined;
+    const valuePence=booking.lineItems.reduce((sum:number,line:any)=>{
+      const value=values.find((row:any)=>row.listingId===line.listingId)?.unitPence;
+      return typeof value==="number"&&Number.isSafeInteger(value)&&Number.isSafeInteger(line.qty)&&line.qty>0?sum+value*line.qty:NaN;
+    },0);
+    if(!Number.isSafeInteger(valuePence)||valuePence<=0)return undefined;
+    const account=booking.accountId?await ctx.db.get(booking.accountId):null;
+    return strictDepositWaiverReason(ctx,account,valuePence,booking.lineItems.map((line:any)=>line.start),booking.agreementName,booking.billingAddress);
+  },
 });
 
 export const createPending = internalMutation({
@@ -193,6 +218,7 @@ export const createPending = internalMutation({
     creditAccountId: v.optional(v.id("accounts")),
     deliveryBenefitMonth: v.optional(v.string()),
     securityWaiverReason: v.optional(v.string()),
+    expectedCheckoutAmountPence:v.optional(v.number()),
     membershipCheckoutId: v.optional(v.id("membership_checkouts")),
     accountAccessRequired: v.optional(v.boolean()),
     accountId: v.optional(v.id("accounts")),
@@ -204,6 +230,7 @@ export const createPending = internalMutation({
     checkoutInputFingerprint: v.optional(v.string()),
     securityHoldConsent: v.optional(v.boolean()),
     laterChargeConsent: v.optional(v.boolean()),
+    deliveryAccepted: v.optional(v.boolean()),
     agreementDocs: v.optional(
       v.array(v.object({ kind: v.string(), version: v.string() })),
     ),
@@ -214,12 +241,13 @@ export const createPending = internalMutation({
     returnTime: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
+    let previousAttempt:any=null;
     if(a.accountId){
       const owner=await ctx.db.get(a.accountId);
       if(!owner||owner.blockedAt!=null||owner.email!==a.customerEmail.trim().toLowerCase())throw Error("Rental account does not match the checkout customer.");
     }
     if(a.checkoutInputFingerprint&&!/^[a-f0-9]{64}$/.test(a.checkoutInputFingerprint))throw Error("Invalid checkout receipt.");
-    const newAgreement = a.agreementDocs?.some(d => [LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,...SETUP_INTENT_LEGAL_VERSIONS,IMMEDIATE_CLAIM_LEGAL_VERSION].includes(d.version));
+    const newAgreement = a.agreementDocs?.some(d => [LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,...SETUP_INTENT_LEGAL_VERSIONS,...IMMEDIATE_CLAIM_LEGAL_VERSIONS].includes(d.version));
     if ((hasCashDepositPolicy(a.securityPolicyVersion) || isCardHoldSecurityPolicy(a.securityPolicyVersion) || isSetupIntentSecurityPolicy(a.securityPolicyVersion)) && !newAgreement) throw Error("Review and accept the current security agreements before paying.");
     const agreementRequestFingerprint = a.agreementRequestId ? fingerprintAgreement(a) : undefined;
     if (newAgreement && !a.agreementRequestId) throw Error("An agreement acceptance attempt is required.");
@@ -227,9 +255,10 @@ export const createPending = internalMutation({
       if (!/^[a-zA-Z0-9-]{16,80}$/.test(a.agreementRequestId)) throw Error("Invalid acceptance attempt.");
       const previous = await ctx.db.query("bookings").withIndex("by_agreement_request", q => q.eq("agreementRequestId", a.agreementRequestId)).unique();
       if (previous) {
-        if (previous.agreementRequestFingerprint !== agreementRequestFingerprint) throw Error("This acceptance attempt already belongs to different booking particulars. Review and accept again.");
         if (previous.status !== "pending_payment") throw Error("This acceptance attempt has already completed or closed. Use the existing booking.");
-        return {bookingId:previous._id,creditApplied:previous.creditApplied??0,reused:true,sessionId:previous.stripeCheckoutSessionId};
+        previousAttempt=previous;
+        if (previous.agreementRequestFingerprint !== agreementRequestFingerprint)
+          return {bookingId:previous._id,creditApplied:previous.creditApplied??0,reused:true,staleCheckout:true,sessionId:previous.stripeCheckoutSessionId};
       }
     }
     if(a.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION && a.securityWaiverReason)throw Error("The refundable deposit cannot be waived by membership or a prior rental.");
@@ -279,10 +308,14 @@ export const createPending = internalMutation({
       if (a.deliveryBenefitMonth !== londonMonth() || a.fulfilment !== "delivery" || a.deliveryFee !== 0 || !await studioDeliveryAvailable(ctx, account, a.deliveryBenefitMonth, !!(a.membershipCheckoutId && (await ctx.db.get(a.membershipCheckoutId))?.tier === "studio")))
         throw Error("Your included London delivery has already been reserved. Review the updated total before paying.");
     }
+    let membershipFeePence=0;
     if (a.membershipCheckoutId) {
       const checkout = await ctx.db.get(a.membershipCheckoutId);
       if (!checkout || checkout.accountId !== a.creditAccountId || checkout.state !== "creating" || checkout.expiresAt <= Date.now()) throw Error("Membership checkout reservation expired.");
       if (a.securityWaiverReason === "new_paid_membership") throw Error("Membership added at checkout cannot waive this rental’s security payment.");
+      const tier=tierByKey(checkout.tier);
+      if(!tier)throw Error("Membership plan changed. Refresh checkout before paying.");
+      membershipFeePence=checkout.intro==="trial"?0:Math.round(tier.monthlyGbp*100);
     } else if (a.securityWaiverReason === "new_paid_membership") throw Error("A paid membership checkout is required for this security benefit.");
     let customer = await ctx.db
       .query("customers")
@@ -348,6 +381,9 @@ export const createPending = internalMutation({
     // Reject atomically before a booking or Stripe session is created.
     if (Math.round(chargedTotal * 100) !== Math.round(a.expectedTotalDue * 100))
       throw new Error("Your available credit changed. Review the updated total before paying.");
+    const checkoutExpectedAmountPence=Math.round(chargedTotal*100)+membershipFeePence;
+    if(a.expectedCheckoutAmountPence!==undefined&&a.expectedCheckoutAmountPence!==checkoutExpectedAmountPence)
+      throw new Error("The Stripe checkout amount changed. Review the updated total before paying.");
 
     const exposure = await assertRenterExposure(ctx, { customerEmail, status: "pending_payment", lineItems: a.lineItems });
     const values = await replacementValues(ctx, { lineItems: a.lineItems });
@@ -365,7 +401,13 @@ export const createPending = internalMutation({
     const signedAccount=a.accountId?await ctx.db.get(a.accountId):null;
     const waiverPolicy=assessmentPolicy||cardHoldPolicy;
     const expectedWaiverReason=waiverPolicy&&!a.membershipCheckoutId&&signedAccount&&signedAccount._id===customerAccount?._id
-      ?await strictDepositWaiverReason(ctx,signedAccount,Math.round(equipmentValue*100)):undefined;
+      ?await strictDepositWaiverReason(ctx,signedAccount,Math.round(equipmentValue*100),a.lineItems.map(line=>line.start),a.agreementName,a.billingAddress):undefined;
+    if(previousAttempt){
+      const staleWaiver=previousAttempt.securityWaiverReason!==expectedWaiverReason || a.securityWaiverReason!==expectedWaiverReason;
+      if(staleWaiver)return {bookingId:previousAttempt._id,creditApplied:previousAttempt.creditApplied??0,reused:true,staleCheckout:true,sessionId:previousAttempt.stripeCheckoutSessionId};
+      if(!previousAttempt.stripeCheckoutSessionId)throw Error("This checkout is still pending reconciliation. Do not submit a second acceptance or payment.");
+      return {bookingId:previousAttempt._id,creditApplied:previousAttempt.creditApplied??0,reused:true,sessionId:previousAttempt.stripeCheckoutSessionId};
+    }
     if(waiverPolicy&&a.securityWaiverReason!==expectedWaiverReason)
       throw Error("Your deposit eligibility changed; review checkout before paying.");
     const waiverValid=!!expectedWaiverReason;
@@ -414,6 +456,7 @@ export const createPending = internalMutation({
       savedCardConsentText: cardConsent,
       depositHoldStatus: a.depositHoldAmount ? "awaiting_payment" : undefined,
       total: chargedTotal,
+      checkoutExpectedAmountPence,
       creditApplied,
       checkoutCreditState: "unspent",
       membershipCreditApplied,
@@ -570,13 +613,27 @@ export const expireUnpaidPending = internalMutation({
 });
 
 export const recordPaidCheckoutReceipt = internalMutation({
-  args: { bookingId: v.id("bookings"), sessionId: v.string(), paymentIntentId: v.optional(v.string()) },
-  handler: async (ctx, { bookingId, sessionId, paymentIntentId }) => {
+  args: {
+    bookingId: v.id("bookings"), sessionId: v.string(), paymentIntentId: v.optional(v.string()),
+    amountTotalPence: v.number(), currency: v.string(), paymentStatus: v.union(v.literal("paid"),v.literal("no_payment_required")),
+  },
+  handler: async (ctx, { bookingId, sessionId, paymentIntentId, amountTotalPence, currency, paymentStatus }) => {
     const booking = await ctx.db.get(bookingId);
     if (!booking || booking.stripeCheckoutSessionId !== sessionId)
       throw Error("Paid checkout does not match the booking. Review the payment before proceeding.");
     if (booking.stripePaymentIntentId && paymentIntentId && booking.stripePaymentIntentId !== paymentIntentId)
       throw Error("The checkout payment differs from the recorded receipt. Review both payments before proceeding.");
+    const expectedMinimumPence=typeof booking.rentalPaidPence==="number"&&Number.isSafeInteger(booking.rentalPaidPence)?booking.rentalPaidPence:Math.round((booking.total??0)*100);
+    const expectedCheckoutPence=typeof booking.checkoutExpectedAmountPence==="number"&&Number.isSafeInteger(booking.checkoutExpectedAmountPence)?booking.checkoutExpectedAmountPence:expectedMinimumPence;
+    if(!Number.isSafeInteger(amountTotalPence)||amountTotalPence<0||!Number.isSafeInteger(expectedMinimumPence)||expectedMinimumPence<0||
+       typeof currency!=="string"||!/^[a-z]{3}$/i.test(currency)||currency.toLowerCase()!==(booking.currency??"GBP").toLowerCase()||
+       !Number.isSafeInteger(expectedCheckoutPence)||expectedCheckoutPence<expectedMinimumPence||
+       (Number.isSafeInteger(booking.checkoutExpectedAmountPence)?amountTotalPence!==expectedCheckoutPence:amountTotalPence<expectedMinimumPence))
+      throw Error("The paid checkout amount or currency does not match the rental. Review the Stripe receipt before proceeding.");
+    if(paymentStatus==="paid"&&(!paymentIntentId||amountTotalPence<=0))
+      throw Error("The paid checkout has no complete payment receipt. Review the Stripe payment before proceeding.");
+    if(paymentStatus==="no_payment_required"&&(amountTotalPence!==0||expectedMinimumPence!==0||paymentIntentId||!checkoutCreditFullyCoversDue(booking)))
+      throw Error("A zero-payment checkout has an unexpected charge or payment intent. Review the checkout before proceeding.");
     if (booking.cancellationDecision || ["cancelled", "returned"].includes(booking.status)) {
       if(bookingClaimEnabled())await reviewOutstandingBookingClaim(ctx,bookingId);
       return { closed: true, duplicatePayment: false };
@@ -589,6 +646,9 @@ export const recordPaidCheckoutReceipt = internalMutation({
       (!!paymentIntentId && !booking.stripePaymentIntentId);
     await ctx.db.patch(bookingId, {
       checkoutPaidAt,
+      checkoutPaymentAmountPence:amountTotalPence,
+      checkoutPaymentCurrency:currency.toUpperCase(),
+      checkoutPaymentStatus:paymentStatus,
       ...(paymentIntentId && !booking.stripePaymentIntentId ? { stripePaymentIntentId: paymentIntentId } : {}),
       ...(awaitingDidit && booking.status === "pending_payment" ? { status: "pending_verification" as const } : {}),
     });
@@ -968,9 +1028,10 @@ export const adminSetStatus = mutation({
     await assertAdmin(ctx, token, "bookings.adminSetStatus");
     const booking = await ctx.db.get(bookingId);
     if (!booking) throw new Error("Booking not found");
-    await assertSwapStockReconciled(ctx, bookingId);
+    await assertSwapStockReconciled(ctx, bookingId, undefined, true);
+    await assertActiveItemSwapReady(ctx, booking, true);
     if(booking.returnDecision)throw Error("Return settlement is in progress; finish it before changing this rental.");
-    if((booking.activeAdditionId || booking.activeDeliveryQuoteId || booking.activeExtensionId || booking.activePriceAdjustmentId || booking.activeItemSwapId))throw Error("Finish or withdraw the open rental change before handover.");
+    if((booking.activeAdditionId || booking.activeDeliveryQuoteId || booking.activeExtensionId || booking.activePriceAdjustmentId))throw Error("Finish or withdraw the open rental change before handover.");
     if(booking.cancellationDecision)throw Error("Cancellation is in progress; resume its settlement before changing this rental.");
     if (["cancelled", "returned"].includes(booking.status) && booking.status !== status)
       throw new Error("A closed booking cannot be reopened by changing its status.");
@@ -983,6 +1044,18 @@ export const adminSetStatus = mutation({
       throw new Error("The card hold must be active before handover.");
     if (status === "active" && isSavedCardRental(booking) && booking.savedCardStatus !== "saved")
       throw new Error("The rental's reusable card and explicit collection permission must be saved before handover.");
+    if (status === "active") {
+      const expiredProposal = await expireUnacceptedItemSwap(ctx, booking);
+      if (expiredProposal) {
+        const account = await accountForRental(ctx, booking);
+        if (account) await postRentalMessage(ctx, {
+          accountId: account._id,
+          bookingId,
+          sender: "system",
+          text: "The pending equipment-change offer closed at handover. Your original confirmed items and price remain unchanged.",
+        });
+      }
+    }
     if (status === "active") {
       const stockRisk = await ctx.db.query("swap_stock_applied_receipts").withIndex("by_booking_stock_risk", q => q.eq("bookingId", bookingId).eq("stockRisk", true)).first();
       if (stockRisk) throw Error("Equipment availability needs review before handover.");
@@ -1038,9 +1111,10 @@ export const beginReturnDecision = internalMutation({
   handler: async (ctx, { bookingId, actualReturnedAt, damageKept, depositKept, expectedSnapshot, damageNote, chargeLate, lateWaiverReason, lateClaimReason, inspection }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || !["confirmed", "active", "returned"].includes(b.status)) throw new Error("Booking is not available for return.");
-    await assertSwapStockReconciled(ctx, bookingId);
+    await assertSwapStockReconciled(ctx, bookingId, undefined, true);
+    await assertActiveItemSwapReady(ctx, b, true);
     if(b.activeExtensionId)throw Error("Finish or withdraw the open rental change: approved extension before returning this rental");
-    if((b.activeAdditionId || b.activeDeliveryQuoteId || b.activePriceAdjustmentId || b.activeItemSwapId))throw Error("Finish or withdraw the open rental change before returning this rental");
+    if((b.activeAdditionId || b.activeDeliveryQuoteId || b.activePriceAdjustmentId))throw Error("Finish or withdraw the open rental change before returning this rental");
     if(b.cancellationDecision)throw Error("Cancellation settlement is in progress; resume it first.");
     const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
     if(refundJobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("Wait for the rental refund to settle before recording the return.");
@@ -1259,8 +1333,20 @@ export const markReturnedStatus = internalMutation({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return;
-    if (b.activeItemSwapId) throw Error("Finish the equipment change and stock reconciliation before returning this rental.");
+    const expiredProposal = await expireUnacceptedItemSwap(ctx, b);
+    const current = expiredProposal ? await ctx.db.get(bookingId) : b;
+    if (!current) throw Error("Booking not found");
     await assertSwapStockReconciled(ctx, bookingId);
+    await assertActiveItemSwapReady(ctx, current);
+    if (expiredProposal) {
+      const account = await accountForRental(ctx, b);
+      if (account) await postRentalMessage(ctx, {
+        accountId: account._id,
+        bookingId,
+        sender: "system",
+        text: "The pending equipment-change offer closed when the rental was returned. Your original confirmed items and price remain unchanged.",
+      });
+    }
     if (b.status !== "returned") await ctx.db.patch(bookingId, { status: "returned" });
     const res = await ctx.db
       .query("reservations")
@@ -1618,6 +1704,10 @@ export const get = internalQuery({
       returnTime: b.returnTime ?? null,
       guestEmail: account?.email??(b.accountId?null:b.guestEmail),
       idVerifyStatus: b.idVerifyStatus ?? "required",
+      idVerificationSource: b.idVerificationSource ?? null,
+      verificationChecks: b.verificationChecks ?? null,
+      idVerifiedAt: b.idVerifiedAt ?? null,
+      paidConfirmedAt: b.paidConfirmedAt ?? null,
       verificationExpiresAt: verificationValidUntil(b),
       documentExpiresAt: b.documentExpiresAt ?? null,
       verificationProvider: b.verificationProvider ?? "stripe",
@@ -1948,14 +2038,8 @@ export const setDiditResult = internalMutation({
     expectedEventId: v.optional(v.union(v.string(), v.null())),
     expectedEventAt: v.optional(v.union(v.number(), v.null())),
     expectedManualDecisionAt: v.optional(v.union(v.number(), v.null())),
-    adminReviewSessionToken: v.optional(v.string()),
   },
-  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, reconciliation, requireApplied, sweepGeneration, expectedEventId, expectedEventAt, expectedManualDecisionAt, adminReviewSessionToken }) => {
-    if (adminReviewSessionToken !== undefined) {
-      if (!adminSessionMigrationReady()) throw Error("Admin session migration is not ready.");
-      await assertAdminScopeSession(ctx, adminReviewSessionToken, "verification:write");
-      await ctx.db.insert("admin_audit_log", { at: Date.now(), success: true, limited: false, fn: "didit.adminReview" });
-    }
+  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, reconciliation, requireApplied, sweepGeneration, expectedEventId, expectedEventAt, expectedManualDecisionAt }) => {
     if (sweepGeneration !== undefined && !(await currentDiditSweep(ctx, sweepGeneration))) return false;
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
@@ -2068,7 +2152,22 @@ export const setDiditResult = internalMutation({
         await ctx.db.patch(reservation._id, { status: "cancelled", holdExpiresAt: undefined });
     }
     if (status === "verified") {
-      if (checkRestrictedIdentity) await queueRestrictedIdentityCheck(ctx, bookingId, sessionId, eventId, !identityAttached);
+      // The alert above already tells the team when Didit approved a rental
+      // but the provider-attested identity could not be attached. A retry job
+      // cannot recover that missing key from the database and would raise a
+      // second, duplicate notification after five futile attempts. A later
+      // Didit refresh with an attachable key still queues the real comparison.
+      if (checkRestrictedIdentity && identityAttached) {
+        await queueRestrictedIdentityCheck(ctx, bookingId, sessionId, eventId);
+        if (identityAttached && /^[a-f0-9]{64}$/.test(personKey ?? "")) {
+          // Queue any restricted-account warning in the same verification event
+          // before the paid booking confirmation is scheduled below. The durable
+          // job remains as retry/reconciliation coverage; a failed lookup must
+          // never turn this advisory signal into a rental approval gate.
+          try { await notifyRestrictedIdentityMatch(ctx, { ...b, _id: bookingId }, personKey!); }
+          catch (error) { console.error("Immediate restricted-identity check failed", bookingId, error); }
+        }
+      }
       await markAccountVerified(ctx, bookingId);
       if (identityRiskNotice && identityRiskNoticeChanged) {
         const account = await accountForRental(ctx, b);
@@ -2224,8 +2323,8 @@ export const prepareInventoryConflictRefund=internalMutation({args:{bookingId:v.
 
 /** Freeze cancellation policy and order edits before any external payment call. */
 export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings"),fullCreditOfferId:v.optional(v.id("rental_credit_offers")),operatorOfferId:v.optional(v.id("operator_cancellation_offers")),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit"),v.literal("no_refund"))),customerChoice:v.optional(v.union(v.literal("refund"),v.literal("credit")))},handler:async(ctx,{bookingId,fullCreditOfferId,operatorOfferId,changeRequestId,expectedCancellationKind,customerChoice})=>{
- await assertSwapStockReconciled(ctx, bookingId);
- const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if((b?.activeAdditionId || b?.activeExtensionId || b?.activePriceAdjustmentId || b?.activeItemSwapId))throw Error("Finish or withdraw the open rental change before cancellation");if(!b||!(["confirmed","pending_payment"].includes(b.status)||b.status==="pending_verification"&&b.cancellationDecision?.inventoryConflictRefund||b.status==="cancelled"&&operatorOfferId&&b.cancellationDecision?.operatorOfferId===operatorOfferId))throw Error("Only an unstarted rental can be cancelled");
+ await assertSwapStockReconciled(ctx, bookingId, undefined, true);
+ const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");await assertActiveItemSwapReady(ctx,b,true);if((b?.activeAdditionId || b?.activeExtensionId || b?.activePriceAdjustmentId))throw Error("Finish or withdraw the open rental change before cancellation");if(!b||!(["confirmed","pending_payment"].includes(b.status)||b.status==="pending_verification"&&b.cancellationDecision?.inventoryConflictRefund||b.status==="cancelled"&&operatorOfferId&&b.cancellationDecision?.operatorOfferId===operatorOfferId))throw Error("Only an unstarted rental can be cancelled");
  if(b?.activeDeliveryQuoteId)throw Error("Finish or withdraw the delivery payment before cancellation.");
  if(!b.cancellationDecision && (["starting","processing"].includes(b.depositHoldRenewalStatus ?? "") ||
   (b.status === "confirmed" && b.depositHoldAmount && b.depositHoldStatus === "awaiting_payment"))) throw Error("Security hold setup or renewal is still processing. Please retry once it is resolved.");
@@ -2248,9 +2347,16 @@ export const prepareCancellation=internalMutation({args:{bookingId:v.id("booking
  if(jobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("A refund is still processing");
  const kind=request?.cancellationKindAtRequest??bookingCancelKind(b,Date.now());
  if(expectedCancellationKind && kind!==expectedCancellationKind)throw Error("Cancellation eligibility changed. Review the current terms before confirming again.");
- const hasCurrentCancellationTerms=b.agreementDocs?.some((doc:any)=>doc.kind==="cancellation"&&doc.version===NO_REFUND_WITHIN_48_HOURS_CANCELLATION_VERSION);
+ const hasCurrentCancellationTerms=b.agreementDocs?.some((doc:any)=>doc.kind==="cancellation"&&isNoRefundWithin48HoursCancellationVersion(doc.version));
  if(request&&hasCurrentCancellationTerms&&kind==="full_refund"&&!request.cancellationChoice)throw Error("This request has no saved renter choice. Ask them to submit a new cancellation request.");
- if(customerChoice&&(!hasCurrentCancellationTerms||kind!=="full_refund"))throw Error("A refund or credit choice is available only more than seven London calendar days before pickup under the current signed terms.");
+ if(customerChoice&&(!hasCurrentCancellationTerms||kind!=="full_refund")){
+  const fullRefundWindow=cancellationTimingBasis("full_refund",acceptedTermsVersion);
+  throw Error(fullRefundWindow
+   ?`A refund or credit choice is available only when ${fullRefundWindow.toLowerCase()} and more than 48 hours remain before scheduled pickup.`
+   :"A refund or credit choice is not available under the cancellation terms accepted for this rental.");
+ }
+ const expiredProposal=b.activeItemSwapId?await expireUnacceptedItemSwap(ctx,b):null;
+ if(expiredProposal){const account=await accountForRental(ctx,b);if(account)await postRentalMessage(ctx,{accountId:account._id,bookingId,sender:"system",text:"The pending equipment-change offer closed while cancellation was being prepared. Your confirmed booking items and price are unchanged."});}
  if(changeRequestId)await startRequest(ctx,b,changeRequestId,"cancellation",cancellationRequestKey(bookingId,changeRequestId));
  const decision={kind,createdAt:Date.now(),...(customerChoice?{customerChoice}:{}),...(fullCreditOfferId?{fullCreditOfferId}:{}),...(changeRequestId?{changeRequestId}:{})};await ctx.db.patch(bookingId,{cancellationDecision:decision,...(isPickupHoldPolicyVersion(b.securityHoldPolicyVersion)?{securityHoldRetryAt:undefined}:{})});return decision;
 }});
@@ -2292,8 +2398,9 @@ export const _finalizeCancellation = internalMutation({
     const membershipAccount = accountId ? await ctx.db.get(accountId) : await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",b.guestEmail??"")).first();
     const operatorOffer=b.cancellationDecision?.operatorOfferId?await ctx.db.get(b.cancellationDecision.operatorOfferId):null;
     if (b.status === "cancelled" && (!operatorOffer||operatorOffer.state==="settled")) return { ok: true as const, already: true };
-    await assertSwapStockReconciled(ctx, bookingId);
-    if (b.activeItemSwapId) throw Error("Finish the equipment change and stock reconciliation before cancelling this rental.");
+    await assertSwapStockReconciled(ctx, bookingId, undefined, true);
+    await assertActiveItemSwapReady(ctx, b, true);
+    if (b.activeItemSwapId) await expireUnacceptedItemSwap(ctx, b);
     if(operatorOffer && (operatorOffer.state!=="chosen"||!cancellationJob))throw Error("Operator cancellation settlement is incomplete.");
     if(operatorOffer?.choice==="credit"&&(!membershipAccount||membershipAccount.blockedAt!=null))throw new ConvexError({code:"CANCELLATION_REVIEW",message:"The account was restricted after its cancellation choice. Review the agreed terms and settlement before issuing credit or changing the choice."});
     await stopMatchingRecovery(ctx,b.guestEmail??"",b.lineItems,bookingId);

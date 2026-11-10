@@ -38,6 +38,7 @@ export type MailInput = {
   cc?: string[];
   subject: string;
   html: string;
+  text?: string;
   /** Defaults to the owner address; set per-send to thread a reply elsewhere. */
   replyTo?: string;
   inReplyTo?: string;
@@ -70,6 +71,7 @@ async function viaGmail(m: MailInput, user: string, pass: string): Promise<boole
       ...(m.cc?.length ? { cc: m.cc } : {}),
       subject: m.subject,
       html: brandedEmailHtml(m.html),
+      ...(m.text ? { text: m.text } : {}),
       replyTo: m.replyTo ?? OWNER_EMAIL(),
       ...(m.inReplyTo ? { inReplyTo: m.inReplyTo } : {}),
       ...(m.references?.length ? { references: m.references } : {}),
@@ -99,6 +101,7 @@ async function viaResend(m: MailInput, key: string): Promise<boolean> {
         ...(m.cc?.length ? { cc: m.cc } : {}),
         subject: m.subject,
         html: brandedEmailHtml(m.html),
+        ...(m.text ? { text: m.text } : {}),
         reply_to: m.replyTo ?? OWNER_EMAIL(),
         ...(m.inReplyTo || m.references?.length ? { headers: {
           ...(m.inReplyTo ? { "In-Reply-To": m.inReplyTo } : {}),

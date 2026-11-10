@@ -56,7 +56,7 @@ const dateLabel = (value: unknown) => {
 const lineIndex = (item: OfferLine, fallback: number) => Number.isSafeInteger(item.lineIndex) ? item.lineIndex! : Number.isSafeInteger(item.index) ? item.index! : fallback;
 const lineImage = (item: OfferLine) => item.imageSources?.filter((value): value is string => typeof value === "string" && value.length > 0) ?? (item.heroImage || item.image ? [item.heroImage || item.image!] : []);
 
-function OfferItem({ item, unavailable = false, unchecked = false, legacy = false, alternatives = [] }: { item: OfferLine; unavailable?: boolean; unchecked?: boolean; legacy?: boolean; alternatives?: OfferLine[] }) {
+function OfferItem({ item, unavailable = false, unchecked = false, legacy = false, interactive = true, alternatives = [] }: { item: OfferLine; unavailable?: boolean; unchecked?: boolean; legacy?: boolean; interactive?: boolean; alternatives?: OfferLine[] }) {
   const due = dateLabel(item.originalEnd ?? item.dueAt ?? item.end);
   const proposed = dateLabel(item.proposedEnd ?? item.extensionEnd);
   const amount = pounds(item.lineTotal ?? item.total);
@@ -65,7 +65,7 @@ function OfferItem({ item, unavailable = false, unchecked = false, legacy = fals
     <div className="flex min-w-0 items-center gap-2.5">
       {sources.length > 0 && <SmartImage src={sources[0]} fallbackSources={sources.slice(1)} alt={`${item.title ?? "Rental item"} listing photo`} className="h-12 w-14 shrink-0 rounded-lg border border-white/10 bg-black/20 object-contain" />}
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><strong className="min-w-0 truncate text-xs text-white/85">{item.qty ? `${item.qty}× ` : ""}{item.title ?? "Rental item"}</strong><span className={`rounded-full border px-2 py-0.5 text-[9px] ${unavailable ? "border-amber-200/20 text-amber-100/75" : unchecked ? "border-white/15 text-white/50" : "border-emerald-200/15 text-emerald-100/75"}`}>{unavailable ? "Unavailable" : unchecked ? "Choose days" : "Available to request"}</span></div>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><strong className="min-w-0 break-words text-[11px] leading-snug text-white/85">{item.qty ? `${item.qty}× ` : ""}{item.title ?? "Rental item"}</strong><span className={`rounded-full border px-2 py-0.5 text-[9px] ${unavailable ? "border-amber-200/20 text-amber-100/75" : unchecked ? "border-white/15 text-white/50" : "border-emerald-200/15 text-emerald-100/75"}`}>{unavailable ? "Unavailable" : unchecked ? "Choose days" : "Available to request"}</span></div>
         {unavailable
           ? <p className="mt-1 text-[10px] leading-relaxed text-amber-100/65">Return as planned · {due ?? "original return date"}{item.originalReturnTime || item.returnTime ? ` · ${item.originalReturnTime ?? item.returnTime}` : ""}</p>
           : unchecked
@@ -76,13 +76,14 @@ function OfferItem({ item, unavailable = false, unchecked = false, legacy = fals
       </div>
     </div>
     {alternatives.length > 0 && <div className="mt-2.5 border-t border-white/[0.07] pt-2">
-      <p className="mb-1.5 text-[9px] font-medium uppercase tracking-[.12em] text-sky-100/55">Alternatives to discuss</p>
+          <p className="mb-1.5 text-[9px] font-medium uppercase tracking-[.12em] text-sky-100/55">Available when checked · not reserved</p>
       <div className="grid gap-1.5 sm:grid-cols-2">{alternatives.slice(0, 3).map((alternative, index) => {
         const alternativeSources = lineImage(alternative);
         const price = pounds(alternative.total ?? alternative.lineTotal);
         return <div key={`${alternative.title ?? "alternative"}-${index}`} className="flex min-w-0 items-center gap-2 rounded-lg border border-sky-100/[0.09] bg-sky-100/[0.025] p-2">
           {alternativeSources.length > 0 && <SmartImage src={alternativeSources[0]} fallbackSources={alternativeSources.slice(1)} alt={`${alternative.title ?? "Alternative"} listing photo`} className="h-9 w-10 shrink-0 rounded-md border border-white/10 bg-black/20 object-contain" />}
-          <div className="min-w-0"><p className="truncate text-[10px] text-white/75">{alternative.title ?? "Alternative item"}</p><p className="text-[9px] text-white/40">{price ? `${price} estimate` : "Ask us about this option"}</p></div>
+              <div className="min-w-0 flex-1"><p className="truncate text-[10px] text-white/75">{alternative.title ?? "Alternative item"}</p><p className="text-[9px] text-white/40">{price ? `${price} extension estimate` : "Ask us about this option"}</p></div>
+              {interactive && <button type="button" data-testid={`extension-offer-ask-alt-${index}`} aria-label={`Ask the team about ${alternative.title ?? "this alternative"} for this extension`} className="shrink-0 rounded-lg border border-sky-100/15 px-2 py-1.5 text-[9px] font-medium text-sky-100/85 transition hover:bg-sky-100/[0.08]" onClick={() => window.dispatchEvent(new CustomEvent("dbc:prefill-rental-message", { detail: { text: `Could you check whether ${alternative.title} can replace ${item.title} during my extension? I understand this suggestion is not reserved and my original return deadline stays in place until you confirm.` } }))}>Ask team</button>}
         </div>;
       })}</div>
     </div>}
@@ -112,9 +113,9 @@ export function GafferExtensionOfferCard({ offer, legacy = false, interactive = 
     <div className="flex flex-wrap items-start justify-between gap-2.5"><div><p className="text-[10px] font-medium uppercase tracking-[0.16em] text-sky-100/55">Your rental · extension</p><h4 className="mt-1 text-sm font-semibold text-white/90">{legacy ? "Check extra time" : "Extension estimate"}</h4></div><span className="rounded-full border border-sky-200/15 bg-sky-200/[0.07] px-2 py-1 text-[10px] text-sky-100/75">{statusLabel}</span></div>
     {total && <div className="mt-3 flex flex-wrap items-end justify-between gap-2 rounded-xl border border-sky-100/10 bg-black/15 px-3 py-2"><div><p className="text-[9px] uppercase tracking-[.13em] text-white/40">Proposed total · available items only</p>{benefit && <p className="mt-1 text-[10px] text-emerald-100/75">{benefit}{saving ? ` · saves ${saving}` : ""}</p>}{!benefit && saving && <p className="mt-1 text-[10px] text-emerald-100/75">Member saving · {saving}</p>}</div><strong className="text-lg font-semibold text-white">{total}</strong></div>}
     {!total && (benefit || saving) && <p className="mt-2 text-[10px] text-emerald-100/75">{benefit ?? "Member saving"}{saving ? ` · saves ${saving}` : ""}</p>}
-    {unchecked && items.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2" data-testid="extension-offer-unchecked-items"><p className="sm:col-span-2 text-[10px] font-medium uppercase tracking-[.13em] text-white/45">Items in this rental · choose extra days to check</p>{items.slice(0, 6).map((item, index) => <OfferItem key={`unchecked-${lineIndex(item, index)}`} item={item} unchecked />)}</div>}
-    {availableItems.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2" data-testid="extension-offer-available-items">{availableItems.slice(0, 6).map((item, index) => <OfferItem key={`available-${lineIndex(item, index)}`} item={item} legacy={legacy} />)}</div>}
-    {unavailableWithPhotos.length > 0 && <div className="mt-3 space-y-2" data-testid="extension-offer-unavailable-items"><p className="text-[10px] font-medium uppercase tracking-[.13em] text-amber-100/70">Keep these on the original schedule</p>{unavailableWithPhotos.slice(0, 6).map((item, index) => <OfferItem key={`unavailable-${lineIndex(item, index)}`} item={item} unavailable alternatives={item.alternatives ?? alternatives.filter(candidate => candidate.lineIndex === item.lineIndex || candidate.index === item.index)} />)}</div>}
+    {unchecked && items.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2" data-testid="extension-offer-unchecked-items"><p className="sm:col-span-2 text-[10px] font-medium uppercase tracking-[.13em] text-white/45">Items in this rental · choose extra days to check</p>{items.slice(0, 6).map((item, index) => <OfferItem key={`unchecked-${lineIndex(item, index)}`} item={item} unchecked interactive={interactive} />)}</div>}
+    {availableItems.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2" data-testid="extension-offer-available-items">{availableItems.slice(0, 6).map((item, index) => <OfferItem key={`available-${lineIndex(item, index)}`} item={item} legacy={legacy} interactive={interactive} />)}</div>}
+    {unavailableWithPhotos.length > 0 && <div className="mt-3 space-y-2" data-testid="extension-offer-unavailable-items"><p className="text-[10px] font-medium uppercase tracking-[.13em] text-amber-100/70">Keep these on the original schedule</p>{unavailableWithPhotos.slice(0, 6).map((item, index) => <OfferItem key={`unavailable-${lineIndex(item, index)}`} item={item} unavailable interactive={interactive} alternatives={item.alternatives ?? alternatives.filter(candidate => candidate.lineIndex === item.lineIndex || candidate.index === item.index)} />)}</div>}
     {items.length > 6 && <p className="mt-2 text-[10px] text-white/40">+{items.length - 6} more items</p>}
     {offer.quoteStatus === "unavailable" && unavailableItems.length === 0 && <p className="mt-3 text-[11px] text-amber-100/70">No items are available for those extra dates. Your original return times still apply.</p>}
     {offer.quoteStatus === "duration_required" && <p className="mt-3 text-[11px] text-white/55">Choose how many extra days in the request form to check current availability and price.</p>}

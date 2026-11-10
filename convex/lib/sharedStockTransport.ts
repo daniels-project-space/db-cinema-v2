@@ -49,15 +49,15 @@ function validReceipt(request: StockRequest, receipt: any): boolean {
   if (request.operation === "acquirePaidBooking") {
     const outcome = receipt?.outcome;
     const expectedExecutionKey = `booking_execution_${request.args.bookingId}`;
-    const keys = ["bookingId", "fingerprint", "holdsStock", "ok", "operation", "outcome", "replayed", "requestId", ...(receipt?.executionKey === undefined ? [] : ["executionKey"])].sort().join(",");
+    const keys = ["bookingId", "fingerprint", "holdsStock", "ok", "operation", "outcome", "replayed", "requestId", "version", ...(receipt?.executionKey === undefined ? [] : ["executionKey"])].sort().join(",");
     const executionStarted = outcome === "execution_started" && receipt.holdsStock === true && receipt.executionKey === expectedExecutionKey;
     const converted = outcome === "converted" && receipt.holdsStock === false && (receipt.executionKey === undefined || receipt.executionKey === expectedExecutionKey);
-    return receipt?.ok === true && Object.keys(receipt).sort().join(",") === keys &&
+    return receipt?.version === 1 && receipt?.ok === true && Object.keys(receipt).sort().join(",") === keys &&
       receipt.operation === request.operation && receipt.bookingId === request.args.bookingId &&
       receipt.requestId === request.args.requestId && typeof receipt.fingerprint === "string" && receipt.fingerprint.length > 0 &&
       (executionStarted || converted) && typeof receipt.replayed === "boolean";
   }
-  if (request.operation === "releaseBooking") return receipt?.ok === true && receipt.operation === request.operation && receipt.bookingId === request.args.bookingId && receipt.outcome === "released" && Number.isSafeInteger(receipt.releasedClaims) && receipt.releasedClaims >= 0 && typeof receipt.idempotent === "boolean";
+  if (request.operation === "releaseBooking") return receipt?.version === 1 && Object.keys(receipt).sort().join(",") === "bookingId,idempotent,ok,operation,outcome,releasedClaims,version" && receipt.ok === true && receipt.operation === request.operation && receipt.bookingId === request.args.bookingId && receipt.outcome === "released" && Number.isSafeInteger(receipt.releasedClaims) && receipt.releasedClaims >= 0 && typeof receipt.idempotent === "boolean";
   if (!receipt || receipt.version !== 1 || receipt.operation !== request.operation || !receipt.request || receipt.request.source !== "website" || !receipt.result || typeof receipt.result !== "object" || typeof receipt.result.replayed !== "boolean") return false;
   const actual = receipt.request;
   if (request.operation === "acquire") {
@@ -117,7 +117,7 @@ export async function sendSharedStockRequest(request: StockRequest, config: { en
         if (request.operation === "acquirePaidBooking" && rejection && Object.keys(rejection).sort().join(",") === "error,ok" && rejection.ok === false && rejection.error === "capacity_conflict") return { status: "capacity_conflict" };
         if (rejection && Object.keys(rejection).sort().join(",") === "error,operation,version" &&
           rejection.version === 1 && rejection.operation === request.operation && rejection.error === "capacity_conflict" &&
-          ["acquire", "beginExecution", "checkExecution"].includes(request.operation)) {
+          ["acquire", "acquirePaidBooking", "beginExecution", "checkExecution"].includes(request.operation)) {
           return { status: "capacity_conflict" };
         }
       } catch {}

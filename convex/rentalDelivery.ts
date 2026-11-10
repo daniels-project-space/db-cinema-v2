@@ -132,6 +132,14 @@ export const accept = action({
   },
 });
 
+export const decline = action({
+  args: { token: v.string(), id: v.id("rental_delivery_quotes") },
+  handler: async (ctx, args) => {
+    await ctx.runMutation(internal.rentalDeliveryState.decline, args);
+    return { ok: true };
+  },
+});
+
 export const finalizePaid = internalAction({
   args: { id: v.id("rental_delivery_quotes"), sessionId: v.string() },
   handler: async (ctx, { id, sessionId }): Promise<any> => {

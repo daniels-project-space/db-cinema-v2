@@ -5,6 +5,18 @@ setMock("convex/server", { ...require("convex/server"), httpRouter: () => ({ rou
 load("convex/http.ts");
 const accounts = load("convex/accounts.ts");
 const googleAuth = load("convex/googleAuth.ts");
+const { legalVersionForPolicy, CURRENT_PRIVACY_NOTICE_VERSION } = load("shared/legalVersioning.ts");
+const acceptedAt = Date.now();
+const legalAcceptance = {
+  termsAndPrivacyAcknowledged: true,
+  accountTermsVersion: legalVersionForPolicy({}),
+  accountTermsAcceptedAt: acceptedAt,
+  privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION,
+  privacyNoticeAcknowledgedAt: acceptedAt,
+};
+const upsertGoogle = (args, acceptance = legalAcceptance) => googleAuth._upsertGoogle.handler(
+  { ...inner, scheduler: { runAfter: async () => {} } }, { ...args, ...acceptance },
+);
 const upload = routes.find(route => route.path === "/renter-avatar" && route.method === "POST").handler;
 const account = put("accounts", { email: "fixture@example.invalid", avatarStorageId: "foreign-private", googleAvatarUrl: "https://example.invalid/photo" });
 put("sessions", { token: "owner", accountId: account._id, expiresAt: Date.now() + 60000 });
@@ -22,11 +34,36 @@ const ctx = { storage, runMutation: async (ref, args) => {
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0x01]);
 const request = (token = "owner", body = jpeg, type = "image/jpeg", origin = "https://dbcinemarentals.com") => new Request("https://fixture.convex.site/renter-avatar", { method: "POST", headers: { Origin: origin, Authorization: `Bearer ${token}`, "Content-Type": type }, body });
 (async () => {
+  const googlePicture = "https://lh3.googleusercontent.com/a/synthetic-profile-photo";
+  await upsertGoogle({
+    email: other.email,
+    googleId: "google-profile-fixture",
+    picture: googlePicture,
+    token: "google-profile-session",
+  });
+  assert.equal((await accounts.me.handler(inner, { token: "google-profile-session" })).avatarUrl, googlePicture,
+    "a verified Google sign-in supplies the default profile photo when the renter has not uploaded or removed one");
+  await db.patch(other._id, { avatarStorageId: "owned-google-custom", avatarOwnedStorageId: "owned-google-custom" });
+  assert.equal((await accounts.me.handler(inner, { token: "google-profile-session" })).avatarUrl,
+    "https://storage.example.invalid/owned-google-custom", "an uploaded profile photo takes precedence over Google's default");
+  const newGooglePicture = "https://lh3.googleusercontent.com/a/new-account-profile-photo";
+  await assert.rejects(() => upsertGoogle({ email: "unaccepted-google@example.invalid", googleId: "google-unaccepted", token: "unaccepted-session" }, { termsAndPrivacyAcknowledged: false }), /Terms and Conditions/);
+  assert.equal(await db.query("accounts").withIndex("by_email", q => q.eq("email", "unaccepted-google@example.invalid")).first(), null, "A first-time Google account is never created without account terms acceptance");
+  await upsertGoogle({
+    email: "new-google@example.invalid",
+    name: "Google Renter",
+    googleId: "google-new-account-fixture",
+    picture: newGooglePicture,
+    token: "new-google-profile-session",
+  });
+  assert.equal((await accounts.me.handler(inner, { token: "new-google-profile-session" })).avatarUrl, newGooglePicture,
+    "a new Google-created account immediately displays its verified Google photo as the profile default");
+
   files.set("foreign-private", new Blob(["private"]));
   await assert.rejects(() => accounts.setAvatar.handler(inner, { token: "owner", avatarStorageId: "another-private" }));
   await accounts.setAvatar.handler(inner, { token: "owner" });
   assert.equal((await db.get(account._id)).googleAvatarUrl, undefined, "removing a photo also clears the Google fallback");
-  await googleAuth._upsertGoogle.handler({ ...inner, scheduler: { runAfter: async () => {} } }, { email: account.email, googleId: "google-fixture", picture: "https://example.invalid/photo", token: "new-google-session" });
+  await upsertGoogle({ email: account.email, googleId: "google-fixture", picture: "https://example.invalid/photo", token: "new-google-session" }, { termsAndPrivacyAcknowledged: false });
   assert.equal((await db.get(account._id)).googleAvatarUrl, undefined, "Google sign-in cannot restore a removed photo");
   assert(files.has("foreign-private"), "untrusted legacy references cannot delete private files");
   assert.equal((await upload(ctx, request("invalid"))).status, 403);

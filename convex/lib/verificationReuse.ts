@@ -3,6 +3,8 @@ import { accountForRental } from "./rentalAccount";
 import { bookingStockLines } from "../../shared/rentalWindow";
 import { pickupMapAvailable } from "../../shared/pickupLocation";
 import { verificationExpired, verificationValidUntil } from "../../shared/verificationProgress";
+import { renterRentalActionReady } from "./renterRentalActionGate";
+import { WATERSTONES_MAP_URL } from "./pickupMap";
 
 /** Rental risk policy, separate from a Collective membership badge. */
 export const VERIFICATION_REUSE_DAYS = 90;
@@ -56,20 +58,17 @@ export async function verificationUpdateMessage(ctx: any, bookingId: any, previo
     verified: "Your identity and address verification is approved for this rental.",
     manual_review: "Your verification is awaiting a team review. We will post the decision here; handover requires approval.",
     requires_input: "More verification information is needed. Open verification in your account to complete or resubmit the requested documents before handover.",
-    rejected: "Your verification was not approved, so this rental is not ready for collection. Please contact the team here to discuss the outcome. A friend may make a separate booking using their own account and identity; they would be the renter and their booking would be subject to the usual checks and approval.",
+    rejected: "Your verification was not approved, so this rental is not ready for collection. Please contact the team here to discuss the outcome. If someone else will rent, they must place their own booking using their own account and identity. They must be the renter; they cannot verify or book on your behalf, and normal checks still apply.",
   };
   if (!text[status]) return;
   let message=text[status];
-  let pickupMap = false;
+  let pickupMapUrl: string | undefined;
   if(status==="verified"){
-    const handoverReady = ["confirmed", "active"].includes(booking.status) &&
-      Number.isFinite(booking.paidConfirmedAt) && booking.paidConfirmedAt > 0 &&
-      booking.idVerifyStatus === "verified" &&
-      (verificationValidUntil(booking) ?? 0) > Date.now();
+    const handoverReady = renterRentalActionReady(booking);
     if (handoverReady) {
       if(booking.fulfilment==="pickup"){
         const settings=await ctx.db.query("settings").first();
-        pickupMap = pickupMapAvailable(settings?.businessAddress);
+        if (pickupMapAvailable(settings?.businessAddress)) pickupMapUrl = WATERSTONES_MAP_URL;
         const schedule=bookingStockLines(booking).map((line:any)=>`${line.title}: ${new Date(line.start).toISOString().slice(0,10)}${line.pickupTime ? ` at ${line.pickupTime}` : " (time to be confirmed)"}`).join("\n");
         message+=`${settings?.businessAddress ? `\n\nPickup location:\n${settings.businessAddress}` : "\n\nThe team will confirm the pickup location here."}${schedule ? `\n\nPickup schedule (London time):\n${schedule}` : ""}`;
       }
@@ -78,5 +77,5 @@ export async function verificationUpdateMessage(ctx: any, bookingId: any, previo
       message += " Collection details will appear here once payment is complete, verification is current and the booking is confirmed.";
     }
   }
-  await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system", text: message, meta: { kind: "verification_update", status, ...(pickupMap ? { pickupMap: true } : {}) } });
+  await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system", text: message, meta: { kind: "verification_update", status, ...(pickupMapUrl ? { pickupMapUrl } : {}) } });
 }
