@@ -82,7 +82,7 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  assert(closingStyles.includes('pointer-events: none')&&closingStyles.includes('prefers-reduced-motion: reduce'),'Keep the closing lights decorative and respect reduced motion');
  assert(home.includes('<HowItWorksSteps />'),'Use the enlarged animated four-step feature cards');
  assert.match(home,/<HyggloReviewRows reviews=\{hyggloReviews\} \/>[\s\S]*<ReviewCarousel \/>[\s\S]*<HomeStats ratingValue=\{rating\.ratingValue\} reviewCount=\{rating\.reviewCount\} itemCount=\{itemCount\} \/>/,'Place the three animated trust figures below both review carousels');
- assert.match(home,/\{hyggloReviews\.length >= 3 && <HyggloReviewRows reviews=\{hyggloReviews\} \/>\}/,'Imported rows render independently of the native carousel');
+ assert.match(home,/\{hyggloReviews\.length > 0 && <HyggloReviewRows reviews=\{hyggloReviews\} \/>\}/,'Imported rows render independently of the native carousel');
  assert(carouselUi.includes('api.reviews.listNativePublished'),'The live website-review carousel reads its native-only reactive feed');
  assert(carouselUi.includes('Reviews from our renters'),'Label the website-submitted review carousel clearly');
  assert(stepsStyles.includes('.copy { padding-bottom: 4rem; }'),'Keep mobile step copy clear of the floating contact button');
@@ -94,8 +94,7 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  assert(fs.readFileSync('src/components/DeliveryProtectionTile.tsx','utf8').includes('}, 5000);'),'Rotate delivery and protection headlines every five seconds');
  assert.match(reviewsRoute,/redirect\("\/#reviews"\)/,'Make the direct /reviews path land on the homepage review section');
  assert.match(home,/ratingValue: 4\.73, reviewCount: 1300, reviewCountLabel: "1,300\+"/,'Use the full profile-wide rating and review-count floor');
- assert.match(hero,/rating\.reviewCountLabel\} reviews/,'Show the full review-count label in the hero');
- assert.match(hero,/Rated \$\{rating\.ratingValue\.toFixed\(2\)\} out of 5 from \$\{rating\.reviewCountLabel\} renter reviews/,'Expose the accurate profile score and count in the hero label');
+ assert(!hero.includes('reviewCountLabel')&&!hero.includes('renter reviews'),'Keep the full review count out of the hero');
  assert(homeStats.includes('profile rating')&&homeStats.includes('renter reviews')&&homeStats.includes('items for hire'),'Show rating, review and available-item totals beneath the review carousels');
  assert(homeStats.includes('<CountUp value={stat.value}'),'Animate the trust figures into their final values');
  assert(countUp.includes('new Intl.NumberFormat("en-GB"')&&countUp.includes('className="sr-only"'),'Keep final metric values accessible and render thousands separators');
@@ -104,9 +103,10 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  assert(showcase.includes('Trust that is earned')&&!showcase.includes('5-star'),'Use the requested trust tile wording without a five-star text badge');
  assert(showcase.includes('hygglo-trust-review-panel')&&styles.includes('backdrop-filter: blur(20px) saturate(125%)'),'Give the featured review copy its own blurred glass card');
  assert(showcase.includes('aria-roledescription="review carousel"'),'Expose the review rows as carousels');
- assert.match(styles,/@media \(max-width: 640px\), \(prefers-reduced-motion: reduce\)/,'Keep mobile and reduced-motion reviews stationary');
- assert.match(styles,/\.hygglo-review-marquee\s*\{[^}]*overflow-x: auto/s,'Allow touch scrolling through full-width reviews');
- assert.match(styles,/\.hygglo-review-group\[aria-hidden="true"\]\s*\{\s*display: none;\s*\}/,'Hide duplicate carousel cards when motion is disabled');
+ assert.match(styles,/\.hygglo-review-track\s*\{[^}]*animation: hygglo-marquee-x var\(--review-speed, 56s\) linear infinite !important/s,'Keep the review rail moving continuously');
+ assert.match(styles,/\.hygglo-review-track\s*\{[^}]*animation-play-state: running !important/s,'Never pause the review rail on hover or focus');
+ assert.match(styles,/\.hygglo-review-marquee\s*\{[^}]*overflow: hidden/s,'Keep the moving review rail clipped to its viewport');
+ assert.match(styles,/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.hygglo-review-track \{[\s\S]*?animation-duration: var\(--review-speed, 64s\) !important;[\s\S]*?animation-play-state: running !important;/,'Preserve a slow continuous review crawl for reduced-motion users');
  assert(!styles.includes('.hygglo-review-marquee:hover .hygglo-review-track'),'Keep the lower review carousel moving while hovered');
  for(let index=0;index<105;index++)put('reviews',{source:'native',published:true,author:`Renter ${index}`,rating:index%5+1,text:'A genuine first-party rental review.',date:Date.now()+index});
  put('reviews',{source:'native',published:false,author:'Private review',rating:5,text:'This review must not be public.',date:Date.now()+1000});
