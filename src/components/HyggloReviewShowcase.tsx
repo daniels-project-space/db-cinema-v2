@@ -122,6 +122,7 @@ function ReviewRow({
   return (
     <div
       className="hygglo-review-marquee"
+      data-testid="hygglo-review-row"
       role="group"
       tabIndex={0}
       aria-roledescription="review carousel"
@@ -130,7 +131,7 @@ function ReviewRow({
       <div
         className="hygglo-review-track"
         data-direction={reverse ? "reverse" : "forward"}
-        style={{ "--review-speed": `${52 + row * 5}s` } as CSSProperties}
+        style={{ "--review-speed": `${Math.max(64, Math.round(items.length * 3.4))}s` } as CSSProperties}
       >
         <div className="hygglo-review-group">
           {items.map((review) => <ReviewCard key={review._id} review={review} />)}
@@ -144,12 +145,13 @@ function ReviewRow({
 }
 
 export function HyggloReviewRows({ reviews }: { reviews: VerifiedHyggloHighlight[] }) {
-  if (reviews.length < 3) return null;
+  if (reviews.length === 0) return null;
+  const rowCount = Math.min(3, reviews.length);
   return (
-    <div data-testid="hygglo-review-rows" className="mt-10 space-y-4">
-      <ReviewRow reviews={reviews} row={0} />
-      <ReviewRow reviews={reviews} row={1} reverse />
-      <ReviewRow reviews={reviews} row={2} />
+    <div data-testid="hygglo-review-rows" className="mt-7 space-y-4 sm:mt-10">
+      {Array.from({ length: rowCount }, (_, row) => (
+        <ReviewRow key={row} reviews={reviews} row={row} reverse={row === 1} />
+      ))}
     </div>
   );
 }
