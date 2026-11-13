@@ -3,12 +3,29 @@ const { load, db, put, tables } = require('./lib/rentalTestHarness.cjs');
 const claims = load('convex/accountClaims.ts');
 const archive = load('convex/verificationArchive.ts');
 const { linkVerificationCopies } = load('convex/lib/verificationOwnership.ts');
+const { agreementsForSecurityPolicy } = load('src/lib/legal.ts');
+const { IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION } = load('shared/rentalSecurity.ts');
+const acceptedDocuments = agreementsForSecurityPolicy(IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION);
+function attachAcceptedAccountTerms(booking, acceptedAt = Date.now()) {
+  booking.agreementSignedAt = acceptedAt;
+  booking.agreementDocs = acceptedDocuments.map(({kind,version}) => ({kind,version}));
+  booking.agreementSnapshot = JSON.stringify({
+    format: 1,
+    version: acceptedDocuments.find(doc => doc.kind === 'rental-agreement').version,
+    acceptedAt,
+    signer: booking.agreementName,
+    documents: acceptedDocuments.map(doc => ({...doc,text:{title:doc.title,updated:'November 2026',sections:[]}})),
+    particulars: {timeZone:'Europe/London',lineItems:[]},
+  });
+  return acceptedAt;
+}
 process.env.ADMIN_TOKEN = 'ownership-test';
 
 (async () => {
   const scheduled = [];
   const ctx = { db, storage:{delete:async()=>{}},scheduler: { runAfter: async (_delay, ref, args) => scheduled.push({ ref, args }) } };
-  const booking = put('bookings', { status: 'pending_payment', guestEmail: 'late-account@example.invalid', guestName: 'Rental customer', diditSessionId: 'pre-account-session' });
+  const booking = put('bookings', { status: 'pending_payment', guestEmail: 'late-account@example.invalid', guestName: 'Rental customer', agreementName:'Rental Customer', diditSessionId: 'pre-account-session' });
+  const signedAt=attachAcceptedAccountTerms(booking);
   await archive.queueVerificationArchive(ctx, booking);
   const saved = tables.get('verification_archives')[0];
   assert.equal(saved.accountId, undefined);
@@ -24,13 +41,20 @@ process.env.ADMIN_TOKEN = 'ownership-test';
   assert.equal(await claims.ensurePaidBookingAccount(ctx, booking), null, 'Unpaid rentals cannot acquire an account');
   await db.patch(booking._id, { status: 'confirmed' });
   const account = await claims.ensurePaidBookingAccount(ctx, booking);
+  assert.equal(account.accountTermsVersion,acceptedDocuments.find(doc=>doc.kind==='terms').version,'Auto-created paid-booking account stores the exact accepted Terms version');
+  assert.equal(account.accountTermsAcceptedAt,signedAt,'Terms acceptance time comes from the signed booking');
+  assert.equal(account.privacyNoticeVersion,acceptedDocuments.find(doc=>doc.kind==='privacy').version,'Auto-created paid-booking account stores the exact accepted Privacy Notice version');
+  assert.equal(account.privacyNoticeAcknowledgedAt,signedAt,'Privacy acknowledgement time comes from the signed booking');
   assert.equal(saved.accountId, account._id, 'Paid account creation attaches an earlier archive');
   assert.equal(copy.accountId, account._id, 'Earlier document metadata follows the same owner');
   assert.equal(saved.status, 'complete');
   assert.equal(copy.storageId, 'owned-file');
   assert.equal(copy.sha256, identityHash);
   assert.equal((await archive.accountDocuments.handler(ctx, { token: 'ownership-test', accountId: account._id }))[0].documents[0].id, copy._id, 'Existing copies become visible through the actual account query');
+  await db.patch(account._id,{accountTermsVersion:'pre-existing-terms',accountTermsAcceptedAt:signedAt-1234,privacyNoticeVersion:'pre-existing-privacy',privacyNoticeAcknowledgedAt:signedAt-1234});
   await claims.ensurePaidBookingAccount(ctx, booking);
+  assert.equal(account.accountTermsVersion,'pre-existing-terms','A retry never overwrites an existing account Terms acceptance');
+  assert.equal(account.privacyNoticeVersion,'pre-existing-privacy','A retry never overwrites an existing account Privacy Notice acceptance');
   assert.equal(tables.get('verification_archives').length, 1, 'Payment replay creates no extra archive');
   await archive.queueVerificationArchive(ctx,booking);assert.equal(saved.status,'complete','a routine check does not reopen a complete archive');await archive.queueVerificationArchive(ctx,booking,true);const lateLease=await archive.claim.handler(ctx,{archiveId:saved._id});
   await archive.save.handler(ctx, { archiveId: saved._id,generation:lateLease.generation, kind: 'address-0', storageId: 'late-worker-file', sha256: 'late-worker-hash', size: 90, contentType: 'image/png' });
@@ -55,6 +79,17 @@ process.env.ADMIN_TOKEN = 'ownership-test';
   await assert.rejects(() => linkVerificationCopies(ctx, malformed._id, account._id), /owner or rental binding/);
   assert.equal(unlinked.accountId, undefined, 'A conflicting copy prevents partial archive repair');
   assert.equal(foreignCopy.accountId, mailboxOwner._id);
+
+  const missingConsent=put('bookings',{status:'confirmed',guestEmail:'missing-consent@example.invalid',agreementName:'Missing Consent'});
+  assert.equal(await claims.ensurePaidBookingAccount(ctx,missingConsent),null,'Missing signed account terms/privacy never bootstraps an account');
+  assert.equal((tables.get('accounts')??[]).some(row=>row.email===missingConsent.guestEmail),false,'Missing consent leaves no orphan account');
+  const staleConsent=put('bookings',{status:'confirmed',guestEmail:'stale-consent@example.invalid',agreementName:'Stale Consent'});
+  attachAcceptedAccountTerms(staleConsent);
+  const staleSnapshot=JSON.parse(staleConsent.agreementSnapshot);
+  staleSnapshot.documents.find(doc=>doc.kind==='privacy').version='old-privacy-version';
+  staleConsent.agreementSnapshot=JSON.stringify(staleSnapshot);
+  assert.equal(await claims.ensurePaidBookingAccount(ctx,staleConsent),null,'A booking whose signed snapshot disagrees with its recorded versions cannot create an account');
+  assert.equal((tables.get('accounts')??[]).some(row=>row.email===staleConsent.guestEmail),false,'Stale consent leaves no orphan account');
   foreignCopy.accountId = undefined; foreignCopy.sessionId = 'wrong-session';
   await assert.rejects(() => linkVerificationCopies(ctx, malformed._id, account._id), /owner or rental binding/);
   foreignCopy.sessionId = unlinked.sessionId; unlinked.accountId = mailboxOwner._id;

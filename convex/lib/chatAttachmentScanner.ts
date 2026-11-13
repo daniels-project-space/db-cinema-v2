@@ -1,4 +1,6 @@
-export const CHAT_ATTACHMENT_LIMIT = 10 * 1024 * 1024;
+import { CHAT_ATTACHMENT_LIMIT as SHARED_CHAT_ATTACHMENT_LIMIT, isChatAttachmentType } from "../../shared/chatAttachmentPolicy";
+
+export const CHAT_ATTACHMENT_LIMIT = SHARED_CHAT_ATTACHMENT_LIMIT;
 
 type ScannerOptions = { endpoint: string; token: string; fetcher?: typeof fetch; now?: number; timeoutMs?: number };
 
@@ -96,8 +98,8 @@ export async function scanChatAttachment(bytes: Uint8Array, digest: string, nonc
     for (const chunk of chunks) { output.set(chunk, offset); offset += chunk.length; }
     const verdict = JSON.parse(new TextDecoder().decode(output));
     const now = options.now ?? Date.now();
-    if (verdict.nonce !== nonce || verdict.sha256 !== digest || verdict.size !== bytes.length || verdict.verdict !== "clean" || verdict.complete !== true || verdict.encrypted !== false || verdict.truncated !== false || verdict.limitExceeded !== false || typeof verdict.engine !== "string" || !/^ClamAV [0-9][0-9.]+$/.test(verdict.engine) || typeof verdict.signatureVersion !== "string" || !/^\d+$/.test(verdict.signatureVersion) || !Number.isSafeInteger(verdict.signatureUpdatedAt) || verdict.signatureUpdatedAt > now || verdict.signatureUpdatedAt < now - 48 * 60 * 60 * 1000) throw Error("Scanner did not return a complete current clean verdict.");
-    return { engine: verdict.engine.slice(0, 120), signatureVersion: verdict.signatureVersion.slice(0, 120), signatureUpdatedAt: verdict.signatureUpdatedAt };
+    if (verdict.nonce !== nonce || verdict.sha256 !== digest || verdict.size !== bytes.length || !isChatAttachmentType(verdict.contentType) || verdict.verdict !== "clean" || verdict.complete !== true || verdict.encrypted !== false || verdict.truncated !== false || verdict.limitExceeded !== false || typeof verdict.engine !== "string" || !/^ClamAV [0-9][0-9.]+$/.test(verdict.engine) || typeof verdict.signatureVersion !== "string" || !/^\d+$/.test(verdict.signatureVersion) || !Number.isSafeInteger(verdict.signatureUpdatedAt) || verdict.signatureUpdatedAt > now || verdict.signatureUpdatedAt < now - 48 * 60 * 60 * 1000) throw Error("Scanner did not return a complete current clean verdict.");
+    return { contentType: verdict.contentType, engine: verdict.engine.slice(0, 120), signatureVersion: verdict.signatureVersion.slice(0, 120), signatureUpdatedAt: verdict.signatureUpdatedAt };
   } finally {
     clearTimeout(timeout);
   }

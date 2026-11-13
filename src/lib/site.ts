@@ -7,7 +7,9 @@ export const SITE_NAME = "Db Cinema Rentals";
 export const AREA = "London, United Kingdom";
 
 /** Public customer contact address. */
-export const CONTACT_EMAIL = "dbcinemarentals@gmail.com";
+import { BUSINESS_CONTACT_EMAIL } from "../../shared/businessEmail";
+
+export const CONTACT_EMAIL = BUSINESS_CONTACT_EMAIL;
 
 /** Pickup/return/delivery windows. Slots are derived from the windows. */
 export const HOURS_WINDOWS: readonly { opens: string; closes: string }[] = [

@@ -4,14 +4,14 @@ const { load, db, put, setMock } = require('./lib/rentalTestHarness.cjs');
 let session;
 let stockChecks = 0;
 class Stripe {
-  constructor() { this.checkout = { sessions: { retrieve: async () => session } }; }
+  constructor() { this.checkout = { sessions: { retrieve: async () => session } }; this.paymentIntents={retrieve:async id=>({id,status:'succeeded',amount_received:session.amount_total,currency:session.currency})}; }
 }
 setMock('stripe', { default: Stripe });
 process.env.STRIPE_SECRET_KEY = 'sk_test_fixture';
 const bookings = load('convex/bookings.ts');
 const checkout = load('convex/checkout.ts');
-const booking = put('bookings', { status: 'pending_payment', stripeCheckoutSessionId: 'cs_fixture', lineItems: [], guestEmail: 'test@example.invalid' });
-session = { id: 'cs_fixture', status: 'complete', payment_status: 'paid', payment_intent: 'pi_fixture', metadata: { bookingId: booking._id } };
+const booking = put('bookings', { status: 'pending_payment', stripeCheckoutSessionId: 'cs_fixture', lineItems: [], guestEmail: 'test@example.invalid',total:100,currency:'GBP' });
+session = { id: 'cs_fixture', status: 'complete', payment_status: 'paid', payment_intent: 'pi_fixture',amount_total:10000,currency:'gbp',metadata: { bookingId: booking._id } };
 const ctx = {
   db,
   scheduler: { runAfter: async () => {} },

@@ -26,16 +26,31 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
     await client.cmd("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/` });
     for (let attempt = 0; attempt < 100 && !await client.evaluate('!!document.querySelector("[data-testid=rental-review-form]")'); attempt++) await wait(100);
     assert.equal(await client.evaluate('!!document.querySelector("[data-testid=review-eye-glyph]")'), true);
+    assert.equal(await client.evaluate('document.querySelector("[data-testid=rental-review-form] input[type=checkbox]").checked'), false, "Public profile-photo sharing is optional and off by default");
     assert.equal(await client.evaluate('document.querySelectorAll("[aria-label=\\"Rental rating\\"] button").length'), 5);
     assert.equal(await client.evaluate(`[...document.querySelectorAll('[aria-label="Rental rating"] button')].every(button=>{const rect=button.getBoundingClientRect();return rect.width>=44&&rect.height>=44})`), true, 'Every rating has a phone-friendly touch target');
     assert.equal(await client.evaluate(`[...document.querySelectorAll('[data-testid="rental-review-form"] button')].find(button=>button.textContent.includes('Publish review')).disabled`), true);
     const screenshot = await client.cmd("Page.captureScreenshot", { format: "png" }); fs.writeFileSync("/tmp/dbc-inline-review-320.png", Buffer.from(screenshot.data, "base64"));
-    await client.evaluate(`document.querySelector('[aria-label="4 stars"]').click();const input=document.querySelector('[aria-label="Your rental review"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'Great gear and helpful service.');input.dispatchEvent(new Event('input',{bubbles:true}));`); await wait(80);
+    for (const width of [390, 430]) {
+      await client.cmd("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: true }); await wait(120);
+      const responsive = await client.evaluate(`(()=>{const card=document.querySelector('[data-testid="rental-review-form"]'),box=card.getBoundingClientRect(),stars=[...card.querySelectorAll('[aria-label="Rental rating"] button')].map(button=>{const r=button.getBoundingClientRect();return{width:r.width,height:r.height,left:r.left,right:r.right}}),input=card.querySelector('textarea').getBoundingClientRect();return{overflow:document.documentElement.scrollWidth>innerWidth,card:{left:box.left,right:box.right,width:box.width},stars,input:{left:input.left,right:input.right,width:input.width}}})()`);
+      assert.equal(responsive.overflow, false, `Review form has no overflow at ${width}px`);
+      assert(responsive.card.left >= 0 && responsive.card.right <= width && responsive.input.left >= 0 && responsive.input.right <= width, `Form and input fit within ${width}px: ${JSON.stringify(responsive)}`);
+      assert(responsive.stars.every(target => target.width >= 44 && target.height >= 44 && target.left >= 0 && target.right <= width), `Star targets remain reachable at ${width}px`);
+      const responsiveImage = await client.cmd("Page.captureScreenshot", { format: "png" }); fs.writeFileSync(`/tmp/dbc-inline-review-${width}.png`, Buffer.from(responsiveImage.data, "base64"));
+    }
+    await client.cmd("Emulation.setDeviceMetricsOverride", { width: 320, height: 700, deviceScaleFactor: 1, mobile: true }); await wait(120);
+    await client.evaluate(`document.querySelector('[aria-label="4 stars"]').click();(()=>{const input=document.querySelector('[aria-label="Your rental review"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'x'.repeat(2000));input.dispatchEvent(new Event('input',{bubbles:true}));})()`); await wait(80);
+    assert.equal(await client.evaluate(`document.querySelector('[aria-label="Your rental review"]').value.length`), 2000, 'The full allowed review length remains editable on a phone');
+    assert.equal(await client.evaluate("document.documentElement.scrollWidth > innerWidth"), false, 'Long review text does not widen the page');
+    const longText = await client.cmd("Page.captureScreenshot", { format: "png" }); fs.writeFileSync("/tmp/dbc-inline-review-long-320.png", Buffer.from(longText.data, "base64"));
+    await client.evaluate(`(()=>{const input=document.querySelector('[aria-label="Your rental review"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'Great gear and helpful service.');input.dispatchEvent(new Event('input',{bubbles:true}));})()`); await wait(80);
+    await client.evaluate(`document.querySelector('[data-testid="rental-review-form"] input[type="checkbox"]').click()`); await wait(40);
     assert.equal(await client.evaluate(`document.querySelector('[aria-label="4 stars"]').getAttribute('aria-pressed')`), "true");
     assert.equal(await client.evaluate("document.documentElement.scrollWidth > innerWidth"), false);
     const filled = await client.cmd("Page.captureScreenshot", { format: "png" }); fs.writeFileSync("/tmp/dbc-inline-review-filled-320.png", Buffer.from(filled.data, "base64"));
     await client.evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent.includes('Publish review')).click()`); await wait(80);
-    assert.deepEqual(await client.evaluate("window.calls"), [{ token: "fixture-renter", bookingId: "fixture-rental", rating: 4, text: "Great gear and helpful service." }]);
+    assert.deepEqual(await client.evaluate("window.calls"), [{ token: "fixture-renter", bookingId: "fixture-rental", rating: 4, text: "Great gear and helpful service.", showProfilePhoto: true }]);
     assert.match(await client.evaluate("document.body.textContent"), /Reviewed — thank you/);
     console.log("PASS inline review: eye, rating, text, selected rental and submitted state at 320px; synthetic data only.");
   } finally { if (client) client.close(); if (chrome.exitCode === null) { const done = new Promise(resolve => chrome.once("exit", resolve)); chrome.kill(); await done; } server.close(); await wait(200); await fs.promises.rm(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }

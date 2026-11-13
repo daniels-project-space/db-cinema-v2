@@ -154,7 +154,7 @@ export function RenterChat({
         }
         stage={focus?.status ?? "Support"}
         stageLabel={focus ? rentalStageLabel(focus) : "Support"}
-        bookingSummary={focus ? {dates: rentalDate(focus.start, focus.end), count: focus.items.length, items: focus.items.map(item => ({ title: item.title, qty: item.qty, imageSources: item.imageSources?.length ? item.imageSources : item.heroImage ? [item.heroImage] : [] }))} : undefined}
+        bookingSummary={focus ? {dates: rentalDate(focus.start, focus.end), count: focus.items.length, items: focus.items.map((item,index) => ({ index, title: item.title, qty: item.qty, imageSources: item.imageSources?.length ? item.imageSources : item.heroImage ? [item.heroImage] : [] }))} : undefined}
         handoverDetails={focus?.handoverDetails ?? undefined}
         escalated={focus?.escalated}
         tools={focus ? <RenterRentalTools token={token} bookingId={focus._id} /> : undefined}

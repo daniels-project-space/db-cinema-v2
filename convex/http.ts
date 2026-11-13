@@ -5,7 +5,7 @@ import { droneDocumentType, DRONE_DOCUMENT_LIMIT } from "./lib/droneDocument";
 import { chatAttachmentsReady, chatAttachmentScannerHealthy, scanChatAttachment, CHAT_ATTACHMENT_LIMIT } from "./lib/chatAttachmentScanner";
 import { chatAttachmentName } from "./lib/chatAttachmentName";
 import { adminSessionMigrationReady } from "./adminAccountSessionV2";
-import { isChatImageType } from "../shared/chatAttachmentPolicy";
+import { CHAT_TEXT_LIMIT, isChatAttachmentNameMatched, isChatAttachmentType, isChatImageType } from "../shared/chatAttachmentPolicy";
 
 const http = httpRouter();
 
@@ -146,21 +146,25 @@ http.route({ path: "/chat-attachment", method: "POST", handler: httpAction(async
   const headers = { ...cors, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
   const url = new URL(req.url);
   const download = url.searchParams.get("download");
-  if (!download && !chatAttachmentsReady()) return new Response("Attachments are temporarily unavailable.", { status: 503, headers });
+  const preview = url.searchParams.get("preview");
+  if (download && preview) return new Response("Choose download or preview.", { status: 400, headers });
+  if (!download && !preview && !chatAttachmentsReady()) return new Response("Attachments are temporarily unavailable.", { status: 503, headers });
   const admin = url.searchParams.get("admin") === "1";
   let id: any, marker: string | undefined, storageId: any;
   try {
     const scope = { token: adminHttpToken(req, admin && process.env.ADMIN_SESSION_ATTACHMENTS_V2 === "enabled"), admin, bookingId: (url.searchParams.get("bookingId") || undefined) as any, accountId: (url.searchParams.get("accountId") || undefined) as any };
-    if (download) {
-      const file = await ctx.runMutation(internal.chatAttachments.download, { ...scope, id: download as any });
+    if (download || preview) {
+      const attachmentId = (download || preview) as any;
+      const file = await ctx.runMutation(internal.chatAttachments.download, { ...scope, id: attachmentId });
+      if (preview && !isChatImageType(file.contentType ?? "")) return new Response("Inline previews support verified JPG, PNG and WebP images only.", { status: 415, headers });
       const stored = await ctx.storage.get(file.storageId);
       if (!stored || stored.size !== file.size) throw Error("File unavailable.");
       const bytes = new Uint8Array(await stored.arrayBuffer());
       const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(part => part.toString(16).padStart(2, "0")).join("");
       if (hash !== file.sha256) throw Error("File unavailable.");
-      const current = await ctx.runMutation(internal.chatAttachments.download, { ...scope, id: download as any });
-      if (current.storageId !== file.storageId || current.messageId !== file.messageId || current.sha256 !== file.sha256 || current.size !== file.size || current.name !== file.name) throw Error("File unavailable.");
-      return new Response(bytes, { headers: { ...headers, "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${file.name}"` } });
+      const current = await ctx.runMutation(internal.chatAttachments.download, { ...scope, id: attachmentId });
+      if (current.storageId !== file.storageId || current.messageId !== file.messageId || current.sha256 !== file.sha256 || current.size !== file.size || current.name !== file.name || current.contentType !== file.contentType) throw Error("File unavailable.");
+      return new Response(bytes, { headers: { ...headers, "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Type": preview ? file.contentType ?? "application/octet-stream" : "application/octet-stream", "Content-Disposition": `${preview ? "inline" : "attachment"}; filename="${file.name}"` } });
     }
     // The browser's availability check is only a convenience. Authenticate the
     // exact upload scope and repeat the scanner self-test at the server edge so
@@ -188,18 +192,20 @@ http.route({ path: "/chat-attachment", method: "POST", handler: httpAction(async
     const bytes = new Uint8Array(size);
     let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-    const contentType = droneDocumentType(bytes, req.headers.get("content-type") ?? "");
-    if (!isChatImageType(contentType)) throw Error("Image attachments only.");
-    const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(part => part.toString(16).padStart(2, "0")).join("");
+    const contentType = req.headers.get("content-type") ?? "";
     const encodedName = req.headers.get("x-chat-filename") ?? "attachment";
     if (encodedName.length > 1080) throw Error("Invalid filename.");
     const name = decodeURIComponent(encodedName);
+    if (!isChatAttachmentType(contentType) || !isChatAttachmentNameMatched(name, contentType)) throw Error("Unsupported file type or extension.");
+    if (contentType === "text/plain" && size > CHAT_TEXT_LIMIT) throw Error("Text file too large.");
+    const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(part => part.toString(16).padStart(2, "0")).join("");
     if (reservation.status === "published") {
       if (reservation.sha256 !== sha256 || reservation.size !== size || reservation.contentType !== contentType || reservation.name !== chatAttachmentName(name, contentType)) throw Error("Upload retry does not match the original file.");
       return Response.json({ ok: true }, { headers });
     }
     const verdict = await scanChatAttachment(bytes, sha256, nonce, { endpoint: process.env.CHAT_ATTACHMENT_SCANNER_URL ?? "", token: process.env.CHAT_ATTACHMENT_SCANNER_TOKEN ?? "" });
-    await ctx.runMutation(internal.chatAttachments.recordScan, { id, marker, contentType, size, sha256, ...verdict });
+    if (verdict.contentType !== contentType) throw Error("File contents do not match the selected file type.");
+    await ctx.runMutation(internal.chatAttachments.recordScan, { id, marker, size, sha256, contentType: verdict.contentType, engine: verdict.engine, signatureVersion: verdict.signatureVersion, signatureUpdatedAt: verdict.signatureUpdatedAt });
     storageId = await ctx.storage.store(new Blob([bytes], { type: marker }));
     const stored = await ctx.storage.get(storageId);
     if (!stored || stored.size !== size) throw Error("File unavailable.");

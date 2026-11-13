@@ -1,7 +1,7 @@
 /** Actual application handlers with isolated fixtures; no real customers or money. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const {load, db, put, setMock} = require('./lib/rentalTestHarness.cjs');
+const {load, db, put, setMock, tables} = require('./lib/rentalTestHarness.cjs');
 const policy = load('shared/rentalSecurity.ts');
 const consent = load('shared/savedCardSecurity.ts');
 const agreement = load('shared/rentalAgreement.ts');
@@ -77,7 +77,9 @@ const actionCtx={runQuery:async(ref,args)=>{
  const ready={...b,status:'confirmed',savedCardStatus:'needs_setup',idVerifyStatus:'verified',verificationExpiresAt:Date.now()+86400000,verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},verificationArchiveReady:true};
  assert.equal(load('shared/rentalReadiness.ts').rentalStageLabel(ready),'Awaiting saved-card setup');assert.equal(load('shared/verificationJourney.ts').verificationJourney(ready).ready,false);assert.equal(load('shared/verificationJourney.ts').verificationJourney({...ready,savedCardStatus:'saved'}).ready,true);
  await assert.rejects(prepare(b,'damage',200.001,'fraction'),/penny/);
- await assert.rejects(state.prepare.handler(ctx,{token:'foreign',bookingId:b._id,requestId:'foreign-request-0001',kind:'damage',amount:20,reason:'Documented fixture'}));
+ const beforeForeignAttempt=(tables.get('rental_security_charges')??[]).length;
+ await assert.rejects(actions.prepareClaim.handler(actionCtx,{token:'foreign',ownerClaimToken:'synthetic-owner-claim',confirmed:true,bookingId:b._id,requestId:'foreign-request-0001',kind:'damage',amount:20,reason:'Documented fixture'}));
+ assert.equal((tables.get('rental_security_charges')??[]).length,beforeForeignAttempt,'A foreign admin token cannot create an itemised assessment through the public action');
  const damage=await prepare(b,'damage',200,'damage-0001');assert.equal(b.savedCardChargeReservedPence,20000);
  assert.equal(await prepare(b,'damage',200,'damage-0001'),damage);assert.equal(b.savedCardChargeReservedPence,20000);
  await assert.rejects(prepare(b,'damage',201,'damage-0001'),/different/);
@@ -101,6 +103,13 @@ const actionCtx={runQuery:async(ref,args)=>{
  assert.equal((await actions.collect.handler(actionCtx,{token:owner,id:late})).status,'paid');assert.equal(createCalls,2);assert.equal(b.savedCardChargePaidPence,25000);assert.equal(b.lateFeePaidFromCard,50);
  const frozen=await state.beginRefund.handler(ctx,{id:late,amountPence:5000,reason:'Owner corrected return time'});
  await state.recordRefund.handler(ctx,{id:late,receipt:{...frozen.receipt,stripeRefundId:'re_fixture',status:'succeeded'},refundedPence:5000});
+ const refundNotice=tables.get('rental_security_refund_notices').find(row=>row.chargeId===late);
+ assert(refundNotice,'A bank-confirmed assessment refund creates a durable renter email job');assert.equal(refundNotice.amountPence,5000);assert.equal(refundNotice.cumulativePence,5000);assert.equal(refundNotice.reason,'Owner corrected return time');
+ assert(scheduled.some(([,ref,args])=>ref==='securityCharges.sendRefundNotice'&&args.noticeId===refundNotice._id),'The refund email job is dispatched immediately');
+ const claimedNotice=await state.claimRefundNotice.handler(ctx,{noticeId:refundNotice._id});assert.equal(claimedNotice.status,'sending');
+ const noticeContext=await state.refundNoticeContext.handler(ctx,{noticeId:refundNotice._id});assert.equal(noticeContext.account._id,account._id);assert.equal(noticeContext.charge._id,late);
+ await state.finishRefundNotice.handler(ctx,{noticeId:refundNotice._id,sent:true,recipient:account.email,subject:'Refund confirmed',html:'Updated assessment statement'});
+ assert.equal((await db.get(refundNotice._id)).status,'sent');assert.equal((await db.get(late)).refundEmailStatus,'sent');assert.equal((await state.claimRefundNotice.handler(ctx,{noticeId:refundNotice._id})),null,'A sent refund email is not replayed');
  assert.equal(b.savedCardChargePaidPence,25000,'Refund does not restore automatic billing allowance');assert.equal(b.lateFeePaidFromCard,0);
  await state.recordRefund.handler(ctx,{id:late,receipt:{...frozen.receipt,stripeRefundId:'re_fixture',status:'failed'},refundedPence:0});assert.equal(b.lateFeePaidFromCard,50,'Refund reversals update net paid from the bank receipt');
  await assert.rejects(prepare(b,'late',1,'after-refund'),/combined/);
@@ -130,7 +139,9 @@ const actionCtx={runQuery:async(ref,args)=>{
  const legal=load('shared/legalDocuments.ts');assert.equal(legal.RENTAL_DRAFT_RELEASE_READY,false);const terms=JSON.stringify(legal.LEGAL_DOCS.terms);
  assert.match(terms,/£100 per rental/);assert.match(terms,/actually incurred and evidenced/);assert.match(terms,/age, condition and depreciation/);assert.match(terms,/separate payment approval/);
  const checkout=fs.readFileSync('src/app/checkout/page.tsx','utf8');
- assert.match(checkout,/setupIntentPolicy\?`I agree to the linked terms and permit itemised, evidenced post-return claims up to \$\{formatGbp\(futureChargeLimit\)\} combined\. No funds are held; insurance is separate\.`:cardHoldPolicy\?"I agree to the linked terms for the temporary card authorisation hold and return process\. This checkbox does not authorise later off-session charges\.":"I agree to all the linked terms and authorise my card for future damage, loss and late-fee payments\."/,'SetupIntent, Card Hold, and standard checkout branches retain their distinct consent wording');
+ assert(checkout.includes("After return, we record the amount, reason and evidence, send itemised notice, then may make one card attempt"),'Checkout requires an itemised notice after recording the amount, reason and evidence before the one permitted card attempt');
+ assert(checkout.includes("Notice and a seven-day query period apply before collection"),'Historic v1 agreement wording remains explicit');
+ assert(checkout.includes("This checkbox does not authorise later off-session charges"),'Card Hold wording remains distinct');
  const holdDocs=setupLegal.agreementsForSecurityPolicy(policy.CARD_HOLD_SECURITY_POLICY_VERSION);
  assert.doesNotThrow(()=>agreement.assertCurrentAgreement({name:'Card Owner',securityHoldConsent:true,laterChargeConsent:false,documents:holdDocs,securityPolicyVersion:policy.CARD_HOLD_SECURITY_POLICY_VERSION},'pickup'));
  assert.throws(()=>agreement.assertCurrentAgreement({name:'Card Owner',securityHoldConsent:true,laterChargeConsent:true,documents:holdDocs,securityPolicyVersion:policy.CARD_HOLD_SECURITY_POLICY_VERSION},'pickup'),/does not authorise later off-session charges/);

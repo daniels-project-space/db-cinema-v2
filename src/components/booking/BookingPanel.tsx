@@ -87,6 +87,7 @@ export function BookingPanel({
   unavailable,
   demand = 0,
   onAdded,
+  touchFriendlyCalendar = false,
 }: {
   listing: Listing;
   start: string | null;
@@ -97,6 +98,7 @@ export function BookingPanel({
   unavailable: Set<string>;
   demand?: number;
   onAdded?: () => void;
+  touchFriendlyCalendar?: boolean;
 }) {
   const cart = useCart();
   const policy = useQuery(api.settings.get, {});
@@ -112,6 +114,40 @@ export function BookingPanel({
     () => computeQuote(listing.pricing, 1).ladder.filter((tier) => tier.days === 3 || tier.days === 7),
     [listing.pricing],
   );
+  const securitySummary = policy === undefined
+    ? "Checking"
+    : policy.setupIntentSecurityEnabled
+      ? "No hold"
+      : policy.cardHoldSecurityEnabled
+        ? "Temporary hold"
+        : policy.assessmentSecurityEnabled
+          ? "Kit-based amount"
+          : policy.refundableDepositEnabled
+            ? "Refundable amount"
+            : "No hold";
+  const securityHeading = policy?.setupIntentSecurityEnabled
+    ? "Saved-card future-claim ceiling"
+    : policy?.cardHoldSecurityEnabled
+      ? "Card authorisation hold"
+      : "Rental security shown at checkout";
+  const securityAmountDescription = policy === undefined
+    ? "Checking deposit policy…"
+    : policy.setupIntentSecurityEnabled
+      ? "Stripe saves your card; no cash deposit or hold is taken. The saved card may cover itemised late-return charges or severe, permanent cosmetic damage or loss, up to a combined £50, £100 or £200 ceiling set by equipment replacement value. No charge for an on-time return without a reported issue. Insurance is separate."
+      : policy.cardHoldSecurityEnabled
+        ? "A temporary £50, £100 or £200 card authorisation is set by equipment value, unless your account meets the agreed exemption. It is not a payment, but your bank may reduce available balance. If pickup is over a week away, the hold may expire; we request a replacement five hours before pickup."
+        : policy.assessmentSecurityEnabled
+          ? "£20, £50 or £100 based on the whole kit’s replacement value. £0 is only available after a previous clean completed rental with settled security, plus a paid active subscription after its first recurring payment or the final Encore tier. First rentals and free trials do not qualify. No separate card hold."
+          : policy.refundableDepositEnabled
+            ? "£0, £50 or £100 per booking, based on the whole kit’s replacement value. No separate card hold."
+            : "No upfront deposit or card hold. Saved-card permission applies under your rental terms.";
+  const securityReturnDescription = policy === undefined
+    ? "Checkout confirms the exact amount and return process."
+    : policy.setupIntentSecurityEnabled
+      ? "The ceiling is never charged or held. A later payment may be declined or require bank authentication. Checkout shows the exact amount and terms."
+      : policy.cardHoldSecurityEnabled
+        ? "An issue-free return cancels the uncaptured hold; your bank controls when the balance is restored. Any claim needs a recorded reason and evidence. Checkout confirms your exact amount and eligibility."
+        : "Your deposit is separate from the rental price. Any unused deposit is refunded to your original card after the return assessment. Checkout confirms your exact amount and eligibility.";
 
   const startMs = start ? dayMs(start) : 0;
   const endMs = end ? dayMs(end) : 0;
@@ -161,6 +197,7 @@ export function BookingPanel({
         unavailable={blockedDays}
         partial={calendarStock.partial}
         allowUnavailable
+        touchFriendly={touchFriendlyCalendar}
         onPick={onPick}
       />
 
@@ -214,23 +251,32 @@ export function BookingPanel({
             <p className="mt-2 text-right text-[11px] text-white/40">
               Date-based estimate. Confirm exact times and final price at checkout; delivery is quoted separately.
             </p>
-            <div className="mt-3 rounded-xl bg-white/[0.03] p-3 text-xs text-white/55">
-              <p className="font-medium text-white/75">{policy?.setupIntentSecurityEnabled?"Saved-card future-claim ceiling":"Rental security shown at checkout"}</p>
-              <p className="mt-1">{policy === undefined ? "Checking deposit policy…" : policy.setupIntentSecurityEnabled
-                ? "No cash deposit or card hold. Stripe saves your card for itemised late-return charges and severe, permanent cosmetic damage or loss, with a £50, £100 or £200 combined ceiling based on equipment replacement value. No charge on an on-time return without a reported issue; insurance is separate."
-                : policy.assessmentSecurityEnabled
-                ? "£20, £50 or £100 per booking, based on the whole kit’s replacement value. Eligible members and Encore renters pay £0. No separate card hold."
-                : policy.refundableDepositEnabled
-                  ? "£0, £50 or £100 per booking, based on the whole kit’s replacement value. No separate card hold."
-                  : "No upfront deposit or card hold. Saved-card permission applies under your rental terms."}</p>
-              <p className="mt-1">{policy?.setupIntentSecurityEnabled?"The saved-card ceiling is not charged or held. Stripe or your bank may decline a later payment or require authentication; checkout shows the exact amount and terms.":"Your deposit is separate from the rental price. Any unused deposit is refunded to your original card after the return assessment. Checkout confirms your exact amount and eligibility."}</p>
-            </div>
           </div>
         ) : (
           <div className="mt-4 rounded-lg bg-white/[0.03] px-3 py-2.5 text-center text-xs text-white/40">
             Pick your dates on the calendar — longer rentals cost less per day
           </div>
         )}
+
+        {q && (
+          <div data-testid="desktop-security-details" className="mt-3 hidden rounded-xl bg-white/[0.03] p-3 text-xs text-white/55 sm:block">
+            <p className="font-medium text-white/75">{securityHeading}</p>
+            <p className="mt-1">{securityAmountDescription}</p>
+            <p className="mt-1">{securityReturnDescription}</p>
+          </div>
+        )}
+        <details data-testid="mobile-security-details" aria-label="Deposit and card authorisation details" className="group mt-3 rounded-xl border border-white/[0.07] bg-white/[0.025] sm:hidden">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2 text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black">
+            <span className="min-w-0 flex-1 truncate font-medium text-white/75">Deposit &amp; card authorisation details</span>
+            <span className="shrink-0 rounded-full bg-white/[0.05] px-2 py-1 text-[10px] text-white/55">{securitySummary}</span>
+            <span aria-hidden="true" className="shrink-0 text-accent-300 transition-transform group-open:rotate-180">⌄</span>
+          </summary>
+          <div className="border-t border-white/[0.07] px-3 pb-3 pt-2 text-xs text-white/55">
+            <p className="font-medium text-white/75">{securityHeading}</p>
+            <p className="mt-1">{securityAmountDescription}</p>
+            <p className="mt-1">{securityReturnDescription}</p>
+          </div>
+        </details>
 
         {/* availability (unit-aware, whole-cart) */}
         {start && end && !listing.marketingOnly && (
@@ -262,6 +308,7 @@ export function BookingPanel({
         <button
           onClick={addToKit}
           disabled={!canAdd}
+          data-testid="booking-add-to-kit"
           className="btn-primary mt-5 w-full py-3"
         >
           {!start || !end ? "Choose rental dates" : needsRequestReview ? "Add request to kit" : "Add to kit"}

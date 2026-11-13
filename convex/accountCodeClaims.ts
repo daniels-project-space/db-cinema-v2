@@ -24,15 +24,17 @@ export const verify = internalMutation({args:{challengeHash:v.string(),codeHash:
  if(row.codeHash!==a.codeHash)return {ok:false};
  await ctx.db.patch(row._id,{verifiedAt:Date.now(),setupHash:a.setupHash});return {ok:true};
 }});
-export const finish = internalMutation({args:{setupHash:v.string(),salt:v.string(),hash:v.string(),sessionToken:v.string()},handler:async(ctx,a)=>{
+export const finish = internalMutation({args:{setupHash:v.string(),salt:v.string(),hash:v.string(),sessionToken:v.string(),termsAndPrivacyAcknowledged:v.optional(v.boolean()),termsVersion:v.optional(v.string()),privacyNoticeVersion:v.optional(v.string())},handler:async(ctx,a)=>{
  const row=await ctx.db.query("account_codes").withIndex("by_setup",q=>q.eq("setupHash",a.setupHash)).unique();
  if(!row||!row.verifiedAt||row.usedAt||row.expiresAt<=Date.now())throw Error("Your code has expired or was already used. Request a new code.");
+ if(row.purpose==="setup"&&(!a.termsAndPrivacyAcknowledged||!a.termsVersion||!a.privacyNoticeVersion))throw Error("Please accept the current Terms and Conditions and Privacy Notice before setting up your account.");
  let account=await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",row.email)).unique();
  if(account?.blockedAt!=null||row.purpose==="reset"&&!account)throw Error("Account access is unavailable.");
  if(!account){const id=await ctx.db.insert("accounts",{email:row.email,name:row.name,phone:row.phone,createdAt:Date.now()});await ensureReferralCode(ctx,id);account=(await ctx.db.get(id))!;}
  const needsVerificationRecovery=!account.emailVerifiedAt||account.emailVerificationRequired;
  const sessions=await ctx.db.query("sessions").withIndex("by_account",q=>q.eq("accountId",account!._id)).collect();for(const s of sessions)await ctx.db.delete(s._id);
- await ctx.db.patch(account!._id,{salt:a.salt,hash:a.hash,emailVerifiedAt:Date.now(),emailVerificationRequired:false});
+ const acceptedAt=Date.now();
+ await ctx.db.patch(account!._id,{salt:a.salt,hash:a.hash,emailVerifiedAt:acceptedAt,emailVerificationRequired:false,passwordSignInWindowStartedAt:undefined,passwordSignInAttemptCount:undefined,...(row.purpose==="setup"?{accountTermsVersion:a.termsVersion,accountTermsAcceptedAt:acceptedAt,privacyNoticeVersion:a.privacyNoticeVersion,privacyNoticeAcknowledgedAt:acceptedAt}:{})});
  if(needsVerificationRecovery)await ctx.scheduler.runAfter(0,internal.verificationArchive.linkVerifiedAccount,{accountId:account!._id,cursor:null});
  await ctx.db.patch(row._id,{usedAt:Date.now(),setupHash:undefined});
  if(row.cartKey){const cart=await ctx.db.query("checkout_carts").withIndex("by_share",q=>q.eq("shareKey",row.cartKey!)).unique();if(cart&&cart.email===account!.email)await ctx.db.patch(cart._id,{accountId:account!._id});}

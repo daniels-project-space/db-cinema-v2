@@ -7,8 +7,9 @@ let wrongSession = false;
 class StripeFixture {
   checkout = { sessions: { retrieve: async () => {
     if (retrievalFailures > 0) { retrievalFailures--; throw new Error('temporary Stripe outage'); }
-    return { id: 'cs_confirmation_fixture', status: 'complete', payment_status: 'paid', payment_intent: 'pi_confirmation_fixture', metadata: { bookingId: wrongSession ? 'another-booking' : 'bookings-fixture' } };
+    return { id: 'cs_confirmation_fixture', status: 'complete', payment_status: 'paid', payment_intent: 'pi_confirmation_fixture',amount_total:10000,currency:'gbp', metadata: { bookingId: wrongSession ? 'another-booking' : 'bookings-fixture' } };
   } } };
+  paymentIntents={retrieve:async id=>({id,status:'succeeded',amount_received:10000,currency:'gbp'})};
 }
 h.setMock('stripe', { default: StripeFixture });
 const checkout = h.load('convex/checkout.ts');
@@ -20,7 +21,7 @@ let trackedPurchases = 0;
 let stockRefreshes = 0;
 let managerPushSucceeds = true;
 const deliveryOrder = [];
-const booking = { _id: 'bookings-fixture', status: 'pending_verification', verificationProvider: 'didit', idVerifyStatus: 'verified', stripeCheckoutSessionId: 'cs_confirmation_fixture' };
+const booking = { _id: 'bookings-fixture', status: 'pending_verification', verificationProvider: 'didit', idVerifyStatus: 'verified', stripeCheckoutSessionId: 'cs_confirmation_fixture',total:100,currency:'GBP' };
 const ctx = {
   scheduler: { runAfter: async (delay, ref, args) => scheduled.push({ delay, ref, args }) },
   runAction: async (ref, args) => {

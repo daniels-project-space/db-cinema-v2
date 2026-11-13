@@ -33,11 +33,20 @@ const connect = new Function('require', source.slice(0, source.indexOf('const { 
     assert.equal(first.hasFakeTrack, false, 'Showcase has no decorative fake slider');
     assert.notEqual(first.needle, second.needle, 'Gauge needle moves');
     const screenshot = await browser.cmd('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync('/tmp/dbc-assembly-showcase.png', Buffer.from(screenshot.data, 'base64'));
-    await browser.cmd('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-    await wait(400); const mobile = await browser.cmd('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync('/tmp/dbc-assembly-showcase-mobile.png', Buffer.from(mobile.data, 'base64'));
-    const dimensions = await browser.evaluate(`({body:document.body.scrollWidth,viewport:document.documentElement.clientWidth})`);
-    assert(dimensions.body <= dimensions.viewport, 'Showcase does not overflow the mobile viewport');
-    console.log('PASS showcase reflects live catalogue rates without a fake budget slider:', first, second, 'desktop and mobile screenshots in /tmp');
+    await browser.evaluate(`Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'))`);
+    await wait(60);
+    for (const [width, height] of [[320, 640], [390, 844], [430, 932], [768, 900]]) {
+      await browser.cmd('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: true });
+      await wait(80);
+      const layout = await browser.evaluate(`(()=>{const card=document.querySelector('a[aria-labelledby="assembly-showcase-title"]').getBoundingClientRect();return {body:document.body.scrollWidth,viewport:document.documentElement.clientWidth,card:{left:card.left,right:card.right,width:card.width,height:card.height}}})()`);
+      assert(layout.body <= layout.viewport, `Showcase has no horizontal overflow at ${width}px`);
+      assert(layout.card.left >= 0 && layout.card.right <= width, `Showcase card fits at ${width}px`);
+      if (width <= 430) assert(layout.card.height < 260, `Mobile showcase has no oversized empty area at ${width}px`);
+      const shot = await browser.cmd('Page.captureScreenshot', { format: 'png' });
+      fs.writeFileSync(`/tmp/dbc-assembly-showcase-${width}x${height}.png`, Buffer.from(shot.data, 'base64'));
+      console.log(`Showcase ${width}x${height}:`, layout);
+    }
+    console.log('PASS showcase reflects live catalogue rates without placeholder copy or a fake budget slider; four responsive screenshots in /tmp');
   } finally {
     if (browser) { browser.close(); await fetch((process.env.DBC_CDP_URL || 'http://localhost:9224') + '/json/close/' + browser.tabId).catch(() => {}); }
     await new Promise(resolve => server.close(resolve)); fs.rmSync(dir, { recursive: true, force: true });

@@ -21,7 +21,7 @@ import { useCartStockCheck } from "@/components/cart/useCartStockCheck";
 import { CartStockNotice } from "@/components/cart/CartStockNotice";
 import { useAccount } from "@/components/account/AccountProvider";
 import { useFreshVerification } from "@/components/account/useFreshVerification";
-import { AGREEMENTS, agreementsForSecurityPolicy } from "@/lib/legal";
+import { AGREEMENTS, agreementsForSecurityPolicy, COMPANY_CANCELLATION_GUARANTEE_LEGAL_VERSIONS } from "@/lib/legal";
 import { DELIVERY_TERMS_VERSION, DELIVERY_ACCEPTANCE_TEXT } from "../../../shared/rentalAgreement";
 import { depositFor, depositChargeFor, smallDamageHold, formatGbp, type Protection } from "@/lib/pricing";
 import { browserCheckoutStorage, readCheckoutDraft, saveCheckoutDraft } from "@/lib/checkoutDraft";
@@ -29,12 +29,14 @@ import { CartItemTimes } from "@/components/cart/CartItemTimes";
 import { NextAvailableRentalOptions } from "@/components/checkout/NextAvailableRentalOptions";
 import { ReplacementSets } from "@/components/cart/ReplacementSets";
 import { dayMs as ms } from "@/lib/dates";
+import { checkoutStartDestination } from "@/lib/checkoutStartResult";
 import { HOURS_SENTENCE } from "@/lib/site";
 import { groupDeliveryItems } from "../../../shared/deliveryGroups";
+import { CURRENT_PRIVACY_NOTICE_VERSION, legalVersionForPolicy } from "../../../shared/legalVersioning";
 
 import {useCreditBalance} from "@/components/account/useCreditBalance";
 import {CancellationProtection} from "@/components/cart/CancellationProtection";
-import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, isCardHoldSecurityPolicy, savedCardChargeLimit, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION, setupIntentSecurityLimit } from "../../../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, isCardHoldSecurityPolicy, isSetupIntentSecurityPolicy, isImmediateClaimSecurityPolicy, savedCardChargeLimit, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, setupIntentSecurityLimit } from "../../../shared/rentalSecurity";
 
 const PC_RE = /\b(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i;
 const DRAFT_TERMS = JSON.stringify({ documents: AGREEMENTS, delivery: DELIVERY_TERMS_VERSION });
@@ -132,6 +134,7 @@ export default function CheckoutPage() {
   const [err, setErr] = useState<string | null>(null);
   const [recovery,setRecovery]=useState<{key:string;acceptance:string}|null>(null);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [quoteRefreshRevision, setQuoteRefreshRevision] = useState(0);
   const [quoted, setQuoted] = useState<{
     key: string;
     offerContext: string;
@@ -213,9 +216,14 @@ export default function CheckoutPage() {
   const reuseVerification=useQuery(api.accounts.checkoutVerification,account.token && account.me && signature.trim() && billingAddress.trim() && reuseStarts.length && reuseStarts.every(Number.isFinite)
     ? {token:account.token,name:signature,address:billingAddress,starts:reuseStarts} : "skip");
   const reuseVerificationFresh=useFreshVerification(reuseVerification?.proofExpiresAt);
-  const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: deliveryQuoteCurrent ? dq.fee : null, creditReservation:creditAvailability?.available??null, policy:{setupIntent:checkoutSettings?.setupIntentSecurityEnabled,cardHold:checkoutSettings?.cardHoldSecurityEnabled,assessment:checkoutSettings?.assessmentSecurityEnabled,deposit:checkoutSettings?.refundableDepositEnabled,cancellation:checkoutSettings?.cancellationProtectionEnabled}, account: accountPricingContext(account.me) });
+  const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: deliveryQuoteCurrent ? dq.fee : null, creditReservation:creditAvailability?.available??null, policy:{setupIntent:checkoutSettings?.setupIntentSecurityEnabled,cardHold:checkoutSettings?.cardHoldSecurityEnabled,assessment:checkoutSettings?.assessmentSecurityEnabled,deposit:checkoutSettings?.refundableDepositEnabled,cancellation:checkoutSettings?.cancellationProtectionEnabled}, account: accountPricingContext(account.me), refresh:quoteRefreshRevision });
   const offerContext = membershipOfferContext({ ...priceArgs, quotedDeliveryFee: deliveryQuoteCurrent ? dq.fee : null, account: accountPricingContext(account.me) });
   const currentQuote = quoted?.key === quoteKey ? quoted.value : null;
+  // Keep the last quote only as a labelled display reference while a changed
+  // basket is being requoted. It never participates in payment eligibility.
+  const previousSecurityQuote = currentQuote ?? quoted?.value ?? null;
+  const previousDepositAmount = previousSecurityQuote?.depositAmount ?? 0;
+  const previousCardHoldAmount = previousSecurityQuote?.depositHoldAmount ?? 0;
   // Delivery details are not needed to quote the rental-only joining saving.
   // This preview never becomes the billing quote or enables payment.
   const rentalPreview = useBasketPrice(true, false, effectivePickupTime, effectiveReturnTime);
@@ -271,13 +279,18 @@ export default function CheckoutPage() {
   const refundablePolicy = hasCashDepositPolicy(currentQuote?.securityPolicyVersion);
   const assessmentPolicy=currentQuote?.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION;
   const cardHoldPolicy=isCardHoldSecurityPolicy(currentQuote?.securityPolicyVersion);
-  const setupIntentPolicy=currentQuote?.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION;
+  const setupIntentPolicy=isSetupIntentSecurityPolicy(currentQuote?.securityPolicyVersion);
+  const immediateClaimPolicy=isImmediateClaimSecurityPolicy(currentQuote?.securityPolicyVersion);
   const rentalAgreements = agreementsForSecurityPolicy(currentQuote?.securityPolicyVersion,currentQuote?.cancellationProtectionEnabled);
   const savedCardQuoteReady = !!currentQuote && (currentQuote.securityPolicyVersion === SECURITY_POLICY_VERSION || refundablePolicy || cardHoldPolicy || setupIntentPolicy) && Number.isFinite(currentQuote.savedCardLimit) && (cardHoldPolicy ? currentQuote.depositAmount === 0 && currentQuote.savedCardLimit === 0 && [0,50,100,200].includes(currentQuote.depositHoldAmount) : setupIntentPolicy ? [50,100,200].includes(currentQuote.savedCardLimit) && currentQuote.depositAmount === 0 && currentQuote.depositHoldAmount === 0 : (refundablePolicy ? [0,20,50,100].includes(currentQuote.depositAmount) : currentQuote.depositAmount === 0) && currentQuote.depositHoldAmount === 0);
   useEffect(()=>{setAgreed(false);setSignature("");agreementRequest.current=null;},[futureChargeLimit,currentQuote?.depositAmount,currentQuote?.securityPolicyVersion,currentQuote?.cancellationProtectionEnabled]);
   const signDone = agreed && signature.trim().length > 2 && signatureLimit.current === futureChargeLimit && signedContext.current === signingContext;
 
-  const valid = draftReady && savedCardQuoteReady && (!account.token || !!account.me) && (!membership || membership.termsAccepted) && items.length > 0 && detailsDone && fulfilmentDone && signDone && !!currentQuote && !quoteError;
+  const currentAccountTermsVersion = rentalAgreements.find(doc => doc.kind === "terms")?.version;
+  const accountConsentReady = !membership || !!account.me || (!!currentAccountTermsVersion &&
+    membership.accountTermsAcceptedVersion === currentAccountTermsVersion &&
+    membership.privacyNoticeAcceptedVersion === CURRENT_PRIVACY_NOTICE_VERSION);
+  const valid = draftReady && savedCardQuoteReady && (!account.token || !!account.me) && (!membership || membership.termsAccepted) && accountConsentReady && items.length > 0 && detailsDone && fulfilmentDone && signDone && !!currentQuote && !quoteError;
 
   const openedRecorded=useRef(false);
   useEffect(()=>{if(items.length&&draftReady&&!openedRecorded.current){openedRecorded.current=true;void track({type:"checkout_opened",sessionId:getSessionId()}).catch(()=>{});}},[items.length,draftReady,track]);
@@ -314,6 +327,7 @@ export default function CheckoutPage() {
   async function pay() {
     if (!checkout.enabled) { setErr(CHECKOUT_PAUSED_MESSAGE); return; }
     if (availabilityBlocked&&!canRecover) { setErr("Review your basket and choose available alternatives before checkout."); return; }
+    if (membership && !account.me && !accountConsentReady) { setErr("Please agree to the current account Terms and acknowledge the Privacy Notice before continuing."); return; }
     if (!valid) return;
     setBusy(true);
     setErr(null);
@@ -323,7 +337,7 @@ export default function CheckoutPage() {
     try {
       const docs: { kind: string; version: string }[] = rentalAgreements.map((d) => ({ kind: d.kind, version: d.version }));
       if (fulfilment === "delivery") docs.push({ kind: "delivery-disclaimer", version: DELIVERY_TERMS_VERSION });
-      const { url } = await start({
+      const result = await start({
         items: items.map((i) => ({
           listingId: i.listingId as any,
           title: i.title,
@@ -344,22 +358,30 @@ export default function CheckoutPage() {
         deliveryFee: currentQuote!.quotedDeliveryFee,
         expectedTotalDue: currentQuote!.combinedTotalDue,
         expectedSavedCardLimit:futureChargeLimit,
-        selectedMembership: membership ? {tier:membership.tier,intro:membership.intro,termsVersion:MEMBERSHIP_TERMS_VERSION,requestId:membershipAttempt!} : undefined,
+        selectedMembership: membership ? {
+          tier:membership.tier,intro:membership.intro,termsVersion:MEMBERSHIP_TERMS_VERSION,requestId:membershipAttempt!,
+          accountTermsPrivacyAcknowledged: membership.accountTermsAcceptedVersion === currentAccountTermsVersion && membership.privacyNoticeAcceptedVersion === CURRENT_PRIVACY_NOTICE_VERSION,
+          accountTermsVersion: membership.accountTermsAcceptedVersion,
+          privacyNoticeVersion: membership.privacyNoticeAcceptedVersion,
+        } : undefined,
         promoCode: promo.applied ?? undefined,
         protection,useAccountCredit,
         pickupTime:effectivePickupTime,
         returnTime:effectiveReturnTime,
-        agreement: { name: signature.trim(), requestId: acceptanceAttempt, securityHoldConsent: agreed, laterChargeConsent: cardHoldPolicy ? false : agreed, documents: docs },
+        agreement: { name: signature.trim(), requestId: acceptanceAttempt, securityHoldConsent: agreed, laterChargeConsent: cardHoldPolicy ? false : agreed, deliveryAccepted: deliveryAgreed, documents: docs },
       });
       await Promise.race([track({type:"payment_redirect",sessionId:getSessionId()}).catch(()=>{}),new Promise(resolve=>setTimeout(resolve,400))]);
-      window.location.href = url;
+      window.location.href = checkoutStartDestination(result);
     } catch (e: any) {
       void track({type:"checkout_failure",sessionId:getSessionId()}).catch(()=>{});
-      if (e?.data?.code === "CHECKOUT_STOCK_REJECTED" && e.data.freshAcceptanceRequired === true && agreementRequest.current === acceptanceAttempt) {
+      if (e?.data?.freshAcceptanceRequired === true && ["CHECKOUT_STOCK_REJECTED","CHECKOUT_TERMS_CHANGED","CHECKOUT_CLOSED"].includes(e?.data?.code) && agreementRequest.current === acceptanceAttempt) {
         agreementRequest.current = null;
         if (membershipRequest.current === membershipAttempt) membershipRequest.current = null;
+        setAgreed(false);
         setSignature("");
         setRecovery(null);
+        setQuoted(null);
+        setQuoteRefreshRevision(revision=>revision+1);
       } else if(agreementRequest.current===acceptanceAttempt) {
         setRecovery({key:recoveryKey,acceptance:acceptanceAttempt});
       }
@@ -384,6 +406,7 @@ export default function CheckoutPage() {
     );
 
   const label = "hud-label mb-1.5 block";
+  const checkoutLegalVersion = legalVersionForPolicy(checkoutSettings ?? {});
 
   return (
     <>
@@ -391,8 +414,8 @@ export default function CheckoutPage() {
       <CheckoutLoopBanner />
       <main className="section-window mx-auto min-w-0 max-w-5xl px-4 pb-12 pt-6 sm:px-6 sm:pt-8">
         <CheckoutCode benefitKind={currentQuote?.benefitKind}/>
-        {checkoutSettings?.cancellationProtectionEnabled&&<div className="mb-4"><CancellationProtection showV16RenterPolicy={Boolean(checkoutSettings.assessmentSecurityEnabled&&checkoutSettings.cancellationProtectionEnabled)}/></div>}
-        <CheckoutMembership variant="checkout" loading={rentalPreview.loading && !quoteError} appliedSavings={membershipDisplayQuote ?? undefined} suggestions={displayedRecommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
+        {(checkoutSettings?.cancellationProtectionEnabled || (COMPANY_CANCELLATION_GUARANTEE_LEGAL_VERSIONS as readonly string[]).includes(checkoutLegalVersion))&&<div className="mb-4"><CancellationProtection version={checkoutLegalVersion} showV16RenterPolicy={Boolean(checkoutSettings?.assessmentSecurityEnabled&&checkoutSettings?.cancellationProtectionEnabled)}/></div>}
+        <CheckoutMembership variant="checkout" accountTermsVersion={rentalAgreements.find(doc => doc.kind === "terms")?.version} accountPrivacyNoticeVersion={CURRENT_PRIVACY_NOTICE_VERSION} loading={rentalPreview.loading && !quoteError} appliedSavings={membershipDisplayQuote ?? undefined} suggestions={displayedRecommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
         <div className="mt-8 grid min-w-0 grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_330px]">
           <div className="flex flex-col gap-5">
             {/* 01 — details */}
@@ -416,7 +439,7 @@ export default function CheckoutPage() {
                   <label className={label} htmlFor="co-billing-address">Billing address *</label>
                   <textarea id="co-billing-address" value={billingAddress} onChange={(e) => setBillingAddress(e.target.value)} rows={2} placeholder="Street, town or city, postcode" className="input w-full" />
                   <p className="mt-1 text-[11px] text-white/40">Used on your rental statement. If needed, you will submit proof of address through the verification provider.</p>
-                  {!account.me && <p className="mt-2 text-xs text-accent-200/80">Create an account to reuse a fully approved verification and show a verified badge for eligible rentals starting within 90 days. Your name and address must match, and your ID and saved documents must remain valid and accessible; otherwise, we’ll ask you to verify again.</p>}
+                  {!account.me && <p className="mt-2 text-xs leading-relaxed text-accent-200/80">Create an account to reuse approved ID checks for eligible rentals within 90 days, as long as your account details still match.</p>}
                 </div>
               </div>
             </StepCard>
@@ -501,8 +524,16 @@ export default function CheckoutPage() {
                 </nav>
                 <label className="mt-4 flex items-start gap-2.5 text-sm leading-6 text-white/80">
                   <input data-testid="rental-agreement-checkbox" type="checkbox" checked={agreed} disabled={!currentQuote} onChange={e=>{setAgreed(e.target.checked);agreementRequest.current=null;}} className="mt-1 accent-accent-500 disabled:opacity-40"/>
-                  <span data-testid="saved-card-consent-text">{setupIntentPolicy?`I agree to the linked terms and permit itemised, evidenced post-return claims up to ${formatGbp(futureChargeLimit)} combined. No funds are held; insurance is separate.`:cardHoldPolicy?"I agree to the linked terms for the temporary card authorisation hold and return process. This checkbox does not authorise later off-session charges.":"I agree to all the linked terms and authorise my card for future damage, loss and late-fee payments."}</span>
+                  <span data-testid="saved-card-consent-text">{setupIntentPolicy?`I agree to the linked rental terms and Privacy Notice. I permit evidenced post-return claims up to ${formatGbp(futureChargeLimit)}. No funds are held upfront.`:cardHoldPolicy?"I agree to the linked rental terms and a temporary card hold. This does not authorize later charges.":"I have read the linked rental documents and Privacy Notice, and agree to them and authorize my card for future damage, loss and late-fee payments."}</span>
                 </label>
+                {setupIntentPolicy && <details data-testid="claim-consent-details" className="ml-7 mt-2 rounded-lg border border-white/10 bg-white/[.025] px-3 py-2 text-xs text-white/55">
+                  <summary className="cursor-pointer select-none text-accent-300">Claim timing & details</summary>
+                  <p className="mt-2 leading-relaxed">{immediateClaimPolicy?"After return, we record the amount, reason and evidence, send itemised notice, then may make one card attempt.":"An itemised notice and seven-day query period apply before collection."} Insurance is separate.</p>
+                </details>}
+                {cardHoldPolicy && <details className="ml-7 mt-2 rounded-lg border border-white/10 bg-white/[.025] px-3 py-2 text-xs text-white/55">
+                  <summary className="cursor-pointer select-none text-accent-300">Hold & return details</summary>
+                  <p className="mt-2 leading-relaxed">The temporary card authorisation follows the linked return process. This checkbox does not authorise later off-session charges.</p>
+                </details>}
               </div>
               <div className="mt-4">
                 <label className={label} htmlFor="co-sig">Sign by typing your full name *</label>
@@ -557,7 +588,7 @@ export default function CheckoutPage() {
                 {!!membership && <Row label={membership.intro === "trial" ? "Subscription · first 7 days free" : "First subscription month"} value={currentQuote?.membershipFee ?? 0} muted />}
                 <section data-testid="refundable-security" className="mt-3 rounded-xl border border-white/10 bg-white/[.015] p-3">
                   <h3 className="mb-3 text-[10px] font-medium uppercase tracking-[.12em] text-white/55">{savedCardQuoteReady?setupIntentPolicy?'Saved card & future claims':cardHoldPolicy?'Card authorisation hold':assessmentPolicy?'Refundable deposit':'Deposit & card limit':'Quote updating'}</h3>
-                  {savedCardQuoteReady?cardHoldPolicy?<><Row label={currentQuote?.depositHoldAmount?"Temporary card hold":"Card hold"} value={currentQuote?.depositHoldAmount??0} muted/><p className="mt-3 text-[10px] leading-5 text-white/55">{currentQuote?.depositHoldAmount?"Not a payment and not included in your total. It may reduce your available balance. If pickup is more than a week away, we request a replacement five hours before pickup and release the old hold only after the new one succeeds.":"No hold is due because this account meets the agreed exemption criteria."} An issue-free return releases the hold automatically; any claim needs a recorded reason.</p></>:setupIntentPolicy?<><Row label="Future-claim ceiling · not charged or held" value={futureChargeLimit} muted/><p className="mt-3 text-[10px] leading-5 text-white/55">Stripe saves your card for the specific post-return claims in the agreement; no deposit is charged and no funds are reserved. No automatic charge on an on-time return without a reported issue. Claims need a recorded reason, evidence and itemised notice. A later bank payment may be declined or require authentication; insurance is separate.</p></>:<>{refundablePolicy&&<Row label="Refundable deposit today" value={currentQuote?.depositAmount??0}/>}{!assessmentPolicy&&<Row label="Later card limit · not charged" value={futureChargeLimit} muted />}<p className="mt-3 text-[10px] leading-5 text-white/55">{refundablePolicy?"Unused deposit refunded to your card; retained amounts reduce later charges.":"No deposit or card hold. The limit is not charged today."}</p></>:<><Row label="Previous policy refundable deposit" value={currentQuote?.depositAmount??0} muted/><Row label="Previous policy card authorisation" value={currentQuote?.depositHoldAmount??0} muted/><p className="mt-3 text-[10px] leading-5 text-white/55">The updated quote must remove these security amounts before payment is available.</p></>}
+                  {savedCardQuoteReady?cardHoldPolicy?<><Row label={currentQuote?.depositHoldAmount?"Temporary card hold":"Card hold"} value={currentQuote?.depositHoldAmount??0} muted/><p className="mt-3 text-xs leading-relaxed text-white/55">{currentQuote?.depositHoldAmount?"Not a payment or part of your total. It may reduce available balance. If pickup is over a week away, we request a replacement five hours before pickup and release the old hold only after the new hold succeeds.":"No hold is due because this account meets the agreed exemption criteria."} An issue-free return releases the hold automatically; any claim needs a recorded reason.</p></>:setupIntentPolicy?<><Row label="Future-claim limit" value={futureChargeLimit} muted/><p className="mt-3 text-xs leading-relaxed text-white/55">Card saved · no upfront charge · notice before a claim · insurance is separate.</p><details data-testid="card-claim-details" className="mt-2 text-xs text-white/55"><summary className="cursor-pointer select-none text-accent-300 underline underline-offset-4">How any claim is handled</summary><p className="mt-2 leading-relaxed">{immediateClaimPolicy?"A team member sends itemised notice before one attempt.":"Notice and a seven-day query period apply before collection."} Bank payments may be declined or require authentication.</p></details></>:<>{refundablePolicy&&<Row label="Refundable deposit today" value={currentQuote?.depositAmount??0}/>}{!assessmentPolicy&&<Row label="Later card limit · not charged" value={futureChargeLimit} muted />}<p className="mt-3 text-[10px] leading-5 text-white/55">{refundablePolicy?"Unused deposit refunded to your card; retained amounts reduce later charges.":"No deposit or card hold. The limit is not charged today."}</p></>:<>{previousDepositAmount>0&&<Row label="Previous refundable deposit" value={previousDepositAmount} muted/>}{previousCardHoldAmount>0&&<Row label="Previous card authorisation" value={previousCardHoldAmount} muted/>}<p data-testid="checkout-security-quote-status" className="mt-3 text-[10px] leading-5 text-white/55">{previousSecurityQuote?"Security terms are updating. Payment stays disabled until the new quote is ready.":"Calculating security terms. Payment stays disabled until the quote is ready."}</p></>}
                 </section>
               </div>
               <hr className="receipt-sep" />

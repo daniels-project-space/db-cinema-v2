@@ -27,12 +27,17 @@ const moduleRequire = (identifier) => {
     CARD_HOLD_LEGAL_VERSION: "card-hold-v",
     CANCELLATION_PROTECTION_LEGAL_VERSION: "cancellation-v",
     REFUNDABLE_DEPOSIT_LEGAL_VERSION: "cash-v",
-    SETUP_INTENT_LEGAL_VERSION: "setup-v",
+    SETUP_INTENT_LEGAL_VERSION: "2026-11-v21",
     PREVIOUS_SETUP_INTENT_LEGAL_VERSION: "setup-previous-v",
+    PREVIOUS_IMMEDIATE_CLAIM_LEGAL_VERSION: "2026-11-v22",
+    IMMEDIATE_CLAIM_LEGAL_VERSION: "2026-11-v25",
+    IMMEDIATE_CLAIM_LEGAL_VERSIONS: ["2026-11-v22", "2026-11-v23", "2026-11-v24", "2026-11-v25"],
+    COMPANY_CANCELLATION_GUARANTEE_LEGAL_VERSIONS: ["2026-11-v24", "2026-11-v25"],
+    INCLUSIVE_SEVEN_DAY_CANCELLATION_LEGAL_VERSIONS: ["2026-11-v23", "2026-11-v24", "2026-11-v25"],
   };
   if (identifier === "./currentLegalVersion") return {
-    currentLegalVersion: async () => "setup-v",
-    legalVersionForPolicy: (policy) => policy.setupIntentSecurityEnabled ? "setup-v" : policy.cardHoldSecurityEnabled ? "card-hold-v" : policy.assessmentSecurityEnabled ? (policy.cancellationProtectionEnabled ? "cancellation-v" : "assessment-v") : policy.refundableDepositEnabled ? "cash-v" : policy.version,
+    currentLegalVersion: async () => "2026-11-v25",
+    legalVersionForPolicy: (policy) => policy.setupIntentSecurityEnabled ? "2026-11-v25" : policy.cardHoldSecurityEnabled ? "card-hold-v" : policy.assessmentSecurityEnabled ? (policy.cancellationProtectionEnabled ? "cancellation-v" : "assessment-v") : policy.refundableDepositEnabled ? "cash-v" : policy.version,
   };
   if (identifier === "../../shared/gafferPublicKnowledge") return sharedKnowledge;
   throw new Error(`Unexpected module dependency: ${identifier}`);
@@ -51,6 +56,8 @@ const questions = {
 };
 
 const setupFaqs = faqsForPolicy({ setupIntentSecurityEnabled: true });
+const immediateFaqs = faqsForLegalVersion("2026-11-v24");
+const previousImmediateFaqs = faqsForLegalVersion("2026-11-v23");
 assert.match(answerFor(setupFaqs, questions.workflow), /basket or Gaffer quote does not reserve stock/);
 assert.match(answerFor(setupFaqs, questions.workflow), /account shows the current status/);
 assert.doesNotMatch(answerFor(setupFaqs, questions.workflow), /confirmation by email/i);
@@ -58,7 +65,18 @@ assert.match(answerFor(setupFaqs, questions.delivery), /eligible addresses/);
 assert.match(answerFor(setupFaqs, questions.rates), /active membership saving is applied to the quote for that account/);
 assert.match(answerFor(setupFaqs, questions.changes), /not complete until your account shows the updated rental/);
 assert.match(answerFor(setupFaqs, questions.deposits), /no upfront deposit and reserve no card funds/);
-assert.match(answerFor(setupFaqs, questions.cancellations), /cancel more than seven London calendar days.*100% rental credit.*More than 48 hours.*At 48 hours or less.*no rental refund or credit/);
+assert.match(answerFor(setupFaqs, questions.cancellations), /cancelling seven or more London calendar days before the earliest equipment start/);
+assert.match(answerFor(setupFaqs, questions.cancellations), /Cancelling more than 48 hours before scheduled pickup, but fewer than seven London calendar days before that start/);
+assert.match(answerFor(setupFaqs, questions.cancellations), /At 48 hours or less before (?:scheduled )?pickup.*no rental refund or credit/);
+assert.match(answerFor(immediateFaqs, questions.cancellations), /seven or more London calendar days before the earliest equipment start/);
+assert.match(answerFor(immediateFaqs, questions.cancellations), /more than 48 hours before scheduled pickup, but fewer than seven London calendar days/);
+assert.match(answerFor(immediateFaqs, questions.cancellations), /48 hours or less before scheduled pickup/);
+assert.match(answerFor(immediateFaqs, questions.cancellations), /DB Cinema cancels a confirmed rental before pickup for any reason/);
+assert.match(answerFor(previousImmediateFaqs, questions.cancellations), /equipment is unexpectedly unavailable/);
+assert.doesNotMatch(answerFor(previousImmediateFaqs, questions.cancellations), /for any reason/);
+assert.match(answerFor(faqsForLegalVersion("2026-11-v22"), questions.cancellations), /more than seven London calendar days before the earliest equipment start/);
+assert.match(answerFor(faqsForLegalVersion("2026-11-v22"), questions.cancellations), /within seven or fewer London calendar days/);
+assert.match(answerFor(faqsForLegalVersion("2026-11-v21"), questions.cancellations), /more than seven London calendar days before the earliest equipment start/);
 assert.match(answerFor(faqsForLegalVersion("setup-previous-v"), questions.cancellations), /At seven days or less.*account credit/);
 const cardHoldFaqs = faqsForPolicy({ cardHoldSecurityEnabled: true });
 assert.match(answerFor(cardHoldFaqs, questions.deposits), /temporary card authorisation of £50 below £1,000/);
@@ -85,7 +103,8 @@ assert.match(botBubble, /dbc:open-gaffer-chat/);
 getCurrentFaqs()
   .then((currentFaqs) => {
     assert.equal(answerFor(currentFaqs, questions.deposits), answerFor(setupFaqs, questions.deposits));
-    console.log("PASS Gaffer and the public FAQ share versioned policy answers, accurate checkout guidance, and guarded account changes.");
+    assert.equal(answerFor(currentFaqs, questions.cancellations), answerFor(immediateFaqs, questions.cancellations));
+    console.log("PASS Gaffer and the public FAQ share versioned policy answers, cancellation date anchors, accurate checkout guidance, and guarded account changes.");
   })
   .catch((error) => {
     console.error(error);

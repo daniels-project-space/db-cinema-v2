@@ -3,15 +3,18 @@ process.env.ADMIN_TOKEN='credit-grant-fixture-admin';
 const credits=h.load('convex/accountCredits.ts');
 const account=h.put('accounts',{email:'owner-credit@example.invalid'}),other=h.put('accounts',{email:'other@example.invalid'}),now=Date.now();
 h.put('sessions',{token:'owned-credit-token',accountId:account._id,expiresAt:now+86400000});
-const ctx={db:h.db,scheduler:{runAfter:async()=>{}}},args={token:process.env.ADMIN_TOKEN,accountId:account._id,amount:10,requestId:'fixture-admin-credit-012345',expectedRevision:0};
+const ctx={db:h.db,scheduler:{runAfter:async()=>{}}},args={token:process.env.ADMIN_TOKEN,accountId:account._id,amount:10,requestId:'fixture-admin-credit-012345',expectedRevision:0,reason:'Customer service goodwill'};
 (async()=>{
  process.env.ADMIN_SESSION_CREDIT_V2='enabled';
  for(const name of ['grantAdmin','adminHistory'])await assert.rejects(credits[name].handler(ctx,args),/session migration is not ready/i,name);
  assert.equal((h.tables.get('credits')??[]).length,0);delete process.env.ADMIN_SESSION_CREDIT_V2;
  await assert.rejects(credits.grantAdmin.handler(ctx,{...args,token:'wrong'}),/unauthorized/i);assert.equal((h.tables.get('credits')??[]).length,0);
+ await assert.rejects(credits.grantAdmin.handler(ctx,{...args,reason:''}),/reason so the account credit has an audit record/);
  for(const amount of [0,-10,0.001,NaN,Infinity])await assert.rejects(credits.grantAdmin.handler(ctx,{...args,amount}),/positive credit amount/);
+ await assert.rejects(credits.grantStatus.handler(ctx,{token:'wrong',accountId:account._id}),/unauthorized/i,'Credit balance projection stays admin-only');
+ assert.equal((await credits.grantStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,accountId:account._id})).availablePence,0,'A new account starts with no available credit');
  const result=await credits.grantAdmin.handler(ctx,args);assert.equal(result.amount,10);assert.equal(result.replayed,false);
- const receipt=await credits.grantStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,accountId:account._id,requestId:args.requestId});assert.equal(receipt.revision,1);assert.equal(receipt.receipt.amount,10);assert.equal(receipt.latest.requestId,args.requestId);
+ const receipt=await credits.grantStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,accountId:account._id,requestId:args.requestId});assert.equal(receipt.revision,1);assert.equal(receipt.receipt.amount,10);assert.equal(receipt.latest.requestId,args.requestId);assert.equal(receipt.availablePence,1000,'An issued grant increases the account balance');
  const row=await h.db.get(result.creditId);assert.equal(row.expiresAt-row.createdAt,365*86400000);assert.equal(row.kind,'earned');
  const oldNow=Date.now;Date.now=()=>now+86400000;try{const retry=await credits.grantAdmin.handler(ctx,args);assert.equal(retry.creditId,result.creditId);assert.equal(retry.expiresAt,result.expiresAt);assert.equal(retry.replayed,true);}finally{Date.now=oldNow}
  assert.equal((await credits.statement.handler(ctx,{token:process.env.ADMIN_TOKEN,creditId:row._id})).amount,10);
@@ -31,10 +34,13 @@ const ctx={db:h.db,scheduler:{runAfter:async()=>{}}},args={token:process.env.ADM
  await assert.rejects(credits.balance.handler(ctx,{token:'foreign-token'}),/Sign in/);
  const pending=h.put('bookings',{accountId:account._id,guestEmail:'previous-email@example.invalid',status:'pending_payment',creditApplied:3,creditAllocations:[{creditId:row._id,amount:3,kind:'earned'}]});
  assert.equal((await credits.balance.handler(ctx,{token:'owned-credit-token'})).available,7,'Permanent account allocations survive email changes');
+ assert.equal((await credits.grantStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,accountId:account._id})).availablePence,700,'Open checkout reservations reduce spendable account credit');
  h.put('bookings',{accountId:other._id,guestEmail:account.email,status:'pending_payment',creditApplied:9,creditAllocations:[{creditId:row._id,amount:9,kind:'earned'}]});
  assert.equal((await credits.balance.handler(ctx,{token:'owned-credit-token'})).available,7,'Foreign same-email booking cannot reserve another account credit');
- pending.status='cancelled';assert.equal((await credits.balance.handler(ctx,{token:'owned-credit-token'})).available,10);
- row.expiresAt=now-1;assert.equal((await credits.balance.handler(ctx,{token:'owned-credit-token'})).available,0,'Expired credit is unavailable even before scheduled cleanup');
+ pending.status='cancelled';assert.equal((await credits.balance.handler(ctx,{token:'owned-credit-token'})).available,10);assert.equal((await credits.grantStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,accountId:account._id})).availablePence,1000,'Cancelled checkout releases its reservation');
+ row.remaining=4.25;assert.equal((await credits.grantStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,accountId:account._id})).availablePence,425,'A completed credit spend lowers the available balance');
+ row.revokedPendingPence=125;assert.equal((await credits.grantStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,accountId:account._id})).availablePence,300,'A pending revocation excludes that amount from future spend');
+ row.expiresAt=now-1;assert.equal((await credits.balance.handler(ctx,{token:'owned-credit-token'})).available,0,'Expired credit is unavailable even before scheduled cleanup');assert.equal((await credits.grantStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,accountId:account._id})).availablePence,0,'Expired credit is excluded from the admin balance');
  const next=await credits.grantAdmin.handler(ctx,{...args,amount:5,requestId:'fixture-admin-credit-next-01',expectedRevision:1});
  assert.equal(next.amount,5);assert.equal(next.replayed,false,'Account credits issue immediately without a receipt approval gate');
  await assert.rejects(credits.grantAdmin.handler(ctx,{...args,amount:7,requestId:'fixture-admin-credit-stale-01',expectedRevision:1}),/changed in another tab/,'A stale tab cannot create a second grant');

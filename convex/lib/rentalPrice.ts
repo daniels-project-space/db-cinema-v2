@@ -8,7 +8,7 @@ import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { api, internal } from "../_generated/api";
 import { depositFor, depositChargeFor } from "./pricing";
-import { ASSESSMENT_SECURITY_POLICY_VERSION, assessmentDepositFor, cardHoldFor, cardLimitForPolicy, CARD_HOLD_SECURITY_POLICY_VERSION, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit, SETUP_INTENT_SECURITY_POLICY_VERSION } from "../../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, assessmentDepositFor, cardHoldFor, cardLimitForPolicy, CARD_HOLD_SECURITY_POLICY_VERSION, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit, IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION } from "../../shared/rentalSecurity";
 import { londonMonth } from "./memberDelivery";
 import { tierByKey } from "./membership";
 import { groupDeliveryItems } from "../../shared/deliveryGroups";
@@ -29,7 +29,7 @@ export type RentalPriceInput = {
   token?: string;
   useAccountCredit?:boolean;
   selectedMembership?: { tier: string; intro: "trial" | "credit" | "none" };
-  customer: { email: string };
+  customer: { email: string; name?: string; billingAddress?: string };
   fulfilment: "pickup" | "delivery";
   address?: string;
   deliveryPostcode?: string;
@@ -131,7 +131,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const cardHoldPolicy=!setupIntentPolicy&&process.env.CARD_HOLD_SECURITY_POLICY_ENABLED==="true";
   const assessmentPolicy=!setupIntentPolicy&&!cardHoldPolicy&&process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true";
   const refundablePolicy = !setupIntentPolicy&&!cardHoldPolicy&&(assessmentPolicy || process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED === "true");
-  const securityPolicyVersion = setupIntentPolicy?SETUP_INTENT_SECURITY_POLICY_VERSION:cardHoldPolicy?CARD_HOLD_SECURITY_POLICY_VERSION:assessmentPolicy?ASSESSMENT_SECURITY_POLICY_VERSION:refundablePolicy ? REFUNDABLE_DEPOSIT_POLICY_VERSION : SECURITY_POLICY_VERSION;
+  const securityPolicyVersion = setupIntentPolicy?IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION:cardHoldPolicy?CARD_HOLD_SECURITY_POLICY_VERSION:assessmentPolicy?ASSESSMENT_SECURITY_POLICY_VERSION:refundablePolicy ? REFUNDABLE_DEPOSIT_POLICY_VERSION : SECURITY_POLICY_VERSION;
   const cashDeposit = setupIntentPolicy||cardHoldPolicy?0:assessmentPolicy?assessmentDepositFor(replacementSum):refundablePolicy ? refundableDepositFor(replacementSum) : depositChargeFor(protection, replacementSum);
   let depositHoldAmount = setupIntentPolicy?0:cardHoldPolicy?cardHoldFor(replacementSum):refundablePolicy ? 0 : depositFor(protection, replacementSum);
   let repeatSourceBookingId: Id<"bookings"> | undefined;
@@ -141,6 +141,9 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     securityWaiverReason = (await ctx.runQuery(internal.bookings.depositWaiverEligibility, {
       accountId: acct._id,
       replacementValuePence: Math.round(replacementSum * 100),
+      starts: a.items.map(item => item.start),
+      agreementName: a.customer.name,
+      billingAddress: a.customer.billingAddress,
     })) ?? undefined;
   }
   if(cardHoldPolicy&&securityWaiverReason)depositHoldAmount=0;

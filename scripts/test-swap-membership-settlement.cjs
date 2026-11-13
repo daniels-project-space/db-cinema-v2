@@ -22,7 +22,7 @@ for(const entry of [first,old])put("reservations",{bookingId:booking._id,listing
  const args={token:process.env.ADMIN_TOKEN,bookingId:booking._id,lineIndex:1,newListingId:next.item._id},preview=await state.preview.handler(ctx,args);
  assert.equal(preview.quote.deltaPence,-5500);
  const id=await state.propose.handler(ctx,{...args,requestId:"member-multiline-swap-fixture",quoteSnapshot:preview.quoteSnapshot,confirmed:true});
- await state.accept.handler(ctx,{token:"member-renter",id,expectedDeltaPence:-5500});
+ await state.accept.handler(ctx,{token:"member-renter",id,confirmed:true,expectedDeltaPence:-5500});
  require('./lib/rentalTestHarness.cjs').confirmSyntheticSwapStock(id);
  const refundJob=await state.prepareRefund.handler(ctx,{id});assert.equal(refundJob.amountPence,5500);
  await assert.rejects(state.apply.handler(ctx,{id,stageRefund:true}),/cannot be applied before its refund succeeds/);

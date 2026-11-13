@@ -1,5 +1,4 @@
 import {ASSESSMENT_SECURITY_POLICY_VERSION,depositForBookingPolicy} from "../shared/rentalSecurity";
-import { assertSwapStockReconciled } from "./lib/swapStockFence";
 import { replacementSets } from "./lib/replacementSets";
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
@@ -8,11 +7,8 @@ import { bookingStockLines } from "../shared/rentalWindow";
 import { rentalPricingDays } from "../shared/rentalDuration";
 import { quote } from "./lib/pricing";
 import { assertRentalInventory } from "./lib/rentalInventory";
-import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { assertRenterExposure, replacementValues } from "./lib/rentalExposure";
 import { listingImages } from "./lib/catalogImages";
-import { stockWindow } from "./lib/stockWindows";
-import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import {
   replacementCompatible,
   assertReplacementSnapshot,
@@ -32,12 +28,6 @@ async function context(ctx: any, bookingId: any, lineIndex: number) {
   return { b, original, line: b.lineItems[lineIndex] };
 }
 /** Bounded, category-indexed candidates; every result checks the entire proposed basket. */
-async function assertReplacementDeposit(ctx:any,b:any,lines:any[]){
- if(b.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION)return;
- const values=await replacementValues(ctx,b,lines);
- const value=lines.reduce((sum:number,line:any)=>sum+values.find(v=>v.listingId===line.listingId)!.unitPence*line.qty/100,0);
- if(depositForBookingPolicy(b,value)>b.depositAmount)throw Error("This equipment upgrade needs a reviewed deposit update before it can be applied.");
-}
 function preservesAgreedCharge(line:any,candidate:any):boolean{
  if(!line||!candidate?.pricing||!Number.isSafeInteger(line.qty)||line.qty<1||!Number.isFinite(line.lineTotal)||line.lineTotal<0)return false;
  try{
@@ -46,6 +36,12 @@ function preservesAgreedCharge(line:any,candidate:any):boolean{
   const originalPence=Math.round(line.lineTotal*100),replacementPence=Math.round(replacementTotal*100);
   return Math.abs(line.lineTotal*100-originalPence)<0.000001&&Number.isSafeInteger(replacementPence)&&originalPence===replacementPence;
  }catch{return false;}
+}
+async function assertReplacementDeposit(ctx:any,b:any,lines:any[]){
+ if(b.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION)return;
+ const values=await replacementValues(ctx,b,lines);
+ const value=lines.reduce((sum:number,line:any)=>sum+values.find(v=>v.listingId===line.listingId)!.unitPence*line.qty/100,0);
+ if(depositForBookingPolicy(b,value)>b.depositAmount)throw Error("This equipment upgrade needs a reviewed deposit update before it can be applied.");
 }
 export const options = query({
   args: {
@@ -118,7 +114,7 @@ export const options = query({
     };
   },
 });
-/** One transaction: verify stock and version, replace the line and reservations, or do nothing. */
+/** Legacy compatibility endpoint. New equipment changes must use the renter-approved priced flow. */
 export const accept = mutation({
   args: {
     token: v.string(),
@@ -142,112 +138,7 @@ export const accept = mutation({
     }
     if (!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId))
       throw Error("Invalid replacement request.");
-    if (
-      b.status !== "confirmed" ||
-      b.cancellationDecision ||
-      b.activeAdditionId ||
-      b.activeDeliveryQuoteId ||
-      b.activeExtensionId ||
-      b.activePriceAdjustmentId ||
-      b.activeItemSwapId ||
-      b.returnDecision
-    )
-      throw Error(
-        "Finish the open operation first. Only an upcoming confirmed rental can be changed here.",
-      );
-    await assertSwapStockReconciled(ctx, b._id);
-    const { original, line } = await context(ctx, a.bookingId, a.lineIndex);
-    assertReplacementSnapshot(
-      {
-        lineIndex: a.lineIndex,
-        oldListingId: line.listingId,
-        newListingId: a.newListingId,
-        qty: line.qty,
-        start: line.start,
-        end: line.end,
-      },
-      a,
-    );
-    const replacement = await ctx.db.get(a.newListingId);
-    if (
-      !replacementCompatible(original, replacement,b) ||
-      b.lineItems.some((l: any) => l.listingId === a.newListingId)
-    )
-      throw Error("Replacement needs a separate price or equipment review.");
-    if(!preservesAgreedCharge(line,replacement))throw Error("This replacement changes the agreed rental price. Use a priced equipment-change proposal instead.");
-    const refunds = await ctx.db
-      .query("rental_refunds")
-      .withIndex("by_booking", (q) => q.eq("bookingId", b._id))
-      .collect();
-    if (refunds.some((r) => ["prepared", "pending"].includes(r.status)))
-      throw Error("Wait for the open refund to settle.");
-    const reservations = await ctx.db
-      .query("reservations")
-      .withIndex("by_booking", (q) => q.eq("bookingId", b._id))
-      .collect();
-    if (
-      reservations.some(
-        (r) => r.source !== "site" || ["active", "hold"].includes(r.status),
-      )
-    )
-      throw Error(
-        "Resolve collected kit or an open hold through its original flow.",
-      );
-    await assertRentalAllocation(ctx, b, reservations);
-    let originalUnavailable = false;
-    try {
-      await assertRentalInventory(ctx, bookingStockLines(b), b._id);
-    } catch {
-      originalUnavailable = true;
-    }
-    if (!originalUnavailable)
-      throw Error(
-        "The requested kit is now available. Refresh the replacement choices.",
-      );
-    const lines = bookingStockLines(b).map((l, i) =>
-      i === a.lineIndex
-        ? { ...l, listingId: a.newListingId, title: replacement!.title }
-        : l,
-    );
-    await assertRentalInventory(ctx, lines, b._id);
-    await assertReplacementDeposit(ctx,b,lines);
-    await assertRenterExposure(ctx, b, lines);
-    for (const r of reservations)
-      if (r.status === "confirmed")
-        await ctx.db.patch(r._id, { status: "cancelled" });
-    for (const l of lines) {
-      const listing = await ctx.db.get(l.listingId);
-      for (const component of listing!.components)
-        await ctx.db.insert("reservations", {
-          bookingId: b._id,
-          listingId: l.listingId,
-          inventoryUnitId: component.inventoryUnitId,
-          ...stockWindow(l, true),
-          qty: component.qty * l.qty,
-          source: "site",
-          status: "confirmed",
-        });
-    }
-    await ctx.db.patch(b._id, {
-      lineItems: lines,
-      replacementValues: await replacementValues(ctx, b, lines),
-      kitReplacements: [
-        ...(b.kitReplacements ?? []),
-        {
-          requestId: a.requestId,
-          lineIndex: a.lineIndex,
-          oldListingId: a.oldListingId,
-          newListingId: a.newListingId,
-          qty: a.qty,
-          start: a.start,
-          end: a.end,
-          appliedAt: Date.now(),
-        },
-      ],
-    });
-    await queueRmv2Sync(ctx, b._id);
-    // No chat, email, money or verification change. Operator sends the separate reviewed draft.
-    return { ok: true, replayed: false };
+    throw Error("This legacy replacement is closed. Use the renter-approved equipment-change proposal.");
   },
 });
 
@@ -488,114 +379,6 @@ export const acceptBasket = mutation({
       }
       return { ok: true, replayed: true };
     }
-    if (
-      b.status !== "confirmed" ||
-      b.cancellationDecision ||
-      b.activeAdditionId ||
-      b.activeDeliveryQuoteId ||
-      b.activeExtensionId ||
-      b.activePriceAdjustmentId ||
-      b.activeItemSwapId ||
-      b.returnDecision
-    )
-      throw Error(
-        "Finish the open operation first. Only an upcoming confirmed rental can be changed here.",
-      );
-    await assertSwapStockReconciled(ctx, b._id);
-    const fresh = await completeBasketOptions(ctx, a.bookingId);
-    const choice = fresh.options.find(
-      (option: any) => option.id === a.replacementId,
-    );
-    if (
-      !choice?.can_apply ||
-      basketSnapshot(choice.original) !== basketSnapshot(a.original)
-    )
-      throw Error(
-        "The kit, dates or availability changed. Refresh the complete sets.",
-      );
-    const refunds = await ctx.db
-      .query("rental_refunds")
-      .withIndex("by_booking", (q) => q.eq("bookingId", b._id))
-      .collect();
-    if (refunds.some((r) => ["prepared", "pending"].includes(r.status)))
-      throw Error("Wait for the open refund to settle.");
-    const reservations = await ctx.db
-      .query("reservations")
-      .withIndex("by_booking", (q) => q.eq("bookingId", b._id))
-      .collect();
-    if (
-      reservations.some(
-        (r) => r.source !== "site" || ["active", "hold"].includes(r.status),
-      )
-    )
-      throw Error(
-        "Resolve collected kit or an open hold through its original flow.",
-      );
-    await assertRentalAllocation(ctx, b, reservations);
-    const lines = bookingStockLines(b).map((line: any, index: number) => {
-      const replacement = choice.items.find(
-        (item: any) => item.lineIndex === index,
-      );
-      return replacement
-        ? { ...line, listingId: replacement.id, title: replacement.name }
-        : line;
-    });
-    await assertRentalInventory(ctx, lines, b._id);
-    await assertReplacementDeposit(ctx,b,lines);
-    await assertRenterExposure(ctx, b, lines);
-    for (const reservation of reservations)
-      if (reservation.status === "confirmed")
-        await ctx.db.patch(reservation._id, { status: "cancelled" });
-    for (const line of lines) {
-      const listing: any = await ctx.db.get(line.listingId);
-      for (const component of listing!.components)
-        await ctx.db.insert("reservations", {
-          bookingId: b._id,
-          listingId: line.listingId,
-          inventoryUnitId: component.inventoryUnitId,
-          ...stockWindow(line, true),
-          qty: component.qty * line.qty,
-          source: "site",
-          status: "confirmed",
-        });
-    }
-    await ctx.db.patch(b._id, {
-      lineItems: lines,
-      replacementValues: await replacementValues(ctx, b, lines),
-      kitReplacements: [
-        ...(b.kitReplacements ?? []),
-        ...choice.items.map((item: any, i: number) => ({
-          requestId: `${a.requestId}:${a.original.lines[i].lineIndex}`,
-          lineIndex: a.original.lines[i].lineIndex,
-          oldListingId: a.original.lines[i].listingId,
-          newListingId: item.id,
-          qty: a.original.lines[i].qty,
-          start: a.original.lines[i].start,
-          end: a.original.lines[i].end,
-          appliedAt: Date.now(),
-        })),
-      ],
-    });
-    await queueRmv2Sync(ctx, b._id);
-    return { ok: true, replayed: false };
+    throw Error("This legacy replacement is closed. Use the renter-approved equipment-change proposal.");
   },
 });
-
-function basketSnapshot(original: any) {
-  return JSON.stringify([
-    (original.lines ?? []).map((line: any) => [
-      line.lineIndex,
-      line.listingId,
-      line.qty,
-      line.start,
-      line.end,
-    ]),
-    (original.items ?? []).map((item: any) => [
-      item.product_id,
-      item.name,
-      item.qty,
-    ]),
-    original.start ?? null,
-    original.end ?? null,
-  ]);
-}

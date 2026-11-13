@@ -14,9 +14,23 @@ function paymentGate() {
 }
 
 async function ensureSession(ctx: any, requestId: any, reason: string, approvedReturnTime?: string) {
-  paymentGate();
+  const initial: any = await ctx.runQuery(internal.rentalExtensions.context, { requestId });
+  if (!initial?.request || initial.request.type !== "extend") throw Error("Extension request unavailable.");
+  if (initial.request.status === "applied") return { applied: true };
+  const requestedAmount = initial.request.priceDelta;
+  if (!Number.isFinite(requestedAmount) || requestedAmount < 0) throw Error("The extension quote is invalid.");
+  if (requestedAmount > 0) paymentGate();
+
   const r: any = await ctx.runMutation(internal.rentalExtensions.prepare, { requestId, reason, ...(approvedReturnTime ? { approvedReturnTime } : {}) });
   if (r.status === "applied") return { applied: true };
+  if (r.priceDelta === 0) {
+    if (r.stripePaymentLinkId || r.paymentLinkUrl) throw Error("This zero-balance extension has an older payment session and needs reconciliation.");
+    const settled = await ctx.runMutation(internal.rentalExtensions.applyPaid, { requestId, amountPence: 0, approvedZero: true });
+    if (!settled?.ok) throw Error("The approved zero-balance extension could not be applied. Refresh availability and review the request again.");
+    return { applied: true, zeroAmount: true };
+  }
+  if (!Number.isFinite(r.priceDelta) || r.priceDelta < 0) throw Error("The extension quote is invalid.");
+  paymentGate();
   if (r.stripePaymentLinkId) return stripe().checkout.sessions.retrieve(r.stripePaymentLinkId);
   // Recover a lost create response before an old idempotency key or expiry can be reused.
   if (Date.now() >= r.approvedAt + 23 * 3600000) {

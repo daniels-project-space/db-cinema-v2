@@ -23,7 +23,9 @@ export const lead = mutation({
     const body = `[VOICE · ${kind}] ${name}${phone ? ` · ${phone}` : ""}${email ? ` · ${email}` : ""}\n${message}`;
     await ctx.db.insert("contact_messages", {
       name,
-      email: email || "voice@dbcinemarentals.com",
+      // Keep this empty when the caller did not provide an address. A fake
+      // internal address looks replyable in Admin and can misroute a response.
+      email: email || "",
       message: body,
       routedTo: `voice-${kind}`,
       handled: false,

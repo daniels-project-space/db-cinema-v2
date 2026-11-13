@@ -8,8 +8,8 @@ const root = path.resolve(__dirname, '..');
 const refs = new Proxy({}, {get: (_, group) => new Proxy({}, {get: (_, name) => `${String(group)}:${String(name)}`})});
 const registered = {action: x => x, internalAction: x => x, query: x => x, internalQuery: x => x, mutation: x => x, internalMutation: x => x};
 const sessions = {
-  paid: {id:'paid',status:'complete',payment_status:'paid',payment_intent:'pi_paid'},
-  verification: {id:'verification',status:'complete',payment_status:'paid',payment_intent:'pi_verification'},
+  paid: {id:'paid',status:'complete',payment_status:'paid',payment_intent:'pi_paid',amount_total:10000,currency:'gbp'},
+  verification: {id:'verification',status:'complete',payment_status:'paid',payment_intent:'pi_verification',amount_total:10000,currency:'gbp'},
   expired: {id:'expired',status:'expired',payment_status:'unpaid'},
   open: {id:'open',status:'open',payment_status:'unpaid'},
   processing: {id:'processing',status:'complete',payment_status:'unpaid'},
@@ -18,6 +18,10 @@ class FakeStripe {
   checkout = {sessions: {
     retrieve: async id => {if(id==='failed')throw Error('provider temporarily unavailable');return sessions[id];},
     expire: async id => ({...sessions[id],status:'expired'}),
+  }};
+  paymentIntents = {retrieve: async id => {
+    const session=Object.values(sessions).find(row=>row.payment_intent===id);
+    return {id,status:'succeeded',amount_received:session?.amount_total??0,currency:session?.currency??'gbp'};
   }};
 }
 function load(file) {
@@ -84,21 +88,23 @@ const {expire:expireCredits}=load('convex/credits.ts');
 
   // A credit valid when checkout began remains reserved even when the webhook
   // arrives just after its expiry; it is not silently given away as a discount.
-  const booking={_id:'booking-credit',_creationTime:now-10000,status:'pending_payment',
+  const booking={_id:'booking-credit',_creationTime:now-10000,status:'pending_payment',verificationProvider:'didit',
+    idVerifyStatus:'verified',idVerifiedAt:now-1000,
     guestEmail:'owner@example.invalid',subtotal:100,total:90,depositAmount:0,creditApplied:10,lineItems:[]};
   const credit={_id:'credit-1',accountId:'owner-account',createdAt:now-100000,
     expiresAt:now-5000,status:'active',remaining:10};
   const patches=[],queuedEmails=[];
   const db={
     get:async id=>id==='booking-credit'?booking:id==='owner-account'?{_id:'owner-account',email:'owner@example.invalid'}:null,
-    query:table=>({withIndex:()=>({collect:async()=>table==='credits'?[credit]:[],first:async()=>table==='accounts'?{_id:'owner-account'}:null,unique:async()=>table==='accounts'?{_id:'owner-account'}:null,order:()=>({take:async()=>[]})})}),
+    query:table=>({withIndex:()=>({collect:async()=>table==='credits'?[credit]:[],first:async()=>table==='accounts'?{_id:'owner-account'}:null,unique:async()=>table==='accounts'?{_id:'owner-account'}:null,take:async()=>[],order:()=>({take:async()=>[]})})}),
     patch:async(id,patch)=>patches.push({id,patch}),
     insert:async(table,value)=>{if(table==="admin_notifications")return "notification-fixture";assert.equal(table,"rental_email_deliveries");queuedEmails.push(value);return "delivery-fixture";},
   };
   const bookingCtx={db,scheduler:{runAfter:async()=>{}}};
   await confirm.handler(bookingCtx,{bookingId:'booking-credit',paymentIntentId:'pi_paid'});
   assert.ok(patches.some(p=>p.id==='credit-1'&&p.patch.remaining===0&&p.patch.status==='spent'));
-  assert.deepEqual(queuedEmails.map(x=>x.kind),["payment","receipt"]);
+  assert.deepEqual(queuedEmails.map(x=>x.kind),["verification"],
+    'A verified paid rental gets one confirmation email carrying invoice/pickup details, not duplicate payment/receipt messages');
   booking.status='confirmed';
   assert.equal(await expireUnpaidPending.handler(bookingCtx,{bookingId:'booking-credit'}),false);
 

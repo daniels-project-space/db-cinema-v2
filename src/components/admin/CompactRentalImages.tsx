@@ -1,10 +1,13 @@
 "use client";
 
 import { SmartImage } from "@/components/SmartImage";
-import { groupRentalKit, uniqueKitPhotos, type RentalKitItem } from "@/lib/rentalKit";
+import { groupRentalKit, type RentalKitItem } from "@/lib/rentalKit";
 
 export function CompactRentalImages({ items }: { items: RentalKitItem[] }) {
-  const grouped = uniqueKitPhotos(groupRentalKit(items));
+  // Keep one card per distinct listing/rental period; quantity is shown on that
+  // card. Two different listings can share the same source photo and must not
+  // disappear from the renter's booked-kit preview just because their URLs match.
+  const grouped = groupRentalKit(items);
   if (!grouped.length) return null;
   return <div role="region" aria-label="Booked equipment images" tabIndex={0} className="flex min-w-0 gap-1.5 overflow-x-auto pb-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-400">
     {grouped.map((item, index) => <div key={index} title={`${item.title}${(item.qty ?? 1) > 1 ? ` ×${item.qty}` : ""}`} className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-white/[0.04]">

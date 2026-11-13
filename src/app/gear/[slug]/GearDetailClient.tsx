@@ -2,7 +2,8 @@
 
 import { pickRentalDates } from "@/lib/dateSelection";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { TouchEvent as ReactTouchEvent } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { getSessionId } from "@/lib/session";
@@ -14,7 +15,7 @@ import { Recommendations } from "@/components/Recommendations";
 import { useGafferFocus } from "@/components/gaffer/GafferFocus";
 import { SmartImage } from "@/components/SmartImage";
 import { addDaysIso, daysInclusive } from "@/components/booking/Calendar";
-import { IconCheck, IconChevronLeft } from "@/components/icons";
+import { IconCheck, IconChevronLeft, IconChevronRight } from "@/components/icons";
 
 function expandUnavailable(raw: string[]): Set<string> {
   const set = new Set<string>();
@@ -60,9 +61,11 @@ function ShareButton({ title }: { title: string }) {
   return (
     <button
       onClick={share}
-      className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/55 transition hover:text-white"
+      data-testid="listing-share-button"
+      aria-label={copied ? "Listing link copied to clipboard" : `Share ${title}`}
+      className="mt-3 inline-flex min-h-11 items-center gap-1.5 rounded-full border border-white/10 px-3 py-2 text-xs font-medium text-white/65 transition hover:border-accent-300/40 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-300"
     >
-      {copied ? "Link copied ✓" : "↗ Share"}
+      {copied ? <><svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m4 10 4 4 8-8" /></svg>Copied</> : <><svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="15.5" cy="4.5" r="2.25" /><circle cx="4.5" cy="10" r="2.25" /><circle cx="15.5" cy="15.5" r="2.25" /><path d="m6.6 8.9 6.8-3.3M6.6 11.1l6.8 3.3" /></svg>Share</>}
     </button>
   );
 }
@@ -98,13 +101,51 @@ export default function GearDetailClient({ slug, initialListing }: { slug: strin
     }
   }, []);
   const [imgIdx, setImgIdx] = useState(0);
+  const galleryTouchStart = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => setImgIdx(0), [slug]);
+  const bookingPanelRef = useRef<HTMLDivElement>(null);
+  const [bookingActionVisible, setBookingActionVisible] = useState(false);
+  const canBook = !!listing && !(listing as any).displayOnly && (listing as any).bookable !== false;
   const [month, setMonth] = useState(() => {
     const t = new Date();
     return new Date(t.getFullYear(), t.getMonth(), 1);
   });
   const track = useMutation(api.analytics.track);
   const [registered, setRegistered] = useState(false);
+
+  // The shared Gaffer launcher is fixed to the bottom of the viewport. When
+  // the product date shortcut is present, move both the launcher and its chat
+  // panel above that dock so it cannot cover the price or booking action.
+  useEffect(() => {
+    const body = document.body;
+    if (canBook && !bookingActionVisible) body.dataset.mobileBookingDock = "true";
+    else delete body.dataset.mobileBookingDock;
+    return () => {
+      if (body.dataset.mobileBookingDock === "true") delete body.dataset.mobileBookingDock;
+    };
+  }, [canBook, bookingActionVisible]);
+
+  function handleGalleryTouchStart(event: ReactTouchEvent<HTMLDivElement>) {
+    if (event.touches.length !== 1) {
+      galleryTouchStart.current = null;
+      return;
+    }
+    const touch = event.touches[0];
+    galleryTouchStart.current = { x: touch.clientX, y: touch.clientY };
+  }
+
+  function handleGalleryTouchEnd(event: ReactTouchEvent<HTMLDivElement>) {
+    const start = galleryTouchStart.current;
+    galleryTouchStart.current = null;
+    if (!start || event.changedTouches.length !== 1 || gallery.length < 2) return;
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    // Let the browser keep vertical page scrolling. Only a deliberate,
+    // predominantly horizontal gesture changes the selected product photo.
+    if (Math.abs(dx) < 42 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+    setImgIdx((current) => (current + (dx < 0 ? 1 : -1) + gallery.length) % gallery.length);
+  }
 
   function pick(iso: string) {
     const next = pickRentalDates(start, end, iso);
@@ -117,6 +158,18 @@ export default function GearDetailClient({ slug, initialListing }: { slug: strin
     [listing?.unavailableDates],
   );
   const days = start && end ? daysInclusive(start, end) : 0;
+
+  useEffect(() => {
+    const panel = bookingPanelRef.current;
+    const action = panel?.querySelector<HTMLElement>('[data-testid="booking-add-to-kit"]');
+    if (!action || !canBook || !("IntersectionObserver" in window)) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setBookingActionVisible(entry.isIntersecting && entry.intersectionRatio >= 0.99),
+      { rootMargin: "0px 0px -72px 0px", threshold: [0, 0.99, 1] },
+    );
+    observer.observe(action);
+    return () => observer.disconnect();
+  }, [canBook, listing?._id]);
 
   if (listing === undefined)
     return (
@@ -158,10 +211,20 @@ export default function GearDetailClient({ slug, initialListing }: { slug: strin
   const hero = gallery[Math.min(imgIdx, gallery.length - 1)] ?? null;
   const k: any = (listing as any).knowledge ?? {};
 
+  function jumpToBookingPanel() {
+    const panel = bookingPanelRef.current;
+    if (!panel) return;
+    const action = start && end ? panel.querySelector<HTMLElement>('[data-testid="booking-add-to-kit"]') : null;
+    const target = action ?? panel;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: action ? "center" : "start" });
+    window.setTimeout(() => target.focus({ preventScroll: true }), reduceMotion ? 0 : 350);
+  }
+
   return (
     <>
       <SiteHeader />
-      <main data-listing-id={listing._id} data-gaffer-focused={focusedId === listing._id || undefined} className="section-window mx-auto max-w-7xl px-6 py-10">
+      <main data-listing-id={listing._id} data-gaffer-focused={focusedId === listing._id || undefined} className="section-window mx-auto max-w-7xl px-4 pt-6 pb-28 sm:px-6 sm:py-10">
         <Link
           href="/gear"
           className="group inline-flex items-center gap-1.5 text-sm text-white/40 transition-colors hover:text-white"
@@ -170,18 +233,47 @@ export default function GearDetailClient({ slug, initialListing }: { slug: strin
           All gear
         </Link>
 
-        <div className="mt-6 grid gap-10 lg:grid-cols-2">
+        <div className="mt-5 grid gap-6 sm:mt-6 sm:gap-10 lg:grid-cols-2">
           {/* gallery + copy */}
           <div className="page-in min-w-0">
-            <div className="spot gradient-border group relative overflow-hidden rounded-2xl">
+            <div
+              className="spot gradient-border group relative touch-pan-y overflow-hidden rounded-2xl"
+              data-testid="product-photo-gallery"
+              onTouchStart={handleGalleryTouchStart}
+              onTouchEnd={handleGalleryTouchEnd}
+              onTouchCancel={() => { galleryTouchStart.current = null; }}
+            >
               <SmartImage fit="contain" loading="eager"
                 key={hero ?? "none"}
                 src={hero}
                 fallbackSources={gallery}
                 alt={listing.title}
-                className="aspect-[4/3]"
+                className="aspect-[3/2] sm:aspect-video lg:aspect-[4/3]"
                 imgClassName="transition-transform duration-700 ease-out group-hover:scale-[1.04]"
               />
+              {gallery.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setImgIdx((imgIdx - 1 + gallery.length) % gallery.length)}
+                    aria-label="Previous product photo"
+                    className="absolute left-2 top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full border border-white/20 bg-black/55 text-white shadow-lg backdrop-blur-md transition hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 lg:hidden"
+                  >
+                    <IconChevronLeft className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImgIdx((imgIdx + 1) % gallery.length)}
+                    aria-label="Next product photo"
+                    className="absolute right-2 top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full border border-white/20 bg-black/55 text-white shadow-lg backdrop-blur-md transition hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 lg:hidden"
+                  >
+                    <IconChevronRight className="h-5 w-5" />
+                  </button>
+                  <span aria-live="polite" className="absolute bottom-3 right-3 z-10 rounded-full border border-white/15 bg-black/60 px-2.5 py-1 font-mono text-[10px] text-white/85 backdrop-blur-md lg:hidden">
+                    {imgIdx + 1} / {gallery.length}
+                  </span>
+                </>
+              )}
               <div
                 className="pointer-events-none absolute left-3 top-3 hidden sm:block"
                 aria-hidden
@@ -305,7 +397,11 @@ export default function GearDetailClient({ slug, initialListing }: { slug: strin
 
           {/* booking — or, for display-only items, register interest */}
           <div
-            className="page-in min-w-0 lg:sticky lg:top-24 lg:self-start"
+            id="rental-booking-panel"
+            ref={bookingPanelRef}
+            tabIndex={-1}
+            aria-label="Choose rental dates and add this listing to your kit"
+            className="page-in min-w-0 scroll-mt-24 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-400/60 lg:sticky lg:top-24 lg:self-start"
             style={{ animationDelay: "0.15s" }}
           >
             {(listing as any).displayOnly ? (
@@ -374,6 +470,7 @@ export default function GearDetailClient({ slug, initialListing }: { slug: strin
                 onMonthChange={setMonth}
                 unavailable={unavailable}
                 demand={(listing as any).demandScore ?? 0}
+                touchFriendlyCalendar
               />
             )}
           </div>
@@ -386,6 +483,37 @@ export default function GearDetailClient({ slug, initialListing }: { slug: strin
           days={days}
         />
       </main>
+      {canBook && !bookingActionVisible && (
+        <div data-testid="mobile-booking-jump-bar" data-mobile-booking-dock="true" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-charcoal-950/95 px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-10px_36px_rgba(0,0,0,.35)] backdrop-blur-xl lg:hidden">
+          <div className="mx-auto flex max-w-7xl items-center gap-3">
+            <p className="min-w-0 shrink-0 whitespace-nowrap text-[11px] text-white/55 min-[360px]:text-xs">
+              From <strong className="ml-1 font-display text-sm text-accent-300 min-[360px]:text-base">£{listing.pricing.daily}</strong><span className="ml-0.5">/day</span>
+            </p>
+            <button
+              type="button"
+              data-testid="mobile-gaffer-trigger"
+              aria-label="Ask Gaffer about this listing"
+              onClick={() => window.dispatchEvent(new CustomEvent("dbc:open-gaffer-chat", { detail: { prompt: `Tell me about ${listing.title}` } }))}
+              className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-accent-300/30 bg-white/[0.04] px-2.5 text-xs font-semibold text-accent-200 transition hover:border-accent-300/60 hover:bg-accent-300/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-300 min-[360px]:px-3"
+            >
+              <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3.5 4.5h13v9h-8l-4 3v-12Z" />
+                <path d="M6.5 8h7M6.5 10.5h4" />
+              </svg>
+              <span>Gaffer</span>
+            </button>
+            <button
+              type="button"
+              data-testid="mobile-booking-jump"
+              aria-controls="rental-booking-panel"
+              onClick={jumpToBookingPanel}
+              className="btn-primary min-h-11 min-w-0 flex-1 whitespace-nowrap px-1.5 text-[11px] min-[360px]:px-5 min-[360px]:text-sm"
+            >
+              {start && end ? <><span className="hidden min-[360px]:inline">Review price &amp; add</span><span className="min-[360px]:hidden">Review &amp; add</span></> : "Choose dates"}
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

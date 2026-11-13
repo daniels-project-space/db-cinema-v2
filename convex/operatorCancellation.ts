@@ -4,6 +4,9 @@ import {internal} from "./_generated/api";
 import {v} from "convex/values";
 import {createHmac,timingSafeEqual} from "node:crypto";
 import {operatorCancellationOptions,type OperatorCancellationPreview} from "../shared/operatorCancellationCredit";
+import {LEGAL_ARCHIVE} from "../shared/legalDocuments";
+import {readAgreementSnapshot} from "../shared/rentalAgreement";
+import {CANCELLATION_PROTECTION_LEGAL_VERSION} from "../src/lib/legal";
 import {emailEscape,emailMoney,emailRows,rentalEmail} from "../shared/rentalEmail";
 import type {MailInput} from "./lib/mailer";
 import {RefundReviewRequired} from "./lib/approvedRefund";
@@ -16,6 +19,30 @@ function verify(offer:any,proof:string){
  if(!timingSafeEqual(Buffer.from(proof,"hex"),Buffer.from(proofFor(offer),"hex")))throw Error("This cancellation link is invalid.");
 }
 function amounts(offer:any){return operatorCancellationOptions({cashRemainingPence:offer.cashRemainingPence,securityRemainingPence:offer.securityRemainingPence,spentCreditPence:offer.spentCreditPence});}
+function cancellationTermsVersionFor(booking:any){
+ const documentVersion=booking?.agreementDocs?.find((doc:any)=>doc.kind==="cancellation")?.version;
+ const termsVersion=booking?.agreementDocs?.find((doc:any)=>doc.kind==="terms")?.version;
+ const snapshot=typeof booking?.agreementSnapshot==="string"?readAgreementSnapshot(booking.agreementSnapshot):null;
+ if(typeof booking?.agreementSnapshot==="string"&&booking.agreementSnapshot&&!snapshot)
+  throw Error("The signed agreement snapshot cannot be read. Contact the team to review this settlement.");
+ const snapshotCancellationVersion=snapshot?.documents.find(doc=>doc.kind==="cancellation")?.version;
+ const snapshotTermsVersion=snapshot?.documents.find(doc=>doc.kind==="terms")?.version;
+ const indexedVersion=typeof documentVersion==="string"&&documentVersion.trim()?documentVersion:undefined;
+ const indexedTermsVersion=typeof termsVersion==="string"&&termsVersion.trim()?termsVersion:undefined;
+ const savedVersion=indexedVersion??snapshotCancellationVersion??indexedTermsVersion??snapshotTermsVersion;
+ if(indexedVersion&&snapshotCancellationVersion&&indexedVersion!==snapshotCancellationVersion)
+  throw Error("The saved cancellation terms do not match the signed agreement snapshot.");
+ if(indexedTermsVersion&&snapshotTermsVersion&&indexedTermsVersion!==snapshotTermsVersion)
+  throw Error("The saved terms do not match the signed agreement snapshot.");
+ if(savedVersion){
+  if(!LEGAL_ARCHIVE[savedVersion]?.cancellation)
+   throw Error("The signed cancellation terms are not available in the archive. Contact the team to review this settlement.");
+  return savedVersion;
+ }
+ // Older rentals may have no retained agreement version. Keep the previous
+ // conservative link until their accepted version can be recovered.
+ return CANCELLATION_PROTECTION_LEGAL_VERSION;
+}
 export const prepareEmail=internalAction({args:{bookingId:v.id("bookings"),deliveryKey:v.string()},handler:async(ctx,a):Promise<MailInput|null>=>{
  const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId:a.bookingId});if(!b?.cancellationDecision?.operatorOfferId)return null;
  const context:any=await ctx.runQuery(internal.operatorCancellationState.byId,{offerId:b.cancellationDecision.operatorOfferId});
@@ -23,14 +50,14 @@ export const prepareEmail=internalAction({args:{bookingId:v.id("bookings"),deliv
  const offer=context.offer,options=amounts(offer),origin=new URL(process.env.APP_URL??"https://dbcinemarentals.com").origin;
  const link=(choice:string)=>`${origin}/cancellation-choice#${new URLSearchParams({offer:String(offer._id),proof:proofFor(offer),choice})}`;
  const deadline=new Date(offer.choiceDeadline).toLocaleString("en-GB",{timeZone:"Europe/London",dateStyle:"medium",timeStyle:"short"});
- const body=`<p>We’re sorry: your equipment is unexpectedly unavailable, so we have cancelled the rental before pickup. Please choose how you would like us to settle it.</p>${emailRows([["Original-payment refund",emailMoney(options.refund.cardRefundPence/100)],["Or account credit, including 30% extra",emailMoney(options.credit.creditPence/100)],["Credit validity","365 days from issue"]])}<p>Choose credit and ${emailMoney(options.credit.cardRefundPence/100)} refundable deposit returns separately to the original card. Previously used credit is included once in the review. Membership fees are separate.</p><p><a href="${emailEscape(link("credit"))}" style="display:inline-block;padding:13px 20px;background:#1b7161;border-radius:4px;color:white;text-decoration:none;font-weight:600">Review account credit +30%</a></p><p>Credit replaces the rental cash refund and cannot be withdrawn as cash; statutory rights remain unchanged. Both buttons open a review page and require your confirmation.</p><p style="font-size:12px">Please respond by ${emailEscape(deadline)} London time. If you do not choose, we process the original-payment refund and restore previously used credit. Bank posting times vary.</p>`;
+ const body=`<p>We’re sorry: DB Cinema has cancelled your confirmed rental before pickup. Reason: ${emailEscape(offer.reason||"DB Cinema cancellation")}. Please choose how you would like us to settle it.</p>${emailRows([["Original-payment refund",emailMoney(options.refund.cardRefundPence/100)],["Or account credit, including 30% extra",emailMoney(options.credit.creditPence/100)],["Credit validity","365 days from issue"]])}<p>Choose credit and ${emailMoney(options.credit.cardRefundPence/100)} refundable deposit returns separately to the original card. Previously used credit is included once in the review. Membership fees are separate.</p><p><a href="${emailEscape(link("credit"))}" style="display:inline-block;padding:13px 20px;background:#1b7161;border-radius:4px;color:white;text-decoration:none;font-weight:600">Review account credit +30%</a></p><p>Credit replaces the rental cash refund and cannot be withdrawn as cash; statutory rights remain unchanged. Both buttons open a review page and require your confirmation.</p><p style="font-size:12px">Please respond by ${emailEscape(deadline)} London time. If you do not choose, we process the original-payment refund and restore previously used credit. Bank posting times vary.</p>`;
  return {to:offer.recipientEmail,subject:"Your cancelled rental · refund or account credit +30%",deliveryKey:a.deliveryKey,html:rentalEmail({title:"Let’s put this right",preview:"Review a full refund or account credit with 30% extra, valid for 365 days.",body,url:link("refund"),button:"Review original-payment refund"})};
 }});
 const linkArgs={offerId:v.id("operator_cancellation_offers"),proof:v.string()};
 export const preview=action({args:linkArgs,handler:async(ctx,a):Promise<OperatorCancellationPreview>=>{
  const context:any=await ctx.runQuery(internal.operatorCancellationState.byId,{offerId:a.offerId});verify(context?.offer,a.proof);
  if(!context.account||context.account.email!==context.offer.recipientEmail)throw Error("The account changed. Contact the team to review this cancellation.");
- const options=amounts(context.offer);return {state:context.offer.state,choice:context.offer.choice??null,choiceDeadline:context.offer.choiceDeadline,refund:options.refund,credit:options.credit,creditAllowed:context.account.blockedAt==null,bookingTitle:context.booking?.lineItems.map((i:any)=>i.title).join(", ")??"Rental"};
+ const options=amounts(context.offer);return {state:context.offer.state,choice:context.offer.choice??null,choiceDeadline:context.offer.choiceDeadline,refund:options.refund,credit:options.credit,creditAllowed:context.account.blockedAt==null,bookingTitle:context.booking?.lineItems.map((i:any)=>i.title).join(", ")??"Rental",cancellationTermsVersion:cancellationTermsVersionFor(context.booking)};
 }});
 export const choose=action({args:{...linkArgs,choice:v.union(v.literal("refund"),v.literal("credit")),confirmed:v.boolean()},handler:async(ctx,a):Promise<{state:OperatorCancellationPreview["state"];choice:"refund"|"credit"}>=>{
  if(!a.confirmed)throw Error("Review and confirm your settlement choice.");

@@ -27,10 +27,10 @@ function creditDescription(reason:string){
  return ({late_cancellation:"Rental cancellation credit",restored_credit:"Previously used credit restored",consented_full_credit:"Rental payment converted to account credit",operator_cancellation_credit:"Cancelled rental · account credit",operator_cancellation_bonus:"Cancelled rental · 30% extra credit"} as Record<string,string>)[type]??reason;
 }
 const amountPence=(amount:number)=>{const p=Math.round(amount*100);if(!Number.isFinite(amount)||!Number.isSafeInteger(p)||p<=0||p/100!==amount)throw Error("Enter a positive credit amount in pounds and pence.");return p;};
-export const grantAdmin=mutation({args:{token:v.string(),accountId:v.id("accounts"),amount:v.number(),requestId:v.string(),expectedRevision:v.number(),reason:v.optional(v.string())},handler:async(ctx,a)=>{
+export const grantAdmin=mutation({args:{token:v.string(),accountId:v.id("accounts"),amount:v.number(),requestId:v.string(),expectedRevision:v.number(),reason:v.string()},handler:async(ctx,a)=>{
  await creditAdminWrite(ctx,a.token,"accountCredits.grantAdmin");
  if(!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId))throw Error("Invalid credit request identity.");
- const pence=amountPence(a.amount),reason=a.reason?.trim()||"Administrator account credit";if(reason.length>500)throw Error("Credit note is too long.");
+ const pence=amountPence(a.amount),reason=a.reason.trim();if(!reason)throw Error("Enter a reason so the account credit has an audit record.");if(reason.length>500)throw Error("Credit note is too long.");
  const account=await ctx.db.get(a.accountId);if(!account)throw Error("Account no longer exists.");
  const state=await ctx.db.query("admin_credit_grant_states").withIndex("by_account",q=>q.eq("accountId",account._id)).unique(),revision=state?.revision??0;
  const prior=await ctx.db.query("credit_issues").withIndex("by_request",q=>q.eq("requestId",a.requestId)).unique();
@@ -51,8 +51,9 @@ export const grantStatus=query({args:{token:v.string(),accountId:v.id("accounts"
  const receipt=a.requestId?await ctx.db.query("credit_issues").withIndex("by_request",q=>q.eq("requestId",a.requestId!)).unique():null;
  if(receipt&&receipt.accountId!==account._id)throw Error("Credit request belongs to another account.");
  const latest=(await ctx.db.query("credit_issues").withIndex("by_account_created",q=>q.eq("accountId",account._id)).order("desc").take(1))[0];
+ const available=await availableCreditRows(ctx,account._id);
  const summarize=(row:any)=>row?{id:row._id,requestId:row.requestId,creditId:row.creditId,amount:row.amountPence/100,createdAt:row.createdAt,expiresAt:row.expiresAt}:null;
- return {revision:state?.revision??0,latest:summarize(latest),receipt:summarize(receipt)};
+ return {revision:state?.revision??0,latest:summarize(latest),receipt:summarize(receipt),availablePence:available.reduce((sum:number,row:any)=>sum+row.availablePence,0)};
 }});
 export const adminHistory=query({args:{token:v.string(),accountId:v.id("accounts")},handler:async(ctx,a)=>{
  if(!await creditAdminRead(ctx,a.token))throw Error("Unauthorized");

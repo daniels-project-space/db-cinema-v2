@@ -17,6 +17,7 @@ export const deliver=internalAction({args:{deliveryId:v.id("rental_email_deliver
       else if(row.kind==="time_change")payload=await ctx.runAction(internal.notify.timeChangeEmail,{...args,detail:row.changeDetail!,changeKind:row.changeKind}) as MailInput|null;
       else if(row.kind==="review")payload=await ctx.runAction(internal.reviewFollowUp.prepareEmail,{bookingId:row.bookingId,deliveryKey:row.key}) as MailInput|null;
       else if(row.kind==="cancellation_choice")payload=await ctx.runAction(internal.operatorCancellation.prepareEmail,{bookingId:row.bookingId,deliveryKey:row.key}) as MailInput|null;
+      else if(row.kind==="refund_invoice")payload=await ctx.runAction(internal.invoice.invoiceEmail,{...args,refundId:row.refundId}) as MailInput|null;
       else payload=await ctx.runAction(internal.notify.cancellationEmail,{...args,mode:row.mode!,refundAmount:row.refundAmount!,creditAmount:row.creditAmount!}) as MailInput|null;
       if(payload){
         const candidate=await ctx.storage.store(new Blob([JSON.stringify(payload)],{type:"application/json"}));

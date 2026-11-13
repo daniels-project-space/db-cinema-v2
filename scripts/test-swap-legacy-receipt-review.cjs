@@ -13,7 +13,7 @@ const swap = put("rental_item_swaps", { bookingId: booking._id, status: "applied
 const reservation = put("reservations", { bookingId: booking._id, inventoryUnitId: unit._id, source: "site", status: "confirmed", start: 1000, end: 2000, qty: 1, endExclusive: true, turnaroundBufferMinutes: 60 });
 const receipt = put("swap_stock_applied_receipts", { bookingId: booking._id, swapId: swap._id, bookingRevision: 1, appliedAt: 100, managerRequestId: "claim", fingerprint: "fingerprint", executionKey: `swap_execution_${swap._id}`, windows: [{ reservationId: reservation._id, inventoryUnitId: unit._id, managerItemId: unit.rmv2ItemId, start: reservation.start, end: reservation.end, quantity: 1, endExclusive: true, turnaroundBufferMinutes: 60 }] });
 put("swap_stock_operations", { swapId: swap._id, operation: "acquire", state: "confirmed", receipt: { requestId: "claim", fingerprint: "fingerprint" } });
-const execution = put("swap_stock_operations", { swapId: swap._id, operation: "beginExecution", state: "confirmed", request: { args: { id: "claim", fingerprint: "fingerprint", executionKey: receipt.executionKey } } });
+const execution = put("swap_stock_operations", { swapId: swap._id, operation: "beginExecution", state: "confirmed", receipt: { state: "execution_started" }, request: { args: { id: "claim", fingerprint: "fingerprint", executionKey: receipt.executionKey } } });
 const args = { token: "fixture-admin", bookingId: booking._id, id: receipt._id, confirmed: true };
 (async () => {
   await assert.rejects(audit.retryLegacyDelivery.handler(ctx, { ...args, token: "wrong" }), /unauthorized/);

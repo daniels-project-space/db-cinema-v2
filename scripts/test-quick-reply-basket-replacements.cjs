@@ -14,11 +14,25 @@ assert(result.options.every(option=>option.items.every(item=>item.id!==cheaperBo
 assert(result.originals.every(item=>item.image_urls.length===2));assert(result.options.every(option=>option.items.every(item=>item.image_urls.length===2)));
 assert.equal(JSON.stringify([...tables].map(([name,rows])=>[name,[...rows.values()]])),readBefore);
 const choice=result.options[0];const args={token,bookingId:b._id,requestId:'fixture-basket-12345',replacementId:choice.id,original:choice.original};
-for(const field of ['activeDeliveryQuoteId','activePriceAdjustmentId']){await db.patch(b._id,{[field]:'open-change'});const locked=await replacements.basketOptions.handler(ctx,{token,bookingId:b._id});assert(locked.options.every(option=>!option.can_apply));await assert.rejects(replacements.acceptBasket.handler(ctx,args),/Finish the open operation/);await db.patch(b._id,{[field]:undefined});}
-const baseline=JSON.stringify(b.lineItems);await assert.rejects(replacements.acceptBasket.handler(ctx,{...args,original:{...choice.original,lines:choice.original.lines.map((line,index)=>index===0?{...line,qty:2}:line)}}),/changed/);assert.equal(JSON.stringify(b.lineItems),baseline);
-const block=put('reservations',{bookingId:'other-booking',inventoryUnitId:bodies[0].components[0].inventoryUnitId,start,end,qty:1,source:'site',status:'confirmed'});await assert.rejects(replacements.acceptBasket.handler(ctx,args),/changed/);assert.equal(JSON.stringify(b.lineItems),baseline);block.status='cancelled';
-assert.deepEqual(await replacements.acceptBasket.handler(ctx,args),{ok:true,replayed:false});assert.equal(b.lineItems[2].listingId,tripod._id);assert.notEqual(b.lineItems[0].listingId,body._id);assert.notEqual(b.lineItems[1].listingId,lens._id);assert.equal(b.total,240);assert.equal(b.depositAmount,20);assert.equal(b.kitReplacements.length,2);assert.equal(tables.get('messages')?.size??0,0);
-assert.deepEqual(await replacements.acceptBasket.handler(ctx,args),{ok:true,replayed:true});assert.equal(b.kitReplacements.length,2);
+for(const field of ['activeDeliveryQuoteId','activePriceAdjustmentId']){await db.patch(b._id,{[field]:'open-change'});const locked=await replacements.basketOptions.handler(ctx,{token,bookingId:b._id});assert(locked.options.every(option=>!option.can_apply));await assert.rejects(replacements.acceptBasket.handler(ctx,args),/legacy replacement is closed.*renter-approved equipment-change proposal/i);await db.patch(b._id,{[field]:undefined});}
+// Admin authorization intentionally records an audit event; compare rental,
+// reservation, ledger and payment business state while preserving that log.
+const snapshot=()=>JSON.stringify([...tables].filter(([name])=>name!=='admin_audit_log').map(([name,rows])=>[name,[...rows.values()]]));
+const baseline=snapshot();
+await assert.rejects(replacements.acceptBasket.handler(ctx,{...args,original:{...choice.original,lines:choice.original.lines.map((line,index)=>index===0?{...line,qty:2}:line)}}),/legacy replacement is closed.*renter-approved equipment-change proposal/i);
+assert.equal(snapshot(),baseline,'A mismatched new request cannot alter booking or reservations');
+await assert.rejects(replacements.acceptBasket.handler(ctx,args),/legacy replacement is closed.*renter-approved equipment-change proposal/i);
+assert.equal(snapshot(),baseline,'The legacy basket endpoint cannot apply a new change');
+
+// Keep exact replay for old completed basket receipts, without rerunning stock
+// or settlement writes.
+const priorRows=choice.items.map((item,i)=>({requestId:`${args.requestId}:${choice.original.lines[i].lineIndex}`,lineIndex:choice.original.lines[i].lineIndex,oldListingId:choice.original.lines[i].listingId,newListingId:item.id,qty:choice.original.lines[i].qty,start:choice.original.lines[i].start,end:choice.original.lines[i].end,appliedAt:Date.now()}));
+const replacementByLine=new Map(choice.items.map(item=>[item.lineIndex,item]));
+await db.patch(b._id,{lineItems:b.lineItems.map((line,index)=>{const replacement=replacementByLine.get(index);return replacement?{...line,listingId:replacement.id,title:replacement.name}:line;}),kitReplacements:priorRows});
+const replaySnapshot=snapshot();
+assert.deepEqual(await replacements.acceptBasket.handler(ctx,args),{ok:true,replayed:true});
+assert.equal(snapshot(),replaySnapshot,'Legacy basket replay is read-only');
 await assert.rejects(replacements.acceptBasket.handler(ctx,{...args,replacementId:args.replacementId.split('|').reverse().join('|')}),/changed/);
-console.log('Complete basket replacement fixtures passed: two unavailable lines, retained gear, two options, authorization, changed snapshot, stock race, atomic application, unchanged charges, no messages, replay.');
+assert.equal(snapshot(),replaySnapshot,'A mismatched legacy basket replay cannot write');
+console.log('PASS legacy basket replacement: new direct writes blocked; exact completed receipt replay preserved without changing rental or reservations. Suggestions remain read-only.');
 })().catch(error=>{console.error(error);process.exitCode=1});

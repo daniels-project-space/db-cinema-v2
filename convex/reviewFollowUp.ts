@@ -8,7 +8,7 @@ import { v } from "convex/values";
 import { unsubscribeToken } from "./referralMail";
 import { reviewPrizeRound,prizeDate,REVIEW_SOCIAL } from "../shared/reviewPrize";
 import { sendMail } from "./lib/mailer";
-import { reviewFingerprint, reviewGate, reviewSettlementFingerprint } from "./lib/reviewEligibility";
+import { reviewFingerprint, reviewFollowUpDueAt, reviewGate, reviewSettlementFingerprint } from "./lib/reviewEligibility";
 
 /** Provider reads only: creating a refund does not mean it succeeded. */
 export async function providerReviewGate(b: any, stripe: Stripe): Promise<string | null> {
@@ -43,6 +43,8 @@ export const processDue = internalAction({
     const rows: any[] = await ctx.runQuery(internal.reviewFollowUpState.candidates, {});
     const result = {checked: rows.length, sent: 0,queued:0, reasons: {} as Record<string, number>};
     for (const b of rows) {
+      if (b.reviewInvitationMessageId) continue;
+      if (b.reviewFollowUpDueAt && Date.now() < reviewFollowUpDueAt(b)) continue;
       let reason = reviewGate(b);
       if (!reason) {
         try {
@@ -56,6 +58,9 @@ export const processDue = internalAction({
       await ctx.runMutation(internal.reviewInvitations.recordEligibility, {
         bookingId: b._id, fingerprint: reviewSettlementFingerprint(b), eligible: !reason,
       });
+      // The interactive account-chat invitation is canonical for registered renters.
+      // Guest rentals without an account continue through the email follow-up.
+      if (b.hasAccount) continue;
       const claimed = await ctx.runMutation(internal.reviewFollowUpState.recordCheck, {
         bookingId: b._id, fingerprint: reviewFingerprint(b), reason: reason ?? undefined,
         claim: true,
@@ -67,7 +72,7 @@ export const processDue = internalAction({
   },
 });
 
-/** Render once for the private outbox; no SMTP or provider financial writes. */
+/** Render once for the private outbox; this does not send email or touch payment providers. */
 export const prepareEmail=internalAction({args:{bookingId:v.id("bookings"),deliveryKey:v.string()},handler:async(ctx,{bookingId,deliveryKey})=>{
  const b:any=await ctx.runQuery(internal.reviewFollowUpState.emailContext,{bookingId});
  if(!b?.customerEmail)return null;

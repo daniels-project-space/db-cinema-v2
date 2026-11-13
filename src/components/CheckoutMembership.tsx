@@ -29,10 +29,16 @@ export function CheckoutMembership({
   variant = "basket",
   compact: compactLayout = false,
   loading = false,
+  accountTermsVersion,
+  accountPrivacyNoticeVersion,
 }: {
   variant?: "basket" | "checkout";
   compact?: boolean;
   loading?: boolean;
+  /** Current Terms version shown for new account creation at rental checkout. */
+  accountTermsVersion?: string;
+  /** Current Privacy Notice version shown for new account creation at rental checkout. */
+  accountPrivacyNoticeVersion?: string;
   suggestions?: Suggestion[];
   selected: MembershipSelection | null;
   onChange: (s: MembershipSelection | null) => void;
@@ -161,12 +167,16 @@ export function CheckoutMembership({
   const savingsHook =
     saving > 0 ? `Subscribe to save £${saving.toFixed(2)}` : null;
   const confirmed = !!selected?.termsAccepted;
+  const accountTermsPrivacyAccepted = !!selected && !!accountTermsVersion && !!accountPrivacyNoticeVersion &&
+    selected.accountTermsAcceptedVersion === accountTermsVersion && selected.privacyNoticeAcceptedVersion === accountPrivacyNoticeVersion;
   const confirmSelection = () => {
     if (current || confirmed) return;
     onChange({
       tier: selected?.tier ?? recommendedTier.key,
       intro: "none",
       termsAccepted: true,
+      accountTermsAcceptedVersion: selected?.accountTermsAcceptedVersion,
+      privacyNoticeAcceptedVersion: selected?.privacyNoticeAcceptedVersion,
     });
     setCelebrating(true);
     if (celebrationTimer.current) clearTimeout(celebrationTimer.current);
@@ -317,6 +327,27 @@ export function CheckoutMembership({
             {selected && <span role="status" className="sr-only">
                 {confirmed ? "Membership added · consent confirmed" : "Membership added · confirm terms"}
               </span>}
+            {variant === "checkout" && !me && selected && (
+              <label data-testid="guest-account-terms-consent" className="relative z-[4] mt-2 flex cursor-pointer items-start gap-2 text-[11px] leading-relaxed text-white/75 pointer-events-auto">
+                <input
+                  type="checkbox"
+                  data-testid="guest-account-terms-checkbox"
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-[#acd17c]"
+                  checked={accountTermsPrivacyAccepted}
+                  onChange={event => onChange({
+                    ...selected,
+                    accountTermsAcceptedVersion: event.target.checked ? accountTermsVersion : undefined,
+                    privacyNoticeAcceptedVersion: event.target.checked ? accountPrivacyNoticeVersion : undefined,
+                  })}
+                />
+                <span>
+                  To create your account, I agree to the current{" "}
+                  <Link href={accountTermsVersion ? `/legal/terms?version=${encodeURIComponent(accountTermsVersion)}` : "/legal/terms"} target="_blank" rel="noreferrer" className="underline">Terms and Conditions</Link>{" "}
+                  and acknowledge the{" "}
+                  <Link href="/legal/privacy" target="_blank" rel="noreferrer" className="underline">Privacy Notice</Link>.
+                </span>
+              </label>
+            )}
           </>
         ) : (
           <>

@@ -61,7 +61,7 @@ const context = {
   const windows = [{ itemId:'manager-camera', start:stock.start, end:stock.end, quantity:1 }];
   const evidence = { swapId:String(swap._id), bookingId:String(booking._id), bookingRevision:7, paymentIntentId:'pi_compensated_fixture', refundId:'re_compensated_fixture', refundStatus:'succeeded', amountPence:500, refundAttemptedAt:startedAt, windows };
   put('swap_stock_operations', { swapId:swap._id, operation:'acquire', state:'confirmed', receipt:{ requestId, fingerprint, state:'prepared', replayed:false } });
-  put('swap_stock_operations', { swapId:swap._id, operation:'beginExecution', state:'confirmed', request:{ args:{ id:requestId, fingerprint, executionKey } } });
+  put('swap_stock_operations', { swapId:swap._id, operation:'beginExecution', state:'confirmed', request:{ args:{ id:requestId, fingerprint, executionKey } }, receipt:{ state:'execution_started', replayed:false } });
   const recoverableRelease = put('swap_stock_operations', { swapId:swap._id, operation:'releaseCompensated', state:'review', request:{ operation:'releaseCompensated', args:{ id:requestId, fingerprint, executionKey, evidence } }, reconcileAfter:Date.now()-1, reconcileAttempts:8 });
   await db.patch(booking._id,{rmv2DeliveredRevision:6});
   await ledger.recordReviewCheck.handler({ db }, { id:recoverableRelease._id, request:{ operation:'checkCompensatedRelease', args:recoverableRelease.request.args }, expectedDue:recoverableRelease.reconcileAfter, expectedAttempts:8, result:{ status:'confirmed', result:{ state:'compensated_released', replayed:false } } });

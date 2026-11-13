@@ -16,6 +16,8 @@ export type GafferPolicyFlags = {
   assessmentSecurityEnabled?: boolean;
   cancellationProtectionEnabled?: boolean;
   cancellationPolicyEnabled?: boolean;
+  inclusiveSevenDayCancellationBoundary?: boolean;
+  companyCancellationForAnyReasonEnabled?: boolean;
   refundableDepositEnabled?: boolean;
 };
 
@@ -39,13 +41,20 @@ export function faqsForSecurityPolicy(flags: GafferPolicyFlags): CurrentFaq[] {
       return { ...faq, a: "Message us in your account to request an extension or compatible extra gear. We need to check the dates, stock and price, and the change is not complete until your account shows the updated rental." };
     }
     if (faq.q === "How do cancellations work?") {
-      if (flags.cancellationPolicyEnabled === true) return { ...faq, a: "Under the current terms, cancel more than seven London calendar days before pickup for a full refund or 100% rental credit. More than 48 hours and seven or fewer days before pickup is credit only. At 48 hours or less, no rental refund or credit. Separately refundable security is settled separately, and statutory rights take priority. Existing rentals keep their signed terms." };
+      if (flags.cancellationPolicyEnabled === true && flags.inclusiveSevenDayCancellationBoundary === true) {
+        const companyRule = flags.companyCancellationForAnyReasonEnabled === true
+          ? "If DB Cinema cancels a confirmed rental before pickup for any reason, you may choose a full refund or, unless the account or rental is rejected or restricted for a terms violation, 130% account credit."
+          : "If equipment is unexpectedly unavailable and DB Cinema cancels before pickup, you may choose a full refund or, unless the account or rental is rejected or restricted for a terms violation, 130% account credit.";
+        const version = flags.companyCancellationForAnyReasonEnabled === true ? "v24" : "v23";
+        return { ...faq, a: `For rentals on ${version} terms, cancelling seven or more London calendar days before the earliest equipment start allows a full refund or 100% account credit. Cancelling more than 48 hours before scheduled pickup, but fewer than seven London calendar days before that start, allows account credit only. At 48 hours or less before scheduled pickup, there is no rental refund or credit. ${companyRule} Refundable security is settled separately. Older rentals keep their signed terms. Statutory rights take priority.` };
+      }
+      if (flags.cancellationPolicyEnabled === true) return { ...faq, a: "For rentals on v21/v22 terms, cancelling more than seven London calendar days before the earliest equipment start allows a full refund or 100% account credit. Cancelling more than 48 hours before scheduled pickup, but within seven or fewer London calendar days of the earliest equipment start, allows account credit only. At 48 hours or less before scheduled pickup, there is no rental refund or credit. If equipment is unexpectedly unavailable and DB Cinema cancels before pickup, you may choose a full refund or, unless the account or rental is rejected or restricted for a terms violation, 130% account credit. Refundable security is settled separately. Older rentals keep their signed terms. Statutory rights take priority." };
       if (setupIntent || cardHold) return { ...faq, a: "Under the current signed-card terms, cancel more than seven London calendar days before pickup for a full refund. At seven days or less, paid rental value becomes account credit. Refundable security is settled separately. Existing rentals keep their signed terms." };
       return faq;
     }
     if (faq.q !== "What about deposits and insurance?") return faq;
     if (setupIntent) {
-      return { ...faq, a: "New rentals under the saved-card policy have no upfront deposit and reserve no card funds. The saved-card ceiling is £50 below £1,000 replacement value, £100 from £1,000 to below £4,000, and £200 at £4,000 or more. It applies only to evidenced, itemised late-return charges or severe permanent cosmetic damage or loss, with at least seven days to query a claim and collection attempted within 30 days after return. No claim is automatically charged for an on-time return without a reported issue. Insurance claims and excess are separate. Membership or a free trial does not itself grant a waiver or claim permission; the exact terms are accepted separately with each rental. Existing bookings keep their signed terms." };
+      return { ...faq, a: "New rentals under the saved-card policy have no upfront deposit and reserve no card funds. The saved-card ceiling is £50 below £1,000 replacement value, £100 from £1,000 to below £4,000, and £200 at £4,000 or more. It applies only to evidenced, itemised late-return charges or severe permanent cosmetic damage or loss. An authorised team member sends an itemised notice before one immediate attempt within 30 days after return; the bank may decline it or require authentication. No claim is automatically charged for an on-time return without a reported issue. Insurance claims and excess are separate. Membership or a free trial does not itself grant a waiver or claim permission; the exact terms are accepted separately with each rental. Existing bookings keep their signed terms." };
     }
     if (cardHold) {
       return { ...faq, a: "New rentals use a temporary card authorisation of £50 below £1,000 replacement value, £100 from £1,000 to below £4,000, and £200 at £4,000 or more, unless the checkout quote shows an account exemption. It is not a payment, but it may reduce the card's available balance. An issue-free return releases the hold automatically; a claim needs a recorded reason. If pickup is more than seven days away, checkout explains the replacement-hold process. Insurance is separate, and existing bookings keep their signed terms." };

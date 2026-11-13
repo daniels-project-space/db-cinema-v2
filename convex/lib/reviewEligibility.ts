@@ -3,6 +3,11 @@ export function reviewGate(b: any): string | null {
   if (b.remindedReview || b.reviewFollowUpStatus === "sent") return "already_sent";
   return customerReviewGate(b);
 }
+
+export function reviewFollowUpDueAt(b: any, now = Date.now()): number {
+  const itemEnds = (b.lineItems ?? []).map((line: any) => line.end);
+  return b.reviewFollowUpDueAt ?? Math.max(now, b.returnedAt ?? 0, ...itemEnds) + 86400000;
+}
 /** An email already sent does not stop its recipient writing the review. */
 export function customerReviewGate(b: any): string | null {
   if (b.status !== "returned") return "not_returned";

@@ -8,6 +8,7 @@ const KEY = "open-sessions";
 const LEASE_MS = 10 * 60000;
 const PAGE_SIZE = 100;
 const BATCH_SIZE = 50;
+const VERIFICATION_STATUSES = ["pending_verification", "confirmed", "active"] as const;
 
 export const start = internalMutation({
   args: {},
@@ -15,7 +16,7 @@ export const start = internalMutation({
     const state = await ctx.db.query("didit_reconcile_sweeps").withIndex("by_key", q => q.eq("key", KEY)).unique();
     if (state && state.phase !== "idle" && state.updatedAt > Date.now() - LEASE_MS) return;
     const generation = (state?.generation ?? 0) + 1;
-    const next = { key: KEY, generation, phase: "confirmed", updatedAt: Date.now(), cursor: undefined, candidates: [] };
+    const next = { key: KEY, generation, phase: VERIFICATION_STATUSES[0], updatedAt: Date.now(), cursor: undefined, candidates: [] };
     if (state) await ctx.db.patch(state._id, next); else await ctx.db.insert("didit_reconcile_sweeps", next);
     await ctx.scheduler.runAfter(0, internal.diditSweep.page, { generation });
   },
@@ -25,8 +26,8 @@ export const page = internalMutation({
   args: { generation: v.number() },
   handler: async (ctx, { generation }) => {
     const state = await ctx.db.query("didit_reconcile_sweeps").withIndex("by_key", q => q.eq("key", KEY)).unique();
-    if (!state || state.generation !== generation || !["confirmed", "active"].includes(state.phase)) return;
-    const status = state.phase as "confirmed" | "active";
+    if (!state || state.generation !== generation || !VERIFICATION_STATUSES.includes(state.phase as typeof VERIFICATION_STATUSES[number])) return;
+    const status = state.phase as typeof VERIFICATION_STATUSES[number];
     const page = await ctx.db.query("bookings").withIndex("by_verificationProvider_status", q =>
       q.eq("verificationProvider", "didit").eq("status", status))
       .paginate({ numItems: PAGE_SIZE, cursor: state.cursor ?? null });
@@ -36,9 +37,10 @@ export const page = internalMutation({
       bookingId: row._id, sessionId: row.diditSessionId!, email: row.guestEmail!,
       checkedAt: row.diditReconciledAt ?? 0, createdAt: row._creationTime, status,
     }))].sort((left, right) => left.checkedAt - right.checkedAt ||
-      (left.status === right.status ? 0 : left.status === "confirmed" ? -1 : 1) ||
+      VERIFICATION_STATUSES.indexOf(left.status as typeof VERIFICATION_STATUSES[number]) - VERIFICATION_STATUSES.indexOf(right.status as typeof VERIFICATION_STATUSES[number]) ||
       left.createdAt - right.createdAt || String(left.bookingId).localeCompare(String(right.bookingId))).slice(0, BATCH_SIZE);
-    const phase = page.isDone ? status === "confirmed" ? "active" : "dispatch" : status;
+    const phase = !page.isDone ? status : status === "pending_verification" ? "confirmed" :
+      status === "confirmed" ? "active" : "dispatch";
     await ctx.db.patch(state._id, { phase, cursor: page.isDone ? undefined : page.continueCursor, candidates, updatedAt: Date.now() });
     if (phase === "dispatch") await ctx.scheduler.runAfter(0, internal.didit.reconcileOpenSessions, { generation });
     else await ctx.scheduler.runAfter(0, internal.diditSweep.page, { generation });
@@ -49,7 +51,7 @@ export const missingEmail = internalMutation({
   args: { bookingId:v.id("bookings"), sessionId:v.string() },
   handler: async (ctx,{bookingId,sessionId}) => {
     const booking=await ctx.db.get(bookingId);
-    if (!booking || booking.verificationProvider!=="didit" || !["confirmed","active"].includes(booking.status) ||
+    if (!booking || booking.verificationProvider!=="didit" || !VERIFICATION_STATUSES.includes(booking.status as typeof VERIFICATION_STATUSES[number]) ||
         booking.diditSessionId!==sessionId || booking.guestEmail?.trim()) return;
     const account=await accountForRental(ctx,booking);
     await queueOwnerNotification(ctx,{eventKey:`didit-missing-email:${bookingId}:${sessionId}:${Math.floor(Date.now()/86400000)}`,
@@ -66,7 +68,7 @@ export const batch = internalQuery({
     const bookings = await Promise.all(state.candidates.map(candidate => ctx.db.get(candidate.bookingId)));
     return state.candidates.flatMap((candidate, index) => {
       const booking = bookings[index];
-      if (!(booking?.verificationProvider === "didit" && ["confirmed", "active"].includes(booking.status) &&
+      if (!(booking?.verificationProvider === "didit" && VERIFICATION_STATUSES.includes(booking.status as typeof VERIFICATION_STATUSES[number]) &&
         booking.diditSessionId === candidate.sessionId && booking.guestEmail === candidate.email &&
         (booking.diditReconciledAt ?? 0) === candidate.checkedAt)) return [];
       return [{ bookingId: candidate.bookingId, sessionId: candidate.sessionId, email: candidate.email,

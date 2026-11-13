@@ -1,11 +1,13 @@
 "use node";
 import {depositRefundState,depositRefundStatementFields} from "../shared/depositRefundStatus";
 import {isAllowedReturnTime} from "../src/lib/site";
+import { isBusinessSender } from "../shared/businessEmail";
 
 import Stripe from "stripe";
+import { isRejectedPendingDiditBooking } from "./lib/paidCheckoutReceipt";
 import {operatorCancellationOptions} from "../shared/operatorCancellationCredit";
 import { isPickupHoldPolicyVersion, pickupHoldEligible } from "../shared/pickupSecurity";
-import { ASSESSMENT_SECURITY_POLICY_VERSION, CARD_HOLD_SECURITY_POLICY_VERSION, hasCashDepositPolicy, isCardHoldSecurityPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION, isSetupIntentSecurityPolicy } from "../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, CARD_HOLD_SECURITY_POLICY_VERSION, hasCashDepositPolicy, isCardHoldSecurityPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION, isSetupIntentSecurityPolicy, isImmediateClaimSecurityPolicy } from "../shared/rentalSecurity";
 import { isSavedCardRental, savedCardRentalValue } from "../shared/savedCardSecurity";
 import { returnSecurityPlan, refundableDepositPlan } from "../shared/returnSettlement";
 import { returnStatementEmail, type ReturnStatementData } from "../shared/returnStatement";
@@ -23,6 +25,7 @@ import { assertCreditOffer, creditOfferFingerprint } from "./lib/rentalCreditPol
 import { cancellationPaymentPlan,rentalRefundPlan,securityReturnPlan } from "./lib/rentalPaymentPlan";
 import { lateFeeQuote } from "./lib/lateFee";
 import { assertCurrentAgreement, agreementRequestFingerprint } from "../shared/rentalAgreement";
+import { RENTAL_DRAFT_RELEASE_READY } from "../shared/legalDocuments";
 import { sendMail } from "./lib/mailer";
 import { assertDiditCheckoutCapacity } from "./lib/diditCapacity";
 import { ensureCheckoutCustomer } from "./lib/stripeCustomer";
@@ -31,9 +34,12 @@ import { checkoutLineAllocation } from "../shared/checkoutLineAllocation";
 import { cancellationSettlement } from "../src/lib/cancellationPolicy";
 import { MEMBERSHIP_BASKET_MINIMUM } from "../shared/checkoutMembershipCredit";
 import { calculateRentalPrice } from "./lib/rentalPrice";
+import { expireUnpaidCheckoutSession } from "./lib/checkoutSessionRecovery";
 import { paidRecurringMembership } from "./lib/membershipBilling";
 import { resolveMembershipInvoiceSnapshot, type MembershipPriceSnapshot } from "./lib/membershipInvoiceSnapshot";
 import { MEMBERSHIP_TERMS_VERSION,membershipActiveNow,membershipTierFor } from "../shared/membership";
+import { legalVersionForPolicy, CURRENT_PRIVACY_NOTICE_VERSION } from "../shared/legalVersioning";
+import { assertOwnerReturnClaimToken } from "./lib/ownerReturnClaim";
 
 const pence = (gbp: number) => Math.round(gbp * 100);
 const subActive = (status: string) => status === "active" || status === "trialing";
@@ -92,6 +98,13 @@ function stripe() {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error("STRIPE_SECRET_KEY not set on the Convex deployment");
   return new Stripe(key);
+}
+
+/** The seven-day free trial is a standalone membership offer, never a rental-basket discount.
+ * A previously reserved membership checkout is allowed to finish its original accepted terms. */
+export function assertRentalBasketTrialAllowed(intro: string | undefined, existingReservation: boolean) {
+  if (intro === "trial" && !existingReservation)
+    throw new Error("The free membership trial can only be started from the Memberships page, not added to a rental basket.");
 }
 
 /** Preview the same authoritative calculation used when creating the Stripe session. */
@@ -191,7 +204,7 @@ export const start = action({
         pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),
       }),
     ),
-    selectedMembership: v.optional(v.object({tier:v.string(),intro:v.union(v.literal("trial"),v.literal("credit"),v.literal("none")),termsVersion:v.string(),requestId:v.string()})),
+    selectedMembership: v.optional(v.object({tier:v.string(),intro:v.union(v.literal("trial"),v.literal("credit"),v.literal("none")),termsVersion:v.string(),requestId:v.string(),accountTermsPrivacyAcknowledged:v.optional(v.boolean()),accountTermsVersion:v.optional(v.string()),privacyNoticeVersion:v.optional(v.string())})),
     useAccountCredit:v.optional(v.boolean()),
     token: v.optional(v.string()), // session token — required to apply MEMBER perks (anti-spoof)
     customer: v.object({
@@ -216,17 +229,20 @@ export const start = action({
         requestId: v.optional(v.string()),
         securityHoldConsent: v.boolean(),
         laterChargeConsent: v.boolean(),
+        deliveryAccepted: v.optional(v.boolean()),
         documents: v.array(v.object({ kind: v.string(), version: v.string() })),
       }),
     ),
   },
-  handler: async (ctx, a): Promise<{ url: string }> => {
+  handler: async (ctx, a): Promise<{ url: string } | { bookingId: string; alreadyPaid: true; sessionId: string }> => {
     if (a.items.length === 0) throw new Error("empty cart");
     if (a.items.some((item) => item.qty !== 1 || !Number.isSafeInteger(item.start) ||
         !Number.isSafeInteger(item.end) || item.end < item.start))
       throw new Error("Each rental line must be one item with valid dates. Please refresh your basket.");
     if (process.env.RENTAL_CHECKOUT_ENABLED !== "true")
       throw new ConvexError({code:"CHECKOUT_PAUSED",message:"Checkout is temporarily paused while we improve the booking experience. Your basket is saved; please check back soon."});
+    if (!RENTAL_DRAFT_RELEASE_READY)
+      throw new ConvexError({code:"RENTAL_AGREEMENT_REVIEW",message:"Online rental booking is temporarily paused while we complete the rental agreement and handover checks. Your basket is saved; please try again soon."});
     if (process.env.BUSINESS_VAT_REGISTERED === "true")
       throw new Error("Rental receipt tax configuration needs updating before checkout can continue.");
     if (!process.env.DIDIT_API_KEY || !process.env.DIDIT_WORKFLOW_ID || !process.env.DIDIT_WEBHOOK_SECRET ||
@@ -237,12 +253,13 @@ export const start = action({
       throw new Error("Payment and identity verification environments do not match.");
     if (!process.env.STRIPE_WEBHOOK_SECRET || !process.env.INVOICE_SECRET || !process.env.APP_URL ||
         !process.env.BUSINESS_LEGAL_NAME || !process.env.BUSINESS_INVOICE_ADDRESS ||
-        !((process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) || process.env.RESEND_API_KEY))
+        !process.env.RESEND_API_KEY?.trim() ||
+        !isBusinessSender(process.env.RESEND_FROM))
       throw new Error("Rental receipts and payment notifications are being configured. Please contact us before paying.");
     const cfg: any = await ctx.runQuery(api.settings.get, {});
     if (!cfg.acceptingOrders)
       throw new Error("We're not accepting new bookings right now — please check back soon.");
-    const checkoutSecurityPolicyVersion=process.env.SETUP_INTENT_SECURITY_POLICY_ENABLED==="true"?SETUP_INTENT_SECURITY_POLICY_VERSION:process.env.CARD_HOLD_SECURITY_POLICY_ENABLED==="true"?CARD_HOLD_SECURITY_POLICY_VERSION:process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true"?ASSESSMENT_SECURITY_POLICY_VERSION:process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true"?REFUNDABLE_DEPOSIT_POLICY_VERSION:SECURITY_POLICY_VERSION;
+    const checkoutSecurityPolicyVersion=process.env.SETUP_INTENT_SECURITY_POLICY_ENABLED==="true"?IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION:process.env.CARD_HOLD_SECURITY_POLICY_ENABLED==="true"?CARD_HOLD_SECURITY_POLICY_VERSION:process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true"?ASSESSMENT_SECURITY_POLICY_VERSION:process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true"?REFUNDABLE_DEPOSIT_POLICY_VERSION:SECURITY_POLICY_VERSION;
     const cardHoldPolicy=isCardHoldSecurityPolicy(checkoutSecurityPolicyVersion);
     const setupIntentPolicy=isSetupIntentSecurityPolicy(checkoutSecurityPolicyVersion);
     if (!a.agreement || !a.agreement.name.trim() || !a.agreement.securityHoldConsent || (!cardHoldPolicy && !a.agreement.laterChargeConsent))
@@ -257,13 +274,42 @@ export const start = action({
     const checkoutInputFingerprint=createHash("sha256").update(agreementRequestFingerprint({...a,token:undefined})).digest("hex");
     const priorAttempt=await ctx.runQuery(internal.bookings.checkoutAttempt,{requestId:a.agreement.requestId,checkoutInputFingerprint});
     if(priorAttempt?.sessionId){
-      await ctx.runQuery(internal.bookings.assertCheckoutReservation,{bookingId:priorAttempt.bookingId});
-      const session=await stripe().checkout.sessions.retrieve(priorAttempt.sessionId);
+      const sb=stripe(),session=await sb.checkout.sessions.retrieve(priorAttempt.sessionId);
       if(session.id!==priorAttempt.sessionId||session.metadata?.bookingId!==String(priorAttempt.bookingId))throw Error("This payment session does not match the saved booking. Contact us before retrying.");
-      if(session.status!=="open"||!session.url)throw Error("This checkout has completed or expired. Use the existing booking or contact us.");
-      return {url:session.url};
+      // A completed payment retains the terms accepted when that session was
+      // created. Reconcile it as-is; never change or retroactively collect its
+      // security amount because the renter reopened checkout later.
+      if(checkoutCompleted(session)){
+        await confirmPaidBookingWithLiveStock(ctx,priorAttempt.bookingId,session);
+        return {bookingId:String(priorAttempt.bookingId),alreadyPaid:true,sessionId:session.id};
+      }
+      if(session.status==="complete"&&session.payment_status==="unpaid")
+        throw new ConvexError({code:"CHECKOUT_PAYMENT_PENDING",message:"Stripe is still resolving this payment. Keep this booking open and do not pay again.",freshAcceptanceRequired:false});
+      if(session.status==="expired"&&session.payment_status==="unpaid"){
+        const closed=await ctx.runMutation(internal.bookings.expireUnpaidPending,{bookingId:priorAttempt.bookingId,sessionId:session.id});
+        if(!closed)throw new ConvexError({code:"CHECKOUT_RECONCILIATION_REQUIRED",message:"This checkout is still being reconciled. Please do not pay again.",freshAcceptanceRequired:false});
+        throw new ConvexError({code:"CHECKOUT_CLOSED",message:"This checkout expired. Review and accept the current rental terms again to continue.",freshAcceptanceRequired:true});
+      }
+      if(session.status!=="open"||session.payment_status!=="unpaid")
+        throw new ConvexError({code:"CHECKOUT_RECONCILIATION_REQUIRED",message:"This checkout is still being reconciled. Please do not pay again.",freshAcceptanceRequired:false});
+      if(!priorAttempt.fingerprintMatches){
+        const expired=await expireUnpaidCheckout(ctx,sb,priorAttempt.bookingId,session);
+        if(expired.paidSession){
+          await confirmPaidBookingWithLiveStock(ctx,priorAttempt.bookingId,expired.paidSession);
+          return {bookingId:String(priorAttempt.bookingId),alreadyPaid:true,sessionId:expired.paidSession.id};
+        }
+        if(!expired.expired)throw new ConvexError({code:"CHECKOUT_RECONCILIATION_REQUIRED",message:"The saved checkout changed while we were checking it. Please do not pay again while we reconcile it.",freshAcceptanceRequired:false});
+        throw new ConvexError({code:"CHECKOUT_TERMS_CHANGED",message:"Your rental details changed. Review the updated quote and accept the terms again before paying.",freshAcceptanceRequired:true});
+      }
+      // New non-membership quotes continue through fresh server pricing and
+      // eligibility checks below before an unpaid URL can be reused.
+      if(priorAttempt.membershipCheckoutId){
+        await ctx.runQuery(internal.bookings.assertCheckoutReservation,{bookingId:priorAttempt.bookingId});
+        if(!session.url)throw Error("Stripe did not return a checkout URL");
+        return {url:session.url};
+      }
     }
-    if(priorAttempt&&!priorAttempt.membershipCheckoutId)throw Error("This checkout is still pending reconciliation. Do not submit a second acceptance or payment.");
+    if(priorAttempt&&!priorAttempt.sessionId&&!priorAttempt.membershipCheckoutId)throw Error("This checkout is still pending reconciliation. Do not submit a second acceptance or payment.");
 
     await assertDiditCheckoutCapacity(
       process.env.DIDIT_API_KEY!,
@@ -272,8 +318,10 @@ export const start = action({
       process.env.DIDIT_MAX_WORKFLOW_PRICE_USD,
     );
 
+    let existingMembershipCheckout:any=null;
     if (a.selectedMembership && /^[A-Za-z0-9_-]{32,100}$/.test(a.selectedMembership.requestId)) {
       const existing: any = await ctx.runQuery(internal.membershipBenefits.byRequest,{requestId:a.selectedMembership.requestId,email:a.customer.email});
+      existingMembershipCheckout=existing;
       if(priorAttempt&&existing&&(String(existing._id)!==String(priorAttempt.membershipCheckoutId)||String(existing.bookingId)!==String(priorAttempt.bookingId)))throw Error("This membership checkout does not match the saved booking. Contact us before retrying.");
       if(priorAttempt&&existing&&!["creating","open"].includes(existing.state))throw Error("This membership checkout has completed or closed. Contact us before retrying.");
       if (existing?.sessionId) {
@@ -294,6 +342,9 @@ export const start = action({
         return {url:session.url};
       }
     }
+
+    if (a.selectedMembership)
+      assertRentalBasketTrialAllowed(a.selectedMembership.intro, !!existingMembershipCheckout);
 
     assertCurrentAgreement({...a.agreement,cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true",securityPolicyVersion:checkoutSecurityPolicyVersion}, a.fulfilment);
 
@@ -325,7 +376,15 @@ export const start = action({
     let membershipCheckout: any = null;
     if (a.selectedMembership) {
       if (a.selectedMembership.termsVersion !== MEMBERSHIP_TERMS_VERSION || !/^[A-Za-z0-9_-]{32,100}$/.test(a.selectedMembership.requestId)) throw Error("Accept the membership terms and refresh your checkout.");
-      if (!acct) acct = await ctx.runMutation(internal.membershipBenefits.bootstrapCheckoutAccount, {email:price.customerEmail,name:a.customer.name!,seedHash:createHash("sha256").update(a.selectedMembership.requestId).digest("hex")});
+      if (!acct) {
+        const accountTermsVersion = legalVersionForPolicy(cfg);
+        if (a.selectedMembership.accountTermsPrivacyAcknowledged !== true || a.selectedMembership.accountTermsVersion !== accountTermsVersion || a.selectedMembership.privacyNoticeVersion !== CURRENT_PRIVACY_NOTICE_VERSION)
+          throw new Error("Agree to the current account Terms and acknowledge the Privacy Notice before creating your account.");
+        acct = await ctx.runMutation(internal.membershipBenefits.bootstrapCheckoutAccount, {
+          email:price.customerEmail,name:a.customer.name!,seedHash:createHash("sha256").update(a.selectedMembership.requestId).digest("hex"),
+          termsAndPrivacyAcknowledged:true,accountTermsVersion,privacyNoticeVersion:CURRENT_PRIVACY_NOTICE_VERSION,
+        });
+      }
       membershipCheckout = await ctx.runMutation(internal.membershipBenefits.reserveCheckout, {accountId:acct._id,tier:a.selectedMembership.tier,intro:a.selectedMembership.intro,requestId:a.selectedMembership.requestId,termsVersion:a.selectedMembership.termsVersion});
       if (membershipCheckout.sessionId) {
         const existing = await stripe().checkout.sessions.retrieve(membershipCheckout.sessionId);
@@ -352,7 +411,7 @@ export const start = action({
     // Reserved transactionally inside createPending (double-spend-safe): it caps to the account's
     // available balance minus credit already reserved by its other pending checkouts, and returns
     // the amount actually applied, which drives the Stripe discount below.
-    const { bookingId, creditApplied, reused, sessionId: existingSessionId } = await ctx.runMutation(internal.bookings.createPending, {
+    const { bookingId, creditApplied, reused, staleCheckout, sessionId: existingSessionId } = await ctx.runMutation(internal.bookings.createPending, {
       pricingVersion:price.pricingVersion,benefitKind:price.benefitKind,useAccountCredit:a.useAccountCredit,
       refundCreditApplied:price.refundCreditApplied,earnedCreditApplied:price.earnedCreditApplied,
       referralCode:price.referralCode,referralRewardId:price.referralRewardId,
@@ -383,6 +442,7 @@ export const start = action({
       discount: totalReduction,
       total,
       expectedTotalDue: price.totalDue,
+      expectedCheckoutAmountPence:Math.round(price.combinedTotalDue*100),
       membershipCreditApplied: price.membershipCreditApplied,
       membershipSignupOfferSaving: price.membershipSignupOfferSaving,
       weekendSaving: price.weekendSaving,
@@ -402,6 +462,7 @@ export const start = action({
       checkoutInputFingerprint,
       securityHoldConsent: a.agreement?.securityHoldConsent,
       laterChargeConsent: a.agreement?.laterChargeConsent,
+      deliveryAccepted: a.agreement?.deliveryAccepted,
       agreementDocs: a.agreement?.documents,
       protection,
       idVerifyStatus,
@@ -412,7 +473,24 @@ export const start = action({
     if (reused) {
       if (!existingSessionId) throw Error("This checkout is still pending reconciliation. Do not submit a second acceptance or payment.");
       const existingSession = await sb.checkout.sessions.retrieve(existingSessionId);
-      if (existingSession.status !== "open" || !existingSession.url) throw Error("This checkout has completed or expired. Use the existing booking or contact us.");
+      if(existingSession.id!==existingSessionId||existingSession.metadata?.bookingId!==String(bookingId))throw Error("This payment session does not match the saved booking. Contact us before retrying.");
+      if(checkoutCompleted(existingSession)){
+        await confirmPaidBookingWithLiveStock(ctx,bookingId,existingSession);
+        return {bookingId:String(bookingId),alreadyPaid:true,sessionId:existingSession.id};
+      }
+      if(existingSession.status==="complete"&&existingSession.payment_status==="unpaid")
+        throw new ConvexError({code:"CHECKOUT_PAYMENT_PENDING",message:"Stripe is still resolving this payment. Keep this booking open and do not pay again.",freshAcceptanceRequired:false});
+      if(staleCheckout||existingSession.status==="expired"&&existingSession.payment_status==="unpaid"){
+        const expired=await expireUnpaidCheckout(ctx,sb,bookingId,existingSession);
+        if(expired.paidSession){
+          await confirmPaidBookingWithLiveStock(ctx,bookingId,expired.paidSession);
+          return {bookingId:String(bookingId),alreadyPaid:true,sessionId:expired.paidSession.id};
+        }
+        if(!expired.expired)throw new ConvexError({code:"CHECKOUT_RECONCILIATION_REQUIRED",message:"This checkout is still being reconciled. Please do not pay again.",freshAcceptanceRequired:false});
+        throw new ConvexError({code:"CHECKOUT_TERMS_CHANGED",message:"Your rental details or eligibility changed. Review the updated quote and accept the terms again before paying.",freshAcceptanceRequired:true});
+      }
+      if(existingSession.status !== "open" || existingSession.payment_status!=="unpaid" || !existingSession.url)
+        throw new ConvexError({code:"CHECKOUT_RECONCILIATION_REQUIRED",message:"This checkout is still being reconciled. Please do not pay again.",freshAcceptanceRequired:false});
       return {url:existingSession.url};
     }
 
@@ -488,7 +566,7 @@ export const start = action({
     const meta = {bookingId,rentalPaidPence:String(pence(price.totalDue)),securityPolicyVersion:price.securityPolicyVersion,savedCardLimitPence:String(pence(price.savedCardLimit)),...(membershipCheckout ? {membershipTier:membershipCheckout.tier,accountEmail:acct.email,membershipCheckoutId:String(membershipCheckout._id),membershipTerms:MEMBERSHIP_TERMS_VERSION}: {})};
     const submitMessage=cardHoldPolicy
       ?depositHoldAmount>0?`A temporary £${depositHoldAmount.toFixed(2)} card authorisation is requested separately. It is not a charge but may reduce your available balance. An issue-free return releases it automatically; any claim needs a recorded reason.`:"You qualify for the no-hold exemption. No security payment or card authorisation is requested."
-      :setupIntentPolicy?`No deposit or funds are held. Stripe saves your card for itemised, evidenced post-return damage or late-fee claims up to £${price.savedCardLimit.toFixed(2)} combined. No charge on an on-time return without a reported issue. Later bank approval is not guaranteed; insurance claims are separate.`
+      :setupIntentPolicy?isImmediateClaimSecurityPolicy(checkoutSecurityPolicyVersion)?`No deposit or funds are held. Stripe saves your card for itemised, evidenced post-return late fees or severe permanent damage/loss claims up to £${price.savedCardLimit.toFixed(2)} combined. An authorised team member sends the itemised notice before one immediate off-session attempt. No charge on an on-time return without an issue; bank approval is not guaranteed; insurance is separate.`:`No deposit or funds are held. Stripe saves your card for itemised, evidenced post-return damage or late-fee claims up to £${price.savedCardLimit.toFixed(2)} combined. No charge on an on-time return without a reported issue. Later bank approval is not guaranteed; insurance claims are separate.`
       :`${depositAmount>0?`A refundable £${depositAmount.toFixed(2)} deposit is included; no extra funds are blocked. Retained deposit reduces later collection for the same loss.`:"No cash security deposit or additional card hold is taken."} You agreed to save this card for evidenced damage/loss and late-return payments ${price.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?"for the itemised assessment,":`up to £${price.savedCardLimit.toFixed(2)} combined,`} after an itemised notice and at least seven days to raise a dispute. Bank approval may be required.`;
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       custom_text:{submit:{message:submitMessage}},
@@ -530,13 +608,22 @@ function checkoutCompleted(session: Stripe.Checkout.Session) {
   return session.payment_status === "paid" || (session.status === "complete" && session.payment_status === "no_payment_required");
 }
 
+async function expireUnpaidCheckout(ctx:any,sb:Stripe,bookingId:any,session:Stripe.Checkout.Session){
+  const result=await expireUnpaidCheckoutSession({
+    session,
+    expireStripe:(sessionId)=>sb.checkout.sessions.expire(sessionId),
+    retrieveStripe:(sessionId)=>sb.checkout.sessions.retrieve(sessionId),
+    expireBooking:(sessionId)=>ctx.runMutation(internal.bookings.expireUnpaidPending,{bookingId,sessionId}),
+  });
+  return {paidSession:result.state==="paid"?result.session:null,expired:result.bookingExpired};
+}
+
 async function confirmPaidBookingWithLiveStock(ctx: any, bookingId: any, session: Stripe.Checkout.Session) {
   if (!checkoutCompleted(session) || session.metadata?.bookingId !== String(bookingId))
     throw Error("Paid checkout does not match this booking.");
-  const paymentIntentId = await checkoutPaymentIntent(session);
-  if (session.payment_status === "paid" && !paymentIntentId)
-    throw Error("The paid checkout has no identifiable payment. Review it before confirming the rental.");
-  const receipt = await ctx.runMutation(internal.bookings.recordPaidCheckoutReceipt, { bookingId, sessionId: session.id, paymentIntentId });
+  const providerReceipt=await verifiedCheckoutReceipt(stripe(),session);
+  const paymentIntentId=providerReceipt.paymentIntentId;
+  const receipt = await ctx.runMutation(internal.bookings.recordPaidCheckoutReceipt, { bookingId, sessionId: session.id, ...providerReceipt });
   if (receipt.closed) return receipt;
   if (receipt.awaitingVerification) {
     // A successful Didit checkout must reach Rental Manager before the payer
@@ -583,14 +670,33 @@ async function confirmPaidBookingWithLiveStock(ctx: any, bookingId: any, session
   });
 }
 /** New Stripe versions expose invoice payments separately from the Checkout Session. */
-export async function checkoutPaymentIntent(session: Stripe.Checkout.Session): Promise<string | undefined> {
+export async function checkoutPaymentIntent(session: Stripe.Checkout.Session, sb:Stripe=stripe()): Promise<string | undefined> {
   if (session.payment_intent) return typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent.id;
   const invoiceId = typeof session.invoice === "string" ? session.invoice : session.invoice?.id;
   if (!invoiceId) return;
-  const payments = await stripe().invoicePayments.list({ invoice: invoiceId, status: "paid", limit: 100 });
+  const payments = await sb.invoicePayments.list({ invoice: invoiceId, status: "paid", limit: 100 });
   const intents = payments.data.filter(p => p.payment.type === "payment_intent" && p.payment.payment_intent).map(p => typeof p.payment.payment_intent === "string" ? p.payment.payment_intent : p.payment.payment_intent!.id);
   if (intents.length > 1) throw Error("This invoice has multiple payments and needs financial reconciliation before rental confirmation.");
   return intents[0];
+}
+
+/** Verify the Checkout Session against its underlying Stripe payment before
+ * persisting a receipt. Checkout's paid flag alone is not a sufficient record
+ * for later clean-rental eligibility. */
+export async function verifiedCheckoutReceipt(sb:Stripe,session:Stripe.Checkout.Session){
+  if(!checkoutCompleted(session)||!session.id||!Number.isSafeInteger(session.amount_total)||session.amount_total!<0||
+    typeof session.currency!=="string"||!/^[a-z]{3}$/i.test(session.currency))
+    throw Error("Stripe did not return a complete checkout amount and currency. Review the payment before confirming the rental.");
+  const paymentIntentId=await checkoutPaymentIntent(session,sb);
+  if(session.payment_status==="paid"){
+    if(!paymentIntentId)throw Error("The paid checkout has no identifiable payment. Review it before confirming the rental.");
+    const payment=await sb.paymentIntents.retrieve(paymentIntentId);
+    if(payment.status!=="succeeded"||payment.amount_received!==session.amount_total||payment.currency.toLowerCase()!==session.currency.toLowerCase())
+      throw Error("The Stripe payment amount or currency does not match the checkout. Review the payment before confirming the rental.");
+  }else if(session.payment_status==="no_payment_required"&&(session.amount_total!==0||paymentIntentId)){
+    throw Error("Stripe marked a charged checkout as unpaid. Review the payment before confirming the rental.");
+  }
+  return {paymentIntentId,amountTotalPence:session.amount_total!,currency:session.currency!,paymentStatus:session.payment_status as "paid"|"no_payment_required"};
 }
 
 /** Payment, setup, paid subscription and trial subscription all save a reusable card. */
@@ -618,9 +724,10 @@ export const prepareSavedCard = internalAction({args:{bookingId:v.id("bookings")
  }catch(error){await ctx.runMutation(internal.savedCardState.failed,{bookingId});throw error;}
 }});
 export const retrySavedCard = action({args:{token:v.string(),bookingId:v.id("bookings"),admin:v.optional(v.boolean())},handler:async(ctx,a):Promise<void>=>{
- const b:any=await ctx.runQuery(internal.savedCardState.context,{bookingId:a.bookingId});
- if(a.admin)await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:a.token,fn:"checkout.retrySavedCard"});
- else{const account:any=await ctx.runQuery(internal.accounts._byToken,{token:a.token});if(!account||!belongsToRentalAccount(b,account))throw Error("Rental card access denied.");}
+ let b:any;
+ if(a.admin)await ctx.runMutation(internal.securityChargeState.authorizeAdminPayment,{token:a.token,operation:"checkout.retrySavedCard"});
+ else{b=await ctx.runQuery(internal.savedCardState.context,{bookingId:a.bookingId});const account:any=await ctx.runQuery(internal.accounts._byToken,{token:a.token});if(!account||!belongsToRentalAccount(b,account))throw Error("Rental card access denied.");}
+ if(!b)b=await ctx.runQuery(internal.savedCardState.context,{bookingId:a.bookingId});
  if(!isSavedCardRental(b)||!["confirmed","active"].includes(b.status))throw Error("This rental is not awaiting card confirmation.");
  await ctx.runAction(internal.checkout.prepareSavedCard,{bookingId:a.bookingId});
 }});
@@ -1079,20 +1186,23 @@ export const adminRefreshMembership = action({
 });
 
 export const adminInspectMembershipInvoice = action({
-  args:{token:v.string(),accountId:v.id("accounts"),selection:v.optional(v.union(v.literal("latest"),v.literal("paid"))),inspectTier:v.optional(v.boolean())},
-  handler:async(ctx,args):Promise<{invoice:null|{id:string;status:string|null;amountPaidPence:number;currency:string;createdAt:number};receipt:null|{creditPence:number;bonusPence:number;revokedPence:number;paidMembershipPence:number;createdAt:number};tierCheck?:{state:string;tier?:string;earnedCreditPence?:number;reason?:string}} >=>{
-    const target:{customerId:string;subscriptionId:string}=await ctx.runMutation(internal.accountAdmin.billingPortalTarget,{token:args.token,accountId:args.accountId});
+  args:{token:v.string(),accountId:v.id("accounts"),invoiceId:v.optional(v.string()),selection:v.optional(v.union(v.literal("latest"),v.literal("paid"))),inspectTier:v.optional(v.boolean())},
+  handler:async(ctx,args):Promise<{invoice:null|{id:string;status:string|null;amountPaidPence:number;currency:string;createdAt:number;billingReason:string|null};receipt:null|{creditPence:number;bonusPence:number;revokedPence:number;paidMembershipPence:number;createdAt:number;hasHistoricalPrice:boolean};tierCheck?:{state:string;tier?:string;earnedCreditPence?:number;reason?:string}} >=>{
+    const target:{customerId:string;subscriptionId:string}=await ctx.runMutation(internal.accountAdmin.billingPortalTarget,{token:args.token,accountId:args.accountId,purpose:"membership_read"});
     const client=stripe(),sub=await client.subscriptions.retrieve(target.subscriptionId);
     const customerId=typeof sub.customer==="string"?sub.customer:sub.customer?.id;
     if(sub.id!==target.subscriptionId||customerId!==target.customerId)throw Error("The Stripe subscription does not match this account.");
     let invoiceId:string|undefined;
-    if(args.selection==="paid"){
+    if(args.invoiceId){
+      if(!/^in_[A-Za-z0-9]+$/.test(args.invoiceId))throw Error("Invalid membership invoice reference.");
+      invoiceId=args.invoiceId;
+    }else if(args.selection==="paid"){
       const recent=await client.invoices.list({subscription:target.subscriptionId,status:"paid",limit:100});
       invoiceId=recent.data.find(item=>item.status==="paid"&&Number.isSafeInteger(item.amount_paid)&&item.amount_paid>0)?.id;
       if(!invoiceId&&recent.has_more)throw Error("More invoice history needs review in Stripe before a paid invoice can be identified.");
     }else invoiceId=typeof sub.latest_invoice==="string"?sub.latest_invoice:sub.latest_invoice?.id;
-    let invoice:null|{id:string;status:string|null;amountPaidPence:number;currency:string;createdAt:number}=null;
-    let receipt:null|{creditPence:number;bonusPence:number;revokedPence:number;paidMembershipPence:number;createdAt:number}=null;
+    let invoice:null|{id:string;status:string|null;amountPaidPence:number;currency:string;createdAt:number;billingReason:string|null}=null;
+    let receipt:null|{creditPence:number;bonusPence:number;revokedPence:number;paidMembershipPence:number;createdAt:number;hasHistoricalPrice:boolean}=null;
     let tierCheck:{state:string;tier?:string;earnedCreditPence?:number;reason?:string}|undefined;
     if(invoiceId){
       const current=await client.invoices.retrieve(invoiceId);
@@ -1101,8 +1211,9 @@ export const adminInspectMembershipInvoice = action({
       const invoiceSubscription=typeof parent==="string"?parent:parent?.id;
       if(current.id!==invoiceId||invoiceCustomer!==target.customerId||invoiceSubscription!==target.subscriptionId||current.currency!=="gbp"||!Number.isSafeInteger(current.amount_paid)||current.amount_paid<0||!Number.isSafeInteger(current.created))throw Error("The Stripe invoice does not match this subscription. Review it in Stripe.");
       if(args.selection==="paid"&&(current.status!=="paid"||current.amount_paid<=0))throw Error("The selected paid invoice changed. Check again.");
-      invoice={id:current.id,status:current.status,amountPaidPence:current.amount_paid,currency:current.currency,createdAt:current.created*1000};
-      receipt=await ctx.runQuery(internal.accountAdmin.membershipInvoiceReceipt,{accountId:args.accountId,customerId:target.customerId,subscriptionId:target.subscriptionId,invoiceId});
+      invoice={id:current.id,status:current.status,amountPaidPence:current.amount_paid,currency:current.currency,createdAt:current.created*1000,billingReason:current.billing_reason??null};
+      const savedReceipt=await ctx.runQuery(internal.accountAdmin.membershipInvoiceReceipt,{accountId:args.accountId,customerId:target.customerId,subscriptionId:target.subscriptionId,invoiceId});
+      receipt=savedReceipt?{creditPence:savedReceipt.creditPence,bonusPence:savedReceipt.bonusPence,revokedPence:savedReceipt.revokedPence,paidMembershipPence:savedReceipt.paidMembershipPence,createdAt:savedReceipt.createdAt,hasHistoricalPrice:typeof savedReceipt.historicalPriceId==="string"}:null;
       if(args.inspectTier){
         let snapshots:MembershipPriceSnapshot[]=[];
         try {const parsed=JSON.parse(process.env.MEMBERSHIP_INVOICE_PRICE_SNAPSHOTS ?? "[]");if(Array.isArray(parsed)&&parsed.length<=100)snapshots=parsed;} catch {}
@@ -1116,7 +1227,7 @@ export const adminInspectMembershipInvoice = action({
         }
       }
     }
-    const latest:{customerId:string;subscriptionId:string}=await ctx.runMutation(internal.accountAdmin.billingPortalTarget,{token:args.token,accountId:args.accountId});
+    const latest:{customerId:string;subscriptionId:string}=await ctx.runMutation(internal.accountAdmin.billingPortalTarget,{token:args.token,accountId:args.accountId,purpose:"membership_read"});
     if(latest.customerId!==target.customerId||latest.subscriptionId!==target.subscriptionId)throw Error("The billing link changed while checking. Review the account and try again.");
     return {invoice,receipt,...(tierCheck?{tierCheck}:{})};
   },
@@ -1142,7 +1253,7 @@ export const adminRetryMembershipInvoice = action({
   },
 });
 
-type ReturnSelection = { bookingId: any; damageKept?: number; depositKept?: number; expectedSnapshot?: string; damageNote?: string; actualReturnedAt?: number; chargeLate: boolean; lateWaiverReason?: string; lateClaimReason?: string; inspection?: InspectionInput[] };
+type ReturnSelection = { bookingId: any; damageKept?: number; depositKept?: number; claimBasis?: "loss" | "severe_cosmetic_damage"; expectedSnapshot?: string; damageNote?: string; actualReturnedAt?: number; chargeLate: boolean; lateWaiverReason?: string; lateClaimReason?: string; inspection?: InspectionInput[] };
 async function validateReturnSelection(ctx: any, b: any, args: ReturnSelection) {
   if (args.expectedSnapshot && (b.returnDecision?.expectedSnapshot ? args.expectedSnapshot !== b.returnDecision.expectedSnapshot : !b.returnDecision && args.expectedSnapshot !== b.controlsSnapshot)) throw new ConvexError({code:"RETURN_REVIEW_STALE",message:"The rental changed after review. Refresh and review the deposit decision again."});
   const { bookingId, damageKept, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, lateClaimReason, inspection } = args;
@@ -1154,7 +1265,7 @@ async function validateReturnSelection(ctx: any, b: any, args: ReturnSelection) 
     const returned = actualReturnedAt ?? Date.now();
     if (!Number.isFinite(returned) || returned > Date.now() + 60000 || (returned < Date.now() - 45 * 86400000 && returned !== b.returnDecision?.actualReturnedAt))
       throw new Error("Actual return time must be within the last 45 days.");
-    if(b.returnDecision && (b.returnDecision.actualReturnedAt!==returned || b.returnDecision.damageKept!==(damageKept??0) || (b.returnDecision.damageNote??"")!==(damageNote??"") || b.returnDecision.chargeLate!==chargeLate || (b.returnDecision.lateWaiverReason??"")!==(lateWaiverReason??"") || (b.returnDecision.lateClaimReason??"")!==(lateClaimReason??"")))throw Error("Resume the saved return decision; its amounts and return time cannot be changed during settlement.");
+    if(b.returnDecision && (b.returnDecision.actualReturnedAt!==returned || b.returnDecision.damageKept!==(damageKept??0) || (b.returnDecision.damageNote??"")!==(damageNote??"") || b.returnDecision.claimBasis!==args.claimBasis || b.returnDecision.chargeLate!==chargeLate || (b.returnDecision.lateWaiverReason??"")!==(lateWaiverReason??"") || (b.returnDecision.lateClaimReason??"")!==(lateClaimReason??"")))throw Error("Resume the saved return decision; its amounts and return time cannot be changed during settlement.");
     const quotedLate = lateFeeQuote(b.lineItems, b.returnTime, returned);
     if (chargeLate && quotedLate.amount <= 0)
       throw new Error("There is no calculated late amount to claim. Leave the claim unchecked.");
@@ -1168,6 +1279,10 @@ async function validateReturnSelection(ctx: any, b: any, args: ReturnSelection) 
       ? { waivedAmount: quotedLate.amount, waiverReason: lateWaiverReason?.trim() } : {};
     if (((damageKept ?? 0) > 0 || (depositKept ?? 0) > 0) && (!damageNote || damageNote.trim().length < 10))
       throw new Error("Record the evidence and reason for a damage deduction.");
+    if (isSetupIntentSecurityPolicy(b.securityPolicyVersion) && (damageKept ?? 0) > 0 && !args.claimBasis)
+      throw new Error("Choose whether the saved-card claim is for a lost item or severe permanent cosmetic damage.");
+    if ((!isSetupIntentSecurityPolicy(b.securityPolicyVersion) || (damageKept ?? 0) <= 0) && args.claimBasis)
+      throw new Error("A claim basis is only valid for a saved-card damage or loss assessment.");
     if(!inspection && !b.returnDecision)throw Error("Inspect every individual item before settling this rental.");
     const inspected = inspection ? await ctx.runQuery(internal.returnInspections.validate, { bookingId, inspection, damage: damageKept ?? 0 }) : b.returnDecision?.inspection;
     const damageLimit=isSavedCardRental(b)?savedCardRentalValue(b):(b.depositAmount??0)+(b.depositHoldAmount??0);
@@ -1175,6 +1290,43 @@ async function validateReturnSelection(ctx: any, b: any, args: ReturnSelection) 
     const sources = b.paymentSources ?? (b.paymentIntentId ? [{ paymentIntentId: b.paymentIntentId, securityPence: pence(b.depositAmount ?? 0) }] : []);
     securityReturnPlan(sources, 0);
     return { returned, quotedLate, late, waiver, inspected, sources, depositKept };
+}
+type ReturnClaimOutcome = { kind: "damage" | "late"; amount: number; status: string; id?: any; message?: string };
+async function submitReturnSavedCardClaims(ctx: any, args: {
+  token: string; ownerClaimToken?: string; bookingId: any; booking: any; returned: number; damageAmount: number;
+  damageCoveredByDeposit: number; damageNote?: string; claimBasis?: "loss" | "severe_cosmetic_damage";
+  lateAmount: number; lateReason?: string;
+}): Promise<ReturnClaimOutcome[]> {
+  if (!isSavedCardRental(args.booking)) return [];
+  const outcomes: ReturnClaimOutcome[] = [];
+  const safeBookingId = String(args.bookingId).replace(/[^A-Za-z0-9-]/g, "-").slice(-36);
+  const requestId = (kind: "damage" | "late") => `return-${safeBookingId}-${Math.trunc(args.returned)}-${kind}`;
+  const prepare = async (kind: "damage" | "late", amount: number, reason: string, claimBasis?: "loss" | "severe_cosmetic_damage") => {
+    const rounded = Math.round(amount * 100) / 100;
+    if (rounded <= 0) return;
+    try {
+      const claim = {
+        token: args.token, bookingId: args.bookingId, requestId: requestId(kind), kind, amount: rounded, reason,
+        ...(claimBasis ? { claimBasis } : {}),
+      };
+      if (isImmediateClaimSecurityPolicy(args.booking.securityPolicyVersion)) {
+        const result: any = await ctx.runAction(internal.securityCharges.submitReturnDecisionClaim, claim);
+        outcomes.push({ kind, amount: rounded, id: result.id, status: result.status });
+      } else {
+        const id = await ctx.runMutation(internal.securityChargeState.prepareFromReturnDecision, { ...claim, immediate: false });
+        outcomes.push({ kind, amount: rounded, id, status: "notice_pending" });
+      }
+    } catch (error: any) {
+      outcomes.push({
+        kind, amount: rounded, status: "needs_attention",
+        message: String(error?.message ?? "The assessment could not be prepared.").slice(0, 240),
+      });
+    }
+  };
+  const damageToCard = Math.max(0, args.damageAmount - args.damageCoveredByDeposit);
+  if (damageToCard > 0) await prepare("damage", damageToCard, args.damageNote ?? "", args.claimBasis);
+  if (args.lateAmount > 0) await prepare("late", args.lateAmount, args.lateReason ?? "");
+  return outcomes;
 }
 function observedHoldAmounts(b: any, hold: Stripe.PaymentIntent | null) {
   if (!hold || !["requires_capture", "succeeded"].includes(hold.status)) return { available: 0, uncaptured: 0 };
@@ -1186,7 +1338,7 @@ function observedHoldAmounts(b: any, hold: Stripe.PaymentIntent | null) {
 
 /** Owner review only: provider reads and a draft PDF, never financial execution or email. */
 export const previewReturned = action({
-  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), depositKept: v.optional(v.number()), expectedSnapshot: v.optional(v.string()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), lateClaimReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
+  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), depositKept: v.optional(v.number()), claimBasis: v.optional(v.union(v.literal("loss"), v.literal("severe_cosmetic_damage"))), expectedSnapshot: v.optional(v.string()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), lateClaimReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
   handler: async (ctx, args): Promise<any> => {
     await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token: args.token, fn: "checkout.previewReturned" });
     const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId: args.bookingId,includeControlsSnapshot:true });
@@ -1210,6 +1362,7 @@ export const previewReturned = action({
       checkoutPaid: invoice.total, rentalRefunded: invoice.rentalRefunded ?? 0,
       securityPaid: b.depositAmount ?? 0, securityRefunded: plan.depositRefund,
       holdStatus: hold?.status === "requires_capture" ? damage > 0 ? "captured" : retainedForLate ? "held" : "released" : hold?.status === "canceled" ? "released" : hold?.status === "succeeded" ? "captured" : b.depositHoldStatus ?? undefined,
+      ...(b.depositHoldAmount !== undefined ? { holdAmount: b.depositHoldAmount } : {}),
       damageTotal: b.depositRefunded ? b.depositKept ?? 0 : damage, damageFromHold: plan.damageFromHold,
       ...(args.damageNote ? { damageNote: args.damageNote.trim() } : {}), inspection: selection.inspected ?? [],
       lateAssessed: selection.late.amount, lateWaived: selection.waiver.waivedAmount ?? 0,
@@ -1217,7 +1370,18 @@ export const previewReturned = action({
       lateBreakdown: selection.late.breakdown,
     };
     if(hasCashDepositPolicy(b.securityPolicyVersion))Object.assign(statement,depositRefundStatementFields(b));
-    if(isSavedCardRental(b)){statement.securityPolicyVersion=b.securityPolicyVersion;if(b.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION)statement.savedCardLimit=b.savedCardLimit;statement.damageAssessed=damage;statement.damageTotal=hasCashDepositPolicy(b.securityPolicyVersion)?plan.damageFromDeposit:0;}
+    if(isSavedCardRental(b)||isCardHoldSecurityPolicy(b.securityPolicyVersion)){
+      statement.securityPolicyVersion=b.securityPolicyVersion;
+      if(isSavedCardRental(b)){
+        if(b.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION)statement.savedCardLimit=b.savedCardLimit;
+        statement.damageAssessed=damage;
+        statement.damageTotal=hasCashDepositPolicy(b.securityPolicyVersion)?plan.damageFromDeposit:0;
+      }else if(isCardHoldSecurityPolicy(b.securityPolicyVersion)){
+        statement.damageAssessed=damage;
+        statement.damageTotal=plan.damageFromHold;
+        statement.holdAmount=b.depositHoldAmount??0;
+      }
+    }
     const draft = !invoice.returnStatement;
     const secret = process.env.INVOICE_SECRET;
     if (!secret) throw Error("Return statement PDF previews are not configured");
@@ -1227,7 +1391,7 @@ export const previewReturned = action({
     if (!response.ok) throw Error("The return statement PDF preview is unavailable. No settlement has been executed.");
     const pdf = Buffer.from(await response.arrayBuffer());
     if (pdf.length > 1_000_000 || pdf.subarray(0, 5).toString() !== "%PDF-") throw Error("The return statement preview did not produce a valid PDF");
-    return { snapshot:b.returnDecision?.expectedSnapshot??b.controlsSnapshot, draft, observedAt: Date.now(), alreadySettled: !!invoice.returnStatement, securityAlreadySettled: !!b.depositRefunded, financial: { ...plan, ...(isSavedCardRental(b)?{...(b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?{}:{savedCardLimit:b.savedCardLimit}),damageAssessed:damage}:{}), holdRelease: retainedForLate ? 0 : plan.holdRelease, holdRetainedForLate: retainedForLate, lateAssessed: statement.lateAssessed, lateWaived: statement.lateWaived }, statement, email: returnStatementEmail(statement, draft), pdf: { base64: pdf.toString("base64"), filename: `DbCinema-${draft ? "draft-" : ""}return-${String(args.bookingId).slice(-8)}.pdf` } };
+    return { snapshot:b.returnDecision?.expectedSnapshot??b.controlsSnapshot, draft, observedAt: Date.now(), alreadySettled: !!invoice.returnStatement, securityAlreadySettled: !!b.depositRefunded, emailDelivery: draft ? null : { status: b.returnStatementEmailStatus ?? "pending", ambiguous: b.returnStatementEmailAmbiguous ?? false }, financial: { ...plan, ...(isSavedCardRental(b)?{...(b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?{}:{savedCardLimit:b.savedCardLimit}),damageAssessed:damage,immediateClaim:isImmediateClaimSecurityPolicy(b.securityPolicyVersion)}:{}), holdRelease: retainedForLate ? 0 : plan.holdRelease, holdRetainedForLate: retainedForLate, lateAssessed: statement.lateAssessed, lateWaived: statement.lateWaived }, statement, email: returnStatementEmail(statement, draft), pdf: { base64: pdf.toString("base64"), filename: `DbCinema-${draft ? "draft-" : ""}return-${String(args.bookingId).slice(-8)}.pdf` } };
   },
 });
 
@@ -1235,19 +1399,29 @@ export const previewReturned = action({
  *  retain part of the deposit for damage (that portion stays captured; the rest is refunded to the
  *  card). Idempotent — the depositRefunded flag plus a Stripe idempotency key prevent a double refund. */
 export const markReturned = action({
-  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), depositKept: v.optional(v.number()), expectedSnapshot: v.optional(v.string()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), lateClaimReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
+  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), depositKept: v.optional(v.number()), claimBasis: v.optional(v.union(v.literal("loss"), v.literal("severe_cosmetic_damage"))), expectedSnapshot: v.optional(v.string()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), lateClaimReason: v.optional(v.string()), ownerClaimToken: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
   handler: async (
     ctx,
-    { token, bookingId, damageKept, depositKept, expectedSnapshot, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, lateClaimReason, inspection },
-  ): Promise<{ ok: boolean; released: number; kept: number; lateAmount: number; alreadyReleased: boolean;refundState?:string }> => {
+    { token, bookingId, damageKept, depositKept, claimBasis, expectedSnapshot, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, lateClaimReason, ownerClaimToken, inspection },
+  ): Promise<{ ok: boolean; released: number; kept: number; lateAmount: number; alreadyReleased: boolean; refundState?:string; claims?: ReturnClaimOutcome[] }> => {
     await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "checkout.markReturned" });
     const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId, includeControlsSnapshot:true });
     if (!b) throw new Error("Booking not found.");
-    const { returned, quotedLate, late, waiver, sources, depositKept: retainedDeposit } = await validateReturnSelection(ctx, b, { bookingId, damageKept, depositKept, expectedSnapshot, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, lateClaimReason, inspection });
+    const { returned, quotedLate, late, waiver, sources, depositKept: retainedDeposit } = await validateReturnSelection(ctx, b, { bookingId, damageKept, depositKept, claimBasis, expectedSnapshot, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, lateClaimReason, inspection });
     const hasSecurityClaim=(damageKept??0)>0||(retainedDeposit??0)>0||late.amount>0;
+    // ADMIN_TOKEN authorizes ordinary rental operations. Keeping or charging a
+    // renter's money is an owner-only action and requires a separate secret.
+    // Clean returns never need this credential and still release automatically.
+    const savedOwnerClaimAt=b.returnDecision?.ownerClaimAuthorizedAt;
+    const savedOwnerClaimAuthorized=Number.isSafeInteger(savedOwnerClaimAt)&&savedOwnerClaimAt>0;
+    let ownerClaimAuthorizedAt:number|undefined;
+    if (hasSecurityClaim&&!savedOwnerClaimAuthorized) {
+      assertOwnerReturnClaimToken(ownerClaimToken);
+      ownerClaimAuthorizedAt=Date.now();
+    }
     if (hasCashDepositPolicy(b.securityPolicyVersion)) {
       const plan = refundableDepositPlan({deposit:b.depositAmount??0,capturedSecurity:sources.reduce((n:number,source:any)=>n+source.securityPence,0)/100,assessedDamage:damageKept??0,keptDeposit:retainedDeposit});
-      await ctx.runMutation(internal.bookings.beginReturnDecision,{bookingId,actualReturnedAt:returned,damageKept:damageKept??0,depositKept:plan.damageFromDeposit,expectedSnapshot,damageNote:(damageKept??0)>0?damageNote?.trim():undefined,chargeLate,lateWaiverReason:!chargeLate&&b.returnDecision?.lateClaimPolicyVersion!="owner-claim-v1"&&quotedLate.amount>0?lateWaiverReason?.trim():undefined,lateClaimReason:chargeLate&&quotedLate.amount>0?lateClaimReason?.trim():undefined,inspection});
+      await ctx.runMutation(internal.bookings.beginReturnDecision,{bookingId,actualReturnedAt:returned,damageKept:damageKept??0,depositKept:plan.damageFromDeposit,claimBasis,expectedSnapshot,damageNote:(damageKept??0)>0?damageNote?.trim():undefined,chargeLate,lateWaiverReason:!chargeLate&&b.returnDecision?.lateClaimPolicyVersion!="owner-claim-v1"&&quotedLate.amount>0?lateWaiverReason?.trim():undefined,lateClaimReason:chargeLate&&quotedLate.amount>0?lateClaimReason?.trim():undefined,ownerClaimAuthorizedAt,inspection});
       await releaseUnclaimedReturnHolds(ctx,bookingId,b,hasSecurityClaim);
       await ctx.runMutation(internal.bookings.markReturnedStatus,{bookingId});
       let settlementReceipts:RefundReceipt[]=b.depositReturnReceipts??[];
@@ -1265,24 +1439,20 @@ export const markReturned = action({
       }
       await ctx.runMutation(internal.savedCardState.markReturn,{bookingId,damageNote:damageNote?.trim()});
       await ctx.runMutation(internal.bookings.recordLateFee,{bookingId,actualReturnedAt:returned,...late,...waiver});
-      return {ok:true,released:b.depositRefunded?b.depositRefundAmount??0:plan.depositRefund,kept:b.depositRefunded?b.depositKept??0:plan.damageFromDeposit,lateAmount:late.amount,alreadyReleased:!!b.depositRefunded,refundState:depositRefundState(settlementReceipts,pence(plan.depositRefund))};
+      const claims=await submitReturnSavedCardClaims(ctx,{token,ownerClaimToken,bookingId,booking:b,returned,damageAmount:damageKept??0,damageCoveredByDeposit:plan.damageFromDeposit,damageNote:damageNote?.trim(),claimBasis,lateAmount:late.amount,lateReason:lateClaimReason?.trim()});
+      return {ok:true,released:b.depositRefunded?b.depositRefundAmount??0:plan.depositRefund,kept:b.depositRefunded?b.depositKept??0:plan.damageFromDeposit,lateAmount:late.amount,alreadyReleased:!!b.depositRefunded,refundState:depositRefundState(settlementReceipts,pence(plan.depositRefund)),claims};
     }
     if(isSavedCardRental(b)){
-      await ctx.runMutation(internal.bookings.beginReturnDecision,{bookingId,actualReturnedAt:returned,damageKept:damageKept??0,damageNote:(damageKept??0)>0?damageNote?.trim():undefined,chargeLate,lateWaiverReason:!chargeLate&&b.returnDecision?.lateClaimPolicyVersion!="owner-claim-v1"&&quotedLate.amount>0?lateWaiverReason?.trim():undefined,lateClaimReason:chargeLate&&quotedLate.amount>0?lateClaimReason?.trim():undefined,inspection});
-      await releaseUnclaimedReturnHolds(ctx,bookingId,b,hasSecurityClaim);
+      await ctx.runMutation(internal.bookings.beginReturnDecision,{bookingId,actualReturnedAt:returned,damageKept:damageKept??0,claimBasis,damageNote:(damageKept??0)>0?damageNote?.trim():undefined,chargeLate,lateWaiverReason:!chargeLate&&b.returnDecision?.lateClaimPolicyVersion!="owner-claim-v1"&&quotedLate.amount>0?lateWaiverReason?.trim():undefined,lateClaimReason:chargeLate&&quotedLate.amount>0?lateClaimReason?.trim():undefined,ownerClaimAuthorizedAt,inspection});
+      // Saved-card assessment is a separate payment path. Release every leftover
+      // authorisation; the itemised claim below uses only the explicitly saved card.
+      await releaseUnclaimedReturnHolds(ctx,bookingId,b,false);
       await ctx.runMutation(internal.bookings.markReturnedStatus,{bookingId});
       await ctx.runMutation(internal.savedCardState.markReturn,{bookingId,damageNote:damageNote?.trim()});
       await ctx.runMutation(internal.bookings.recordLateFee,{bookingId,actualReturnedAt:returned,...late,...waiver});
-      return {ok:true,released:0,kept:0,lateAmount:late.amount,alreadyReleased:!!b.depositRefunded};
+      const claims=await submitReturnSavedCardClaims(ctx,{token,ownerClaimToken,bookingId,booking:b,returned,damageAmount:damageKept??0,damageCoveredByDeposit:0,damageNote:damageNote?.trim(),claimBasis,lateAmount:late.amount,lateReason:lateClaimReason?.trim()});
+      return {ok:true,released:0,kept:0,lateAmount:late.amount,alreadyReleased:!!b.depositRefunded,claims};
     }
-    for (const oldId of b.depositHoldPreviousIntentIds ?? []) {
-      try {
-        const old = await stripe().paymentIntents.retrieve(oldId);
-        if (old.status === "requires_capture") await stripe().paymentIntents.cancel(oldId);
-        await ctx.runMutation(internal.bookings.clearPreviousHold, { bookingId, intentId: oldId });
-      } catch (error) { console.error("Could not release superseded hold at return", oldId, error); }
-    }
-
     const deposit = b.depositAmount ?? 0;
     if (!Number.isFinite(damageKept ?? 0) || (damageKept ?? 0) < 0 ||
         (damageKept ?? 0) > deposit + (b.depositHoldAmount ?? 0))
@@ -1301,7 +1471,7 @@ export const markReturned = action({
       if (!b.guestEmail) throw new Error("Customer email is required for an itemised damage notice.");
     }
     await ctx.runMutation(internal.bookings.beginReturnDecision, {
-      bookingId, actualReturnedAt: returned, damageKept: kept, damageNote: kept ? damageNote?.trim() : undefined,
+      bookingId, actualReturnedAt: returned, damageKept: kept, claimBasis, damageNote: kept ? damageNote?.trim() : undefined, ownerClaimAuthorizedAt,
       chargeLate,
       lateWaiverReason: !chargeLate && b.returnDecision?.lateClaimPolicyVersion !== "owner-claim-v1" && quotedLate.amount > 0 ? lateWaiverReason?.trim() : undefined,
       lateClaimReason: chargeLate && quotedLate.amount > 0 ? lateClaimReason?.trim() : undefined,
@@ -1559,8 +1729,10 @@ export const releasePausedLateHold = internalAction({
  * customer closes the tab before the success page runs finalize().
  * ACTIVATION (2 steps, both required):
  *   1. In the Stripe dashboard, add a webhook endpoint for this deployment's
- *      /stripe-webhook path, including `checkout.session.completed` and
- *      `checkout.session.async_payment_succeeded`; copy its signing secret.
+ *      /stripe-webhook path. Subscribe it to `checkout.session.completed`,
+ *      `checkout.session.async_payment_succeeded`, and all three dispute events:
+ *      `charge.dispute.created`, `charge.dispute.updated`, and `charge.dispute.closed`.
+ *      Copy the endpoint's signing secret.
  *   2. `npx convex env set STRIPE_WEBHOOK_SECRET whsec_...`
  * Until the secret is set this returns false (no-op) and the success-page finalize() still
  * confirms bookings — so deploying this is safe and non-breaking.
@@ -1579,7 +1751,11 @@ export const stripeWebhook = internalAction({
     if (event.type === "charge.dispute.created" || event.type === "charge.dispute.updated" || event.type === "charge.dispute.closed") {
       const dispute = event.data.object as Stripe.Dispute;
       const intent = typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
-      await ctx.runMutation((internal as any).stripeDisputes.record, { eventId: event.id, eventType: event.type, paymentIntentId: intent ?? undefined });
+      await ctx.runMutation((internal as any).stripeDisputes.record, {
+        eventId: event.id, eventType: event.type, paymentIntentId: intent ?? undefined,
+        disputeId: dispute.id, status: dispute.status ?? undefined, reason: dispute.reason ?? undefined,
+        eventCreatedAt: event.created,
+      });
       return true;
     }
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
@@ -1617,7 +1793,10 @@ export const stripeWebhook = internalAction({
     if (event.type === "checkout.session.async_payment_failed" || event.type === "checkout.session.expired") {
       const s = event.data.object as Stripe.Checkout.Session;
       if(s.metadata?.itemSwapId){
-        if(event.type==="checkout.session.async_payment_failed"&&typeof s.amount_total==="number"&&typeof s.currency==="string")await ctx.runMutation(internal.rentalSwapState.asyncPaymentFailed,{id:s.metadata.itemSwapId as any,sessionId:s.id,amountPence:s.amount_total,currency:s.currency});
+        if(event.type==="checkout.session.async_payment_failed"&&typeof s.amount_total==="number"&&typeof s.currency==="string"){
+          const recorded=await ctx.runMutation(internal.rentalSwapState.asyncPaymentFailed,{id:s.metadata.itemSwapId as any,sessionId:s.id,amountPence:s.amount_total,currency:s.currency});
+          if(recorded?.recorded)await ctx.runAction(internal.rentalSwapPayments.reconcileAsyncPaymentFailure,{id:s.metadata.itemSwapId as any});
+        }
         return true;
       }
       if (s.metadata?.rentalDeliveryQuoteId) {
@@ -1718,10 +1897,32 @@ export const reconcileMemberships = internalAction({
  * Only site-sourced bookings; never touches Hygglo-mirrored reservations.
  */
 async function releaseUnclaimedReturnHolds(ctx:any,bookingId:any,b:any,hasSecurityClaim:boolean) {
-  if(hasSecurityClaim)return;
+  if(hasSecurityClaim){await releaseAuxiliaryReturnHolds(ctx,bookingId,b);return;}
   const primaryIntentId=b.stripeDepositIntentId??b.depositHoldIntentId;
   const ids=[primaryIntentId,b.depositHoldRenewalIntentId,...(b.depositHoldPreviousIntentIds??[])].filter((id):id is string=>!!id);
   if(ids.length)await releaseBookingHolds(ctx,bookingId,b);
+}
+
+/** A claim may use the current authorization, but never needs superseded or in-flight replacements. */
+async function releaseAuxiliaryReturnHolds(ctx:any,bookingId:any,b:any) {
+  const primaryIntentId=b.stripeDepositIntentId??b.depositHoldIntentId;
+  const renewalIntentId=b.depositHoldRenewalIntentId;
+  const previousIds=new Set<string>(b.depositHoldPreviousIntentIds??[]);
+  const ids=[...new Set([renewalIntentId,...previousIds].filter((id):id is string=>!!id&&id!==primaryIntentId))];
+  if(!ids.length)return;
+  const sb=stripe();
+  for(const id of ids){
+    let hold=await sb.paymentIntents.retrieve(id);
+    if(hold.status==='succeeded'||hold.amount_received>0)
+      throw new RefundReviewRequired('A superseded or renewed security authorisation has captured funds. Review it before finishing this return.');
+    if(['requires_capture','requires_action','requires_confirmation','requires_payment_method'].includes(hold.status))
+      hold=await sb.paymentIntents.cancel(id,{}, {idempotencyKey:`dbc-return-release-aux-${bookingId}-${id}`});
+    if(hold.status!=='canceled'||hold.amount_received>0)
+      throw Error('A superseded or renewed security hold is still unresolved. Retry this saved return after checking the provider status.');
+    if(previousIds.has(id))await ctx.runMutation(internal.bookings.clearPreviousHold,{bookingId,intentId:id});
+    if(id===renewalIntentId&&primaryIntentId)
+      await ctx.runMutation(internal.bookings.setRenewalResult,{bookingId,oldIntentId:primaryIntentId,intentId:id,status:'released'});
+  }
 }
 
 async function releaseBookingHolds(ctx: any, bookingId: any, b: any) {
@@ -1787,14 +1988,16 @@ async function remainingCancellationPayment(payment: Stripe.PaymentIntent, maxPa
   return rentalRefundBalance(payment.amount_received,maxPaidPence,refunds,memberRefunds);
 }
 
-async function cancellationSourceBalance(source:any,b:any,bookingId:any,strict=false){
+async function cancellationSourceBalance(source:any,b:any,bookingId:any,strict=false,expectedAmountPence?:number){
  const payment=await stripe().paymentIntents.retrieve(source.paymentIntentId);
- if(strict&&(payment.id!==source.paymentIntentId||payment.status!=="succeeded"||payment.currency!==(b.currency??"GBP").toLowerCase()||!Number.isSafeInteger(payment.amount_received)||payment.amount_received<0||payment.metadata?.bookingId&&payment.metadata.bookingId!==String(bookingId)))throw new RefundReviewRequired("The payment does not match this rental's captured currency or ownership. Review before settlement.");
+ if(strict&&(payment.id!==source.paymentIntentId||payment.status!=="succeeded"||payment.currency!==(b.currency??"GBP").toLowerCase()||!Number.isSafeInteger(payment.amount_received)||payment.amount_received<0||expectedAmountPence!==undefined&&payment.amount_received!==expectedAmountPence||payment.metadata?.bookingId&&payment.metadata.bookingId!==String(bookingId)))throw new RefundReviewRequired("The payment does not match this rental's captured currency or ownership. Review before settlement.");
  return {...source,availablePence:await remainingCancellationPayment(payment,source.maxPaidPence)};
 }
 async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReason?:string,fullCreditOfferId?:any,changeRequestId?:any,expectedCancellationKind?:"full_refund"|"store_credit"|"no_refund",customerChoice?:"refund"|"credit"){
  const requestId=changeRequestId??b.cancellationDecision?.changeRequestId;
  const resolvedCustomerChoice=customerChoice??b.cancellationDecision?.customerChoice;
+ const declinedDiditPaidBooking=isRejectedPendingDiditBooking(b);if(declinedDiditPaidBooking&&(fullCreditOfferId||b.cancellationDecision?.operatorOfferId))throw Error("A declined verification booking can only receive its original payment settlement, without a cancellation bonus.");
+ const rentalWasConfirmed=b.status==="confirmed"||b.status==="pending_verification"&&Number.isSafeInteger(b.checkoutPaidAt)&&b.checkoutPaidAt>0||declinedDiditPaidBooking;
  const decision=await ctx.runMutation(internal.bookings.prepareCancellation,{bookingId,fullCreditOfferId,...(b.cancellationDecision?.operatorOfferId?{operatorOfferId:b.cancellationDecision.operatorOfferId}:{}),...(requestId?{changeRequestId:requestId}:{}),...(expectedCancellationKind?{expectedCancellationKind}:{}),...(resolvedCustomerChoice?{customerChoice:resolvedCustomerChoice}:{})});
  const operatorContext:any=decision.operatorOfferId?await ctx.runQuery(internal.operatorCancellationState.byId,{offerId:decision.operatorOfferId}):null;
  const operator:any=operatorContext?.offer??null;
@@ -1804,11 +2007,11 @@ async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReas
  if(!quote){
   const paidIntentId=await paymentBeforeCancellation(b);
   let mode:"none"|"refund"|"credit"|"no_refund"="none",refundAmount=0,creditAmount=0,bonusCreditAmount=0,allocations:any[]=[];
-  if(paidIntentId || (b.status==="confirmed"||operator)&&(b.creditApplied??0)>0){
+  if(paidIntentId || (rentalWasConfirmed||operator)&&(b.creditApplied??0)>0){
    const sources=paidIntentId?(b.paymentSources?.length?b.paymentSources:[{paymentIntentId:paidIntentId,securityPence:pence(b.depositAmount)}]):[];
-   const balances=await Promise.all(sources.map((source:any)=>cancellationSourceBalance(source,b,bookingId,!!operator||!!decision.inventoryConflictRefund)));
+   const balances=await Promise.all(sources.map((source:any)=>cancellationSourceBalance(source,b,bookingId,!!operator||!!decision.inventoryConflictRefund||declinedDiditPaidBooking,declinedDiditPaidBooking?b.checkoutPaymentAmountPence:undefined)));
    if(decision.inventoryConflictRefund&&(balances.length!==1||balances[0].paymentIntentId!==paidIntentId||balances[0].availablePence!==pence(b.total)))throw new RefundReviewRequired("The original payment balance changed. Review it before refunding.");
-   const spent=(b.status==="confirmed"||operator)?pence(b.creditApplied??0):0;
+   const spent=(rentalWasConfirmed||operator)?pence(b.creditApplied??0):0;
    const settlement = decision.fullCreditOfferId
     ? { allocations: [], refundPence: 0, creditPence: balances.reduce((sum:number, source:any) => sum + source.availablePence, 0) + pence(b.creditApplied ?? 0) }
     : cancellationPaymentPlan(operator?(operator.choice==="credit"?"store_credit":"full_refund"):decision.customerChoice==="credit"?"store_credit":decision.kind,balances,spent);
@@ -1849,6 +2052,26 @@ async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReas
  }catch(error){review=error instanceof RefundReviewRequired||(error as any)?.data?.code==="CANCELLATION_REVIEW";throw error;}
  finally{await ctx.runMutation(internal.cancellationRecovery.finishAttempt,{id:job._id,generation:job.generation,complete,review});}
 }
+
+/** Settle a paid direct rental after Didit definitively rejects its exact
+ * session event. Scheduled only by setDiditResult after reconciling the
+ * provider decision; normal terms, idempotency, and Stripe review still apply. */
+export const cancelRejectedDiditAfterResult = internalAction({
+ args:{bookingId:v.id("bookings"),sessionId:v.string(),eventId:v.string()},
+ handler:async(ctx,{bookingId,sessionId,eventId}):Promise<{status:"stale"|"settled"|"pending";refundAmount?:number;creditAmount?:number}>=>{
+  const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
+  if(!b?.siteOnly||b.verificationProvider!=="didit"||b.diditSessionId!==sessionId||b.diditEventId!==eventId||!isRejectedPendingDiditBooking(b))
+    return {status:"stale"};
+  try{
+   const result=await cancelRental(ctx,bookingId,b,b.accountId??undefined,"Didit verification was declined");
+   return {status:"settled",refundAmount:result.refundAmount,creditAmount:result.creditAmount};
+  }catch(error:any){
+   if(error?.data?.code==="CANCELLATION_PENDING"||error?.data?.code==="CANCELLATION_REVIEW")
+    return {status:"pending"};
+   throw error;
+  }
+ }
+});
 
 /** Retry only durable, already-requested cancellations; never initiate a new cancellation. */
 /** Read-only source balance for a prepared operator cancellation. */
@@ -1922,14 +2145,23 @@ export const cancelByAdmin = action({
  handler:async(ctx,{token,bookingId,reason,changeRequestId,expectedCancellationKind,customerChoice}):Promise<{refundAmount:number;creditAmount:number;mode:string}>=>{
   await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:"checkout.cancelByAdmin"});
   if(customerChoice&&!changeRequestId)throw Error("A renter settlement choice must be linked to their approved cancellation request.");
-  reason=reason?.trim()||(changeRequestId?"Requested cancellation approved":"Equipment unexpectedly unavailable");
+  const suppliedReason=reason?.trim();
   const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
-  if(!changeRequestId&&(b?.cancellationDecision?.operatorOfferId||process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true"&&b?.status==="confirmed")){
+  const declinedDiditPaidBooking=isRejectedPendingDiditBooking(b);
+  reason=suppliedReason||(changeRequestId?"Requested cancellation approved":b?.status==="pending_verification"&&b?.verificationProvider==="didit"&&b?.idVerifyStatus==="rejected"?"Didit verification not approved":"DB Cinema cancellation");
+  if(changeRequestId && b?.status==="cancelled" && b.completedChangeRequestId===changeRequestId && b.cancellationDecision?.quote)return {refundAmount:b.cancellationDecision.quote.refundAmount,creditAmount:b.cancellationDecision.quote.creditAmount,mode:b.cancellationDecision.quote.mode};
+  const resumeExistingCancellation=!changeRequestId&&!!b?.cancellationDecision;
+  if(!resumeExistingCancellation){
+   const blockers:any=await ctx.runQuery(internal.rentalRequests.blockingActionsInternal,{bookingId,...(changeRequestId?{ignoreRequestId:changeRequestId,expectedKind:"cancel" as const}:{})});
+   if(!blockers.ready)throw Error("This rental has a long request history. Review earlier requests before cancelling it.");
+   if(blockers.any)throw Error("A renter request is still awaiting a decision or completion. Review it before cancelling this rental.");
+  }
+  if(!declinedDiditPaidBooking&&!changeRequestId&&(b?.cancellationDecision?.operatorOfferId||process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true"&&b?.status==="confirmed")){
    const offer:any=await ctx.runMutation(internal.operatorCancellationState.begin,{bookingId,reason});
    return {refundAmount:0,creditAmount:0,mode:offer.state==="settled"?"settled":"waiting"};
   }
-  if(changeRequestId && b?.status==="cancelled" && b.completedChangeRequestId===changeRequestId && b.cancellationDecision?.quote)return {refundAmount:b.cancellationDecision.quote.refundAmount,creditAmount:b.cancellationDecision.quote.creditAmount,mode:b.cancellationDecision.quote.mode};
-  if(!b||!["confirmed","pending_payment"].includes(b.status)||!b.siteOnly)throw Error("Only unstarted direct bookings can be cancelled here");
+  const approvedPendingVerificationCancellation=b?.status==="pending_verification"&&b.verificationProvider==="didit"&&!!changeRequestId;
+  if(!b||(!["confirmed","pending_payment"].includes(b.status)&&!declinedDiditPaidBooking&&!approvedPendingVerificationCancellation)||!b.siteOnly)throw Error("Only unstarted direct bookings can be cancelled here");
   return cancelRental(ctx,bookingId,b,b.accountId??undefined,reason.trim().slice(0,400),undefined,changeRequestId,expectedCancellationKind,customerChoice);
  }
 });
@@ -2006,7 +2238,7 @@ export const refundRental=action({
 });
 
 function savedReturnArguments(bookingId:any,d:any){
- return {token:process.env.ADMIN_TOKEN??"",bookingId,actualReturnedAt:d.actualReturnedAt,damageKept:d.damageKept,depositKept:d.depositKept,expectedSnapshot:d.expectedSnapshot,damageNote:d.damageNote,chargeLate:d.chargeLate,lateWaiverReason:d.lateWaiverReason,inspection:d.inspection?.map(({key,condition,details,openCase}:any)=>({key,condition,details,openCase}))};
+ return {token:process.env.ADMIN_TOKEN??"",bookingId,actualReturnedAt:d.actualReturnedAt,damageKept:d.damageKept,depositKept:d.depositKept,claimBasis:d.claimBasis,expectedSnapshot:d.expectedSnapshot,damageNote:d.damageNote,chargeLate:d.chargeLate,lateWaiverReason:d.lateWaiverReason,lateClaimReason:d.lateClaimReason,inspection:d.inspection?.map(({key,condition,details,openCase}:any)=>({key,condition,details,openCase}))};
 }
 async function resumeDepositDecision(ctx:any,bookingId:any,b:any){
  if(!b.returnDecision||b.depositRefunded)return {ok:true,alreadyReleased:!!b.depositRefunded};
@@ -2019,9 +2251,13 @@ export const recoverDepositReturn=internalAction({args:{bookingId:v.id("bookings
  try{b=await ctx.runQuery(internal.bookings.getForRefund,{bookingId,includeControlsSnapshot:true});}catch{if(attempt<delays.length)await ctx.scheduler.runAfter(delays[attempt],internal.checkout.recoverDepositReturn,{bookingId,attempt:attempt+1});await ctx.runMutation(internal.bookings.alertDepositRecovery,{bookingId});return;}
  if(!b?.returnDecision)return;
  const cashPolicy=hasCashDepositPolicy(b.securityPolicyVersion);
- const unclaimedHoldRelease=!cashPolicy&&!b.returnDecision.chargeLate&&(b.returnDecision.damageKept??0)===0&&(b.returnDecision.depositKept??0)===0&&!!(b.stripeDepositIntentId||b.depositHoldIntentId||b.depositHoldRenewalIntentId||(b.depositHoldPreviousIntentIds??[]).length);
- if(!cashPolicy&&!unclaimedHoldRelease)return;
- if(unclaimedHoldRelease){
+ const hasHoldIntent=!!(b.stripeDepositIntentId||b.depositHoldIntentId||b.depositHoldRenewalIntentId||(b.depositHoldPreviousIntentIds??[]).length);
+ const unclaimedHoldRelease=!cashPolicy&&!b.returnDecision.chargeLate&&(b.returnDecision.damageKept??0)===0&&(b.returnDecision.depositKept??0)===0&&hasHoldIntent;
+ const claimRequiresOwnerAuthorization=(b.returnDecision.damageKept??0)>0||(b.returnDecision.depositKept??0)>0||b.returnDecision.chargeLate;
+ const validOwnerClaimReceipt=Number.isSafeInteger(b.returnDecision.ownerClaimAuthorizedAt)&&b.returnDecision.ownerClaimAuthorizedAt>0;
+ const savedCardHoldRelease=!cashPolicy&&isSavedCardRental(b)&&hasHoldIntent&&(!claimRequiresOwnerAuthorization||validOwnerClaimReceipt);
+ if(!cashPolicy&&!unclaimedHoldRelease&&!savedCardHoldRelease)return;
+ if(unclaimedHoldRelease||savedCardHoldRelease){
   try{await ctx.runAction(api.checkout.markReturned,savedReturnArguments(bookingId,b.returnDecision));}
   catch{if(attempt<delays.length)await ctx.scheduler.runAfter(delays[attempt],internal.checkout.recoverDepositReturn,{bookingId,attempt:attempt+1});await ctx.runMutation(internal.bookings.alertDepositRecovery,{bookingId});}
   return;
@@ -2081,7 +2317,10 @@ export const reconcileRentalRefund=internalAction({args:{refundId:v.string()},ha
     }
     if(!receipt)throw Error("Rental refund attempt is not recorded; no settlement was changed.");
     await ctx.runMutation(internal.rentalOperations.recordRefundReceipt,{id:r._id,receipt:{...receipt,stripeRefundId:refund.id,status}});
-    return ctx.runMutation(internal.rentalOperations.recordRefundPart,{id:r._id,paymentIntentId:pi,stripeRefundId:refund.id,status,attemptKey});
+    const part:any=await ctx.runMutation(internal.rentalOperations.recordRefundPart,{id:r._id,paymentIntentId:pi,stripeRefundId:refund.id,status,attemptKey});
+    if(part?.status==="succeeded"&&r.requestId?.startsWith("swap-"))
+      await ctx.scheduler.runAfter(0,internal.rentalSwapPayments.reconcileRefundWebhook,{id:r.requestId.slice("swap-".length) as any});
+    return part;
   }
   if(r.stripeRefundId!==refund.id||r.amountPence!==refund.amount||attemptKey)throw Error("Legacy rental refund receipt mismatch.");
   return ctx.runMutation(internal.rentalOperations.recordRefund,{id:r._id,stripeRefundId:refund.id,status});

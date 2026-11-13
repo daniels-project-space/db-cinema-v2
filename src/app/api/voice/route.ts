@@ -7,12 +7,12 @@ import { api } from "@cvx/_generated/api";
 import { handleChat, quoteRentalEnquiry } from "@/lib/gaffer";
 import { formatGafferEmailReply } from "@/lib/inboundEmail";
 import { rentalEmail } from "../../../../shared/rentalEmail";
-import { sendMail, supportEmailFrom } from "../../../../convex/lib/mailer";
+import { sendMail } from "../../../../convex/lib/mailer";
 import { createHash } from "node:crypto";
 import { deriveItemType } from "../../../../convex/lib/taxonomy";
 import { equipmentOfferLabel, equipmentRequest, normalizeEquipmentName } from "../../../../shared/equipmentIdentity";
 import { spokenPackingReview, spokenRentalItem } from "@/lib/voiceQuoteFormatting";
-import { PICKUP_SLOTS } from "@/lib/site";
+import { PICKUP_SLOTS, CONTACT_EMAIL } from "@/lib/site";
 import { dayMs } from "@/lib/dates";
 import { rateLimit } from "@/lib/ratelimit";
 import { londonToday, resolveDate, speak } from "@/lib/voiceDates";
@@ -525,9 +525,8 @@ export async function POST(req: NextRequest) {
             const deliveryKey = `voice-followup:${createHash("sha256").update(`${email.toLowerCase()}|${kind}|${parts}|${dayKey}`).digest("hex")}`;
             const sent = await sendMail({
               deliveryKey,
-              from: supportEmailFrom(),
               to: email,
-              replyTo: supportEmailFrom(),
+              replyTo: CONTACT_EMAIL,
               subject: heading,
               html: voiceFollowUpEmailBody(reply, heading),
             });

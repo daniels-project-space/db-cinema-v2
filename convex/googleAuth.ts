@@ -1,11 +1,17 @@
 import { ensureReferralCode } from "./lib/referrals";
 import { action, internalMutation } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { _applyPendingCollectiveGrant } from "./accounts";
+import { ConvexError } from "convex/values";
+import { accountAuthError } from "../shared/accountAuth";
+import { CURRENT_PRIVACY_NOTICE_VERSION, legalVersionForPolicy } from "../shared/legalVersioning";
 
 const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days — mirrors accounts.ts
 const GOOGLE_CERTS = "https://www.googleapis.com/oauth2/v3/certs";
+// Google ID tokens are small JWTs. Bound the untrusted public action input
+// before decoding or making a certificate request.
+const MAX_GOOGLE_ID_TOKEN_LENGTH = 16 * 1024;
 
 const toHex = (b: Uint8Array) =>
   Array.from(b)
@@ -31,6 +37,8 @@ const b64urlStr = (s: string) => new TextDecoder().decode(b64urlBytes(s));
  *  check the RS256 signature against Google's published JWKS, then the standard claims.
  *  The audience must equal OUR OAuth client id, so a token minted for another site is rejected. */
 async function verifyGoogleIdToken(idToken: string, clientId: string) {
+  if (idToken.length > MAX_GOOGLE_ID_TOKEN_LENGTH)
+    throw new Error("Google sign-in token is too large.");
   const parts = idToken.split(".");
   if (parts.length !== 3) throw new Error("Malformed Google token.");
   const [h, p, sig] = parts;
@@ -88,6 +96,11 @@ export const _upsertGoogle = internalMutation({
     googleId: v.string(),
     picture: v.optional(v.string()),
     token: v.string(),
+    termsAndPrivacyAcknowledged: v.boolean(),
+    accountTermsVersion: v.optional(v.string()),
+    accountTermsAcceptedAt: v.optional(v.number()),
+    privacyNoticeVersion: v.optional(v.string()),
+    privacyNoticeAcknowledgedAt: v.optional(v.number()),
   },
   handler: async (ctx, a) => {
     const now = Date.now();
@@ -95,8 +108,23 @@ export const _upsertGoogle = internalMutation({
       .query("accounts")
       .withIndex("by_email", (q) => q.eq("email", a.email))
       .first();
+    // The email on a Google profile can change while its stable OIDC `sub`
+    // remains the same. Never create a second account for that identity or
+    // link it to another email-matched account. Keep this check in the same
+    // mutation as account creation/linking so concurrent sign-ins cannot race.
+    const linkedAccounts = await ctx.db
+      .query("accounts")
+      .withIndex("by_google_id", (q) => q.eq("googleId", a.googleId))
+      .take(2);
+    if (linkedAccounts.length > 1)
+      throw new Error("This Google identity is linked to multiple accounts. Contact the team.");
+    const linkedAccount = linkedAccounts[0] ?? null;
+    if (linkedAccount && linkedAccount._id !== acct?._id)
+      throw new Error("This Google identity is already linked to a different account.");
     if (acct?.blockedAt != null) throw Error("This account is blocked. Contact DB Cinema Rentals.");
     if (!acct) {
+      if (!a.termsAndPrivacyAcknowledged || !a.accountTermsVersion || !Number.isSafeInteger(a.accountTermsAcceptedAt) || !a.privacyNoticeVersion || !Number.isSafeInteger(a.privacyNoticeAcknowledgedAt))
+        throw new ConvexError(accountAuthError("SIGNUP_TERMS_REQUIRED"));
       const id = await ctx.db.insert("accounts", {
         email: a.email,
         name: a.name,
@@ -104,6 +132,10 @@ export const _upsertGoogle = internalMutation({
         googleAvatarUrl: a.picture,
         emailVerifiedAt: now,
         emailVerificationRequired: false,
+        accountTermsVersion: a.accountTermsVersion,
+        accountTermsAcceptedAt: a.accountTermsAcceptedAt,
+        privacyNoticeVersion: a.privacyNoticeVersion,
+        privacyNoticeAcknowledgedAt: a.privacyNoticeAcknowledgedAt,
         createdAt: now,
       });
       await ensureReferralCode(ctx,id);
@@ -117,6 +149,14 @@ export const _upsertGoogle = internalMutation({
       });
       return;
     }
+    // A verified email can establish the first Google link on a password
+    // account, but it must never replace an identity already linked there.
+    // Check before profile, verification, or session changes so a mismatch is
+    // a no-op.
+    if (acct.googleId && acct.googleId !== a.googleId)
+      throw new Error("This Google account does not match the identity linked to this email.");
+    if (!acct.googleId && (!acct.hash || !acct.salt))
+      throw new Error("This account cannot be linked to Google using email alone.");
     const needsVerificationRecovery=!acct.emailVerifiedAt||acct.emailVerificationRequired;
     const patch: Record<string, unknown> = {emailVerifiedAt:now,emailVerificationRequired:false};
     if(acct.emailVerificationRequired&&!acct.emailVerifiedAt){
@@ -139,11 +179,29 @@ export const _upsertGoogle = internalMutation({
 
 /** Exchange a Google ID token for a Db Cinema session token. */
 export const signInWithGoogle = action({
-  args: { credential: v.string() },
-  handler: async (ctx, { credential }): Promise<{ token: string }> => {
+  args: { credential: v.string(), termsAndPrivacyAcknowledged: v.optional(v.boolean()), termsVersion: v.optional(v.string()), privacyNoticeVersion: v.optional(v.string()) },
+  handler: async (ctx, { credential, termsAndPrivacyAcknowledged, termsVersion, privacyNoticeVersion }): Promise<{ token: string }> => {
     const clientId = process.env.GOOGLE_CLIENT_ID;
     if (!clientId) throw new Error("Google sign-in isn't configured yet.");
     const profile = await verifyGoogleIdToken(credential, clientId);
+    const existing = await ctx.runQuery(internal.accounts._byEmail, { email: profile.email });
+    let accepted: { termsAndPrivacyAcknowledged: boolean; accountTermsVersion?: string; accountTermsAcceptedAt?: number; privacyNoticeVersion?: string; privacyNoticeAcknowledgedAt?: number } = { termsAndPrivacyAcknowledged: false };
+    if (!existing) {
+      if (termsAndPrivacyAcknowledged !== true)
+        throw new ConvexError(accountAuthError("SIGNUP_TERMS_REQUIRED"));
+      const policy = await ctx.runQuery(api.settings.get, {});
+      const currentTermsVersion = legalVersionForPolicy(policy);
+      if (termsVersion !== currentTermsVersion || privacyNoticeVersion !== CURRENT_PRIVACY_NOTICE_VERSION)
+        throw new ConvexError(accountAuthError("SIGNUP_TERMS_UPDATED"));
+      const acceptedAt = Date.now();
+      accepted = {
+        termsAndPrivacyAcknowledged: true,
+        accountTermsVersion: currentTermsVersion,
+        accountTermsAcceptedAt: acceptedAt,
+        privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION,
+        privacyNoticeAcknowledgedAt: acceptedAt,
+      };
+    }
     const token = randomHex(24);
     await ctx.runMutation(internal.googleAuth._upsertGoogle, {
       email: profile.email,
@@ -151,6 +209,7 @@ export const signInWithGoogle = action({
       googleId: profile.googleId,
       picture: profile.picture,
       token,
+      ...accepted,
     });
     return { token };
   },

@@ -8,10 +8,12 @@ import { formatGbp } from "@/lib/pricing";
 export function RentalDeliveryQuoteApproval({ token, quoteId }: { token: string; quoteId: string }) {
   const quote = useQuery(api.rentalDeliveryState.customerQuote, { token, id: quoteId as any });
   const accept = useAction(api.rentalDelivery.accept);
+  const decline = useAction(api.rentalDelivery.decline);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [complete, setComplete] = useState(false);
+  const [declined, setDeclined] = useState(false);
   if (!quote) return <p className="mt-3 text-xs text-white/50">Loading delivery quote…</p>;
   const expired = quote.expiresAt <= Date.now() || quote.status === "expired" || quote.status === "failed";
   const legs = quote.deliveryLegs === "one_way" ? "One-way delivery" : "Delivery and collection";
@@ -29,6 +31,19 @@ export function RentalDeliveryQuoteApproval({ token, quoteId }: { token: string;
       setBusy(false);
     }
   }
+  async function passOnQuote() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await decline({ token, id: quoteId as any });
+      setDeclined(true);
+    } catch (e: any) {
+      setError(e.message ?? "This quote could not be declined. Please message the team.");
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <div className="mt-3 rounded-xl border border-sky-200/15 bg-sky-300/[0.06] p-3 text-xs text-sky-50">
       <p className="font-semibold">{legs} · {formatGbp(quote.amountPence / 100)}</p>
@@ -39,6 +54,7 @@ export function RentalDeliveryQuoteApproval({ token, quoteId }: { token: string;
         <p className="mt-2 leading-relaxed text-white/70">{quote.termsText}</p>
       </details>
       {quote.status === "paid" && <p className="mt-3 text-emerald-200">Delivery is confirmed.</p>}
+      {(quote.status === "declined" || declined) && <p className="mt-3 text-white/65">Quote declined · your rental stays collection-only.</p>}
       {complete && <p className="mt-3 text-emerald-200">Your delivery terms are accepted and delivery is confirmed.</p>}
       {quote.status === "checkout_open" && quote.paymentUrl && !expired && <a href={quote.paymentUrl} className="mt-3 inline-flex rounded-full border border-current/25 px-3 py-2 font-medium">Continue to secure payment · {formatGbp(quote.amountPence / 100)}</a>}
       {quote.status === "creating_checkout" && <p className="mt-3 text-white/65">Your secure payment link is being prepared. It will appear in this conversation shortly.</p>}
@@ -49,6 +65,9 @@ export function RentalDeliveryQuoteApproval({ token, quoteId }: { token: string;
         </label>
         <button type="button" onClick={() => void proceed()} disabled={!termsAccepted || busy} className="mt-3 rounded-full bg-sky-200 px-4 py-2 font-semibold text-slate-950 disabled:opacity-40">
           {busy ? "Preparing…" : quote.amountPence === 0 ? "Accept included delivery" : `Accept terms & pay ${formatGbp(quote.amountPence / 100)}`}
+        </button>
+        <button type="button" onClick={() => void passOnQuote()} disabled={busy} className="ml-2 mt-3 rounded-full border border-white/15 px-4 py-2 font-medium text-white/75 disabled:opacity-40">
+          {busy ? "Saving…" : "Decline quote"}
         </button>
       </>}
       {expired && <p className="mt-3 text-amber-100/80">This quote is no longer current. Ask the rental team for a fresh quote.</p>}

@@ -2,14 +2,14 @@ const assert=require('node:assert/strict'),Stripe=require('stripe'),h=require('.
 const realWebhooks=new Stripe('sk_test_fixture').webhooks;
 class StripeFixture { webhooks=realWebhooks; }
 h.setMock('stripe',{default:StripeFixture});
-const checkout=h.load('convex/checkout.ts'),disputes=h.load('convex/stripeDisputes.ts'),presentation=h.load('shared/adminNotificationPresentation.ts');
+const checkout=h.load('convex/checkout.ts'),disputes=h.load('convex/stripeDisputes.ts'),securityState=h.load('convex/securityChargeState.ts'),presentation=h.load('shared/adminNotificationPresentation.ts');
 process.env.STRIPE_SECRET_KEY='sk_test_fixture';process.env.STRIPE_WEBHOOK_SECRET='whsec_synthetic';
 delete process.env.RMV2_WEBHOOK_URL;delete process.env.RMV2_WEBHOOK_SECRET;
 const scheduled=[],ctx={db:h.db,scheduler:{runAfter:async(delay,ref,args)=>scheduled.push({delay,ref,args})},runMutation:async(ref,args)=>{
  if(ref==='stripeDisputes.record')return disputes.record.handler(ctx,args);
  throw Error(`Unexpected mutation ${ref}`);
 }};
-function event(id,type,intent){const body=JSON.stringify({id,type,data:{object:{id:'dp_fixture',payment_intent:intent}}});return {body,sig:realWebhooks.generateTestHeaderString({payload:body,secret:process.env.STRIPE_WEBHOOK_SECRET})};}
+function event(id,type,intent,{disputeId='dp_fixture',status='needs_response',reason='fraudulent',created=1000}={}){const body=JSON.stringify({id,type,created,data:{object:{id:disputeId,payment_intent:intent,status,reason}}});return {body,sig:realWebhooks.generateTestHeaderString({payload:body,secret:process.env.STRIPE_WEBHOOK_SECRET})};}
 (async()=>{
  const account=h.put('accounts',{email:'synthetic@example.invalid'}),booking=h.put('bookings',{accountId:account._id,status:'confirmed',stripePaymentIntentId:'pi_unique',depositAmount:20,total:100,agreementSnapshot:'unchanged'});
  h.put('admin_push_subscriptions',{enabled:true,deviceId:'synthetic',updatedAt:1,endpoint:'https://synthetic.invalid',p256dh:'fixture',auth:'fixture'});
@@ -19,16 +19,32 @@ function event(id,type,intent){const body=JSON.stringify({id,type,data:{object:{
  assert.equal(await checkout.stripeWebhook.handler(ctx,created),true);assert.equal(await checkout.stripeWebhook.handler(ctx,created),true);
  let rows=h.tables.get('admin_notifications');assert.equal(rows.length,1,'redelivery is deduplicated');
  assert.equal(rows[0].bookingId,booking._id);assert.equal(rows[0].accountId,account._id);assert.equal(rows[0].title,'Stripe dispute opened');
+ assert.equal(booking.stripeDisputedAt,1_000_000,'a rental payment dispute is recorded for clean-history waiver screening');assert.equal(booking.stripeDisputeStatus,'needs_response');assert.equal(booking.stripeDisputeReason,'fraudulent');
+ assert.match(rows[0].body,/Status: needs response/);assert.match(rows[0].body,/Reason: fraudulent/);
  assert.equal(presentation.adminNotificationCategory(rows[0].kind),'Bookings & payments');
  assert.equal((h.tables.get('admin_push_deliveries')??[]).length,1,'one owner push is queued');
- const updated=event('evt_synthetic_updated','charge.dispute.updated',null);
+ const updated=event('evt_synthetic_updated','charge.dispute.updated',null,{status:'under_review',created:1001});
  assert.equal(await checkout.stripeWebhook.handler(ctx,updated),true);rows=h.tables.get('admin_notifications');assert.equal(rows[1].bookingId,undefined);assert.match(rows[1].body,/affected payment/);
  h.put('bookings',{accountId:account._id,status:'confirmed',stripePaymentIntentId:'pi_unique',depositAmount:0,total:5,agreementSnapshot:'other'});
  const closed=event('evt_synthetic_closed','charge.dispute.closed','pi_unique');
  assert.equal(await checkout.stripeWebhook.handler(ctx,closed),true);assert.equal(rows[2].bookingId,undefined,'ambiguous payment ownership is not guessed');
+ const assessmentBooking=h.put('bookings',{accountId:account._id,status:'returned',stripePaymentIntentId:'pi_assessment_booking',depositAmount:0,total:25});
+ const assessment=h.put('rental_security_charges',{bookingId:assessmentBooking._id,accountId:account._id,requestId:'assessment-fixture',kind:'damage',amountPence:2500,reason:'Synthetic inspection assessment',customerId:'cus_fixture',paymentMethodId:'pm_fixture',consentSnapshot:'fixture',state:'paid',createdAt:1,updatedAt:1,intentId:'pi_security_unique',paidPence:2500});
+ const securityCreated=event('evt_synthetic_security_created','charge.dispute.created','pi_security_unique',{disputeId:'dp_security',status:'needs_response',reason:'product_not_received',created:2000});
+ assert.equal(await checkout.stripeWebhook.handler(ctx,securityCreated),true);
+ assert.equal(assessment.stripeDisputeId,'dp_security');assert.equal(assessment.stripeDisputeStatus,'needs_response');assert.equal(assessment.disputedAt,2_000_000);
+ let securityContext=await securityState.context.handler(ctx,{id:assessment._id});assert.equal(securityContext.collectionPaused,true,'a Stripe dispute on a saved-card assessment pauses further collections for the rental');
+ const securityUpdated=event('evt_synthetic_security_updated','charge.dispute.updated','pi_security_unique',{disputeId:'dp_security',status:'under_review',reason:'product_not_received',created:2002});
+ assert.equal(await checkout.stripeWebhook.handler(ctx,securityUpdated),true);assert.equal(assessment.stripeDisputeStatus,'under_review');
+ const staleSecurityUpdate=event('evt_synthetic_security_stale','charge.dispute.updated','pi_security_unique',{disputeId:'dp_security',status:'needs_response',reason:'product_not_received',created:2001});
+ assert.equal(await checkout.stripeWebhook.handler(ctx,staleSecurityUpdate),true);assert.equal(assessment.stripeDisputeStatus,'under_review','an older Stripe event cannot roll back newer dispute state');
+ const securityClosed=event('evt_synthetic_security_closed','charge.dispute.closed','pi_security_unique',{disputeId:'dp_security',status:'won',reason:'product_not_received',created:2003});
+ assert.equal(await checkout.stripeWebhook.handler(ctx,securityClosed),true);assert.equal(assessment.stripeDisputeStatus,'won');
+ securityContext=await securityState.context.handler(ctx,{id:assessment._id});assert.equal(securityContext.collectionPaused,true,'closing a Stripe case does not silently resume saved-card collection');
+ assert.equal((h.tables.get('admin_notifications')??[]).filter(row=>row.bookingId===assessmentBooking._id).length,4,'assessment dispute lifecycle alerts remain attached to the rental');
  await assert.rejects(disputes.record.handler(ctx,{eventId:'bad-event',eventType:'charge.dispute.created'}),/Invalid dispute event/);
  assert.equal(booking.agreementSnapshot,'unchanged');assert.equal(booking.status,'confirmed');assert.equal(booking.depositAmount,20);assert.equal(booking.total,100);
- assert(!JSON.stringify(rows).includes('pi_unique'),'payment reference is not exposed in notification copy');
+ assert(!JSON.stringify(h.tables.get('admin_notifications')).includes('pi_unique'),'payment reference is not exposed in notification copy');
  assert(scheduled.some(job=>job.ref==='adminPushDelivery.deliver'));
- console.log('PASS signed synthetic disputes: three event types, deduplication, owner push queue, unknown/ambiguous mapping, invalid signatures and unchanged payment terms.');
+ console.log('PASS signed synthetic disputes: signature rejection, idempotent delivery, booking waiver-risk marker, saved-card assessment linkage and collection pause, ordered lifecycle updates, owner alerts, ambiguity handling and no payment mutation.');
 })().catch(error=>{console.error(error);process.exitCode=1});

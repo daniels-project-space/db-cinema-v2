@@ -16,7 +16,7 @@ const activeTitle = `${card}.querySelector('[aria-hidden="false"] h2').textConte
     for (const width of [390, 1440]) {
       await client.cmd('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
       await client.cmd('Emulation.setDeviceMetricsOverride', {width,height:900,deviceScaleFactor:1,mobile:false});
-      await client.cmd('Page.navigate', {url:process.env.DBC_TEST_URL || 'http://127.0.0.1:41902/'});
+      await client.cmd('Page.navigate', {url:process.env.DBC_TEST_URL || 'http://localhost:41902/'});
       for (let attempt=0;attempt<100&&!(await client.evaluate(`!!(${card})`));attempt++) await delay(100);
       assert(await client.evaluate(`!!(${card})`), 'The delivery tile exists');
       await client.evaluate(`${card}.scrollIntoView({block:'center',behavior:'instant'});void(window.__deliveryImages=[...${card}.querySelectorAll('img')])`);
@@ -45,7 +45,7 @@ const activeTitle = `${card}.querySelector('[aria-hidden="false"] h2').textConte
       assert(await client.evaluate(`window.__deliveryImages.every(image=>image.isConnected&&${card}.contains(image))`),'Neither slide image remounts after a full cycle');
     }
     await client.cmd('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion',value:'reduce'}]});
-    await client.cmd('Page.navigate', {url:process.env.DBC_TEST_URL || 'http://127.0.0.1:41902/'});
+    await client.cmd('Page.navigate', {url:process.env.DBC_TEST_URL || 'http://localhost:41902/'});
     for (let attempt=0;attempt<100&&!(await client.evaluate(`!!(${card})`));attempt++) await delay(100);
     await delay(5500);
     assert.equal(await client.evaluate(activeTitle),'Delivered across London','Reduced motion prevents automatic rotation');
