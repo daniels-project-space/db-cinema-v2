@@ -121,6 +121,7 @@ export default async function Home() {
 
       {/* ───────────────── hero — the viewfinder ───────────────── */}
       <section data-testid="home-hero" className="section-window relative isolate min-h-[clamp(24rem,68svh,38rem)] overflow-hidden sm:min-h-[54svh] lg:min-h-[calc(100vh-93px)]">
+
         {/* cinematic film (Veo 3.1) + timed gear callouts + catchphrase/CTA */}
         <HeroCinematic categories={categories} />
         <ViewfinderHUD />

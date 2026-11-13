@@ -3619,5 +3619,21 @@ body[data-aperture-transition] .chat-panel { opacity:0; pointer-events:none; vis
     flex: 0 1 auto !important;
     max-height: min(calc(52dvh - 9rem), 250px) !important;
     min-height: 0 !important;
+
+  }
+}
+@media (max-width: 639px) {
+  .gear-category-rail--more-right {
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 1.25rem), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 1.25rem), transparent 100%);
+  }
+  .gear-category-rail--more-left {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 1.25rem, #000 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 1.25rem, #000 100%);
+  }
+  .gear-category-rail--more-left.gear-category-rail--more-right {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 1.25rem, #000 calc(100% - 1.25rem), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 1.25rem, #000 calc(100% - 1.25rem), transparent 100%);
+
   }
 }

@@ -73,7 +73,7 @@ const connect = new Function('require', source.slice(0, source.indexOf('const { 
     await browser.cmd('Page.navigate', { url: 'http://127.0.0.1:' + server.address().port });
     const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
     const layouts=[];
-    for (const [width,height] of [[320,640],[390,844],[430,932],[768,900],[1024,844],[1440,844]]) {
+    for (const [width,height] of [[320,640],[390,844],[430,932],[768,900],[1024,600],[1024,844],[1440,844]]) {
       const mobileViewport = width < 768;
       const compactVideoSource = width <= 768;
       await browser.cmd('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: mobileViewport ? 3 : 1, mobile: mobileViewport }); await wait(100);
@@ -120,11 +120,12 @@ const connect = new Function('require', source.slice(0, source.indexOf('const { 
       layouts.push(layout);
       const responsiveScreenshot = await browser.cmd('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
       fs.writeFileSync(`/tmp/dbcinema-mobile-landing-${width}x${height}.png`, Buffer.from(responsiveScreenshot.data, 'base64'));
+
       if (width <= 430) {
         await browser.evaluate(`document.querySelector('[data-testid="hygglo-review-row"]').scrollIntoView({block:'center'})`);
         await wait(120);
         const centeredReview = await browser.evaluate(`(() => {const r=document.querySelector('[data-testid="hygglo-review-card"]').getBoundingClientRect();return{left:r.left,right:r.right,center:(r.left+r.right)/2}})()`);
-        assert(centeredReview.left >= 0 && centeredReview.right <= width, `The scrolled-to review screenshot shows a complete card while it moves at ${width}px: ${JSON.stringify(centeredReview)}`);
+        assert(centeredReview.left >= 0 && centeredReview.right <= width && Math.abs(centeredReview.center-width/2) <= 12, `The scrolled-to review screenshot shows a centered, complete card while it moves at ${width}px: ${JSON.stringify(centeredReview)}`);
         const reviewScreenshot = await browser.cmd('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
         fs.writeFileSync(`/tmp/dbcinema-mobile-reviews-${width}x${height}.png`, Buffer.from(reviewScreenshot.data, 'base64'));
         await browser.evaluate('scrollTo(0,0)');
