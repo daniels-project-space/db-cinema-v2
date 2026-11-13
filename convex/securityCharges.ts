@@ -8,6 +8,7 @@ import { SECURITY_COLLECTION_DAYS, SECURITY_COLLECTION_NOTICE_HOURS } from '../s
 import { belongsToRentalAccount } from './lib/rentalAccount';
 import { recoverApprovedRefund, RefundReviewRequired, type RefundReceipt } from './lib/approvedRefund';
 import { isImmediateClaimSecurityPolicy } from '../shared/rentalSecurity';
+import { assertOwnerReturnClaimToken } from './lib/ownerReturnClaim';
 const client=()=>{if(!process.env.STRIPE_SECRET_KEY)throw Error('Card payments are not configured.');return new Stripe(process.env.STRIPE_SECRET_KEY);};
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const money=(p:number)=>`£${(p/100).toFixed(2)}`;
@@ -58,11 +59,9 @@ export const sendNotice=internalAction({args:idArgs,handler:async(ctx,{id}):Prom
  await ctx.runMutation(internal.securityChargeState.noticeResult,{id,sent,recipient:email.to,subject:email.subject,html:email.html});
  return sent;
 }});
-const claimArgs={token:v.string(),bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),amount:v.number(),reason:v.string()};
-/** v22 only: record the itemised claim, email notice, then make one explicit Stripe attempt. */
-export const submitClaim=action({args:claimArgs,handler:async(ctx,a):Promise<{id:any;status:string}>=>{
- await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:a.token,fn:'securityCharges.submitClaim'});
- const id=await ctx.runMutation(api.securityChargeState.prepare,{...a,immediate:true});
+const claimArgs={token:v.string(),ownerClaimToken:v.string(),confirmed:v.boolean(),bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),amount:v.number(),reason:v.string()};
+const frozenReturnClaimArgs={token:v.string(),bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),amount:v.number(),reason:v.string()};
+async function finishImmediateClaim(ctx:any,token:string,id:any):Promise<{id:any;status:string}>{
  let latest=await matchingContext(ctx,id),charge=latest.charge;
  if(['paid','failed','requires_action','processing'].includes(charge.state))return {id,status:charge.state};
  if(charge.state==='notice_pending'){
@@ -71,10 +70,34 @@ export const submitClaim=action({args:claimArgs,handler:async(ctx,a):Promise<{id
   if(!noticeSent&&charge.state!=='notice_sent')return {id,status:'notice_failed'};
  }
  if(['notice_sent','uncertain'].includes(charge.state)){
-  const result=await ctx.runAction(api.securityCharges.collect,{token:a.token,id});
+  const result=await ctx.runAction(api.securityCharges.collect,{token,id});
   return {id,status:result.status};
  }
  return {id,status:charge.state};
+}
+export const prepareClaim=action({args:claimArgs,handler:async(ctx,a):Promise<{id:any;status:string}>=>{
+ await ctx.runMutation(internal.securityChargeState.authorizeAdminPayment,{token:a.token,operation:'securityCharges.prepareClaim'});
+ assertOwnerReturnClaimToken(a.ownerClaimToken);
+ if(!a.confirmed)throw Error('Confirm the itemised claim before sending its notice.');
+ const {token:_token,ownerClaimToken:_ownerClaimToken,confirmed:_confirmed,...claim}=a;
+ const id:any=await ctx.runMutation(internal.securityChargeState.prepareFromAdminAction,{...claim,immediate:false});
+ return {id,status:'notice_pending'};
+}});
+/** v22 only: record the itemised claim, email notice, then make one explicit Stripe attempt. */
+export const submitClaim=action({args:claimArgs,handler:async(ctx,a):Promise<{id:any;status:string}>=>{
+ await ctx.runMutation(internal.securityChargeState.authorizeAdminPayment,{token:a.token,operation:'securityCharges.submitClaim'});
+ assertOwnerReturnClaimToken(a.ownerClaimToken);
+ if(!a.confirmed)throw Error('Confirm the itemised claim before attempting payment.');
+ const {token:_token,ownerClaimToken:_ownerClaimToken,confirmed:_confirmed,...claim}=a;
+ const id=await ctx.runMutation(internal.securityChargeState.prepareFromAdminAction,{...claim,immediate:true});
+ return finishImmediateClaim(ctx,a.token,id);
+}});
+/** Server-only retry: the state mutation verifies the immutable return receipt and claim tuple. */
+export const submitReturnDecisionClaim=internalAction({args:frozenReturnClaimArgs,handler:async(ctx,a):Promise<{id:any;status:string}>=>{
+ await ctx.runMutation(internal.securityChargeState.authorizeAdminPayment,{token:a.token,operation:'securityCharges.submitReturnDecisionClaim'});
+ const {token,...claim}=a;
+ const id=await ctx.runMutation(internal.securityChargeState.prepareFromFrozenReturnDecision,{...claim,immediate:true});
+ return finishImmediateClaim(ctx,a.token,id);
 }});
 export const sendReceipt=internalAction({args:idArgs,handler:async(ctx,{id}):Promise<void>=>{
  if(!await ctx.runMutation(internal.securityChargeState.claimNotice,{id,receipt:true}))return;
@@ -115,10 +138,10 @@ export const sendRefundNotice=internalAction({args:{noticeId:v.id('rental_securi
   await ctx.runMutation(internal.securityChargeState.finishRefundNotice,{noticeId,sent:false,error:String(error?.message??error)});
  }
 }});
-export const resendNotice=action({args:{token:v.string(),...idArgs},handler:async(ctx,{token,id}):Promise<void>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:'securityCharges.resendNotice'});await ctx.runAction(internal.securityCharges.sendNotice,{id});}});
-export const resendReceipt=action({args:{token:v.string(),...idArgs},handler:async(ctx,{token,id}):Promise<void>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:'securityCharges.resendReceipt'});await ctx.runAction(internal.securityCharges.sendReceipt,{id});}});
+export const resendNotice=action({args:{token:v.string(),...idArgs},handler:async(ctx,{token,id}):Promise<void>=>{await ctx.runMutation(internal.securityChargeState.authorizeAdminPayment,{token,operation:'securityCharges.resendNotice'});await ctx.runAction(internal.securityCharges.sendNotice,{id});}});
+export const resendReceipt=action({args:{token:v.string(),...idArgs},handler:async(ctx,{token,id}):Promise<void>=>{await ctx.runMutation(internal.securityChargeState.authorizeAdminPayment,{token,operation:'securityCharges.resendReceipt'});await ctx.runAction(internal.securityCharges.sendReceipt,{id});}});
 export const collect=action({args:{token:v.string(),...idArgs},handler:async(ctx,{token,id}):Promise<{status:string}>=>{
- await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:'securityCharges.collect'});
+ await ctx.runMutation(internal.securityChargeState.authorizeAdminPayment,{token,operation:'securityCharges.collect'});
  const r:any=await ctx.runMutation(internal.securityChargeState.claim,{id});const sb=client();let requestStarted=false;
  try{
   const current=await matchingContext(ctx,id);
@@ -142,12 +165,12 @@ export const reconcile=internalAction({args:idArgs,handler:async(ctx,{id}):Promi
  const {charge:r}=await matchingContext(ctx,id);if(!r.attemptedAt)return {status:r.state};const sb=client();const pi=r.intentId?await sb.paymentIntents.retrieve(r.intentId):await findAttempt(sb,r);if(!pi){await ctx.runMutation(internal.securityChargeState.record,{id,state:'uncertain',paidPence:0,error:'No bank outcome has been located. No second charge is created automatically.'});return {status:'uncertain'};}return {status:(await observe(ctx,id,pi)).status};
 }});
 export const refresh=action({args:{token:v.string(),...idArgs,admin:v.optional(v.boolean())},handler:async(ctx,a):Promise<{status:string;clientSecret?:string}>=>{
- if(a.admin)await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:a.token,fn:'securityCharges.refresh'});
+ if(a.admin)await ctx.runMutation(internal.securityChargeState.authorizeAdminPayment,{token:a.token,operation:'securityCharges.refresh'});
  else{const account:any=await ctx.runQuery(internal.accounts._byToken,{token:a.token}),data=await matchingContext(ctx,a.id);if(!account||data.charge.accountId!==account._id||!belongsToRentalAccount(data.booking,account))throw Error('Rental charge access denied.');}
  const {charge:r}=await matchingContext(ctx,a.id);if(!r.intentId){if(r.attemptedAt)return ctx.runAction(internal.securityCharges.reconcile,{id:a.id});return {status:r.state};}const result=await observe(ctx,a.id,await client().paymentIntents.retrieve(r.intentId));return a.admin?{status:result.status}:result;
 }});
 export const reconcileReference=action({args:{token:v.string(),...idArgs,paymentIntentId:v.string()},handler:async(ctx,a):Promise<{status:string}>=>{
- await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:a.token,fn:'securityCharges.reconcileReference'});
+ await ctx.runMutation(internal.securityChargeState.authorizeAdminPayment,{token:a.token,operation:'securityCharges.reconcileReference'});
  if(!/^pi_[A-Za-z0-9_]+$/.test(a.paymentIntentId))throw Error('Enter the existing Stripe payment reference.');
  // Read-only recovery: all immutable rental, amount, customer and card checks
  // in observe must pass before this existing bank reference can be attached.
@@ -176,7 +199,7 @@ async function settleRefund(ctx:any,id:any,receipt:RefundReceipt){
  return {status:receipt.status,...(receipt.approvalUrl?{approvalUrl:receipt.approvalUrl}: {})};
 }
 export const refundPayment=action({args:{token:v.string(),...idArgs,reason:v.string()},handler:async(ctx,a):Promise<{status:string;approvalUrl?:string}>=>{
- await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:a.token,fn:'securityCharges.refundPayment'});
+ await ctx.runMutation(internal.securityChargeState.authorizeAdminPayment,{token:a.token,operation:'securityCharges.refundPayment'});
  const {charge:r}=await matchingContext(ctx,a.id);if(r.state!=='paid'||!r.intentId||!r.paidPence)throw Error('A bank-confirmed payment is required.');
  const sb=client(),totals=await refundTotals(sb,r);await ctx.runMutation(internal.securityChargeState.externalRefund,{id:a.id,refundedPence:totals.successful});
  if(totals.successful===r.paidPence)return {status:'succeeded'};

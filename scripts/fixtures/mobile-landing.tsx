@@ -30,10 +30,7 @@ createRoot(document.getElementById("root")!).render(
       data-testid="mobile-landing-hero"
       className="section-window relative isolate min-h-[clamp(28rem,72svh,44rem)] overflow-hidden"
     >
-      <HeroCinematic
-        rating={{ ratingValue: 4.73, reviewCount: 1300, reviewCountLabel: "1,300+" }}
-        categories={categories}
-      />
+      <HeroCinematic categories={categories} />
     </section>
     <main data-testid="mobile-next-section" className="px-4 py-8">
       <HyggloReviewRows reviews={new URLSearchParams(window.location.search).has("many") ? manyReviews : [sampleReview]} />

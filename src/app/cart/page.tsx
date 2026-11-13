@@ -72,6 +72,14 @@ export default function CartPage() {
 
   const first = items[0];
 
+  const dateLabel = (value: string) => new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "Europe/London" }).format(new Date(`${value}T12:00:00.000Z`));
+  const dateRangeLabel = (start: string, end: string) => {
+    const startYear = start.slice(0, 4), endYear = end.slice(0, 4);
+    if (start === end) return `${dateLabel(start)} ${startYear}`;
+    if (startYear === endYear) return `${dateLabel(start)} – ${dateLabel(end)} ${endYear}`;
+    return `${dateLabel(start)} ${startYear} – ${dateLabel(end)} ${endYear}`;
+  };
+
   return (
     <>
       <SiteHeader />
@@ -132,8 +140,8 @@ export default function CartPage() {
                         >
                           {it.title}
                         </Link>
-                        <div className="mt-1.5 font-mono text-xs text-white/40">
-                          {it.start} → {it.end} · {it.days}d
+                        <div data-testid="cart-item-date-range" className="mt-1.5 font-mono text-xs text-white/40">
+                          {dateRangeLabel(it.start, it.end)} · {it.days}d
                         </div>
                         {unavailable ? (
                           <div className="mt-1.5 text-xs text-red-300">
@@ -152,7 +160,7 @@ export default function CartPage() {
                         </div>
                         <button
                           onClick={() => remove(it.key)}
-                          className="flex h-7 w-7 items-center justify-center rounded-full text-white/30 transition-colors hover:bg-white/5 hover:text-rec-500"
+                          className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full text-white/30 transition-colors hover:bg-white/5 hover:text-rec-500 sm:h-7 sm:w-7"
                           aria-label={`Remove ${it.title}`}
                         >
                           <IconX className="h-3.5 w-3.5" />
@@ -175,7 +183,8 @@ export default function CartPage() {
                     <input
                       value={promo.draft}
                       onChange={(e) => promo.setDraft(e.target.value)}
-                      placeholder="Promo or referral code"
+                      aria-label="Promo or referral code"
+                      placeholder="Promo code"
                       className="input min-w-0 flex-1 font-mono uppercase placeholder:normal-case placeholder:font-sans"
                     />
                     {promo.applied ? (

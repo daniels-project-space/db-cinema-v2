@@ -124,7 +124,11 @@ function CreditPanel({ token, accountId }: { token: string; accountId: string })
         </span>
         <div className="min-w-0">
           <h3 className="text-sm font-semibold tracking-tight text-white">Issue account credit</h3>
-          <p className="text-[11px] text-white/50">Adds spendable checkout balance · valid 365 days</p>
+          <p className="text-[11px] text-white/50">Added to balance · expires in 1 year</p>
+        </div>
+        <div aria-label="Available account credit" className="ml-auto shrink-0 text-right">
+          <p className="text-[9px] font-medium uppercase tracking-[.11em] text-white/40">Available</p>
+          <p className="text-sm font-semibold tabular-nums text-amber-50">{grantState && Number.isSafeInteger(grantState.availablePence) ? formatGbp(grantState.availablePence / 100) : "—"}</p>
         </div>
       </div>
 
@@ -134,12 +138,12 @@ function CreditPanel({ token, accountId }: { token: string; accountId: string })
         <label className="text-[10px] font-medium uppercase tracking-[.1em] text-white/45">Amount (£)
           <input aria-label="Credit amount" type="number" min="0.01" step="0.01" value={amount} disabled={busy || !!saved} onChange={event => setAmount(event.target.value)} className="mt-1.5 block w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm font-medium text-white outline-none transition focus:border-amber-100/35 focus:ring-2 focus:ring-amber-100/[.06] disabled:opacity-60" />
         </label>
-        <label className="text-[10px] font-medium uppercase tracking-[.1em] text-white/45">Reason <span className="normal-case tracking-normal text-white/30">optional</span>
-          <input aria-label="Credit note" value={note} maxLength={500} disabled={busy} onChange={event => setNote(event.target.value)} placeholder="Add a short note" className="mt-1.5 block w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-amber-100/35 focus:ring-2 focus:ring-amber-100/[.06] disabled:opacity-60" />
+        <label className="text-[10px] font-medium uppercase tracking-[.1em] text-white/45">Reason
+          <input aria-label="Credit note" required value={note} maxLength={500} disabled={busy} onChange={event => setNote(event.target.value)} placeholder="Why this credit?" className="mt-1.5 block w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-amber-100/35 focus:ring-2 focus:ring-amber-100/[.06] disabled:opacity-60" />
         </label>
       </div>
 
-      <button type="button" data-testid="account-credit-submit" disabled={busy || !ready || !grantState || !validAmount} onClick={() => void submit()} className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-amber-100/20 bg-gradient-to-r from-amber-200 via-amber-100 to-orange-200 px-3.5 py-2 text-xs font-semibold text-zinc-950 shadow-[0_8px_22px_rgba(207,158,102,.16)] transition hover:-translate-y-px hover:shadow-[0_10px_26px_rgba(207,158,102,.24)] disabled:translate-y-0 disabled:opacity-45">
+      <button type="button" data-testid="account-credit-submit" disabled={busy || !ready || !grantState || !validAmount || !note.trim()} onClick={() => void submit()} className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-amber-100/20 bg-gradient-to-r from-amber-200 via-amber-100 to-orange-200 px-3.5 py-2 text-xs font-semibold text-zinc-950 shadow-[0_8px_22px_rgba(207,158,102,.16)] transition hover:-translate-y-px hover:shadow-[0_10px_26px_rgba(207,158,102,.24)] disabled:translate-y-0 disabled:opacity-45">
         <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>
         {busy ? "Adding…" : saved ? `Retry ${formatGbp(Number(saved.amount))}` : `Add ${formatGbp(Number(amount) || 0)}`}
       </button>

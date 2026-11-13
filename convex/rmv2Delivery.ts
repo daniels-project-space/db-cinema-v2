@@ -8,6 +8,19 @@ import { postRentalMessage } from "./lib/rentalChat";
 import { internal } from "./_generated/api";
 import { verificationValidUntil } from "../shared/verificationProgress";
 
+function swapConfirmationDetail(swap: any) {
+  const changes = Array.isArray(swap.changes) && swap.changes.length
+    ? swap.changes
+    : [{ oldLine: swap.oldLine, newLine: swap.newLine }];
+  return changes.map((change: any) => {
+    const oldLine = change.oldLine;
+    if (change.action === "remove" || !change.newLine) {
+      return `${oldLine?.qty ?? 1} × ${oldLine?.title ?? "Rental item"} → removed`;
+    }
+    return `${oldLine?.qty ?? 1} × ${oldLine?.title ?? "Rental item"} → ${change.newLine.qty ?? oldLine?.qty ?? 1} × ${change.newLine.title ?? "Replacement item"}`;
+  }).join("; ").slice(0, 1200);
+}
+
 export const due = internalQuery({ args: {}, handler: async ctx => ctx.db.query("bookings").withIndex("by_rmv2_sync_due", q => q.eq("rmv2SyncStatus", "pending").lte("rmv2SyncDueAt", Date.now())).take(10) });
 export const internalStatus = internalQuery({ args: { bookingId: v.id("bookings") }, handler: async (ctx, { bookingId }) => {
   const b = await ctx.db.get(bookingId);
@@ -50,7 +63,7 @@ export const record = internalMutation({ args: { bookingId: v.id("bookings"), re
         }else if(["applied","refund_pending"].includes(swap.status)){
           if(swap.status==="applied")await ctx.db.patch(booking._id,{activeItemSwapId:undefined});
           await ctx.db.patch(receipt._id,{confirmationSentAt:Date.now()});
-          const detail=`${swap.oldLine.qty} × ${swap.oldLine.title} replaced by ${swap.newLine.qty} × ${swap.newLine.title}.${swap.status==="refund_pending"?" Your refund is being processed.":""}`;
+          const detail=`${swapConfirmationDetail(swap)}.${swap.status==="refund_pending"?" Your refund is being processed.":""}`;
           await postRentalMessage(ctx,{accountId:swap.accountId,bookingId:booking._id,sender:"system",text:`Your equipment change is confirmed: ${detail}`});
           await ctx.scheduler.runAfter(0,internal.notify.changeEmail,{bookingId:booking._id,expectedAccountId:swap.accountId,kind:"equipment updated",detail});
         }

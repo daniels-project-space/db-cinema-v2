@@ -22,3 +22,8 @@
 .embedded .library>header{flex-wrap:wrap}.embedded .library>header h3{flex:1 1 100%;white-space:normal}.embedded .search{flex:1;width:auto}.embedded .library li{flex-wrap:wrap;gap:9px}.embedded .fileIdentity{flex:1 1 100%;gap:10px}.embedded .fileIdentity strong,.embedded .fileIdentity small{overflow-wrap:anywhere}.embedded .rental{display:none}.embedded .library ul{max-height:none;overflow:visible}
 .reviewDetails dd{overflow-wrap:anywhere;text-align:right}.reviewDetails dl>div{gap:12px}
 .reviewDetails button{min-height:44px;margin-top:8px;padding:0 14px;border:1px solid #bd906a80;border-radius:8px;color:#f1d3b2;background:#b4804d20;font-weight:600}
+.notice{display:flex;align-items:center;gap:10px;margin:0 0 14px;padding:11px 14px;border:1px solid #86b99155;border-radius:10px;background:linear-gradient(110deg,#203128c9,#1a201dba);backdrop-filter:blur(14px);color:#c4e0ca;font-size:12px;line-height:1.5}
+.original button{min-height:38px;border-color:#ffffff24;border-radius:9px;background:#ffffff08;transition:background .18s ease,border-color .18s ease,transform .18s ease}
+.original button:hover:not(:disabled){border-color:#d6a77388;background:#d6a77319;transform:translateY(-1px)}
+.original button:focus-visible{outline:2px solid #e6c094;outline-offset:2px}
+.fileActions{display:none}

@@ -235,29 +235,54 @@ export const adminReview = action({
     if (!booking || booking.verificationProvider !== "didit" || !booking.diditSessionId ||
         !verificationBookingOpen(booking.status) || booking.idVerifyStatus !== "manual_review")
       throw new Error("Only a rental waiting for Didit review can be decided here.");
-    await ctx.runMutation(internal.diditReviewClaims.claim, {
-      bookingId, sessionId: booking.diditSessionId, requestId, decision,
-    });
+    const sessionId = booking.diditSessionId;
+    await ctx.runMutation(internal.diditReviewClaims.claim, { bookingId, sessionId, requestId, decision });
     try {
       const cfg = config();
-      const sessionId = booking.diditSessionId;
       let session = await retrieveSession(cfg.apiKey, sessionId, String(bookingId), booking.guestEmail);
       if (session.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
-      if (session.status !== "In Review") {
-        throw new Error("Didit has already changed this case. Refresh the rental before deciding.");
-      }
+      if (session.status !== "In Review") throw new Error("Didit has already changed this case. Refresh the rental before deciding.");
+
       const targetStatus = decision === "approve" ? "Approved" : decision === "decline" ? "Declined" : "Resubmitted";
-      let response: Response;
-      try {
-        response = await fetch(`${sessionApi}${sessionId}/update-status/`, {
-          method: "PATCH",
-          headers: { "x-api-key": cfg.apiKey, "content-type": "application/json" },
-          body: JSON.stringify({ new_status: targetStatus, comment: reason }),
-          signal: AbortSignal.timeout(20_000),
-        });
-      } catch {
-        throw new Error("Didit could not be reached. Refresh the case before retrying.");
+      const previewPath = decision === "resubmit" ? "resubmission-preview/" : "decision-email-preview/";
+      const previewResponse = await fetch(`${sessionApi}${sessionId}/${previewPath}`, {
+        method: "POST",
+        headers: { "x-api-key": cfg.apiKey, "content-type": "application/json" },
+        body: JSON.stringify({ new_status: targetStatus, email_language: "en" }),
+        signal: AbortSignal.timeout(20_000),
+      }).catch(() => null);
+      if (!previewResponse) throw new Error("Didit could not be reached. Refresh the case before deciding.");
+      if (!previewResponse.ok) {
+        if (previewResponse.status === 409) throw new Error("The Didit case changed. Refresh before deciding.");
+        if (previewResponse.status === 429 || previewResponse.status >= 500) throw new Error("Didit is temporarily unavailable. Refresh and retry shortly.");
+        if (previewResponse.status === 401 || previewResponse.status === 403) throw new Error("The Didit key cannot review this case. Check its session-write access.");
+        throw new Error("Didit could not prepare a safe decision. Refresh the case and check its current status.");
       }
+      const preview: any = await previewResponse.json().catch(() => null);
+      if (!preview?.preview_token || typeof preview.recipient !== "string" || !preview.recipient.includes("@"))
+        throw new Error("Didit could not prepare a safe decision email. Open the case in Didit and confirm its contact email.");
+      const nodesToResubmit = decision === "resubmit" && Array.isArray(preview.nodes_to_resubmit)
+        ? preview.nodes_to_resubmit : undefined;
+
+      // Didit's preview receipt is a compare-and-set fence: it expires after
+      // 15 minutes and the update returns 409 if the case or recipient changed.
+      // That lets the website safely apply the decision without racing the
+      // Didit console or a webhook. The provider sends only the previewed email.
+      const response = await fetch(`${sessionApi}${sessionId}/update-status/`, {
+        method: "PATCH",
+        headers: { "x-api-key": cfg.apiKey, "content-type": "application/json" },
+        body: JSON.stringify({
+          new_status: targetStatus,
+          comment: reason,
+          send_email: true,
+          email_address: preview.recipient,
+          email_language: preview.language || "en",
+          email_preview_token: preview.preview_token,
+          ...(nodesToResubmit ? { nodes_to_resubmit: nodesToResubmit } : {}),
+        }),
+        signal: AbortSignal.timeout(20_000),
+      }).catch(() => null);
+      if (!response) throw new Error("Didit could not be reached. Refresh the case before retrying.");
       if (!response.ok) {
         if (response.status === 409) throw new Error("The Didit case changed. Refresh before deciding.");
         if (response.status === 429 || response.status >= 500) throw new Error("Didit is temporarily unavailable. Refresh and retry shortly.");
@@ -267,9 +292,8 @@ export const adminReview = action({
       const acknowledgement: any = await response.json().catch(() => null);
       if (acknowledgement?.session_id !== sessionId) throw new Error("Didit did not confirm the case update. Refresh before retrying.");
 
-      // Didit remains the source of truth. Re-read its session before updating
-      // the website; the signed webhook and this recovery read share the same
-      // normal booking transition, notifications, archive and Rental Manager sync.
+      // Didit remains the source of truth. Re-read before updating the website;
+      // this shares the webhook transition, notifications, archive and RM sync.
       session = await retrieveSession(cfg.apiKey, sessionId, String(bookingId), booking.guestEmail);
       if (session.workflow_id !== cfg.workflowId || session.status !== targetStatus)
         throw new Error("Didit has not confirmed this decision yet. Refresh the rental before retrying.");
@@ -296,7 +320,7 @@ export const adminReview = action({
       }
       return { status: expectedStatus, providerStatus: targetStatus };
     } finally {
-      await ctx.runMutation(internal.diditReviewClaims.release, { bookingId, requestId, sessionId: booking.diditSessionId });
+      await ctx.runMutation(internal.diditReviewClaims.release, { bookingId, requestId, sessionId });
     }
   },
 });

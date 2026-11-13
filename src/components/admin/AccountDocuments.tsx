@@ -27,14 +27,17 @@ function DocumentReadinessCard({ archives, verified, verificationExpiresAt }: { 
   }, [archives, verificationExpiresAt, now]);
   if (!archives) return <p role="status" className={styles.readiness}>Checking document readiness…</p>;
   const state = documentReadiness(archives, verified, verificationExpiresAt, now);
-  const retentionNeedsReview = archives.some(archive => archive.retention.status === "unknown-closure" && !archive.retention.viewable);
+  const retentionNeedsReview = archives.some(archive => archive.retention.status === "unknown-closure" && "needsReview" in archive.retention && archive.retention.needsReview);
+  const boundedReview = archives.find(archive => archive.retention.status === "unknown-closure" && "reviewWindowEligible" in archive.retention && archive.retention.reviewWindowEligible);
+  const reviewDeadline = boundedReview && "expiresAt" in boundedReview.retention ? boundedReview.retention.expiresAt : null;
+  const reviewStartedAt = boundedReview && "reviewStartedAt" in boundedReview.retention ? boundedReview.retention.reviewStartedAt : null;
   return <section className={styles.readiness} aria-label="Customer document readiness">
     <header><h4>Document readiness</h4><span data-ready={state.ready}>{state.ready ? "Approval & copies ready" : "Needs attention"}</span></header>
     <dl><div><dt>Verification</dt><dd data-good={state.approved}>{state.approval}{verificationExpiresAt && <small>Valid until {new Date(verificationExpiresAt).toLocaleDateString("en-GB")}</small>}</dd></div>
     <div><dt>Proof of identity</dt><dd data-good={state.identitySaved}>{state.identitySaved ? state.approved ? "Approved · copy saved" : "Copy saved · awaiting approval" : retentionNeedsReview ? "Unavailable · review retention" : "Private copy missing"}</dd></div>
     <div><dt>Proof of address</dt><dd data-good={state.addressSaved}>{state.addressSaved ? state.approved ? "Approved · copy saved" : "Copy saved · awaiting approval" : retentionNeedsReview ? "Unavailable · review retention" : "Private copy missing"}</dd></div></dl>
-    <p>{retentionNeedsReview ? "Retention needs review. Deletion is paused while the case or rental dates are checked." : state.daysLeft !== null ? `Earliest archive deletion in ${state.daysLeft} ${state.daysLeft === 1 ? "day" : "days"} · ${new Date(state.archiveExpiry!).toLocaleDateString("en-GB")}` : state.protectedArchive ? "Copies retained while a rental, case, or hold is active." : "Retention countdown begins after the rental closes."}</p>
-    <small>Copies are admin-only. Retention normally lasts 90 days after rental closure, or longer for an open case and 90 days after its resolution; verification expiry is separate. Readability checks cannot guarantee a browser or connection will open a file. If a file fails to open, retry or contact the team; the failure is reported when the connection allows.</small>
+    <p>{boundedReview ? reviewStartedAt && reviewDeadline ? `Closure needs review · copies available until ${new Date(reviewDeadline).toLocaleDateString("en-GB")}; then deleted if unresolved.` : "Closure needs review · copies stay available; a 90-day review window starts at the next retention sweep." : retentionNeedsReview ? "Retention needs review. Copies stay protected until missing or inconsistent records are resolved." : state.daysLeft !== null ? `Earliest archive deletion in ${state.daysLeft} ${state.daysLeft === 1 ? "day" : "days"} · ${new Date(state.archiveExpiry!).toLocaleDateString("en-GB")}` : state.protectedArchive ? "Copies retained during an active rental or linked open case." : "Retention countdown begins after the rental closes."}</p>
+    <small>Admin-only copies are deleted 90 days after rental closure. A linked open case pauses deletion; after it closes, the 90-day period starts. If closed dates are missing, a fixed 90-day review window starts at the first retention sweep. Account restrictions do not extend document retention.</small>
   </section>;
 }
 
@@ -157,6 +160,7 @@ export function AccountDocuments({
       token: string;
     } | null>(null),
     [error, setError] = useState(""),
+    [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false);
   const [originalOpen,setOriginalOpen]=useState(false);
   const originalDialog=useRef<HTMLDialogElement>(null);
@@ -165,7 +169,6 @@ export function AccountDocuments({
   const request = useRef<AbortController | null>(null);
   const scope = useRef(0);
   const [holdEditor, setHoldEditor] = useState<{archiveId: string; expectedReason: string; expectedRevision: number} | null>(null);
-  const [holdReason, setHoldReason] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
@@ -202,9 +205,9 @@ export function AccountDocuments({
     request.current = null;
     setPreview(null);
     setError("");
+    setNotice("");
     setBusy(false);
     setHoldEditor(null);
-    setHoldReason("");
     setSearch("");
     setFilter("all");
     setSelectedDocument(null);
@@ -281,11 +284,15 @@ export function AccountDocuments({
       if (request.current === controller) request.current = null;
     }
   }
-  async function perform(action: () => Promise<unknown>) {
+  async function perform(action: () => Promise<unknown>, successMessage?: string) {
     const currentScope = scope.current;
     setBusy(true);
     setError("");
-    try { await action(); }
+    setNotice("");
+    try {
+      await action();
+      if (currentScope === scope.current && successMessage) setNotice(successMessage);
+    }
     catch (e) { if (currentScope === scope.current) setError(e instanceof Error ? e.message : "Document action failed."); }
     finally { if (currentScope === scope.current) setBusy(false); }
   }
@@ -297,7 +304,7 @@ export function AccountDocuments({
     <section className={`${styles.page} ${embedded ? styles.embedded : ""}`} aria-label="Account documents" data-testid="retained-documents-page">
       <div className={styles.tools}>
         {!embedded && (onBack ? <button type="button" onClick={onBack} className={styles.breadcrumb}>← <span>Customers</span> / {customer?.name ?? "Account documents"}</button> : <span className={styles.breadcrumb}>Private customer documents</span>)}
-        <button type="button" disabled={busy} onClick={() => void perform(() => backfill({token,accountId:accountId as any}))} className={styles.primary}>↑ <span>Import from Didit</span></button>
+        <button type="button" disabled={busy} onClick={() => void perform(() => backfill({token,accountId:accountId as any}), "Archive recovery started. Saved files will appear here as processing finishes.")} className={styles.primary}>↻ <span>Recover archives</span></button>
       </div>
       {customer && !embedded && <div className={styles.profile}>
         {customer.avatarUrl ? <SmartImage src={customer.avatarUrl} alt="" className={styles.avatar} /> : <span className={styles.avatar}>{customer.name.slice(0,1).toUpperCase()}</span>}
@@ -315,17 +322,17 @@ export function AccountDocuments({
       </div>
       <DocumentReadinessCard archives={archives} verified={verified ?? customer?.verified ?? false} verificationExpiresAt={verificationExpiresAt} />
       {error && <p role="alert" className={styles.error}>{error}</p>}
+      {notice && <p role="status" className={styles.notice}>{notice}</p>}
       <div className={styles.columns}>
         <section className={styles.library} aria-label="Saved documents">
           <header><h3>Saved documents</h3><label className={styles.search}><span>⌕</span><input type="search" aria-label="Search documents" placeholder="Search documents…" value={search} onChange={e => setSearch(e.target.value)} /></label><select aria-label="Filter documents" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">All documents</option><option value="saved">Saved copies</option><option value="attention">Needs attention</option></select></header>
-          {archives === undefined ? <p role="status" className={styles.empty}>Loading retained documents…</p> : !files.length ? <p className={styles.empty}>{allFiles.length ? "No documents match this search." : "No saved documents yet. Import existing Didit verifications or wait for the renter’s upload."}</p> : <ul>{files.map(document => <li key={document.id} className={selectedFile?.id === document.id ? styles.selected : ""}>
+          {archives === undefined ? <p role="status" className={styles.empty}>Loading retained documents…</p> : !files.length ? <p className={styles.empty}>{allFiles.length ? "No documents match this search." : "No saved documents yet. Recover archived verification files or wait for the renter’s upload."}</p> : <ul>{files.map(document => <li key={document.id} className={selectedFile?.id === document.id ? styles.selected : ""}>
             <button type="button" className={styles.fileIdentity} onClick={() => {setSelectedDocument(document.id); if(document.available) void view(document);}} aria-label={`Select ${documentTitle(document.kind)}`}>
               <PrivateDocumentThumb key={`${accountId}:${document.id}`} token={token} accountId={accountId} document={document} />
               <span><strong>{documentTitle(document.kind)}</strong><small>{document.contentType === "application/pdf" ? "PDF" : document.contentType.split("/")[1].toUpperCase()} · {document.size >= 1024 * 1024 ? (document.size / (1024 * 1024)).toFixed(1) + " MB" : Math.ceil(document.size / 1024) + " KB"}</small><small>Uploaded {shortDate(document.savedAt)}</small></span>
             </button>
             <div className={styles.fileStatus}><span className={document.available ? styles.good : styles.pending}>{document.available ? "✓ Saved" : "needsReview" in document.archive.retention && document.archive.retention.needsReview ? "Retention needs review" : document.archive.retention.viewable ? "Copy unavailable" : "Retention ended"}</span><small>{document.archive.source === "drone" ? "Operator licence" : "Didit verification"}</small></div>
             <span className={styles.rental}>↗ {document.archive.bookingId.slice(-8)}</span>
-            {document.available && <div className={styles.fileActions}><button type="button" disabled={busy} aria-label={`View ${documentTitle(document.kind)}`} onClick={() => void view(document)}><DocumentIcon type="eye" /></button><button type="button" disabled={busy} aria-label={`Download ${documentTitle(document.kind)}`} onClick={() => void view(document,true)}><DocumentIcon type="download" /></button></div>}
           </li>)}</ul>}
           {currentArchives.filter(a => a.status !== "deleted" && a.retention.viewable && !a.copiesReady).map(archive => <div key={archive._id} className={styles.repair}><strong>{archive.status === "complete" ? "Saved copies need repair" : archive.status === "attention" ? "Archive needs attention" : "Saving documents"}</strong><p>{archive.source === "drone" ? "Ask the renter to upload a current licence copy through their rental." : archive.error ?? "Verification files must finish saving before handover."}</p>{archive.source !== "drone" && <button type="button" disabled={busy} onClick={() => void perform(() => retry({token,archiveId:archive._id}))}>{archive.status === "complete" ? "Repair document archive" : "Retry document archive"} →</button>}</div>)}
           {currentArchives.filter(a=>a.status==="complete" && a.retention.viewable && a.supplementalStatus && a.supplementalStatus!=="complete").map(archive=><div key={`extra-${archive._id}`} className={styles.repair}><strong>{archive.supplementalStatus==="pending"?"Saving additional verification images":"Additional verification images need attention"}</strong><p>{archive.supplementalError ?? "Checking available selfie and face-match images without interrupting saved documents."}</p>{archive.supplementalStatus==="attention" && <button type="button" disabled={busy} onClick={()=>void perform(()=>retryImages({token,archiveId:archive._id}))}>Retry image recovery →</button>}</div>)}
@@ -335,13 +342,15 @@ export function AccountDocuments({
           <div className={styles.previewCanvas}>
             {preview && preview.accountId === accountId && preview.token === token && preview.documentId === selectedFile?.id ? preview.type === "application/pdf" ? <iframe src={preview.url} title={preview.title} onError={failedPreview} /> : <img src={preview.url} alt={preview.title} onError={failedPreview} /> : <div className={styles.previewEmpty}><DocumentIcon /><strong>{busy ? "Opening private document…" : selectedFile?.available ? "Open the saved original" : "No available preview"}</strong><p>{selectedFile?.available ? "Select a document to securely view its saved copy." : "Files become viewable once their private archive is complete."}</p></div>}
           </div>
-          {selectedFile && <div className={styles.original}><div><strong>{selectedFile.available ? "Original file saved" : "Copy unavailable"}</strong><small>{selectedFile.contentType === "application/pdf" ? "PDF" : "Image"} · {Math.ceil(selectedFile.size / 1024)} KB</small><small>Linked to {customer?.name ?? "this account"} · {selectedFile.archive.bookingId.slice(-8)}</small></div>{selectedFile.available && <div><button type="button" disabled={busy} onClick={() => void view(selectedFile,"open")}>↗ Open original</button><button type="button" disabled={busy} className={styles.primary} onClick={() => void view(selectedFile,true)}>↓ Download</button></div>}</div>}
+          {selectedFile && <div className={styles.original}><div><strong>{selectedFile.available ? "Original file saved" : "Copy unavailable"}</strong><small>{selectedFile.contentType === "application/pdf" ? "PDF" : "Image"} · {Math.ceil(selectedFile.size / 1024)} KB</small><small>Linked to {customer?.name ?? "this account"} · {selectedFile.archive.bookingId.slice(-8)}</small></div>{selectedFile.available && <div><button type="button" disabled={busy} onClick={() => void view(selectedFile,"open")}>↗ Expand preview</button><button type="button" disabled={busy} className={styles.primary} aria-label={`Download ${documentTitle(selectedFile.kind)}`} onClick={() => void view(selectedFile,true)}>↓ Download copy</button></div>}</div>}
           <div className={styles.retention}><h4>Retention</h4>{selectedArchive ? <>
-            <dl><div><dt>Current rental</dt><dd>{"needsReview" in selectedArchive.retention && selectedArchive.retention.needsReview ? "Needs review" : selectedArchive.retention.activeRentals ? "Active" : selectedArchive.retention.status === "unknown-closure" ? "Closure not recorded" : "Closed"}</dd></div><div><dt>Deletion date</dt><dd>{"needsReview" in selectedArchive.retention && selectedArchive.retention.needsReview ? "Paused for review" : selectedArchive.retention.expiresAt ? shortDate(selectedArchive.retention.expiresAt) : selectedArchive.retention.activeRentals ? "Set after return" : selectedArchive.retention.openCases || selectedArchive.retentionHoldReason ? "Protected by case or retention hold" : "Awaiting closure"}</dd></div></dl>
+            <dl><div><dt>Current rental</dt><dd>{selectedArchive.retention.permanent ? "Identity-safety hold" : "needsReview" in selectedArchive.retention && selectedArchive.retention.needsReview ? "Needs review" : selectedArchive.retention.activeRentals ? "Active" : selectedArchive.retention.status === "unknown-closure" ? "Closure not recorded" : "Closed"}</dd></div><div><dt>Deletion date</dt><dd>{selectedArchive.retention.permanent ? "Permanent admin archive" : "reviewWindowEligible" in selectedArchive.retention && selectedArchive.retention.reviewWindowEligible ? selectedArchive.retention.expiresAt ? `Review until ${shortDate(selectedArchive.retention.expiresAt)}` : "Starts at next retention sweep" : "needsReview" in selectedArchive.retention && selectedArchive.retention.needsReview ? "Paused for review" : selectedArchive.retention.expiresAt ? shortDate(selectedArchive.retention.expiresAt) : selectedArchive.retention.activeRentals ? "Set after return" : selectedArchive.retention.openCases ? "After open case closes" : "Awaiting closure"}</dd></div></dl>
+            {selectedArchive.retention.permanent && <p>Kept for repeat-identity review. Admin access only; matches still require human review.</p>}
             {(selectedArchive.retention.status === "deleted" || !selectedArchive.retention.viewable || !!selectedArchive.retention.openCases) && <p>{selectedArchive.retention.status === "deleted" ? "File bytes have been removed." : "needsReview" in selectedArchive.retention && selectedArchive.retention.needsReview ? "Retention needs review. These copies are protected from deletion but cannot be opened until reviewed." : !selectedArchive.retention.viewable ? "Retention ended. These documents cannot be viewed or reopened." : "An open internal damage case preserves these copies. It does not file an insurer claim."}</p>}
-            {"reviewDetails" in selectedArchive.retention && selectedArchive.retention.reviewDetails && <div className={`${styles.repair} ${styles.reviewDetails}`}><strong>Case dates need investigation</strong><p>The recorded case closure is missing, before opening, or in the future. Check the original case evidence before requesting a correction; deletion remains paused.</p><dl><div><dt>Rental ID</dt><dd>{selectedArchive.retention.reviewDetails.bookingId}</dd></div><div><dt>Case ID</dt><dd>{selectedArchive.retention.reviewDetails.caseId}</dd></div><div><dt>Opened</dt><dd>{reviewTimestamp(selectedArchive.retention.reviewDetails.openedAt)}</dd></div><div><dt>Closed</dt><dd>{reviewTimestamp(selectedArchive.retention.reviewDetails.closedAt)}</dd></div></dl>{onRental && <button type="button" onClick={() => {const retention=selectedArchive.retention;if("reviewDetails" in retention && retention.reviewDetails)onRental(retention.reviewDetails.bookingId);}}>Open linked rental →</button>}</div>}
-            {(selectedArchive.retention.viewable || ("needsReview" in selectedArchive.retention && selectedArchive.retention.needsReview)) && <><div className={styles.holdRow}><span>Retention hold</span><button type="button" role="switch" aria-label="Document retention hold" aria-checked={!!selectedArchive.retentionHoldReason} disabled={busy || (!!selectedArchive.retentionHoldReason && "needsReview" in selectedArchive.retention && !!selectedArchive.retention.needsReview)} onClick={() => {setHoldReason("");setHoldEditor({archiveId:selectedArchive._id,expectedReason:selectedArchive.retentionHoldReason ?? "",expectedRevision:selectedArchive.retentionHoldRevision ?? 0});}} className={selectedArchive.retentionHoldReason ? styles.toggleOn : styles.toggle}><span /></button></div><p>{"needsReview" in selectedArchive.retention && selectedArchive.retention.needsReview ? "Add a separate hold before investigating. It cannot be removed until retention review is resolved." : "Pause scheduled deletion while a documented case is open."}</p>{selectedArchive.retentionHoldReason && <p className={styles.holdNote}>Retention hold: {selectedArchive.retentionHoldReason}</p>}
-            {holdEditor?.archiveId === selectedArchive._id && <form onSubmit={event => {event.preventDefault();const origin=scope.current;void perform(async()=>{await retentionHold({token,archiveId:selectedArchive._id,reason:holdEditor.expectedReason ? "" : holdReason.trim(),expectedReason:holdEditor.expectedReason,expectedRevision:holdEditor.expectedRevision,confirmed:true});if(origin===scope.current){setHoldEditor(null);setHoldReason("");}});}}>{holdEditor.expectedReason ? <p>Remove the hold for “{holdEditor.expectedReason}”? If no other retention applies, the documents may become eligible for deletion.</p> : <label>Reason for document retention<textarea required minLength={10} maxLength={500} value={holdReason} onChange={e => setHoldReason(e.target.value)} /></label>}<button disabled={busy || (!holdEditor.expectedReason && holdReason.trim().length < 10)} type="submit" className={styles.primary}>{holdEditor.expectedReason ? "Confirm hold removal" : "Save retention hold"}</button><button type="button" onClick={() => {setHoldEditor(null);setHoldReason("");}}>Cancel</button></form>}</>}
+            {"reviewDetails" in selectedArchive.retention && selectedArchive.retention.reviewDetails && <div className={`${styles.repair} ${styles.reviewDetails}`}><strong>Case dates need investigation</strong><p>Check the original case evidence. Copies stay available until the review deadline above, then are deleted if unresolved.</p><dl><div><dt>Rental ID</dt><dd>{selectedArchive.retention.reviewDetails.bookingId}</dd></div><div><dt>Case ID</dt><dd>{selectedArchive.retention.reviewDetails.caseId}</dd></div><div><dt>Opened</dt><dd>{reviewTimestamp(selectedArchive.retention.reviewDetails.openedAt)}</dd></div><div><dt>Closed</dt><dd>{reviewTimestamp(selectedArchive.retention.reviewDetails.closedAt)}</dd></div></dl>{onRental && <button type="button" onClick={() => {const retention=selectedArchive.retention;if("reviewDetails" in retention && retention.reviewDetails)onRental(retention.reviewDetails.bookingId);}}>Open linked rental →</button>}</div>}
+            {selectedArchive.retention.status === "unknown-closure" && <RetentionReviewControls token={token} accountId={accountId} archive={selectedArchive} />}
+            {selectedArchive.retentionHoldReason && <div className={styles.repair}><strong>Legacy manual hold</strong><p>Old note: {selectedArchive.retentionHoldReason}</p><p>This override no longer changes retention. Active rentals and linked open cases control deletion.</p><button type="button" disabled={busy} onClick={() => setHoldEditor({archiveId:selectedArchive._id,expectedReason:selectedArchive.retentionHoldReason ?? "",expectedRevision:selectedArchive.retentionHoldRevision ?? 0})}>Clear old hold</button></div>}
+            {holdEditor?.archiveId === selectedArchive._id && <form onSubmit={event => {event.preventDefault();const origin=scope.current;void perform(async()=>{await retentionHold({token,archiveId:selectedArchive._id,reason:"",expectedReason:holdEditor.expectedReason,expectedRevision:holdEditor.expectedRevision,confirmed:true});if(origin===scope.current)setHoldEditor(null);},"Legacy override cleared. The rental and open-case schedule remains in effect.");}}><p>Clear the legacy override. The rental and open-case schedule remains in effect.</p><button disabled={busy || !holdEditor.expectedReason} type="submit" className={styles.primary}>Clear legacy hold</button><button type="button" onClick={() => setHoldEditor(null)}>Cancel</button></form>}
           </> : <p>No document archive is linked to this account yet.</p>}</div>
         </section>
       </div>
@@ -351,6 +360,45 @@ export function AccountDocuments({
       <footer className={styles.activity}><h3>◷ Recent activity</h3>{[...allFiles].sort((a,b)=>b.savedAt-a.savedAt).slice(0,3).map(d => <div key={d.id}><DocumentIcon /><span><strong>Document saved</strong><small>{documentTitle(d.kind)} · {shortDate(d.savedAt)}</small></span></div>)}<span className={styles.private}><DocumentIcon type="lock" /> Admin access only · Downloads are logged</span></footer>
     </section>
   );
+}
+
+function RetentionReviewControls({token,accountId,archive}:{token:string;accountId:string;archive:any}) {
+  const startReview=useMutation(api.verificationRetentionReview.start);
+  const repairLink=useMutation(api.verificationRetentionReview.repairLink);
+  const [reason,setReason]=useState("");
+  const [linkReason,setLinkReason]=useState("");
+  const [cursor,setCursor]=useState<string|null>(null);
+  const [candidateRows,setCandidateRows]=useState<any[]>([]);
+  const [replacementBookingId,setReplacementBookingId]=useState("");
+  const review=archive.retentionReview;
+  const candidates=useQuery(api.verificationRetentionReview.candidates,review?.state==="needs_link"?{token,archiveId:archive._id,cursor}:"skip");
+  useEffect(()=>{setCursor(null);setCandidateRows([]);setReplacementBookingId("");setReason("");setLinkReason("");},[archive._id]);
+  useEffect(()=>{
+    if(!candidates)return;
+    setCandidateRows(current=>{
+      const rows=cursor===null?[]:[...current];
+      const seen=new Set(rows.map(row=>String(row.bookingId)));
+      for(const row of candidates.candidates)if(!seen.has(String(row.bookingId))){rows.push(row);seen.add(String(row.bookingId));}
+      return rows;
+    });
+  },[candidates,cursor]);
+  const status=review?.state??"not_started";
+  const canStart=status!=="running"&&status!=="needs_link"&&status!=="complete";
+  const progress=review?`${review.linkedRentals} rentals · ${review.casesScanned} cases`:"Checks every linked rental and case in pages of 25.";
+  return <section className={styles.repair} aria-label="Full verification retention history review">
+    <strong>Full rental history</strong>
+    <p>{status==="running"?`Scanning safely · ${progress}`:status==="complete"?`History checked · ${progress}`:status==="needs_link"?"A linked rental record is missing. Link the exact same-account rental to continue.":status==="attention"?review?.error??"History could not be reconciled safely. Documents remain protected.":status==="stale"?"Rental or case history changed. Restart the scan to refresh it.":archive.retention.reviewReason??"History exceeds the quick review limit. Start a full paginated scan."}</p>
+    {review?.state==="running"&&<p role="status">The scan resumes automatically. Documents stay protected until all pages finish.</p>}
+    {review?.state==="complete"&&<p role="status">No active rentals or open linked cases were missed. Real closure dates still control the 90-day deletion date.</p>}
+    {review?.state==="needs_link"&&<div>
+      <label>Same-account rental<select aria-label="Replacement rental" value={replacementBookingId} onChange={event=>setReplacementBookingId(event.target.value)}><option value="">Choose a matching rental</option>{candidateRows.map(row=><option key={row.bookingId} value={row.bookingId}>{row.title} · {String(row.bookingId).slice(-8)} · {row.status}</option>)}</select></label>
+      {candidates?.more&&<button type="button" onClick={()=>setCursor(candidates.cursor)}>More matching rentals</button>}
+      <label>Why is this the correct link?<input value={linkReason} minLength={10} maxLength={400} onChange={event=>setLinkReason(event.target.value)} placeholder="Brief audit reason" /></label>
+      <button type="button" disabled={!replacementBookingId||linkReason.trim().length<10} onClick={()=>void repairLink({token,archiveId:archive._id,generation:review.generation,missingBookingId:review.missingBookingId, ...(review.orphanLinkId?{orphanLinkId:review.orphanLinkId}:{}),replacementBookingId:replacementBookingId as any,reason:linkReason})}>Link and rescan</button>
+    </div>}
+    {canStart&&<div><label>Review reason<input value={reason} minLength={10} maxLength={400} onChange={event=>setReason(event.target.value)} placeholder="Why this history needs reconciliation" /></label><button type="button" disabled={reason.trim().length<10} onClick={()=>void startReview({token,archiveId:archive._id,accountId:accountId as any,reason})}>Scan full history</button></div>}
+    <small>Admin only. Each rental and case is checked against current records. No closure date is invented and there is no manual clear or retention override.</small>
+  </section>;
 }
 
 function DocumentIcon({type="document"}:{type?:"document"|"shield"|"shieldCheck"|"lock"|"eye"|"download"}) {const paths={document:"M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6",shield:"M12 2 3 6v7c0 5 9 9 9 9s9-4 9-9V6Z",shieldCheck:"M12 2 3 6v7c0 5 9 9 9 9s9-4 9-9V6Z M7 12l3 3 7-7",lock:"M5 10h14v11H5z M8 10V6a4 4 0 0 1 8 0v4",eye:"M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",download:"M12 2v14 M7 11l5 5 5-5 M4 18v4h16v-4"};return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d={paths[type]} /></svg>;}

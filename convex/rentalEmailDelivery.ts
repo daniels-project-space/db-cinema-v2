@@ -8,6 +8,8 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { accountForRental } from "./lib/rentalAccount";
+import { renterRentalActionReady } from "./lib/renterRentalActionGate";
+import { verificationExpired } from "../shared/verificationProgress";
 import { handoverScheduleFingerprint, pickupScheduleFingerprint } from "./lib/rentalEmailQueue";
 const LEASE_MS=10*60_000, MAX_ATTEMPTS=8;
 
@@ -16,6 +18,16 @@ async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliv
   const account=await accountForRental(ctx,b);
   const recipient=account?.email ?? (b.accountId ? null : b.guestEmail);
   if(!recipient || (row.recipientEmail && row.recipientEmail!==recipient)) return false;
+  // Legacy payment/receipt jobs could say verification was still pending and
+  // send a second invoice after approval. Only allow a legacy job when its
+  // booking is already fully ready and no canonical approval email exists.
+  if(row.kind === "payment" || row.kind === "receipt") {
+    if(!renterRentalActionReady(b) || b.idVerifyStatus!=="verified" || verificationExpired(b)) return false;
+    const approval=(await ctx.db.query("rental_email_deliveries")
+      .withIndex("by_booking_kind",q=>q.eq("bookingId",b._id).eq("kind","verification"))
+      .order("desc").take(1))[0];
+    return !approval;
+  }
   if(row.kind === "cancellation_choice"){
     const offer=b.cancellationDecision?.operatorOfferId?await ctx.db.get(b.cancellationDecision.operatorOfferId):null;
     return !!offer&&offer.emailDeliveryId===row._id&&offer.state==="email_pending"&&account?.blockedAt==null&&offer.recipientEmail===recipient&&Date.now()<(offer.choiceDeadline??0);
@@ -34,11 +46,20 @@ async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliv
     const latest=(await ctx.db.query("rental_email_deliveries").withIndex("by_booking_kind",q=>q.eq("bookingId",b._id).eq("kind","time_change")).order("desc").take(1))[0];
     return latest?._id===row._id && ["confirmed","active"].includes(b.status) && !!row.changeSchedule && (row.changeSchedule===handoverScheduleFingerprint(b) || row.changeSchedule===pickupScheduleFingerprint(b));
   }
+  if(row.kind === "refund_invoice") {
+    if(!row.refundId || !["confirmed","active","returned","cancelled"].includes(b.status) || !(b.stripePaymentIntentId || b.total===0))return false;
+    const refund=await ctx.db.get(row.refundId);
+    if(!refund || refund.bookingId!==b._id || refund.status!=="succeeded" || refund.refundAmbiguity || refund.requestId.startsWith("swap-"))return false;
+    const hasProviderReceipt=!!refund.stripeRefundId || Array.isArray(refund.allocations) && refund.allocations.length>0 && Array.isArray(refund.parts) && refund.parts.length===refund.allocations.length && refund.parts.every((part:any)=>part.status==="succeeded"&&!!part.stripeRefundId);
+    if(!hasProviderReceipt || (!refund.expectedAccountId && refund.expectedRecipientEmail===undefined))return false;
+    if(refund.expectedAccountId && account?._id!==refund.expectedAccountId)return false;
+    if(refund.expectedRecipientEmail!==undefined && recipient.trim().toLowerCase()!==refund.expectedRecipientEmail)return false;
+    return true;
+  }
   if(row.kind === "verification") {
     const latest=(await ctx.db.query("rental_email_deliveries").withIndex("by_booking_kind",q=>q.eq("bookingId",b._id).eq("kind","verification")).order("desc").take(1))[0];
     return latest?._id===row._id && b.idVerifyStatus === row.verificationStatus && ["confirmed","active"].includes(b.status) && (!row.verificationSchedule || row.verificationSchedule===pickupScheduleFingerprint(b));
   }
-  if(row.kind === "payment")return ["confirmed","active"].includes(b.status);
   // A payment receipt remains useful after a paid rental is returned/cancelled.
   return ["confirmed","active","returned","cancelled"].includes(b.status) && !!(b.stripePaymentIntentId || b.total === 0);
 }
@@ -51,10 +72,20 @@ async function flagFailure(ctx:MutationCtx,row:Doc<"rental_email_deliveries">) {
  if(account)await queueOwnerNotification(ctx,{eventKey:`rental-email-failed:${row._id}`,kind:"email_failure",accountId:account._id,bookingId:row.bookingId,
   title:"Booking email needs attention",body:`The ${row.kind} notice could not be sent after ${row.attempts} attempts. Open this rental to follow up with the renter.`});
 }
+async function flagRefundContactChange(ctx:MutationCtx,row:Doc<"rental_email_deliveries">) {
+ if(row.kind!=="refund_invoice"||!row.refundId)return;
+ const refund=await ctx.db.get(row.refundId),booking=await ctx.db.get(row.bookingId);
+ if(!refund||refund.bookingId!==row.bookingId||!booking)return;
+ const account=await accountForRental(ctx,booking),email=account?.email??(booking.accountId?null:booking.guestEmail);
+ const changed=(!refund.expectedAccountId&&refund.expectedRecipientEmail===undefined)||
+   (!!refund.expectedAccountId&&account?._id!==refund.expectedAccountId)||
+   (refund.expectedRecipientEmail!==undefined&&(!email||email.trim().toLowerCase()!==refund.expectedRecipientEmail));
+ if(changed)await queueOwnerNotification(ctx,{eventKey:`refund-email-contact-changed:${refund._id}`,kind:"checkout_failure",bookingId:booking._id,title:"Refund invoice needs review",body:"The original renter contact changed before the updated invoice could be delivered. Check the payment and contact before notifying the renter."});
+}
 async function dispatch(ctx:MutationCtx,id:Id<"rental_email_deliveries">) {
   const row=await ctx.db.get(id),now=Date.now();
   if(!row || !["pending","sending"].includes(row.state) || row.dueAt>now)return false;
-  if(!await current(ctx,row)){await ctx.db.patch(id,{state:"skipped",updatedAt:now,lastError:"Notice no longer applicable"});if(row.kind==="review")await markReviewState(ctx,row.bookingId,{reviewFollowUpStatus:"suppressed",remindedReview:true,reviewFollowUpReason:"notice_no_longer_applicable"});return false;}
+  if(!await current(ctx,row)){await ctx.db.patch(id,{state:"skipped",updatedAt:now,lastError:"Notice no longer applicable"});await flagRefundContactChange(ctx,row);if(row.kind==="review")await markReviewState(ctx,row.bookingId,{reviewFollowUpStatus:"suppressed",remindedReview:true,reviewFollowUpReason:"notice_no_longer_applicable"});return false;}
   if(row.attempts>=MAX_ATTEMPTS){await ctx.db.patch(id,{state:"failed",updatedAt:now,lastError:"Delivery attempts exhausted; requires support"});await flagFailure(ctx,row);if(row.kind==="review")await markReviewState(ctx,row.bookingId,{reviewFollowUpStatus:"failed",reviewFollowUpReason:"email_failed"});return false;}
   const generation=row.generation+1;
   await ctx.db.patch(id,{state:"sending",attempts:row.attempts+1,generation,dueAt:now+LEASE_MS,updatedAt:now});
@@ -83,6 +114,7 @@ export const finish=internalMutation({args:{deliveryId:v.id("rental_email_delive
   if(row.kind==="review")await markReviewState(ctx,row.bookingId,{reviewFollowUpStatus:a.result==="sent"?"sent":a.result==="skipped"?"suppressed":failed?"failed":"sending",
     remindedReview:a.result==="sent"||a.result==="skipped",reviewFollowUpSentAt:a.result==="sent"?now:undefined,
     reviewFollowUpReason:a.result==="retry"?(failed?"email_failed":"email_retry"):a.result==="skipped"?"notice_no_longer_applicable":undefined});
+  if(a.result==="skipped")await flagRefundContactChange(ctx,row);
   if(a.result === "sent" && row.kind !== "review") {
     const booking = await ctx.db.get(row.bookingId), account = await accountForRental(ctx, booking);
     if(account) await queueOwnerNotification(ctx, {eventKey:`rental-email-sent:${row._id}`,kind:"email_sent",accountId:account._id,bookingId:row.bookingId,title:"Booking email sent",body:`The ${row.kind} email was accepted for delivery. This does not confirm that it was read.`});

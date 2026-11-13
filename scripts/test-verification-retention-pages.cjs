@@ -5,6 +5,7 @@ const records=[];
 for(let index=0;index<67;index++){
  const booking=h.put('bookings',{status:index===30?'active':'returned',returnedAt:now-(index===40?89:91)*86400000});
  const row=h.put('verification_archives',{bookingId:booking._id,sessionId:'fixture-'+index,email:'fixture@example.invalid',status:'complete',createdAt:now-100*86400000,attempts:0,dueAt:0,...(index===50?{retentionHoldReason:'Open insurance review'}:{})});
+ if(index===50)h.put('rental_damage_cases',{bookingId:booking._id,status:'open',openedAt:now-10*86400000});
  h.put('verification_documents',{archiveId:row._id,bookingId:booking._id,sessionId:row.sessionId,kind:'identity',storageId:'file-'+index,sha256:'a'.repeat(64),size:5,contentType:'image/jpeg',savedAt:now});records.push(row);
 }
 (async()=>{

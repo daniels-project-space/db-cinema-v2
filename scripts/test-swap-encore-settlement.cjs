@@ -34,7 +34,7 @@ put("reservations", { bookingId: booking._id, listingId: old._id, inventoryUnitI
   swap.quote = Object.fromEntries(Object.entries(swap.quote).reverse());
   swap.quote.nextFunding = Object.fromEntries(Object.entries(swap.quote.nextFunding).reverse());
   swap.oldLine = Object.fromEntries(Object.entries(swap.oldLine).reverse());
-  await state.accept.handler(ctx, { token: "encore-renter", id, expectedDeltaPence: -4500 });
+  await state.accept.handler(ctx, { token: "encore-renter", id, confirmed:true,expectedDeltaPence: -4500 });
   require('./lib/rentalTestHarness.cjs').confirmSyntheticSwapStock(id);
   const refund = await state.prepareRefund.handler(ctx, { id });
   const refundAmountPence = refund.amountPence;
@@ -48,14 +48,14 @@ put("reservations", { bookingId: booking._id, listingId: old._id, inventoryUnitI
   assert.equal(booking.lineItems[0].listingId, old._id, "an inexact Stripe refund receipt cannot commit the downgrade");
   assert.equal(booking.total, 90);
   await markRefundSucceeded(id, refund, refundAmountPence);
+  // The renter accepted the exact discounted plan before the provider refund.
+  // Later membership-rule changes must not reprice that accepted settlement.
   booking.swapBenefitRule.percent = 4;
-  await assert.rejects(state.apply.handler(ctx, { id }), /cannot be safely repriced|funding changed/);
-  assert.equal(booking.lineItems[0].listingId, old._id);
-  booking.swapBenefitRule.percent = 10;
-  const originalOldLine=swap.oldLine;
-  swap.oldLine={...swap.oldLine,title:'Changed original'};
-  await assert.rejects(state.apply.handler(ctx, { id }), /original equipment changed/);
-  swap.oldLine=originalOldLine;
+  assert.equal(swap.settlementPlan.nextDiscountPence, 500);
+  const originalBookingLine=booking.lineItems[0];
+  booking.lineItems[0]={...originalBookingLine,title:'Changed original'};
+  await assert.rejects(state.apply.handler(ctx, { id }), /accepted equipment settlement plan or original rental changed/);
+  booking.lineItems[0]=originalBookingLine;
   assert((await state.apply.handler(ctx, { id })).applied);
   assert.equal(booking.subtotal, 50);
   assert.equal(booking.discount, 5);
@@ -83,7 +83,7 @@ put("reservations", { bookingId: booking._id, listingId: old._id, inventoryUnitI
   const multiArgs = { token: process.env.ADMIN_TOKEN, bookingId: multi._id, lineIndex: 1, newListingId: itemC._id }, multiPreview = await state.preview.handler(ctx, multiArgs);
   assert.equal(multiPreview.quote.deltaPence, -7000);
   const multiId = await state.propose.handler(ctx, { ...multiArgs, requestId: "encore-multiline-settlement", quoteSnapshot: multiPreview.quoteSnapshot, confirmed: true });
-  await state.accept.handler(ctx, { token: "encore-renter", id: multiId, expectedDeltaPence: -7000 });
+  await state.accept.handler(ctx, { token: "encore-renter", id: multiId, confirmed:true,expectedDeltaPence: -7000 });
   require('./lib/rentalTestHarness.cjs').confirmSyntheticSwapStock(multiId);
   assert.equal((await state.prepareRefund.handler(ctx,{id:multiId})).amountPence,7000);
   const multiRefund = await state.prepareRefund.handler(ctx, { id: multiId });

@@ -1,6 +1,28 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { load, db, put, setMock, tables } = require("./lib/rentalTestHarness.cjs");
 process.env.ADMIN_TOKEN = "rental-delivery-test-owner";
+
+const source = file => fs.readFileSync(path.resolve(__dirname, "..", file), "utf8");
+const adminPanelSource = source("src/components/admin/RentalDeliveryQuotePanel.tsx");
+const rentalToolsSource = source("src/components/admin/RentalOrderTools.tsx");
+const renterConversationSource = source("src/components/rentals/RentalConversation.tsx");
+const renterApprovalSource = source("src/components/rentals/RentalDeliveryQuoteApproval.tsx");
+const deliveryActionSource = source("convex/rentalDelivery.ts");
+assert.match(adminPanelSource, /api\.rentalDelivery\.createQuote/, "admins create delivery quotes through the server calculator");
+assert.match(adminPanelSource, /value="one_way"/, "admins can quote one-way delivery");
+assert.match(adminPanelSource, /value="round_trip"/, "admins can quote delivery and collection");
+assert.match(adminPanelSource, /const deliveryAddress = addressDraft\.bookingId === booking\._id/, "the quote address is keyed to the selected rental before effects run");
+assert.match(adminPanelSource, /setAddressDraft\(\{ bookingId: booking\._id, sourceAddress: booking\.address \?\? "", value: booking\.address \?\? "" \}\)/, "switching rentals resets the delivery address instead of leaking the prior renter's address");
+assert.match(adminPanelSource, /!booking\.activeItemSwapId/, "the admin quote control is disabled while an item swap is pending");
+assert.match(deliveryActionSource, /activePriceAdjustmentId\s*\|\|\s*booking\.activeItemSwapId/, "the quote action rejects a pending item swap before calculating delivery");
+assert.match(rentalToolsSource, /<RentalDeliveryQuotePanel\s+token=\{token\}\s+booking=\{b\}\s*\/>/, "the quote control is available in the rental manager panel");
+assert.match(renterConversationSource, /m\.meta\?\.kind === "delivery_quote" && !admin && m\.meta\.quoteId/, "the renter's rental chat renders the quote card");
+assert.match(renterApprovalSource, /checked=\{termsAccepted\}/, "renter must explicitly accept delivery terms");
+assert.match(renterApprovalSource, /accepted:\s*true/, "terms acceptance is sent to the server before payment creation");
+assert.match(renterApprovalSource, /href=\{quote\.paymentUrl\}/, "the renter can continue from the chat using the payment link");
+assert.match(renterApprovalSource, /quote\.amountPence\s*\/\s*100/, "the renter sees the calculated amount");
 
 const messages = [];
 setMock("./lib/rentalAccount", {
@@ -23,6 +45,7 @@ setMock("./lib/rmv2SyncQueue", { queueRmv2Sync: async () => {} });
 const quoteMath = load("shared/rentalDeliveryQuote.ts");
 const memberDelivery = load("convex/lib/memberDelivery.ts");
 const state = load("convex/rentalDeliveryState.ts");
+const delivery = load("convex/rentalDelivery.ts");
 const paymentSources = load("convex/lib/rentalPaymentSources.ts");
 const rmv2Sync = load("convex/rmv2_sync.ts");
 const account = put("accounts", { email: "delivery-test@rental.invalid", blockedAt: null, sessionToken: "renter-session" });
@@ -90,7 +113,29 @@ async function prepareStudio(booking, requestId) {
   });
 }
 
+async function assertPendingSwapBlocksQuoteAction() {
+  const booking = makeBooking();
+  booking.activeItemSwapId = "pending-item-swap";
+  let deliveryPriceCalls = 0;
+  const actionContext = {
+    runMutation: async () => undefined,
+    runQuery: async () => ({ booking, account }),
+    runAction: async () => { deliveryPriceCalls++; throw Error("delivery pricing should not run"); },
+  };
+  await assert.rejects(delivery.createQuote.handler(actionContext, {
+    token: process.env.ADMIN_TOKEN,
+    bookingId: booking._id,
+    requestId: "pending-swap-delivery-quote",
+    deliveryLegs: "one_way",
+    deliveryAddress: "10 Example Street, London, WC2N 5EJ",
+  }), /Only a verified, confirmed rental with pickup selected/);
+  assert.equal(deliveryPriceCalls, 0, "a pending swap is rejected before the delivery calculator is called");
+  await assert.rejects(prepare(booking, "pending-swap-state-quote"), /Only a verified, confirmed rental with pickup selected/);
+  assert.equal((tables.get("rental_delivery_quotes") ?? []).some(row => row.bookingId === booking._id), false, "the authoritative quote state creates no quote while a swap is pending");
+}
+
 (async () => {
+  await assertPendingSwapBlocksQuoteAction();
   const booking = makeBooking();
   const quote = await prepare(booking, "delivery-one-way-001");
   const messagesAfterInitialQuote = messages.length;

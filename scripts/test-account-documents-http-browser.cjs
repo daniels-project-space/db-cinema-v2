@@ -283,6 +283,12 @@ let siteServer;
 
   await until(`!!document.querySelector('[data-testid="retained-documents-page"]')`, "real AccountDocuments mount");
   await until(`(()=>{const img=document.querySelector('[aria-label="Document preview"] img[alt="Proof of identity · front"]');return !!img&&img.complete&&img.naturalWidth===1})()`, "synthetic identity preview image");
+  await client.cmd("Emulation.setDeviceMetricsOverride", { width: 1440, height: 980, deviceScaleFactor: 1, mobile: false });
+  await wait(120);
+  const documentsScreen = await client.cmd("Page.captureScreenshot", { format: "png" });
+  fs.writeFileSync("/tmp/dbc-account-documents-review.png", Buffer.from(documentsScreen.data, "base64"));
+  assert.equal(await client.evaluate(`document.querySelectorAll('button[aria-label="Download Proof of identity · front"]').length`), 1, "Each selected document has one download action, in its detail panel");
+  assert.equal(await client.evaluate(`document.querySelectorAll('button[aria-label="View Proof of identity · front"]').length`), 0, "Selecting a document already opens its preview; there is no duplicate view action");
   assert.equal(await client.evaluate(`document.querySelector('[aria-label="Document preview"] img[alt="Proof of identity · front"]')?.src.startsWith('blob:')`), true, "The real component previews the route response as a private object URL");
   assert(requestLog.some(row => row.method === "OPTIONS"), "Cross-origin browser fetch performs a real preflight");
   assert(requestLog.some(row => row.method === "POST" && JSON.parse(row.body).documentId === savedDocuments[0]._id), "The image preview requested the selected synthetic document ID");
@@ -306,7 +312,7 @@ let siteServer;
   }
 
   await downloadAndVerify("Proof of identity · front", pngBytes, hash(pngBytes));
-  await client.evaluate(`(()=>{const button=[...document.querySelectorAll('button[aria-label]')].find(item=>item.getAttribute('aria-label')==='View Proof of address');if(!button)throw Error('Missing proof of address view control');button.click()})()`);
+  await client.evaluate(`(()=>{const button=[...document.querySelectorAll('button[aria-label]')].find(item=>item.getAttribute('aria-label')==='Select Proof of address');if(!button)throw Error('Missing proof of address selector');button.click()})()`);
   await until(`(()=>{const frame=document.querySelector('[aria-label="Document preview"] iframe[title="Proof of address"]');return !!frame&&frame.src.startsWith('blob:')})()`, "synthetic PDF preview");
   assert(requestLog.some(row => row.method === "POST" && JSON.parse(row.body).documentId === savedDocuments[1]._id), "Selecting proof of address requests the PDF through the same route");
   await downloadAndVerify("Proof of address", pdfBytes, hash(pdfBytes));

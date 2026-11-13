@@ -13,7 +13,7 @@ process.env.ADMIN_TOKEN = "fixture-admin";
 assert.equal(GAFFER_AUTO_RESUME_MS, 4 * 60 * 60 * 1000, "Gaffer returns after four idle hours");
 
 const account = put("accounts", { email: "chat-idle@test.invalid" });
-const booking = put("bookings", { accountId: account._id, guestEmail: account.email, status: "confirmed", paidConfirmedAt:now, verificationProvider:"didit", idVerifyStatus:"verified", idVerificationSource:"didit", idVerifiedAt:now, verificationChecks:{identity:"approved",selfie:"approved",address:"approved"} });
+const booking = put("bookings", { accountId: account._id, guestEmail: account.email, status: "confirmed", paidConfirmedAt:now, verificationProvider:"didit", idVerifyStatus:"verified", idVerificationSource:"didit", idVerifiedAt:now, verificationChecks:{identity:"approved",selfie:"approved",address:"approved"}, lineItems:[{title:"Camera kit",qty:1,start:now,end:now+86400000}] });
 put("sessions", { token: "renter", accountId: account._id, expiresAt: now + 24 * 60 * 60 * 1000 });
 
 function latestTimer() {
@@ -110,7 +110,7 @@ async function offerHumanForLatestRenter(bookingId) {
 
     await rentalRequests.submit.handler(ctx, {
       token: "renter", bookingId: booking._id, requestId: "rental-change-request-0001", kind: "items",
-      detail: "Please change the kit.",
+      detail: "Please change the kit.", itemLineIndexes: [0],
     });
     const requestTimer = latestTimer()[2];
     assert.equal(thread.escalated, true, "rental change requests hand off to the team");

@@ -26,7 +26,7 @@ const ctx={
 };
 
 (async()=>{
-  const args={token:'fixture',id:swap._id,expectedDeltaPence:100};
+  const args={token:'fixture',id:swap._id,confirmed:true,expectedDeltaPence:100};
   await assert.rejects(payments.accept.handler(ctx,args),/reconciled/,'an uncertain prepared stock claim blocks link creation');
   assert.equal(creates,0,'Stripe is not called until Rental Manager confirms the reservation');
 

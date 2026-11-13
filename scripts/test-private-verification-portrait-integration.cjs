@@ -5,6 +5,7 @@ const { seedVerificationFiles } = require("./lib/verificationFiles.cjs");
 const { CURRENT_PRIVACY_NOTICE_VERSION } = load("shared/legalVersioning.ts");
 const portrait = load("convex/privateVerificationPortrait.ts");
 const archiveApi = load("convex/verificationArchive.ts");
+const accounts = load("convex/accounts.ts");
 process.env.ADMIN_TOKEN = "fixture-admin";
 process.env.PRIVATE_VERIFICATION_PHOTO_ENABLED = "true";
 const now = Date.now(), account = put("accounts", { email: "portrait@example.invalid", name: "Portrait Customer", address: "1 Example Road", createdAt: now - 2 * 86400000, privateVerificationPortraitNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION, privateVerificationPortraitNotifiedAt: now - 86400000, privateVerificationPortraitConsentVersion: CURRENT_PRIVACY_NOTICE_VERSION, privateVerificationPortraitConsentedAt: now - 86400000 });
@@ -18,6 +19,10 @@ const ctx = { db }, args = { token: "fixture-admin", accountId: account._id, ref
 (async () => {
  assert.equal(await portrait.selected.handler(ctx, { ...args, token: "wrong" }), null);
  assert.deepEqual(await portrait.selected.handler(ctx, args), { documentId: selfie._id });
+ put("sessions", { token: "portrait-owner", accountId: account._id, createdAt: now, expiresAt: now + 60000 });
+ const renterProfile = await accounts.me.handler({ db, storage: { getUrl: async () => "https://storage.example.invalid/profile" } }, { token: "portrait-owner" });
+ assert.equal(renterProfile.avatarUrl, null, "A consented Didit selfie selected for private admin review never becomes the renter's profile photo");
+ assert(!Object.keys(renterProfile).some(key => key.startsWith("privateVerificationPortrait")), "The renter profile API exposes no private verification portrait state or document data");
  await assert.rejects(archiveApi.downloadAccess.handler(ctx, { token: "wrong", documentId: selfie._id }), /unauthorized/);
  assert.equal((await archiveApi.downloadAccess.handler(ctx, { token: "fixture-admin", documentId: selfie._id })).storageId, storage._id);
  storage.sha256 = "0".repeat(64); assert.equal(await portrait.selected.handler(ctx, args), null); storage.sha256 = sha256;

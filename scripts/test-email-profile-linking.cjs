@@ -18,11 +18,15 @@ process.env.INBOUND_EMAIL_SECRET = "fixture-inbound-secret";
 const { gafferReplyAddress, ingest, resolveReplyKey } = load("convex/emailInbox.ts");
 
 assert.equal(
-  gafferReplyAddress("abcdef0123456789abcdef01", " DBcinemarentals.com "),
-  "gaffer+abcdef0123456789abcdef01@dbcinemarentals.com",
+  gafferReplyAddress("abcdef0123456789abcdef01", " Support@Resend-Inbox.example.invalid "),
+  "support@resend-inbox.example.invalid",
+  "new voice follow-ups use the explicitly configured inbound receiver",
 );
 assert.equal(gafferReplyAddress("abcdef0123456789abcdef01", ""), null, "never fall back to the owner inbox when Gaffer routing is unconfigured");
-assert.equal(gafferReplyAddress("bad-key", "dbcinemarentals.com"), null);
+assert.equal(gafferReplyAddress("bad-key", "support@resend-inbox.example.invalid"), null);
+process.env.INBOUND_EMAIL_DOMAIN = "stale.example.invalid";
+delete process.env.INBOUND_REPLY_ADDRESS;
+assert.equal(gafferReplyAddress("abcdef0123456789abcdef01"), null, "a legacy domain cannot authorize a new Gaffer reply route");
 
 function input(from, providerId, extra = {}) {
   return {

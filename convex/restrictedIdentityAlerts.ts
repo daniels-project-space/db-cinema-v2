@@ -47,10 +47,32 @@ export async function queueRestrictedIdentityCheck(ctx: any, bookingId: any, ses
 
 export async function queueRestrictedAccountRecheck(ctx:any, accountId:any, blockedAt:number) {
   const existing=await ctx.db.query("restricted_identity_recheck_jobs").withIndex("by_account_block",(q:any)=>q.eq("accountId",accountId).eq("blockedAt",blockedAt)).unique();
-  if(existing)return;
   const now=Date.now();
-  await ctx.db.insert("restricted_identity_recheck_jobs",{accountId,blockedAt,state:"pending",generation:1,attempts:0,stage:0,dueAt:now,createdAt:now,updatedAt:now,expiresAt:now+retentionMs});
+  if(existing?.state==="pending")return;
+  if(existing){
+    if(existing.state==="attention"){
+      const eventKey=`restricted-account-recheck-failed:${existing._id}:${existing.generation}`;
+      const notification=await ctx.db.query("admin_notifications").withIndex("by_event",(q:any)=>q.eq("eventKey",eventKey)).first();
+      if(notification&&!notification.read)await ctx.db.patch(notification._id,{read:true});
+    }
+    await ctx.db.patch(existing._id,{state:"pending",generation:existing.generation+1,attempts:0,stage:0,cursor:undefined,dueAt:now,updatedAt:now,expiresAt:now+retentionMs});
+  }else await ctx.db.insert("restricted_identity_recheck_jobs",{accountId,blockedAt,state:"pending",generation:1,attempts:0,stage:0,dueAt:now,createdAt:now,updatedAt:now,expiresAt:now+retentionMs});
   await ctx.scheduler.runAfter(0,internal.restrictedIdentityAlerts.dispatchDue,{});
+}
+
+export async function cancelRestrictedAccountRecheck(ctx:any, accountId:any, blockedAt:number) {
+  const job=await ctx.db.query("restricted_identity_recheck_jobs").withIndex("by_account_block",(q:any)=>q.eq("accountId",accountId).eq("blockedAt",blockedAt)).unique();
+  if(!job||job.state==="complete")return false;
+  if(job.state==="attention"){
+    const eventKey=`restricted-account-recheck-failed:${job._id}:${job.generation}`;
+    const notification=await ctx.db.query("admin_notifications").withIndex("by_event",(q:any)=>q.eq("eventKey",eventKey)).first();
+    if(notification&&!notification.read)await ctx.db.patch(notification._id,{read:true});
+  }
+  const now=Date.now();
+  // Incrementing the generation makes any already scheduled page stale. The
+  // completed row remains available for audit until the normal expiry sweep.
+  await ctx.db.patch(job._id,{state:"complete",generation:job.generation+1,attempts:0,cursor:undefined,dueAt:now,updatedAt:now,expiresAt:now+retentionMs});
+  return true;
 }
 
 export const dueRechecks=internalQuery({args:{},handler:async ctx=>ctx.db.query("restricted_identity_recheck_jobs").withIndex("by_state_due",q=>q.eq("state","pending").lte("dueAt",Date.now())).take(10)});
@@ -58,7 +80,7 @@ export const processRecheckPage=internalMutation({args:{id:v.id("restricted_iden
   const job=await ctx.db.get(args.id);
   if(!job||job.state!=="pending"||job.generation!==args.generation||job.attempts!==args.attempt||job.dueAt>Date.now())return;
   const account=await ctx.db.get(job.accountId);
-  if(!account||account.blockedAt!==job.blockedAt){const now=Date.now();await ctx.db.patch(job._id,{state:"complete",updatedAt:now,expiresAt:now+retentionMs});return;}
+  if(!account||account.blockedAt!==job.blockedAt||account.restrictionClass!=="identity_safety_blacklist"&&account.restrictionClass!=null){const now=Date.now();await ctx.db.patch(job._id,{state:"complete",updatedAt:now,expiresAt:now+retentionMs});return;}
   const personKey=account.renterPersonKey;if(!personKey||!/^[a-f0-9]{64}$/.test(personKey))throw Error("Restricted identity signal unavailable");
   const statuses=["pending_verification","confirmed","active"] as const,status=statuses[job.stage];
   if(!status)throw Error("Invalid identity recheck stage");

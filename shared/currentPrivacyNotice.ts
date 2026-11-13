@@ -13,7 +13,7 @@ export const CURRENT_PRIVACY_NOTICE: LegalDoc = {
     };
     if (section.h === "5. Retention") return {
       ...section,
-      p: "We keep verification documents while any linked rental is active. After the last linked rental is returned or cancelled, we normally delete the copies after 90 days. If a related damage or insurance case is open, we keep them until it closes, then delete them after 90 days. A documented legal hold, a separate retention hold, or dates that need checking can pause deletion. Other booking records are kept only as long as needed for legal, accounting and operational purposes.",
+      p: "We keep verification documents while any linked rental is active. After the last linked rental is returned or cancelled, we normally delete the copies after 90 days. If a related damage or insurance case is open, we keep them until it closes, then delete them after 90 days. When we place an account on the identity-safety blacklist after a manual review, we retain its existing verification archive indefinitely for repeat-identity checks. The archive is restricted to administrators; a possible match only raises an alert for human review and never blocks a new renter automatically. This retention marker remains if access is later restored. You may still exercise your data-protection rights, and we assess requests against the reason for keeping the archive and any legal obligations. A documented case or legal hold can pause deletion of affected documents. Dates that need checking can also pause deletion until reviewed. Other booking records are kept only as long as needed for legal, accounting and operational purposes.",
     };
     return { ...section };
   }),

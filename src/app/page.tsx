@@ -24,6 +24,7 @@ import { DeliveryProtectionTile } from "@/components/DeliveryProtectionTile";
 import { CONTACT_EMAIL, SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib/site";
 import { unstable_cache } from "next/cache";
 import { HomeClosingAperture } from "@/components/HomeClosingAperture";
+import { legalVersionForPolicy } from "../../shared/legalVersioning";
 
 const homeHyggloReviews = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.listVerifiedHyggloHighlights, { limit: 100 }), ["public-home-reviews-v4", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 300 });
 const homeBest = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.bestSellers, { limit: 8 }), ["public-home-best-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
@@ -70,9 +71,14 @@ export default async function Home() {
   let featured: GearListing[] = [];
   let categories: { name: string; count: number }[] = [];
   let catalogVersion: string | null = null;
+  let cancellationPolicyVersion = "2026-11-v18";
   try {
     const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
-    const revision = await c.query(api.catalog.publicRevision, {});
+    const [revision, policy] = await Promise.all([
+      c.query(api.catalog.publicRevision, {}),
+      c.query(api.settings.get, {}).catch(() => null),
+    ]);
+    if (policy) cancellationPolicyVersion = legalVersionForPolicy(policy);
     catalogVersion = revision;
     const [best, cats, sourceReviews] = await Promise.all([homeBest(revision).catch(() => []), homeCategories(revision).catch(() => []), homeHyggloReviews(revision).catch(() => [])]);
     hyggloReviews = (sourceReviews as VerifiedHyggloHighlight[]) ?? [];
@@ -114,9 +120,9 @@ export default async function Home() {
       <SiteHeader />
 
       {/* ───────────────── hero — the viewfinder ───────────────── */}
-      <section className="section-window relative isolate min-h-[clamp(24rem,68svh,38rem)] overflow-hidden sm:min-h-[54svh] lg:min-h-[calc(100vh-93px)]">
+      <section data-testid="home-hero" className="section-window relative isolate min-h-[clamp(24rem,68svh,38rem)] overflow-hidden sm:min-h-[54svh] lg:min-h-[calc(100vh-93px)]">
         {/* cinematic film (Veo 3.1) + timed gear callouts + catchphrase/CTA */}
-        <HeroCinematic rating={rating} categories={categories} />
+        <HeroCinematic categories={categories} />
         <ViewfinderHUD />
 
       <div className="absolute inset-x-0 bottom-0 z-10 hidden pb-2 sm:block">
@@ -141,7 +147,7 @@ export default async function Home() {
             <Reveal key={tile.title} delay={i * 70} className="h-full">
               {tile.title === "Pro kit, meticulously maintained" && hyggloReviews[0] ? (
                 <HyggloTrustTile reviews={hyggloReviews} />
-              ) : tile.title === "Delivered across London" ? <DeliveryProtectionTile /> : <article className="trust-card group relative isolate h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] max-[359px]:h-[140px] min-[420px]:h-[188px] sm:h-[304px]">
+              ) : tile.title === "Delivered across London" ? <DeliveryProtectionTile version={cancellationPolicyVersion} /> : <article className="trust-card group relative isolate h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] max-[359px]:h-[140px] min-[420px]:h-[188px] sm:h-[304px]">
                 <Image
                   src={tile.image}
                   alt={tile.alt}

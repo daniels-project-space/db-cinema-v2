@@ -33,7 +33,7 @@ import { ShootLists } from "@/components/plans/ShootLists";
 import { AvatarUpload } from "@/components/account/AvatarUpload";
 import { ManagementShell } from "@/components/management/ManagementShell";
 import { InvoiceLibrary } from "@/components/management/InvoiceLibrary";
-import { accountAuthErrorMessage } from "../../../shared/accountAuth";
+import { ACCOUNT_AUTH_MESSAGES, accountAuthErrorMessage } from "../../../shared/accountAuth";
 import { PrivatePortraitPreference } from "@/components/account/PrivatePortraitPreference";
 import { legalVersionForPolicy, CURRENT_PRIVACY_NOTICE_VERSION } from "../../../shared/legalVersioning";
 
@@ -66,8 +66,27 @@ function AuthForm() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [termsAndPrivacyAcknowledged, setTermsAndPrivacyAcknowledged] = useState(false);
+  const [acceptedTermsVersion, setAcceptedTermsVersion] = useState<string | null>(null);
+  const [termsNeedReacknowledgement, setTermsNeedReacknowledgement] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const termsConsentCurrent = mode !== "signup" || (!!termsVersion && termsAndPrivacyAcknowledged && acceptedTermsVersion === termsVersion);
+
+  function requireCurrentTermsAcknowledgement() {
+    setTermsAndPrivacyAcknowledged(false);
+    setAcceptedTermsVersion(null);
+    setTermsNeedReacknowledgement(true);
+    setErr(ACCOUNT_AUTH_MESSAGES.SIGNUP_TERMS_UPDATED);
+  }
+
+  useEffect(() => {
+    if (mode === "signup" && acceptedTermsVersion && termsVersion && acceptedTermsVersion !== termsVersion) {
+      setTermsAndPrivacyAcknowledged(false);
+      setAcceptedTermsVersion(null);
+      setTermsNeedReacknowledgement(true);
+      setErr(ACCOUNT_AUTH_MESSAGES.SIGNUP_TERMS_UPDATED);
+    }
+  }, [mode, acceptedTermsVersion, termsVersion]);
 
   function reviewReturn() {
     const params = new URLSearchParams(window.location.search);
@@ -88,8 +107,9 @@ function AuthForm() {
     setErr(null);
     try {
       if (mode === "signup") {
-        if (!acceptedLegalTerms || !termsVersion) {
-          setErr(!termsVersion ? "The current terms are still loading. Please try again." : "Please agree to the Terms and Conditions and read the Privacy Notice.");
+        if (!acceptedLegalTerms || !termsVersion || acceptedTermsVersion !== termsVersion) {
+          if (acceptedTermsVersion && termsVersion && acceptedTermsVersion !== termsVersion) requireCurrentTermsAcknowledgement();
+          else setErr(!termsVersion ? "The current terms are still loading. Please try again." : "Please agree to the Terms and Conditions and read the Privacy Notice.");
           return;
         }
         const target = reviewReturn();
@@ -98,12 +118,19 @@ function AuthForm() {
       }
       else await account.signIn(submittedEmail, submittedPassword);
     } catch (e: unknown) {
+      const errorCode = e && typeof e === "object" && "data" in e ? (e as any).data?.code : undefined;
+      if (mode === "signup" && errorCode === "SIGNUP_TERMS_UPDATED") requireCurrentTermsAcknowledgement();
       setErr(accountAuthErrorMessage(e, mode === "signup"
         ? "We couldn't create your account right now. Please try again."
         : "We couldn't sign you in right now. Please try again or request an email sign-in link."));
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleGoogleError(message: string, code?: string) {
+    setErr(message);
+    if (mode === "signup" && code === "SIGNUP_TERMS_UPDATED") requireCurrentTermsAcknowledgement();
   }
 
   return (
@@ -118,13 +145,22 @@ function AuthForm() {
       <p className="mt-2 text-sm text-white/40">
         {mode === "signup" ? "Already have one? " : "New here? "}
         <button
-          onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setTermsAndPrivacyAcknowledged(false); setErr(null); setLinkSent(false); }}
+          onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setTermsAndPrivacyAcknowledged(false); setAcceptedTermsVersion(null); setTermsNeedReacknowledgement(false); setErr(null); setLinkSent(false); }}
           className="text-accent-400 underline-offset-2 hover:underline"
         >
           {mode === "signup" ? "Sign in" : "Create one"}
         </button>
       </p>
-      {mode === "signup" && <p className="mt-4 rounded-xl border border-accent-400/15 bg-accent-400/5 px-4 py-3 text-xs leading-relaxed text-white/65">Reuse a passed Didit check for 90 days while your details remain valid. We keep files during rentals and for 90 days after closure, or longer if a case is open.</p>}
+      {mode === "signup" && <details data-testid="account-verification-retention" className="group mt-4 rounded-2xl border border-accent-400/15 bg-white/[0.025] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-white/75 [&::-webkit-details-marker]:hidden">
+          <span>Verification &amp; file retention</span>
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-accent-300/20 bg-accent-300/5 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-accent-200/80">90 days <span aria-hidden="true" className="transition-transform group-open:rotate-180">⌄</span></span>
+        </summary>
+        <div className="mt-2 space-y-2 border-t border-white/10 pt-2 text-xs leading-relaxed text-white/60">
+          <p>Didit approval lasts 90 days if your details stay current. Files stay during rentals and for 90 days after rental closure.</p>
+          <p>Open cases extend retention to 90 days after closure. Restrictions do not extend it.</p>
+        </div>
+      </details>}
       <form className="mt-6 flex flex-col gap-3" onSubmit={e => { e.preventDefault(); if (!busy) void go(new FormData(e.currentTarget)); }}>
         {mode === "signup" && (
           <input
@@ -153,28 +189,31 @@ function AuthForm() {
         <input
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password (6+ chars)"
+          placeholder={mode === "signup" ? "Password (8+ chars)" : "Password"}
           type="password"
           aria-label="Password"
           name="password"
+          minLength={mode === "signup" ? 8 : undefined}
+          maxLength={256}
           autoComplete={mode === "signup" ? "new-password" : "current-password"}
           required
           className="input"
         />
         {mode === "signup" && <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.025] px-3 py-3 text-xs leading-5 text-white/65">
-          <input name="termsAndPrivacyAcknowledged" type="checkbox" checked={termsAndPrivacyAcknowledged} onChange={e => setTermsAndPrivacyAcknowledged(e.target.checked)} disabled={!termsVersion} required className="mt-1 h-4 w-4 shrink-0 accent-[#c49a6c]" />
+          <input name="termsAndPrivacyAcknowledged" type="checkbox" checked={termsAndPrivacyAcknowledged && acceptedTermsVersion === termsVersion} onChange={e => { const checked=e.target.checked; setTermsAndPrivacyAcknowledged(checked); setAcceptedTermsVersion(checked ? termsVersion : null); if (checked) { setTermsNeedReacknowledgement(false); setErr(null); } }} disabled={!termsVersion} required className="mt-1 h-4 w-4 shrink-0 accent-[#c49a6c]" />
           <span>I agree to the current <Link href={termsVersion ? `/legal/terms?version=${encodeURIComponent(termsVersion)}` : "/legal/terms"} target="_blank" rel="noreferrer" className="text-accent-300 underline underline-offset-2">Terms and Conditions</Link> and acknowledge the <Link href="/legal/privacy" target="_blank" rel="noreferrer" className="text-accent-300 underline underline-offset-2">Privacy Notice</Link>.</span>
         </label>}
+        {mode === "signup" && termsNeedReacknowledgement && <p role="status" data-testid="signup-terms-reacknowledgement" className="rounded-lg border border-amber-300/20 bg-amber-300/5 px-3 py-2 text-xs text-amber-100/80">Review the updated Terms and Privacy Notice, then tick the box again.</p>}
         {err && (
           <div role="alert" className="rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">
             {err}
           </div>
         )}
-        <button type="submit" disabled={busy || (mode === "signup" && (!termsAndPrivacyAcknowledged || !termsVersion))} className="btn-primary py-3">
+        <button type="submit" disabled={busy || (mode === "signup" && !termsConsentCurrent)} className="btn-primary py-3">
           {busy ? "…" : mode === "signup" ? "Create account" : "Sign in"}
         </button>
         {mode === "signup" && linkSent && <p role="status" className="text-xs text-accent-300">Check your email to confirm account creation and activate your password. Private rentals stay locked until then.</p>}
-        <GoogleSignIn onError={setErr} requireTermsAcceptance={mode === "signup"} termsAcceptance={mode === "signup" && termsAndPrivacyAcknowledged && termsVersion ? { termsVersion, privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION } : null} />
+        <GoogleSignIn onError={handleGoogleError} requireTermsAcceptance={mode === "signup"} termsAcceptance={mode === "signup" && termsConsentCurrent ? { termsVersion: termsVersion!, privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION } : null} />
         {mode === "signin" && <>
           <Link href="/account/setup?purpose=reset" className="text-sm text-accent-300 hover:underline">Forgot password?</Link>
           <div className="mt-2 border-t border-white/10 pt-4 text-xs text-white/50">Booked without a password? Sign in with your rental email.</div>
@@ -542,14 +581,16 @@ function AccountSecurity() {
           type="password"
           value={newp}
           onChange={(e) => setNewp(e.target.value)}
-          placeholder="New password (6+ chars)"
+          placeholder="New password (8+ chars)"
+          minLength={8}
+          maxLength={256}
           className="input"
         />
         {msg && <div className="text-xs text-emerald-300">{msg}</div>}
         {err && <div className="text-xs text-red-300">{err}</div>}
         <button
           onClick={changePw}
-          disabled={!oldp || newp.length < 6}
+          disabled={!oldp || newp.length < 8 || newp.length > 256}
           className="btn-primary w-fit px-6 py-2.5 text-sm"
         >
           Change password

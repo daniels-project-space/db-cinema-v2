@@ -13,7 +13,7 @@ const checkout = load("convex/checkout.ts");
 const ctx = {
   runAction: async (ref, args) => { calls.push({ ref, args }); return { bookingId: "bookings-fixture", paid: true, swapStatus: "applied" }; },
   runQuery: async (ref, args) => { calls.push({ ref, args }); return { _id: "rental_refunds-fixture", bookingId: "bookings-fixture", requestId: "swap-rental_item_swaps-fixture", createdAt: 100, allocations: [{ paymentIntentId: "pi_fixture", amountPence: 500 }], refundReceipts: [{ paymentIntentId: "pi_fixture", amountPence: 500, attemptedAt: 100, status: "pending" }] }; },
-  runMutation: async (ref, args) => { calls.push({ ref, args }); return ref === "rentalOperations.recordRefundPart" ? { status: refundPartStatus } : undefined; },
+  runMutation: async (ref, args) => { calls.push({ ref, args }); return ref === "rentalOperations.recordRefundPart" ? { status: refundPartStatus } : ref === "rentalSwapState.asyncPaymentFailed" ? { recorded: true } : undefined; },
   scheduler: { runAfter: async (delay, ref, args) => { calls.push({ ref, args, delay }); } },
 };
 const deliver = (type, session, signature = "fixture-signature") => checkout.stripeWebhook.handler(ctx, { body: JSON.stringify({ type, data: { object: session } }), sig: signature });
@@ -29,7 +29,10 @@ const deliver = (type, session, signature = "fixture-signature") => checkout.str
   await deliver("checkout.session.completed", { ...currentSession, payment_status: "unpaid" });
   assert.equal(calls.length, 0, "an unpaid event cannot apply the equipment change");
   await deliver("checkout.session.async_payment_failed", { ...currentSession, payment_status: "unpaid" });
-  assert.deepEqual(calls.pop(), { ref: "rentalSwapState.asyncPaymentFailed", args: { id: "rental_item_swaps-fixture", sessionId: "cs_fixture", amountPence: 1200, currency: "gbp" } });
+  assert.deepEqual(calls.splice(-2), [
+    { ref: "rentalSwapState.asyncPaymentFailed", args: { id: "rental_item_swaps-fixture", sessionId: "cs_fixture", amountPence: 1200, currency: "gbp" } },
+    { ref: "rentalSwapPayments.reconcileAsyncPaymentFailure", args: { id: "rental_item_swaps-fixture" } },
+  ], "an asynchronous payment failure triggers a server-side Stripe recheck before stock can be released");
   const result = await checkout.finalize.handler(ctx, { sessionId: "cs_fixture" });
   assert.equal(result.swapStatus, "applied");
   assert.deepEqual(calls.pop(), { ref: "rentalSwapPayments.finalize", args: { sessionId: "cs_fixture" } });

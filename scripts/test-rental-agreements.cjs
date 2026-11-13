@@ -19,7 +19,14 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
 (async()=>{
  assert.match(CURRENT_PRIVACY_NOTICE.sections.find(s=>s.h==='5. Retention').p,/delete the copies after 90 days/i);
  assert.match(CURRENT_PRIVACY_NOTICE.sections.find(s=>s.h==='5. Retention').p,/until it closes, then delete them after 90 days/i);
- assert.match(CURRENT_PRIVACY_NOTICE.sections.find(s=>s.h==='5. Retention').p,/dates that need checking can pause deletion/i);
+ assert.match(CURRENT_PRIVACY_NOTICE.sections.find(s=>s.h==='5. Retention').p,/dates that need checking can (?:also )?pause deletion/i);
+ const archivedPrivacyV2=LEGAL_ARCHIVE['2026-11-10-v2']?.privacy;
+ assert(archivedPrivacyV2,'The prior independent privacy notice version remains addressable');
+ assert.equal(require('node:crypto').createHash('sha256').update(JSON.stringify(archivedPrivacyV2)).digest('hex'),'9e06e25751f1dbb8387edee403d824b965cf645b0a7e71890ffc0d45c3f2b9d4','Privacy v2 remains an immutable exact snapshot');
+ assert.equal(archivedPrivacyV2.sections.find(s=>s.h==='5. Retention').p,'We keep verification documents while any linked rental is active. After the last linked rental is returned or cancelled, we normally delete the copies after 90 days. If a related damage or insurance case is open, we keep them until it closes, then delete them after 90 days. A documented legal hold, a separate retention hold, or dates that need checking can pause deletion. Other booking records are kept only as long as needed for legal, accounting and operational purposes.','Privacy v2 preserves the exact HEAD-era retention wording');
+ const privacyRoute=fs.readFileSync('src/app/legal/[slug]/page.tsx','utf8');
+ assert.match(privacyRoute,/LEGAL_ARCHIVE\[version\]\?\.\[slug\]/,'The legal route resolves archived privacy versions through the archive map');
+ assert.match(privacyRoute,/isPrivacyPage \? `Privacy notice /,'Archived privacy pages identify their own privacy notice version');
  assert.equal(load('shared/currentPrivacyNotice.ts').CURRENT_PRIVACY_NOTICE_VERSION,CURRENT_PRIVACY_NOTICE_VERSION);
  assert(AGREEMENTS.some(d=>d.kind==='privacy'&&d.version===CURRENT_PRIVACY_NOTICE_VERSION),'The current privacy notice is linked and versioned in the new renter agreement');
  assert(!AGREEMENTS.some(d=>d.kind==='data-processing'),'New checkouts no longer show the stale data-processing copy beside the accurate privacy notice');
@@ -87,7 +94,7 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  await db.patch(b._id,{depositHoldStatus:'held',depositHoldExpiresAt:Date.now()-1});await assert.rejects(release(),/card hold/);
  await db.patch(b._id,{depositHoldExpiresAt:Date.now()+600000,idVerificationSource:'manual'});await assert.rejects(release(),/Didit verification must be approved/);
  await db.patch(b._id,{idVerifyStatus:'requires_input'});await assert.rejects(release(),/verification must/);
- await db.patch(b._id,{idVerifyStatus:'verified'});
+ await db.patch(b._id,{idVerifyStatus:'verified',idVerificationSource:'didit'});
  const acct=put('accounts',{email:args.customerEmail});put('sessions',{token:'agreement-renter',accountId:acct._id,expiresAt:Date.now()+600000});
  assert.equal(await bookings.invoiceData.handler(ctx,{bookingId:b._id,token:'foreign'}),null);
  assert.equal((await bookings.invoiceData.handler(ctx,{bookingId:b._id,token:process.env.ADMIN_TOKEN})).number,`DBC-${b._id.slice(-8).toUpperCase()}`,'Administrators can open the linked receipt');

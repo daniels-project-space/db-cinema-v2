@@ -42,6 +42,14 @@ import {
   handoverRequestKey,
   rescheduleRequestKey,
 } from "./lib/rentalRequestExecution";
+import { RENTAL_REQUEST_HISTORY_LIMIT, summarizeRentalRequests } from "./lib/rentalRequestStatus";
+
+async function assertNoOpenRentalRequests(ctx: any, bookingId: any, ignoreId?: any) {
+  const rows = await ctx.db.query("rental_change_requests").withIndex("by_booking", (q: any) => q.eq("bookingId", bookingId)).order("desc").take(RENTAL_REQUEST_HISTORY_LIMIT + 1);
+  const summary = summarizeRentalRequests(rows, ignoreId);
+  if (!summary.ready) throw Error("This rental has a long request history. Review earlier requests before changing it.");
+  if (summary.any) throw Error("A renter request is still awaiting a decision or completion. Review it before changing this rental.");
+}
 
 /** Minimal server-only address lookup: a linked rental never falls back to a reused mailbox. */
 export const changeRecipient = internalQuery({
@@ -341,6 +349,7 @@ export const changePickupTime = mutation({
     const fingerprint=JSON.stringify([args.lineIndex,args.pickupTime,args.expectedSnapshot,args.reason.trim()]);
     const prior=await ctx.db.query("rental_time_changes").withIndex("by_request",q=>q.eq("bookingId",args.bookingId).eq("requestId",args.requestId)).unique();
     if(prior){if(prior.fingerprint!==fingerprint)throw Error("This request was already used for a different change.");return {ok:true,detail:prior.detail};}
+    await assertNoOpenRentalRequests(ctx,args.bookingId);
     const booking=await ctx.db.get(args.bookingId);
     if(!booking||!booking.lineItems.length)throw Error("Rental not found.");
     const oldLines=bookingStockLines(booking),oldLine=oldLines[args.lineIndex];
@@ -391,6 +400,7 @@ export const changeHandoverTimes = mutation({
     }
     const prior=await ctx.db.query("rental_time_changes").withIndex("by_request",q=>q.eq("bookingId",args.bookingId).eq("requestId",args.requestId)).unique();
     if(prior){if(prior.fingerprint!==fingerprint)throw Error("This request was already used for a different change.");return {ok:true,detail:prior.detail};}
+    await assertNoOpenRentalRequests(ctx,args.bookingId,approved?approved._id:undefined);
     const oldLines=bookingStockLines(booking);
     if(lineIndexes.every(index=>oldLines[index]&&(args.kind==="pickup"?oldLines[index].pickupTime:oldLines[index].returnTime)===args.time))throw Error("Choose a different time for at least one selected item.");
     const start=Math.min(...oldLines.map(line=>line.start));
@@ -470,6 +480,7 @@ export const reschedule = mutation({
       operationKey,
     );
     if (request?.execution?.status === "applied") return { ok: true };
+    await assertNoOpenRentalRequests(ctx, bookingId, request?._id);
     if (request?.requestedStart !== undefined) {
       if (start !== request.requestedStart || end !== undefined || !request.requestedSnapshot || expectedSnapshot !== request.requestedSnapshot || request.requestedEnd === undefined)
         throw Error("Use the exact dates the renter requested. Ask them to send a new request to change them.");
@@ -689,14 +700,20 @@ export const recordRefund = internalMutation({
         sender: "system",
         text: `Rental refund £${(r.amountPence / 100).toFixed(2)}: ${status === "succeeded" ? "confirmed by the payment provider" : status === "failed" ? "failed; the team is checking it" : "processing with the payment provider"}. ${r.reason}`,
       });
-    await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
-      bookingId: b._id,
-      ...(r.expectedAccountId ? { expectedAccountId:r.expectedAccountId } : {}),
-      ...(r.expectedRecipientEmail !== undefined ? { expectedRecipientEmail:r.expectedRecipientEmail } : {}),
-      ...(r.expectedAccountId || r.expectedRecipientEmail !== undefined ? { refundId:r._id } : {}),
-      kind: "rental refund",
-      detail: `£${(r.amountPence / 100).toFixed(2)} · ${status}. ${r.reason}`,
-    });
+    const bound=!!r.expectedAccountId||r.expectedRecipientEmail!==undefined;
+    const equipmentChange=typeof r.requestId==="string"&&r.requestId.startsWith("swap-");
+    if(status==="succeeded"&&bound&&!equipmentChange&&!r.refundAmbiguity){
+      await queueRentalEmail(ctx,b._id,"refund_invoice",{refundId:r._id});
+    }else if(status!=="succeeded"||!bound){
+      await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
+        bookingId: b._id,
+        ...(r.expectedAccountId ? { expectedAccountId:r.expectedAccountId } : {}),
+        ...(r.expectedRecipientEmail !== undefined ? { expectedRecipientEmail:r.expectedRecipientEmail } : {}),
+        ...(bound ? { refundId:r._id } : {}),
+        kind: "rental refund",
+        detail: `£${(r.amountPence / 100).toFixed(2)} · ${status}. ${r.reason}`,
+      });
+    }
   },
 });
 
@@ -883,14 +900,19 @@ export const recordRefundPart = internalMutation({
             sender: "system",
             text: `Rental refund £${(r.amountPence / 100).toFixed(2)}: ${aggregate}. ${r.reason}`,
           });
-        await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
-          bookingId: b._id,
-          ...(r.expectedAccountId ? { expectedAccountId: r.expectedAccountId } : {}),
-          ...(r.expectedRecipientEmail !== undefined ? { expectedRecipientEmail: r.expectedRecipientEmail } : {}),
-          ...(r.expectedAccountId || r.expectedRecipientEmail !== undefined ? { refundId: r._id } : {}),
-          kind: "rental refund",
-          detail: `£${(r.amountPence / 100).toFixed(2)} · ${aggregate}. ${r.reason}`,
-        });
+        const bound=!!r.expectedAccountId||r.expectedRecipientEmail!==undefined;
+        if(aggregate==="succeeded"&&bound){
+          await queueRentalEmail(ctx,b._id,"refund_invoice",{refundId:r._id});
+        }else{
+          await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
+            bookingId: b._id,
+            ...(r.expectedAccountId ? { expectedAccountId: r.expectedAccountId } : {}),
+            ...(r.expectedRecipientEmail !== undefined ? { expectedRecipientEmail: r.expectedRecipientEmail } : {}),
+            ...(bound ? { refundId: r._id } : {}),
+            kind: "rental refund",
+            detail: `£${(r.amountPence / 100).toFixed(2)} · ${aggregate}. ${r.reason}`,
+          });
+        }
       }
     }
     return { status: aggregate };

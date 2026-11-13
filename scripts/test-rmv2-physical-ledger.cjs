@@ -31,7 +31,7 @@ const {mapBookingForSync,forRmv2SyncOne}=load('convex/rmv2_sync.ts');
  const pendingHold={...row,_id:'pending-paid-hold',status:'hold',holdExpiresAt:undefined};
  const pendingProjection=mapBookingForSync(paidPending,new Map(),new Map([[String(booked._id),booked]]),new Map(),[pendingHold]);
  assert.equal(pendingProjection.checkoutPaidAt,123456,'Only the checkout receipt timestamp is exported as payment authority');
- assert.deepEqual(pendingProjection.paymentEvidence,{status:'succeeded',paymentIntentId:'pi_paid_pending',paidAt:123456},'The signed manager projection carries the persisted Stripe payment receipt needed to claim paid pending-verification stock');
+ assert.deepEqual(pendingProjection.paymentEvidence,{status:'succeeded',paymentIntentId:'pi_paid_pending',checkoutSessionId:'cs_paid_pending',paidAt:123456},'The signed manager projection carries the persisted Stripe payment and exact checkout-session receipt needed to claim paid pending-verification stock');
  const creditCoveredProjection=mapBookingForSync({...paidPending,stripePaymentIntentId:undefined,stripeCheckoutSessionId:'cs_credit_covered'},new Map(),new Map([[String(booked._id),booked]]),new Map(),[pendingHold]);
  assert.deepEqual(creditCoveredProjection.paymentEvidence,{status:'no_payment_required',checkoutSessionId:'cs_credit_covered',paidAt:123456},'Completed credit-covered/zero-due Checkout is still attested without inventing a PaymentIntent');
  assert.equal(pendingProjection.physicalReservations.length,1,'A paid pending Didit rental exports its exact held physical unit');

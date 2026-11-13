@@ -178,7 +178,7 @@ export function BotBubble() {
     // document and yanks the fixed chat panel out of view (then back) when you send a message.
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [msgs, busy, account.token]);
+  }, [msgs, busy, account.token, onb]);
 
   // mouth animates while the latest reply types itself out
   useEffect(() => {
@@ -360,7 +360,7 @@ export function BotBubble() {
           One button in this corner, not two: while a call is live this stops
           being "open the chat" and becomes the call's handle, so hanging up
           never means hunting for the control that started it. */}
-      <button
+      {(!open || onCall) && <button
         onClick={() => (onCall ? setDockOpen(!dockOpen) : setOpen((o) => !o))}
         aria-label={
           onCall
@@ -404,15 +404,22 @@ export function BotBubble() {
             {callState === "connecting" ? "Connecting…" : `On call · ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`}
           </span>
         )}
-      </button>
+      </button>}
 
       {open && (
-        <div className="chat-panel toast-in fixed bottom-[72px] right-3 z-50 flex h-[68dvh] max-h-[560px] w-[calc(100vw-24px)] max-w-sm flex-col overflow-hidden rounded-2xl border border-white/10 bg-charcoal-900/95 shadow-2xl shadow-black/60 backdrop-blur-xl sm:bottom-24 sm:right-5 sm:h-[74vh] sm:max-h-[640px] sm:w-[92vw] sm:rounded-3xl">
+        <>
+        <button
+          type="button"
+          aria-label="Close Gaffer chat"
+          onClick={() => setOpen(false)}
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm sm:hidden"
+        />
+        <div role="dialog" aria-modal="true" aria-label="Chat with Gaffer" className="chat-panel gaffer-chat-panel toast-in fixed inset-x-3 top-3 bottom-3 z-50 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-charcoal-900/95 shadow-2xl shadow-black/60 backdrop-blur-xl sm:inset-auto sm:bottom-24 sm:right-5 sm:top-auto sm:h-[74vh] sm:max-h-[640px] sm:w-[92vw] sm:max-w-sm sm:rounded-3xl">
           <div className="chat-bg" aria-hidden />
           <div className="chat-scanline" aria-hidden />
 
           {/* header */}
-          <header className="relative z-10 flex items-center gap-3 border-b border-white/[0.07] bg-white/[0.03] px-4 py-3">
+          <header className="relative z-10 flex items-center gap-2 border-b border-white/[0.07] bg-white/[0.03] px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3">
             <BotAvatarBadge
               mood={busy ? "thinking" : talkingIdx != null ? "talking" : "idle"}
               size={40}
@@ -422,11 +429,11 @@ export function BotBubble() {
                 <span className="font-display text-sm font-bold tracking-wide text-white">
                   GAFFER
                 </span>
-                <span className="hud-label !text-[8px]">kit assistant</span>
+                <span className="hud-label hidden !text-[8px] min-[400px]:inline">kit assistant</span>
               </div>
               <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-emerald-400">
                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.9)]" />
-                {busy ? "on it…" : "online · builds kits live"}
+                {busy ? "on it…" : <><span className="sm:hidden">online</span><span className="hidden sm:inline">online · builds kits live</span></>}
               </div>
             </div>
             <GafferCall
@@ -452,7 +459,7 @@ export function BotBubble() {
           {/* thread */}
           <div
             ref={scrollRef}
-            className="relative z-10 flex-1 space-y-3 overflow-y-auto p-4"
+            className="relative z-10 min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-4"
           >
             {msgs.length === 0 && onb >= 4 && (
               <>
@@ -461,6 +468,7 @@ export function BotBubble() {
                   opts={IDLE_CHIPS}
                   onPick={(v) => send(v)}
                   className="pl-10"
+                  compactMobile
                 />
               </>
             )}
@@ -479,6 +487,7 @@ export function BotBubble() {
                       setOnb(1);
                     }}
                     className="pl-10"
+                    compactMobile
                   />
                 )}
 
@@ -497,6 +506,7 @@ export function BotBubble() {
                       setOnb(2);
                     }}
                     className="pl-10"
+                    compactMobile
                   />
                 )}
 
@@ -675,6 +685,7 @@ export function BotBubble() {
                 opts={liveSuggestions}
                 onPick={(v) => send(v)}
                 className="pl-10"
+                compactMobile
               />
             )}
             {busy && <TypingIndicator />}
@@ -720,6 +731,7 @@ export function BotBubble() {
             </div>
           </div>
         </div>
+        </>
       )}
     </>
   );

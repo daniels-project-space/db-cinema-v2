@@ -37,6 +37,7 @@ crons.interval("reconcile-memberships", { hours: 6 }, internal.checkout.reconcil
 
 // Expire old login sessions (enforces session TTL — queries can't read the clock).
 crons.interval("sweep-sessions", { hours: 1 }, internal.accounts.sweepExpiredSessions, {});
+crons.interval("purge-expired-account-verification-reuse", { hours: 24 }, internal.accounts.purgeExpiredRentalVerification, {});
 crons.interval("sweep-orphan-avatar-uploads", { hours: 1 }, internal.accounts.sweepAvatarUploads, {});
 
 // Pickup-tomorrow / return-today reminders (email + Telegram).

@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const {load} = require('./lib/rentalTestHarness.cjs');
 const notify = load('convex/notify.ts'), invoice = load('convex/invoice.ts'), settings = load('convex/settings.ts');
 const {SECURITY_POLICY_VERSION} = load('shared/rentalSecurity.ts');
-const booking = {guestEmail:'fixture@example.invalid',status:'confirmed',total:100,subtotal:100,depositAmount:0,depositHoldAmount:0,securityPolicyVersion:SECURITY_POLICY_VERSION,savedCardLimit:250,lineItems:[{title:'Cinema camera',start:Date.UTC(2030,0,1),end:Date.UTC(2030,0,2),lineTotal:100}]};
+const booking = {guestEmail:'fixture@example.invalid',status:'confirmed',paidConfirmedAt:Date.now(),total:100,subtotal:100,depositAmount:0,depositHoldAmount:0,securityPolicyVersion:SECURITY_POLICY_VERSION,savedCardLimit:250,verificationProvider:'didit',idVerifyStatus:'verified',idVerificationSource:'didit',idVerifiedAt:Date.now(),verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},lineItems:[{title:'Cinema camera',start:Date.UTC(2030,0,1),end:Date.UTC(2030,0,2),lineTotal:100}]};
 const ctx = {runQuery:async()=>booking};
 delete process.env.INVOICE_SECRET;
 (async()=>{
@@ -28,11 +28,14 @@ delete process.env.INVOICE_SECRET;
   assert.match(payload.html,/card authorisation is separate/);
   assert(!payload.html.includes('Saved-card collection permission'),'Historical accepted security terms remain intact');
  }
- let address='The Grand Building\nMeet outside <Waterstones> & wait';
- const verificationCtx={runQuery:async ref=>ref==='settings.pickupAddress'?{businessAddress:address}:{...booking,fulfilment:'pickup',paidConfirmedAt:Date.now(),verificationProvider:'didit',idVerificationSource:'didit',verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},idVerifiedAt:Date.now(),idVerifyStatus:'verified'},
+let address='The Grand Building\nMeet outside <Waterstones> & wait';
+const verifiedAt=Date.UTC(2030,0,1,12);
+const verificationCtx={runQuery:async ref=>ref==='settings.pickupAddress'?{businessAddress:address}:{...booking,fulfilment:'pickup',paidConfirmedAt:Date.now(),verificationProvider:'didit',idVerificationSource:'didit',verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},idVerifiedAt:verifiedAt,idVerifyStatus:'verified'},
   runAction:async()=>({attachments:[{filename:'receipt.pdf',content:'fixture'}]})};
  const verification=await notify.verificationEmail.handler(verificationCtx,{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
- assert.match(verification.html,/Your identity and address verification is approved for this rental\./);
+assert.match(verification.subject,/valid for 90 days/);
+assert.match(verification.html,/Your payment and verification are complete, and this rental is confirmed\. Your identity, selfie and address checks passed\./);
+assert.match(verification.html,/reuse this approval for 90 days from approval, until 1 April 2030, without repeating those checks while it is active\./,'the automated email states the exact 90-day reuse window and expiry date');
  assert.doesNotMatch(verification.html,/remaining document checks and approval before handover/);
  assert.match(verification.html,/The Grand Building<br>Meet outside &lt;Waterstones&gt; &amp; wait/,'pickup instructions retain line breaks and escape HTML');
  assert.match(verification.html,/rental invoice is attached as a PDF/,'verification emails describe the attached PDF as an invoice');

@@ -8,8 +8,9 @@ import { initialInvoiceSnapshot } from "./lib/initialInvoiceSnapshot";
 import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
-import { sendMail } from "./lib/mailer";
+import { sendBusinessMailTracked, sendMail } from "./lib/mailer";
 import { swapAdjustmentDocumentIdentity } from "../shared/swapAdjustmentDocument";
+import { rentalRefundReference } from "../shared/rentalRefundReference";
 
 const amount = (value: number) => `£${value.toFixed(2)}`;
 const esc = (value: string) => value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -29,10 +30,20 @@ async function fetchInvoicePdf(url:string,secret:string):Promise<Buffer>{
  *  configured. Sends without the attachment if the PDF route is unreachable, so the
  *  payment email still goes out. */
 export const invoiceEmail = internalAction({
-  args: { prepareOnly:v.optional(v.boolean()),deliveryKey:v.optional(v.string()), bookingId: v.id("bookings") },
-  handler: async (ctx, { prepareOnly, deliveryKey, bookingId }) => {
+  args: { prepareOnly:v.optional(v.boolean()),deliveryKey:v.optional(v.string()), bookingId: v.id("bookings"), refundId:v.optional(v.id("rental_refunds")) },
+  handler: async (ctx, { prepareOnly, deliveryKey, bookingId, refundId }) => {
     const b: any = await ctx.runQuery(internal.bookings.receiptContext, { bookingId });
     if (!b || !b.guestEmail) return null;
+
+    let refund:any=null,refundRecipient:any=null,refundLine:any=null;
+    if(refundId){
+      refund=await ctx.runQuery(internal.rentalOperations.refundJob,{id:refundId});
+      const providerConfirmed=!!refund?.stripeRefundId||Array.isArray(refund?.allocations)&&refund.allocations.length>0&&Array.isArray(refund?.parts)&&refund.parts.length===refund.allocations.length&&refund.parts.every((part:any)=>part.status==="succeeded"&&!!part.stripeRefundId);
+      if(!refund||refund.bookingId!==bookingId||refund.status!=="succeeded"||!providerConfirmed||refund.refundAmbiguity||refund.requestId.startsWith("swap-")||(!refund.expectedAccountId&&refund.expectedRecipientEmail===undefined))throw Error("Only an identity-bound, provider-confirmed rental refund can issue an updated invoice.");
+      refundRecipient=await ctx.runQuery(internal.rentalOperations.changeRecipient,{bookingId,...(refund.expectedAccountId?{expectedAccountId:refund.expectedAccountId}:{}),...(refund.expectedRecipientEmail!==undefined?{expectedRecipientEmail:refund.expectedRecipientEmail}:{})});
+      if(!refundRecipient)throw Error("The original renter contact changed before the refund invoice could be sent.");
+      if(!b.invoiceSnapshot)throw Error("The original paid invoice snapshot is unavailable; an updated invoice cannot safely replace it.");
+    }
 
     let invoice:any=b.invoiceSnapshot;
     if(!invoice){
@@ -44,12 +55,25 @@ export const invoiceEmail = internalAction({
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const secret = process.env.INVOICE_SECRET;
 
+    if(refundId){
+      if(!secret)throw Error("The updated refund invoice cannot be issued until invoice rendering is configured.");
+      const refreshed:any=await ctx.runQuery(api.bookings.invoiceData,{bookingId,key:secret});
+      if(!refreshed)throw Error("The confirmed rental invoice is unavailable for the refund update.");
+      const reference=rentalRefundReference(String(refundId));
+      refundLine=refreshed.rentalRefunds?.find((row:any)=>row.reference===reference&&row.status==="succeeded");
+      if(!refundLine||Math.round(refundLine.amount*100)!==refund.amountPence||refundLine.reason!==refund.reason)throw Error("The confirmed refund is missing from the current invoice data.");
+      // Preserve the first-issued lines and totals. Only settlement annotations
+      // are refreshed for this replacement copy.
+      invoice={...refreshed,...invoice,email:refundRecipient.email,rentalRefunds:refreshed.rentalRefunds,rentalRefunded:refreshed.rentalRefunded,cancellationRefund:refreshed.cancellationRefund,accountCreditIssued:refreshed.accountCreditIssued,accountCreditBonus:refreshed.accountCreditBonus};
+    }
+
     let attachment: { filename: string; content: string } | null = null;
     if (secret) {
       try {
         const buf=await fetchInvoicePdf(`${app}/api/invoice/${bookingId}`,secret);
-        attachment={filename:`DbCinema-invoice-${String(bookingId).slice(-8)}.pdf`,content:buf.toString("base64")};
+        attachment={filename:refundId?`DbCinema-invoice-${rentalRefundReference(String(refundId))}.pdf`:`DbCinema-invoice-${String(bookingId).slice(-8)}.pdf`,content:buf.toString("base64")};
       } catch {
+        if(refundId)throw Error("The updated refund invoice PDF could not be generated; the email will retry.");
         /* fall through — send without attachment */
       }
     }
@@ -60,12 +84,16 @@ export const invoiceEmail = internalAction({
     if(invoice.creditApplied>0)rows.push(["Account credit applied",`−${amount(invoice.creditApplied)}`]);
     if(invoice.deliveryFee>0)rows.push([invoice.deliveryLegs === "one_way" ? "One-way delivery" : "Delivery and collection",amount(invoice.deliveryFee)]);
     rows.push(...rentalSecurityEmailRows(invoice),["Total paid",amount(invoice.total)]);
+    if(refundLine){
+      rows.push([`Confirmed rental refund · ${refundLine.reference}`,`−${amount(refundLine.amount)}`]);
+      rows.push(["Refund reason",refundLine.reason]);
+    }
     const url=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
     const payload={
       deliveryKey,
-      to:invoice.email??b.guestEmail,
-      subject:"Your DB Cinema rental invoice",
-      html:rentalEmail({title:"Your paid rental invoice",preview:`Payment received: ${amount(invoice.total)}. Your rental invoice is ready.`,url,button:"View rental and invoice",body:`<p>Your invoice${attachment?" is attached as a PDF":" is below. You can also download it from your account"}.</p>${emailRows(rows)}${invoice.membershipCreditApplied?`<p>Account credit above includes ${amount(invoice.membershipCreditApplied)} from your first subscription month. Subscription charges are itemised separately by Stripe.</p>`:""}${rentalSecurityEmailNote(invoice)?`<p>${rentalSecurityEmailNote(invoice)}</p>`:""}<p style="font-size:12px">DB Cinema Rentals Ltd is not VAT registered. No VAT is charged.</p>`}),
+      to:refundRecipient?.email??invoice.email??b.guestEmail,
+      subject:refundLine?`Updated DB Cinema rental invoice · ${refundLine.reference}`:"Your DB Cinema rental invoice",
+      html:rentalEmail({title:refundLine?"Updated rental invoice":"Your paid rental invoice",preview:refundLine?`Confirmed refund: ${amount(refundLine.amount)} · ${refundLine.reference}.`:`Payment received: ${amount(invoice.total)}. Your rental invoice is ready.`,url,button:"View rental and invoice",body:`<p>${refundLine?`Stripe confirmed this refund. The original invoice lines and total remain unchanged; this updated copy records the settlement and its reason.`:`Your invoice${attachment?" is attached as a PDF":" is below. You can also download it from your account"}`}${attachment&&refundLine?" The updated PDF is attached.":"."}</p>${emailRows(rows)}${invoice.membershipCreditApplied?`<p>Account credit above includes ${amount(invoice.membershipCreditApplied)} from your first subscription month. Subscription charges are itemised separately by Stripe.</p>`:""}${rentalSecurityEmailNote(invoice)?`<p>${rentalSecurityEmailNote(invoice)}</p>`:""}<p style="font-size:12px">DB Cinema Rentals Ltd is not VAT registered. No VAT is charged.</p>`}),
       attachments:attachment?[attachment]:[],
     };
     return prepareOnly?payload:sendMail(payload);
@@ -86,16 +114,19 @@ export const returnSettlementEmail = internalAction({
       await ctx.runMutation(internal.bookings.markReturnStatementEmail, { bookingId, sent: false });
       return;
     }
-    let sent = false;
+    let sent = false, ambiguous = false;
     try {
       const pdf=await fetchInvoicePdf(`${app}/api/invoice/${bookingId}?phase=return`,secret);
       const content = returnStatementEmail(s,false,`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`);
-      sent = await sendMail({
+      const delivery = await sendBusinessMailTracked({
         ...content,
+        deliveryKey: `return-statement-${String(bookingId)}-${s.number}`,
         attachments: [{ filename: `DbCinema-return-${String(bookingId).slice(-8)}.pdf`, content: pdf.toString("base64") }],
       });
+      sent = delivery.sent;
+      ambiguous = delivery.ambiguous ?? false;
     } catch (error) { console.error("Return statement email failed", bookingId, error); }
-    await ctx.runMutation(internal.bookings.markReturnStatementEmail, { bookingId, sent });
+    await ctx.runMutation(internal.bookings.markReturnStatementEmail, { bookingId, sent, ambiguous });
   },
 });
 
@@ -140,7 +171,13 @@ export const retryReturnStatements = internalAction({
   args: {},
   handler: async (ctx) => {
     const ids: any[] = await ctx.runQuery(internal.bookings.dueReturnStatementEmails, {});
-    for (const bookingId of ids) await ctx.runAction(internal.invoice.returnSettlementEmail, { bookingId });
+    for (const bookingId of ids) try {
+      await ctx.runAction(internal.invoice.returnSettlementEmail, { bookingId });
+    } catch (error) {
+      // Let the rest of this bounded batch run; the email claim lease recovers
+      // this individual row on the next sweep if the action crashed mid-send.
+      console.error("Return statement email will retry", bookingId, error);
+    }
     const adjustmentIds:any[]=await ctx.runQuery(internal.invoiceAdjustments.dueSwapAdjustmentEmails,{});
     for(const receiptId of adjustmentIds)try{await ctx.runAction((internal as any).invoice.swapAdjustmentEmail,{receiptId});}catch(error){console.error("Equipment adjustment email will retry",receiptId,error);}
   },

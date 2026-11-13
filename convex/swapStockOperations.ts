@@ -3,6 +3,9 @@ import { internalAction, internalMutation, internalQuery } from "./_generated/se
 import { internal } from "./_generated/api";
 import { swapAuthorityAvailable } from "./lib/rentalSwapAuthority";
 import { queueOwnerNotification } from "./lib/adminPush";
+import { postRentalMessage } from "./lib/rentalChat";
+import { belongsToRentalAccount } from "./lib/rentalAccount";
+import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { bookingStockLines, rentalWindow } from "../shared/rentalWindow";
 import { stockTimePrecision } from "./lib/stockWindows";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
@@ -24,7 +27,8 @@ function sameRequest(left:any,right:any):boolean {
 
 function safeToRelease(swap:any) {
   const expiredUnpaidSession=!swap?.sessionId||swap.expiredSessionEvidence?.sessionId===swap.sessionId&&swap.expiredSessionEvidence?.status==="expired"&&swap.expiredSessionEvidence?.paymentStatus==="unpaid"&&Number.isSafeInteger(swap.expiredSessionEvidence?.checkedAt)&&Number.isSafeInteger(swap.expiredSessionEvidence?.expiresAt);
-  return swap && ["withdrawn", "declined", "expired"].includes(swap.status) && expiredUnpaidSession && !swap.paymentIntentId && !swap.refundJobId && !swap.stockAppliedAt && !swap.compensationStartedAt && !swap.compensationReceipt;
+  const failedUnpaidSession=swap?.asyncPaymentFailureEvidence?.sessionId===swap?.sessionId&&swap.asyncPaymentFailureEvidence?.sessionStatus==="complete"&&swap.asyncPaymentFailureEvidence?.paymentStatus==="unpaid"&&!!swap.asyncPaymentFailureEvidence?.paymentIntentId&&swap.asyncPaymentFailureEvidence?.paymentIntentStatus==="canceled"&&swap.asyncPaymentFailureEvidence?.amountPence===swap.quote?.deltaPence&&swap.asyncPaymentFailureEvidence?.amountReceivedPence===0&&swap.asyncPaymentFailureEvidence?.currency==="gbp"&&Number.isSafeInteger(swap.asyncPaymentFailureEvidence?.checkedAt);
+  return swap && ["withdrawn", "declined", "expired"].includes(swap.status) && (expiredUnpaidSession||failedUnpaidSession) && !swap.paymentIntentId && !swap.refundJobId && !swap.stockAppliedAt && !swap.compensationStartedAt && !swap.compensationReceipt;
 }
 
 async function notifyStockReview(ctx:any,row:any,releaseConfirmed=false) {
@@ -389,6 +393,17 @@ export const record = internalMutation({
         if(swap){
           const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",swap.bookingId)).collect();
           for(const reservation of reservations)if(reservation.status==="hold"&&reservation.externalRef===`swap:${row.swapId}`)await ctx.db.patch(reservation._id,{status:"cancelled"});
+          const booking=await ctx.db.get(swap.bookingId),account=await ctx.db.get(swap.accountId);
+          const noSettlement= !swap.sessionId&&!swap.paymentIntentId&&!swap.refundJobId&&!swap.stockAppliedAt&&!swap.compensationStartedAt&&!swap.compensationReceipt&&(!swap.paymentSessionState||swap.paymentSessionState==="not_started");
+          const prePaymentConflict=noSettlement&&["awaiting_acceptance","accepted"].includes(swap.status)&&booking?.activeItemSwapId===swap._id&&booking.status==="confirmed"&&!booking.cancellationDecision&&!booking.returnDecision&&account&&account.blockedAt==null&&belongsToRentalAccount(booking,account);
+          if(prePaymentConflict){
+            const now=Date.now(),closed={...swap,status:"expired",paymentSessionState:"closed",reconcileAfter:undefined,reconcileError:"shared_stock_capacity_conflict",updatedAt:now};
+            await ctx.db.patch(swap._id,{status:"expired",paymentSessionState:"closed",reconcileAfter:undefined,reconcileError:"shared_stock_capacity_conflict",updatedAt:now});
+            await releaseClosedClaim(ctx,closed);
+            await queueRmv2Sync(ctx,booking._id);
+            await postRentalMessage(ctx,{accountId:account._id,bookingId:booking._id,sender:"system",text:"That equipment change could not go ahead because the requested stock is unavailable for those dates. No payment was taken and no refund was issued. Your original kit and rental dates remain unchanged. Message us if you would like another option.",meta:{kind:"rental_item_swap_unavailable",swapId:swap._id}});
+            await queueOwnerNotification(ctx,{eventKey:`swap-unavailable:${swap._id}`,kind:"checkout_failure",accountId:account._id,bookingId:booking._id,title:"Equipment change unavailable",body:"The manager confirmed that the requested stock is unavailable. The unpaid change was closed and the original rental remains unchanged."});
+          }
         }
         if(swap&&["withdrawn","declined","expired"].includes(swap.status))await releaseClosedClaim(ctx,swap);
       }

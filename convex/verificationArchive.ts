@@ -11,6 +11,7 @@ import { verificationReadSnapshot } from "./lib/verificationReadProof";
 import { saveAccountDiditVerification } from "./lib/verificationReuse";
 import { retainVerificationArchiveLink } from "./lib/verificationArchiveLink";
 import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
+import { retentionReviewSnapshot, retentionReviewStatus } from "./verificationRetentionReview";
 
 async function verificationAdminRead(ctx: QueryCtx, token: string): Promise<boolean> {
   if (process.env.ADMIN_SESSION_VERIFICATION_V2 === "enabled") {
@@ -54,39 +55,97 @@ function rentalClosedAt(booking: any): number | undefined {
   }
   return booking?.status === "cancelled" ? booking.cancelledAt : undefined;
 }
+function validReviewStartedAt(archive: any): number | null {
+  const at = archive.retentionReviewStartedAt;
+  return Number.isFinite(at) && at > 0 && at <= Date.now() ? at : null;
+}
 
 /** One retention decision shared by the admin screen and byte deletion. */
 export async function archiveRetention(ctx: any, archive: any, includeReviewDetails = false) {
-  if (archive.status === "deleted") return { status: "deleted" as const, expiresAt: null, activeRentals: 0, openCases: 0, viewable: false };
+  if (archive.status === "deleted") return { status: "deleted" as const, expiresAt: null, activeRentals: 0, openCases: 0, viewable: false, permanent: false };
+  const bookingForRetention = await ctx.db.get(archive.bookingId);
+  const retentionAccountId = archive.accountId ?? bookingForRetention?.accountId;
+  const retentionAccount = retentionAccountId ? await ctx.db.get(retentionAccountId) : null;
+  const identitySafetyHistory = retentionAccount?.identitySafetyRetentionAt != null ||
+    (retentionAccount?.restrictionClass === "identity_safety_blacklist" &&
+      (retentionAccount?.blockedAt != null || retentionAccount?.lastRestrictedAt != null));
+  if (identitySafetyHistory) return {
+    status: "identity-safety" as const,
+    expiresAt: null,
+    activeRentals: 0,
+    openCases: 0,
+    viewable: true,
+    permanent: true,
+    retentionReason: "Identity-safety review",
+  };
+  const reconciled = await retentionReviewSnapshot(ctx, archive);
+  if (reconciled) {
+    const base = { expiresAt: null as number | null, activeRentals: reconciled.activeRentals, openCases: reconciled.openCases, viewable: true, permanent: false };
+    if (reconciled.activeRentals) return { ...base, status: "active-rental" as const };
+    if (reconciled.openCases) return { ...base, status: "insurance-case" as const };
+    if (reconciled.unknownRentalStatuses || reconciled.unknownCaseStatuses || !reconciled.linkedRentals) return { ...base, status: "unknown-closure" as const, viewable: false, needsReview: true, reviewWindowEligible: false, reviewStartedAt: validReviewStartedAt(archive), reviewReason: "History needs review" };
+    const knownExpiries = [reconciled.latestRentalClosureAt, reconciled.latestCaseClosureAt].filter((at): at is number => Number.isFinite(at)).map(at => at + DOCUMENT_RETENTION_MS);
+    const knownExpiry = knownExpiries.length ? Math.max(...knownExpiries) : null;
+    if (reconciled.closureNeedsReview) {
+      const reviewStartedAt = validReviewStartedAt(archive);
+      const fallbackExpiry = reviewStartedAt === null ? null : reviewStartedAt + DOCUMENT_RETENTION_MS;
+      const expiresAt = fallbackExpiry === null ? null : knownExpiry === null ? fallbackExpiry : Math.max(fallbackExpiry, knownExpiry);
+      return { ...base, status: "unknown-closure" as const, expiresAt, viewable: expiresAt === null || expiresAt > Date.now(), needsReview: true, reviewWindowEligible: true, reviewStartedAt, reviewReason: "Closed rental or case date needs review", ...(includeReviewDetails && reconciled.reviewDetails ? { reviewDetails: reconciled.reviewDetails } : {}) };
+    }
+    if (knownExpiry === null) return { ...base, status: "unknown-closure" as const, viewable: false, needsReview: true, reviewWindowEligible: false, reviewStartedAt: validReviewStartedAt(archive), reviewReason: "Closure date missing" };
+    return { ...base, status: "expires" as const, expiresAt: knownExpiry, viewable: knownExpiry > Date.now() };
+  }
   const booking = await ctx.db.get(archive.bookingId);
-  const review = { status: "unknown-closure" as const, expiresAt: null, activeRentals: 0, openCases: 0, viewable: false, needsReview: true };
+  const review = { status: "unknown-closure" as const, expiresAt: null, activeRentals: 0, openCases: 0, viewable: false, permanent: false, needsReview: true, reviewWindowEligible: false, reviewStartedAt: validReviewStartedAt(archive), reviewReason: "Rental history needs review" };
   const current = archive.source === "drone" ? [] : await ctx.db.query("bookings").withIndex("by_verification_reused", (q: any) => q.eq("verificationReusedFrom", archive.bookingId)).take(31);
   const links = archive.source === "drone" ? [] : await ctx.db.query("verification_archive_links").withIndex("by_source_booking", (q: any) => q.eq("sourceBookingId", archive.bookingId)).take(31);
-  if (current.length > 30 || links.length > 30) return review;
+  if (current.length > 30 || links.length > 30) return { ...review, reviewReason: "More than 30 linked rentals · run a full history scan" };
   const linked = await Promise.all(links.map((link:any)=>ctx.db.get(link.bookingId)));
   const reused = [...new Map([...current,...linked].filter(Boolean).map((item:any)=>[String(item._id),item])).values()];
   const rentals = [booking, ...reused].filter(Boolean);
   const activeRentals = rentals.filter((b: any) => !["returned", "cancelled"].includes(b.status)).length;
+  const base = { expiresAt: null as number | null, activeRentals, openCases: 0, viewable: true, permanent: false };
+  if (activeRentals) return { ...base, status: "active-rental" as const };
+  let closureNeedsReview = false;
   for (const rental of rentals) {
     const closedAt = rentalClosedAt(rental);
-    if (closedAt !== undefined && (!Number.isFinite(closedAt) || closedAt <= 0 || closedAt > Date.now())) return review;
+    if (!Number.isFinite(closedAt) || closedAt! <= 0 || closedAt! > Date.now()) closureNeedsReview = true;
   }
   let openCases = 0;
+  let caseChronologyNeedsReview = false;
+  let reviewDetails: { kind: "case-chronology"; bookingId: any; caseId: any; openedAt: number | null; closedAt: number | null } | undefined;
   const caseRetentionExpiries: number[] = [];
   for (const id of [archive.bookingId, ...reused.map((b: any) => b._id)]) {
     const cases = await ctx.db.query("rental_damage_cases").withIndex("by_booking", (q: any) => q.eq("bookingId", id)).take(101);
-    if (cases.length > 100) return review;
+    if (cases.length > 100) return { ...review, reviewReason: "More than 100 cases · run a full history scan" };
     for (const rentalCase of cases) {
       if (rentalCase.status === "open") openCases++;
-      else if (!Number.isFinite(rentalCase.openedAt) || !Number.isFinite(rentalCase.closedAt) || rentalCase.openedAt <= 0 || rentalCase.closedAt < rentalCase.openedAt || rentalCase.closedAt > Date.now()) return includeReviewDetails ? { ...review, reviewDetails: { kind: "case-chronology" as const, bookingId: id, caseId: rentalCase._id, openedAt: Number.isFinite(rentalCase.openedAt) ? rentalCase.openedAt : null, closedAt: Number.isFinite(rentalCase.closedAt) ? rentalCase.closedAt : null } } : review;
-      else caseRetentionExpiries.push(rentalCase.closedAt + DOCUMENT_RETENTION_MS);
+      else if (rentalCase.status !== "closed") return { ...review, reviewReason: "A case status cannot be read safely" };
+      else if (!Number.isFinite(rentalCase.openedAt) || !Number.isFinite(rentalCase.closedAt) || rentalCase.openedAt <= 0 || rentalCase.closedAt < rentalCase.openedAt || rentalCase.closedAt > Date.now()) {
+        closureNeedsReview = true;
+        caseChronologyNeedsReview = true;
+        reviewDetails ??= { kind: "case-chronology", bookingId: id, caseId: rentalCase._id, openedAt: Number.isFinite(rentalCase.openedAt) ? rentalCase.openedAt : null, closedAt: Number.isFinite(rentalCase.closedAt) ? rentalCase.closedAt : null };
+      } else caseRetentionExpiries.push(rentalCase.closedAt + DOCUMENT_RETENTION_MS);
     }
   }
-  const base = { expiresAt: null as number | null, activeRentals, openCases, viewable: true };
-  if (activeRentals) return { ...base, status: "active-rental" as const };
-  if (openCases) return { ...base, status: "insurance-case" as const };
-  if (archive.retentionHoldReason) return { ...base, status: "manual-hold" as const };
-  if (!booking || linked.some((b:any)=>!b) || rentals.some((b: any) => !rentalClosedAt(b))) return { ...base, status: "unknown-closure" as const };
+  if (openCases) return { ...base, openCases, status: "insurance-case" as const };
+  // Legacy per-archive manual holds are deliberately ignored. Raw verification
+  // copies follow the rental/case schedule; only an active rental or linked open
+  // case can pause deletion. Restriction and stale hold metadata never do.
+  if (!booking) return { ...review, reviewReason: "Source rental is missing · link the exact same-account rental" };
+  if (linked.some((b:any)=>!b)) return { ...review, reviewReason: "A linked rental is missing · repair its exact same-account link" };
+  if (closureNeedsReview) {
+    const startedAt = validReviewStartedAt(archive);
+    const fallbackExpiry = startedAt === null ? null : startedAt + DOCUMENT_RETENTION_MS;
+    const knownRentalExpiries = rentals.map((b: any) => rentalClosedAt(b)).filter((at): at is number => typeof at === "number" && Number.isFinite(at) && at > 0 && at <= Date.now()).map(at => at + DOCUMENT_RETENTION_MS);
+    const knownExpiries = [...knownRentalExpiries, ...caseRetentionExpiries];
+    const knownExpiry = knownExpiries.length ? Math.max(...knownExpiries) : null;
+    // Keep reviewable bytes available until the first sweep records a stable
+    // review start; do not expose an already-expired known date before then.
+    const expiresAt = fallbackExpiry === null ? null : knownExpiry === null ? fallbackExpiry : Math.max(fallbackExpiry, knownExpiry);
+    return { ...base, status: "unknown-closure" as const, expiresAt, viewable: expiresAt === null || expiresAt > Date.now(), needsReview: true, reviewWindowEligible: true, reviewStartedAt: startedAt,
+      ...(includeReviewDetails && caseChronologyNeedsReview && reviewDetails ? { reviewDetails } : {}) };
+  }
   const expiresAt = Math.max(...rentals.map((b: any) => rentalClosedAt(b)! + DOCUMENT_RETENTION_MS), ...caseRetentionExpiries);
   return { ...base, status: "expires" as const, expiresAt, viewable: expiresAt > Date.now() };
 }
@@ -358,7 +417,7 @@ export const accountDocuments = query({ args: { token: v.string(), accountId: v.
   return Promise.all(jobs.map(async archive => {
     const retention = await archiveRetention(ctx, archive, true);
     const { copies, ready } = await archiveCopies(ctx, archive, true);
-    return { ...archive, email: undefined, retention, readProofExpiresAt: archive.source === "drone" || !Number.isFinite(archive.readVerifiedAt) ? null : archive.readVerifiedAt! + READ_PROOF_MAX_AGE_MS, copiesReady: archive.status==="complete" && retention.viewable && ready && (archive.source==="drone"||hasFreshReadProof(archive)),
+    return { ...archive, email: undefined, retention, retentionReview: await retentionReviewStatus(ctx, archive), readProofExpiresAt: archive.source === "drone" || !Number.isFinite(archive.readVerifiedAt) ? null : archive.readVerifiedAt! + READ_PROOF_MAX_AGE_MS, copiesReady: archive.status==="complete" && retention.viewable && ready && (archive.source==="drone"||hasFreshReadProof(archive)),
       documents: copies.map(({ document: d, available }) => ({ id: d._id, kind: d.kind, size: d.size, sha256: d.sha256, savedAt: d.savedAt, contentType: d.contentType, available: retention.viewable && available })) };
   }));
 } });
@@ -472,12 +531,9 @@ export const retentionHold = mutation({ args: { token: v.string(), archiveId: v.
   const archive = await ctx.db.get(args.archiveId);
   if (!archive || archive.status === "deleted") throw Error("Archive unavailable");
   const reason = args.reason.trim();
-  if (!args.confirmed || reason.length > 500 || (reason && reason.length < 10)) throw Error("Review the document retention hold and record a reason of 10–500 characters.");
+  if (!args.confirmed) throw Error("Confirm removal of the legacy document hold.");
+  if (reason) throw Error("Manual document holds are disabled. Active rentals and linked open cases pause deletion automatically.");
   if ((archive.retentionHoldReason ?? "") !== args.expectedReason || (archive.retentionHoldRevision ?? 0) !== args.expectedRevision) throw Error("The document retention hold changed in another session. Review the current hold before continuing.");
-  const retention = await archiveRetention(ctx, archive);
-  const needsReview = "needsReview" in retention && retention.needsReview;
-  if (!reason && needsReview && archive.retentionHoldReason) throw Error("Resolve the retention review before removing this hold.");
-  if (reason && !needsReview && !retention.viewable) throw Error("Verification retention has already expired. Expired copies cannot be revived.");
   if ((archive.retentionHoldReason ?? "") === reason) return;
   await ctx.db.patch(archive._id, { retentionHoldReason: reason || undefined, retentionHoldRevision: (archive.retentionHoldRevision ?? 0) + 1 });
 } });
@@ -497,12 +553,25 @@ export const purgeExpired = internalMutation({ args: { generation:v.optional(v.n
   const page = await ctx.db.query("verification_archives").order("asc").paginate({cursor:state.cursor??null,numItems:25,maximumRowsRead:25});
   let removed = 0;
   for (const archive of page.page) {
-    if (archive.status === "deleted" || archive.retentionHoldReason) continue;
+    if (archive.status === "deleted") continue;
     const retention = await archiveRetention(ctx, archive);
-    if (retention.status !== "expires" || retention.expiresAt === null || !Number.isFinite(retention.expiresAt) || retention.expiresAt > Date.now()) continue;
+    if (retention.permanent) continue;
+    if (retention.status === "active-rental" || retention.status === "insurance-case") {
+      if (archive.retentionReviewStartedAt !== undefined) await ctx.db.patch(archive._id, { retentionReviewStartedAt: undefined });
+      continue;
+    }
+    if (retention.status === "unknown-closure" && "reviewWindowEligible" in retention && !retention.reviewWindowEligible && archive.retentionReviewStartedAt !== undefined) {
+      await ctx.db.patch(archive._id, { retentionReviewStartedAt: undefined });
+    }
+    if ("reviewWindowEligible" in retention && retention.reviewWindowEligible && retention.reviewStartedAt === null) {
+      await ctx.db.patch(archive._id, { retentionReviewStartedAt: Date.now() });
+      continue;
+    }
+    const dueForDeletion = retention.status === "expires" || (retention.status === "unknown-closure" && retention.reviewWindowEligible);
+    if (!dueForDeletion || retention.expiresAt === null || !Number.isFinite(retention.expiresAt) || retention.expiresAt > Date.now()) continue;
     const documents = await ctx.db.query("verification_documents").withIndex("by_archive", q => q.eq("archiveId", archive._id)).collect();
     for (const document of documents) await deletePrivateFile(ctx,document.storageId);
-    await ctx.db.patch(archive._id, { status: "deleted", deletedAt: Date.now(), error: undefined,supplementalStatus:undefined,supplementalDueAt:undefined,supplementalLeaseUntil:undefined });
+    await ctx.db.patch(archive._id, { status: "deleted", deletedAt: Date.now(), error: undefined, retentionHoldReason: undefined, retentionReviewStartedAt: undefined, supplementalStatus:undefined,supplementalDueAt:undefined,supplementalLeaseUntil:undefined });
     if (archive.source !== "drone") {
       const sources = await ctx.db.query("verification_archives").withIndex("by_booking",q=>q.eq("bookingId",archive.bookingId)).take(101);
       if (sources.length <= 100 && sources.every(source=>source._id===archive._id || source.status==="deleted")) {

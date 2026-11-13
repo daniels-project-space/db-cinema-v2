@@ -21,7 +21,7 @@ const start = Date.UTC(2030,9,1), end = start+86400000;
 const lines = [{listingId:l._id,title:l.title,start,end,qty:1,lineTotal:30},{listingId:l2._id,title:l2.title,start:start+86400000,end:end+86400000,qty:1,lineTotal:20}];
 const b = put('bookings', { guestEmail:a.email,status:'confirmed',lineItems:lines,total:60,subtotal:50,depositAmount:10,stripePaymentIntentId:'pi_fixture',paidConfirmedAt:Date.now(),verificationProvider:'didit',idVerifyStatus:'verified',idVerificationSource:'didit',idVerifiedAt:Date.now(),verificationChecks:{identity:'approved',selfie:'approved',address:'approved'} });
 for(const line of lines) put('reservations',{bookingId:b._id,listingId:line.listingId,inventoryUnitId:unit._id,start:line.start,end:line.end,qty:line.qty,source:'site',status:'confirmed'});
-const change = {token:'renter',bookingId:b._id,requestId:'fixture-request-0001',kind:'items',detail:'Please remove the camera from my rental.'};
+const change = {token:'renter',bookingId:b._id,requestId:'fixture-request-0001',kind:'items',detail:'Please remove the camera from my rental.',itemLineIndexes:[0]};
 (async()=>{
  await assert.rejects(requests.submit.handler(ctx,{...change,token:'foreign'}), /not available/);
  await assert.rejects(requests.submit.handler(ctx,{...change,token:'expired'}), /sign in/);
@@ -50,6 +50,9 @@ const change = {token:'renter',bookingId:b._id,requestId:'fixture-request-0001',
  await chats.markRead.handler(ctx,{token:'renter',bookingId:b._id,through:tables.get('messages').at(-1)._id});
  assert.deepEqual(await chats.unreadBreakdown.handler(ctx,{token:'renter'}),{rentals:0,general:0},'reading clears the reactive header count');
  await assert.rejects(operations.removeItem.handler(ctx,{...removal,requestId:'last-removal-000001',listingId:l2._id,expectedStart:start+86400000,expectedEnd:end+86400000}),/Use the renter-approved equipment change flow/);
+ // This later assertion isolates refund settlement: the earlier synthetic
+ // request has already been reviewed, so it must not mask the refund guard.
+ tables.set('rental_change_requests',(tables.get('rental_change_requests')??[]).map(row=>({...row,status:'declined'})));
  put('rental_refunds',{bookingId:b._id,status:'pending'});
  await assert.rejects(operations.reschedule.handler(ctx,{token:owner,bookingId:b._id,start,reason:'Move rental dates'}),/refund to settle/);
  tables.set('rental_refunds',[]);

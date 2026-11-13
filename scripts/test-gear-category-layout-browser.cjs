@@ -47,7 +47,7 @@ async function main() {
       build.onResolve({ filter: /^@cvx\/_generated\/api$/ }, () => ({ path: "generated-api", namespace: "mobile-fixture" }));
       build.onLoad({ filter: /^generated-api$/, namespace: "mobile-fixture" }, () => ({ loader: "js", contents: `export const api=new Proxy({}, {get:(_,namespace)=>new Proxy({}, {get:(_,name)=>String(namespace)+'.'+String(name)})})` }));
       build.onResolve({ filter: /^next\/navigation$/ }, () => ({ path: "navigation", namespace: "mobile-fixture" }));
-      build.onLoad({ filter: /^navigation$/, namespace: "mobile-fixture" }, () => ({ loader: "js", contents: `export function useSearchParams(){return new URLSearchParams(window.location.search)}` }));
+      build.onLoad({ filter: /^navigation$/, namespace: "mobile-fixture" }, () => ({ loader: "js", contents: `export function useSearchParams(){return new URLSearchParams(window.location.search)};export function useRouter(){return {replace(){}}}` }));
     },
   };
 
@@ -93,21 +93,27 @@ async function main() {
       assert.equal(metrics.resultGrid.columns, 1, `A single match gets one uncluttered result column at ${width}px: ${JSON.stringify(metrics.resultGrid)}`);
       assert(metrics.resultGrid.cardWidth >= metrics.resultGrid.gridWidth * 0.95, `A single matching listing fills its available browsing width rather than leaving an empty grid column: ${JSON.stringify(metrics.resultGrid)}`);
       assert.equal(metrics.bestSellersVisible, false, `Best sellers do not push the tablet catalogue results away from the filters: ${width}px`);
-      assert(metrics.buttons.every(button => button.left >= metrics.group.left - 1 && button.right <= metrics.group.right + 1), `Every category label is fully visible at ${width}px: ${JSON.stringify(metrics)}`);
       assert(metrics.buttons.every(button => button.height >= 43), `Category buttons remain comfortably tappable at ${width}px`);
       assert(metrics.resultGrid.imageLoaded, `The actual listing photo loads at ${width}px: ${JSON.stringify(metrics.resultGrid)}`);
       if (width < 640) {
+        assert.equal(metrics.group.scroll, "auto", `Phone category pills use a horizontal scroll rail: ${JSON.stringify(metrics.group)}`);
+        assert(metrics.group.scrollWidth > metrics.group.clientWidth, `Phone category rail keeps all categories reachable without adding a second row: ${JSON.stringify(metrics.group)}`);
+        assert(metrics.buttons[0].left >= metrics.group.left - 1 && metrics.buttons[0].right <= metrics.group.right + 1, `The first category is visible at the rail start`);
         assert.equal(metrics.filters.expanded, "false", `Secondary filters start collapsed on phone widths`);
         assert.equal(metrics.filters.display, "none", `Collapsed mobile filters do not consume vertical space`);
         assert(metrics.filters.left >= metrics.filters.searchRight + 1 && metrics.filters.right <= width, `The filter button sits beside search without overlap or viewport clipping: ${JSON.stringify(metrics.filters)}`);
       } else {
+        assert(metrics.buttons.every(button => button.left >= metrics.group.left - 1 && button.right <= metrics.group.right + 1), `Every category label remains visible at ${width}px: ${JSON.stringify(metrics)}`);
         assert.notEqual(metrics.filters.display, "none", `Tablet and desktop refinements stay visible without another tap`);
       }
       if (width === 320) {
-        assert.equal(metrics.group.scroll, "visible", "Narrow-phone category filters wrap instead of horizontally clipping the next button");
-        assert(metrics.buttons.some(button => button.top > metrics.buttons[0].top), "The full filter set wraps into a second row on a 320px phone");
+        await browser.evaluate(`(()=>{const rail=document.querySelector('[aria-label="Gear categories"]');rail.scrollTo({left:rail.scrollWidth,behavior:'instant'})})()`);
+        await wait(100);
+        const lastCategory = await browser.evaluate(`(()=>{const rail=document.querySelector('[aria-label="Gear categories"]'),buttons=rail.querySelectorAll('button'),button=buttons[buttons.length-1],r=button.getBoundingClientRect(),g=rail.getBoundingClientRect();return{left:r.left,right:r.right,railLeft:g.left,railRight:g.right,scrollLeft:rail.scrollLeft}})()`);
+        assert(lastCategory.left >= lastCategory.railLeft - 1 && lastCategory.right <= lastCategory.railRight + 1, `The last phone category can scroll fully into view: ${JSON.stringify(lastCategory)}`);
+        await browser.evaluate(`document.querySelector('[aria-label="Gear categories"]').scrollTo({left:0,behavior:'instant'})`);
+        await wait(100);
       }
-      if (width < 768) assert.equal(metrics.buttons.at(-1).right <= metrics.group.right + 1, true, `The final category is not cut off at ${width}px`);
       if (width === 320) {
         await browser.evaluate(`document.querySelector('[aria-controls="gear-refinements"]').click()`);
         assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('#gear-refinements')).display`), "grid", "Phone refinements expand when selected");
@@ -118,7 +124,7 @@ async function main() {
         await browser.evaluate(`([...document.querySelectorAll('[aria-label="Gear categories"] button')].find(item=>item.textContent.includes('Lenses'))).click()`);
         for (let attempt = 0; attempt < 30 && !await browser.evaluate(`([...document.querySelectorAll('[aria-label="Gear categories"] button')].find(item=>item.textContent.includes('Lenses'))?.getAttribute('aria-pressed')==='true')`); attempt++) await wait(50);
         const selected = await browser.evaluate(`([...document.querySelectorAll('[aria-label="Gear categories"] button')].find(item=>item.textContent.includes('Lenses'))?.getAttribute('aria-pressed'))`);
-        assert.equal(selected, "true", "A wrapped category filter remains operable");
+        assert.equal(selected, "true", "A category filter remains operable on a phone");
         await browser.evaluate(`([...document.querySelectorAll('[aria-label="Gear categories"] button')].find(item=>item.textContent.trim().startsWith('All'))).click()`);
         assert.equal(await browser.evaluate(`([...document.querySelectorAll('[aria-label="Gear categories"] button')].find(item=>item.textContent.trim().startsWith('All'))?.getAttribute('aria-pressed'))`), "true", "Reset the synthetic fixture to All before capturing the catalogue state");
       }

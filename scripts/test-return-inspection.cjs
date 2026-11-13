@@ -66,6 +66,17 @@ const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
  assert.equal(await archives.purgeExpired.handler(ctx,{}),0,'Resolved claims retain verification files for 90 days');
  await db.patch(damageCase._id,{openedAt:Date.now()-92*86400000,closedAt:Date.now()-91*86400000});await db.patch(otherCase._id,{openedAt:Date.now()-92*86400000,closedAt:Date.now()-91*86400000});
  assert.equal(await archives.purgeExpired.handler(ctx,{}),1,'Files expire after the last resolved claim retention window');assert(b.rmv2Revision>=2,'Case opening and closure queue fresh durable website revisions');
+ const insuranceBooking=put('bookings',{status:'confirmed',lineItems:[{title:'Insurance case camera',qty:1}]});
+ const insuranceSchedule=await cases.schedule.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:insuranceBooking._id});
+ const insuranceArgs={token:process.env.ADMIN_TOKEN,bookingId:insuranceBooking._id,itemKey:insuranceSchedule.items[0].key,caseType:'insurance_follow_up',details:'Prepare the incident record for broker follow-up.',requestId:'insurance-follow-up-00000001',confirmed:true};
+ const insuranceCaseId=await cases.openCase.handler(ctx,insuranceArgs);const insuranceCase=await db.get(insuranceCaseId);
+ assert.equal(insuranceCase.caseType,'insurance_follow_up','Insurance follow-up is a typed internal case');
+ await assert.rejects(()=>cases.openCase.handler(ctx,{...insuranceArgs,token:'wrong',requestId:'insurance-follow-up-00000002'}),/unauthorized/,'Customers cannot open admin rental cases');
+ assert.equal(await cases.openCase.handler(ctx,insuranceArgs),insuranceCaseId,'An uncertain retry returns the same typed case');
+ await assert.rejects(()=>cases.openCase.handler(ctx,{...insuranceArgs,caseType:'damage'}),/different details/,'An idempotency key cannot change case type');
+ assert.equal((await cases.schedule.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:insuranceBooking._id})).cases[0].caseType,'insurance_follow_up','Admin case history displays its classification');
+ const insuranceReport=await cases.exportCaseSummary.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:insuranceBooking._id,caseId:insuranceCaseId,expectedVersion:0,confirmed:true});
+ assert(insuranceReport.report.includes('Case type: Insurance follow-up (internal)'),'Private case export preserves the insurance-follow-up classification');assert(insuranceReport.report.includes('This is not an insurer claim'),'Export does not suggest a claim was filed');
  const legacy=put('bookings',{lineItems:[{title:'Legacy camera',qty:2}]});assert.equal((await returnInspectionSchedule(ctx,legacy)).length,2);
  const fenced=put('bookings',{status:'confirmed',lineItems:[]}),fencedSwap=put('rental_item_swaps',{bookingId:fenced._id,status:'applied'}),fencedReservation=put('reservations',{bookingId:fenced._id,status:'confirmed'});fenced.activeItemSwapId=fencedSwap._id;
  await assert.rejects(bookings.markReturnedStatus.handler(ctx,{bookingId:fenced._id}),/stock reconciliation/);assert.equal(fenced.status,'confirmed');assert.equal(fencedReservation.status,'confirmed','An in-flight equipment settlement cannot free booked stock');
@@ -73,7 +84,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
  const statement={number:'RETURN-FIXTURE',issuedAt:Date.now(),actualReturnedAt:Date.now(),supplierName:'DB Cinema fixture',customerEmail:account.email,
   lineItems:[{title:'Camera kit',start,end,qty:1,lineTotal:100}],subtotal:100,discount:0,deliveryFee:0,creditApplied:0,checkoutPaid:140.5,securityPaid:40.5,securityRefunded:40.5,damageTotal:0,damageFromHold:0,lateAssessed:0,lateWaived:0,lateBreakdown:[],
   inspection:b.returnDecision.inspection,damageNote:'Photograph <evidence> retained; no charge while reviewed'};
- let mail;setMock('./lib/mailer',{sendMail:async value=>{mail=value;return true}});
+ let mail;setMock('./lib/mailer',{sendMail:async value=>{mail=value;return true},sendBusinessMailTracked:async value=>{mail=value;return {sent:true,resendEmailId:'resend-return-fixture',ambiguous:false}}});
  const worker=load('convex/invoice.ts'),originalFetch=global.fetch;
  process.env.INVOICE_SECRET='isolated-invoice-test';global.fetch=async()=>new Response('%PDF-isolated-worker-fixture',{headers:{'content-type':'application/pdf'}});
  try{await worker.returnSettlementEmail.handler({runMutation:async()=>true,runQuery:async()=>({statement})},{bookingId:b._id})}finally{global.fetch=originalFetch}
@@ -84,5 +95,6 @@ const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
  const source=ts.transpileModule(fs.readFileSync('src/lib/invoice/InvoiceDocument.tsx','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
  const module={exports:{}};new Function('require','module','exports',source)(name=>name==='@react-pdf/renderer'?renderer:name==='../site'?load('src/lib/site.ts'):name==='../../../shared/rentalSecurity'?load('shared/rentalSecurity.ts'):require(name),module,module.exports);
  const React=require('react');const pdf=await renderer.renderToBuffer(React.createElement(module.exports.ReturnStatementDocument,{data:statement}));assert.equal(pdf.subarray(0,5).toString(),'%PDF-','Actual return PDF renders the expanded inspection record');
+ const cardHoldPdf=await renderer.renderToBuffer(React.createElement(module.exports.ReturnStatementDocument,{data:{...statement,securityPolicyVersion:'2026-11-card-hold-v1',holdAmount:50,holdStatus:'released'}}));assert.equal(cardHoldPdf.subarray(0,5).toString(),'%PDF-','Historic card-hold return statements render their temporary authorisation separately from cash deposits');
  console.log('PASS physical item schedule, exact protected photo projection, kit/pack fallback, immutable inspection identity, quantity/extension handling, explicit conditions, zero-deduction issues, frozen retry-safe inspection, account-linked cases, admin resolution and case-aware retention.');
 })().catch(e=>{console.error(e);process.exitCode=1});

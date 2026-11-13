@@ -33,21 +33,36 @@ async function expectError(args, code) {
   await expectError({ email: 'bad@email', password }, 'INVALID_INPUT');
   await expectError({ email: 'missing@example.invalid', password }, 'INVALID_CREDENTIALS');
   await expectError({ email: account.email, password: 'WrongPassword123' }, 'INVALID_CREDENTIALS');
+  assert.equal(account.passwordSignInAttemptCount, 1, 'A failed password check is counted on the account record');
+  for (let i = 1; i < 8; i++)
+    await expectError({ email: account.email, password: 'WrongPassword123' }, 'INVALID_CREDENTIALS');
+  assert.equal(account.passwordSignInAttemptCount, 8, 'The account allows at most eight password checks in a 15-minute window');
+  await expectError({ email: ' PERSON@EXAMPLE.INVALID ', password }, 'INVALID_CREDENTIALS');
+  assert.equal((tables.get('rate_limits') ?? []).length, 0, 'Password attempts do not create per-attempt limiter rows');
+  await db.patch(account._id, { passwordSignInWindowStartedAt: Date.now() - 16 * 60 * 1000 });
   const login = await accounts.signIn.handler(ctx, { email: ' PERSON@EXAMPLE.INVALID ', password });
   assert.equal((await accounts.me.handler(ctx, { token: login.token }))._id, account._id,
     'Normalized email and reset-compatible PBKDF2 must authenticate the original permanent account');
   assert.equal((tables.get('accounts') ?? []).length, 1, 'Signing in never creates a replacement account');
+  assert.equal(account.passwordSignInAttemptCount, undefined, 'Successful login clears the bounded attempt counter');
+  await assert.rejects(accounts.changePassword.handler(ctx, { token: login.token, oldPassword: password, newPassword: 'seven77' }), /8 to 256/);
+  await assert.rejects(accounts.changePassword.handler(ctx, { token: login.token, oldPassword: password, newPassword: 'x'.repeat(257) }), /8 to 256/);
+  await accounts.changePassword.handler(ctx, { token: login.token, oldPassword: password, newPassword: 'Eight888' });
+  assert((await accounts.signIn.handler(ctx, { email: account.email, password: 'Eight888' })).token,
+    'An eight-character password works through change-password and sign-in');
   await db.patch(account._id, { blockedAt: Date.now() });
-  await expectError({ email: account.email, password }, 'ACCOUNT_BLOCKED');
+  await expectError({ email: account.email, password: 'Eight888' }, 'INVALID_CREDENTIALS');
   await db.patch(account._id, { blockedAt: undefined, emailVerificationRequired: true, emailVerifiedAt: undefined });
-  await expectError({ email: account.email, password }, 'EMAIL_VERIFICATION_REQUIRED');
+  await expectError({ email: account.email, password: 'Eight888' }, 'INVALID_CREDENTIALS');
   await assert.rejects(accounts._session.handler(ctx, { accountId: account._id, token: 'unverified' }),
     error => error.data?.code === 'EMAIL_VERIFICATION_REQUIRED');
   await db.patch(account._id, { emailVerificationRequired: false, emailVerifiedAt: 1, hash: undefined, salt: undefined });
-  await expectError({ email: account.email, password }, 'PASSWORD_NOT_SET');
+  await expectError({ email: account.email, password: 'Eight888' }, 'INVALID_CREDENTIALS');
   await assert.rejects(accounts.signUp.handler(ctx, { email: account.email, password, termsAndPrivacyAcknowledged: true, termsVersion: legalVersionForPolicy({}), privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION }),
     error => error.data?.code === 'ACCOUNT_EXISTS');
-  await assert.rejects(accounts.signUp.handler(ctx, { email: 'bad', password: '123' }),
+  await assert.rejects(accounts.signUp.handler(ctx, { email: 'bad', password: '1234567' }),
+    error => error.data?.code === 'SIGNUP_INVALID_INPUT');
+  await assert.rejects(accounts.signUp.handler(ctx, { email: 'short@example.invalid', password: '1234567', termsAndPrivacyAcknowledged: true, termsVersion: legalVersionForPolicy({}), privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION }),
     error => error.data?.code === 'SIGNUP_INVALID_INPUT');
   for (const error of [null, {}, new Error('[CONVEX A(accounts:signIn)] [Request ID: private] Server Error'),
     { data: { code: 'UNKNOWN', message: 'private backend stack trace' } }, { data: { code: 'toString' } }]) {

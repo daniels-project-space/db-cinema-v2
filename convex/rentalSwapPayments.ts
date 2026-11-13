@@ -7,6 +7,7 @@ import { recoverApprovedRefund, RefundReviewRequired, type RefundReceipt } from 
 import { remainingRentalPayment } from "./lib/rentalStripeBalance";
 import { rentalRefundPlan } from "./lib/rentalPaymentPlan";
 import { swapAuthorityAvailable } from "./lib/rentalSwapAuthority";
+import { ASYNC_PAYMENT_FAILURE_RETRY_ERROR } from "./rentalSwapState";
 
 function stripe() {
   if (!process.env.STRIPE_SECRET_KEY) throw Error("Stripe is not configured.");
@@ -295,7 +296,7 @@ async function ensureSession(ctx:any, swap:any) {
   await ctx.runMutation(internal.rentalSwapState.bindSession,{id:swap._id,sessionId:session.id,url:session.url});return session;
 }
 
-async function finishPayment(ctx:any, session:Stripe.Checkout.Session) {
+async function finishPayment(ctx:any, session:Stripe.Checkout.Session):Promise<any> {
   const id=session.metadata?.itemSwapId;if(!id)throw Error("Equipment payment metadata is missing.");
   const context:any=await ctx.runQuery(internal.rentalSwapState.context,{id});if(!context)throw Error("Equipment proposal is missing.");let swap=context.swap;
   if(session.status!=="complete"||session.payment_status!=="paid")return {bookingId:swap.bookingId,paid:false};
@@ -323,7 +324,58 @@ async function finishPayment(ctx:any, session:Stripe.Checkout.Session) {
   catch(error){const decision:any=await ctx.runMutation(internal.rentalSwapState.beginCompensation,{id,sessionId:session.id,paymentIntentId:paymentId,amountPence:payment.amount_received,reason:error instanceof Error?error.message:"Equipment application failed"});if(decision.applied||decision.refunded)return decision;return compensate(ctx,id);}
 }
 
-async function compensate(ctx:any,id:any) {
+/** Reconcile an asynchronous Checkout failure against fresh Stripe state.
+ * An event alone is not proof that the PaymentIntent can no longer settle.
+ * Only a complete, unpaid session plus a canceled, zero-received PaymentIntent
+ * lets the state machine close the change and start releasing its stock claim. */
+async function checkAsyncPaymentFailure(ctx:any,id:any):Promise<any> {
+  const context:any=await ctx.runQuery(internal.rentalSwapState.context,{id});
+  const swap=context?.swap;
+  if(!swap||swap.status!=="review"||!swap.asyncPaymentFailureAt||swap.asyncPaymentFailureResolvedAt)return {ignored:true};
+  const snapshot={id:swap._id,expectedStatus:swap.status,expectedDue:swap.reconcileAfter};
+  try {
+    if(!swap.sessionId||swap.quote.deltaPence<=0||swap.paymentIntentId||swap.refundJobId)throw Error("The stored equipment payment is not safe to close.");
+    const client=stripe(),expectedId=String(swap._id),expectedAmount=swap.quote.deltaPence;
+    const matchesSession=(session:any)=>session?.id===swap.sessionId&&session.metadata?.itemSwapId===expectedId&&session.currency==="gbp"&&session.amount_total===expectedAmount;
+    let session:any=await client.checkout.sessions.retrieve(swap.sessionId);
+    if(!matchesSession(session))throw Error("The stored Checkout Session does not match this equipment change.");
+    if(session.status==="complete"&&session.payment_status==="paid")return await finishPayment(ctx,session);
+    if(session.status!=="complete"||session.payment_status!=="unpaid")throw Error("Stripe has not confirmed the final unpaid Checkout Session state.");
+    const paymentIntentId=typeof session.payment_intent==="string"?session.payment_intent:session.payment_intent?.id;
+    if(!paymentIntentId)throw Error("The unpaid Checkout Session has no PaymentIntent to reconcile.");
+    let payment:any=await client.paymentIntents.retrieve(paymentIntentId);
+    const matchesIntent=(intent:any)=>intent?.id===paymentIntentId&&intent.metadata?.itemSwapId===expectedId&&intent.amount===expectedAmount&&intent.currency==="gbp"&&intent.amount_received===0;
+    if(!matchesIntent(payment))throw Error("The PaymentIntent does not prove a zero-value final failure for this equipment change.");
+    if(payment.status==="succeeded")throw Error("Stripe reports a completed PaymentIntent while Checkout reports unpaid.");
+    if(payment.status!=="canceled"){
+      // A processing intent can still settle. Leave it locked and retry rather
+      // than canceling it or declaring an unpaid result from the event alone.
+      if(!["requires_payment_method","requires_confirmation","requires_action","requires_capture"].includes(payment.status))
+        throw Error("The PaymentIntent is still processing or has an unknown status.");
+      try { await client.paymentIntents.cancel(paymentIntentId); }
+      catch { /* A lost cancel response is resolved by the fresh retrieval below. */ }
+      payment=await client.paymentIntents.retrieve(paymentIntentId);
+      if(!matchesIntent(payment)||payment.status!=="canceled")throw Error("Stripe has not confirmed that the unpaid PaymentIntent was canceled.");
+    }
+    // Re-read both objects after cancellation; do not rely on the webhook
+    // payload or a stale pre-cancel response as terminal evidence.
+    payment=await client.paymentIntents.retrieve(paymentIntentId);
+    session=await client.checkout.sessions.retrieve(swap.sessionId);
+    const sessionPaymentId=typeof session.payment_intent==="string"?session.payment_intent:session.payment_intent?.id;
+    if(!matchesSession(session)||session.status!=="complete"||session.payment_status!=="unpaid"||sessionPaymentId!==paymentIntentId||!matchesIntent(payment)||payment.status!=="canceled")
+      throw Error("Stripe has not confirmed matching final unpaid Checkout and PaymentIntent states.");
+    const evidence={sessionId:session.id,sessionStatus:"complete" as const,paymentStatus:"unpaid" as const,paymentIntentId,paymentIntentStatus:"canceled" as const,amountPence:expectedAmount,amountReceivedPence:0 as const,currency:"gbp" as const,checkedAt:Date.now()};
+    return await ctx.runMutation(internal.rentalSwapState.finalizeAsyncPaymentFailure,{id:swap._id,evidence});
+  } catch(error) {
+    const message=error instanceof Error?error.message:"Stripe has not confirmed the final equipment-payment result.";
+    await ctx.runMutation(internal.rentalSwapState.reconcileResult,{...snapshot,error:message});
+    return {status:"review",error:message};
+  }
+}
+
+export const reconcileAsyncPaymentFailure=internalAction({args:{id:v.id("rental_item_swaps")},handler:async(ctx,{id}):Promise<any>=>checkAsyncPaymentFailure(ctx,id)});
+
+async function compensate(ctx:any,id:any):Promise<any> {
   const context:any=await ctx.runQuery(internal.rentalSwapState.context,{id});const swap=context?.swap;
   if(!swap||!swap.compensationStartedAt||!swap.paymentIntentId)throw Error("The compensation decision is unavailable.");
   if(swap.status==="refunded")return {refunded:true};
@@ -400,7 +452,8 @@ async function finishRefund(ctx:any, swap:any) {
   return finish();
 }
 
-export const accept=action({args:{token:v.string(),id:v.id("rental_item_swaps"),expectedDeltaPence:v.number()},handler:async(ctx,args):Promise<any>=>{
+export const accept=action({args:{token:v.string(),id:v.id("rental_item_swaps"),expectedDeltaPence:v.number(),confirmed:v.boolean()},handler:async(ctx,args):Promise<any>=>{
+  if (!args.confirmed) throw Error("Please acknowledge the equipment change and amount before accepting.");
   const swap:any=await ctx.runMutation(internal.rentalSwapState.accept,args);
   if(swap.status==="applied")return {applied:true};
   if(swap.quote.deltaPence===0){await ensureStock(ctx,swap._id);return ctx.runMutation(internal.rentalSwapState.apply,{id:swap._id});}
@@ -428,7 +481,7 @@ export const refundPaidReview=action({args:{token:v.string(),id:v.id("rental_ite
   if(decision.refunded)return decision;
   return compensate(ctx,args.id);
 }});
-export const resumeReview=action({args:{token:v.string(),id:v.id("rental_item_swaps"),confirmed:v.boolean()},handler:async(ctx,args):Promise<any>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"rentalSwapPayments.resumeReview"});if(!args.confirmed)throw Error("Confirm resuming the original equipment settlement first.");const swap:any=await ctx.runMutation(internal.rentalSwapState.resumeReview,{id:args.id});if(swap.status==="awaiting_acceptance")return {status:"awaiting_acceptance"};if(swap.compensationStartedAt)return compensate(ctx,swap._id);if(swap.quote.deltaPence<0)return finishRefund(ctx,swap);if(swap.quote.deltaPence===0){await ensureStock(ctx,swap._id);return ctx.runMutation(internal.rentalSwapState.apply,{id:swap._id});}const session:any=await ensureSession(ctx,swap);return session.status==="complete"?finishPayment(ctx,session):{url:session.url};}});
+export const resumeReview=action({args:{token:v.string(),id:v.id("rental_item_swaps"),confirmed:v.boolean()},handler:async(ctx,args):Promise<any>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"rentalSwapPayments.resumeReview"});if(!args.confirmed)throw Error("Confirm resuming the original equipment settlement first.");const swap:any=await ctx.runMutation(internal.rentalSwapState.resumeReview,{id:args.id});if(swap.status==="awaiting_acceptance")return {status:"awaiting_acceptance"};if(swap.asyncPaymentFailureAt)return checkAsyncPaymentFailure(ctx,swap._id);if(swap.compensationStartedAt)return compensate(ctx,swap._id);if(swap.quote.deltaPence<0)return finishRefund(ctx,swap);if(swap.quote.deltaPence===0){await ensureStock(ctx,swap._id);return ctx.runMutation(internal.rentalSwapState.apply,{id:swap._id});}const session:any=await ensureSession(ctx,swap);return session.status==="complete"?finishPayment(ctx,session):{url:session.url};}});
 export const checkRefundApproval=action({args:{token:v.string(),id:v.id("rental_item_swaps")},handler:async(ctx,args):Promise<any>=>{
   await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"rentalSwapPayments.checkRefundApproval"});
   const context:any=await ctx.runQuery(internal.rentalSwapState.context,{id:args.id}),swap=context?.swap;
@@ -454,6 +507,7 @@ export const reconcile=internalAction({args:{},handler:async(ctx):Promise<void>=
   for(const swap of rows){
     const snapshot={id:swap._id,expectedStatus:swap.status,expectedDue:swap.reconcileAfter};
     try{
+      if(swap.status==="review"&&swap.asyncPaymentFailureAt&&swap.reconcileError===ASYNC_PAYMENT_FAILURE_RETRY_ERROR){await checkAsyncPaymentFailure(ctx,swap._id);continue;}
       if(swap.status==="awaiting_acceptance"){
         if(swap.expiresAt<=Date.now())await ctx.runMutation(internal.rentalSwapState.close,{id:swap._id,status:"expired"});
       }else if(swap.compensationStartedAt)await compensate(ctx,swap._id);

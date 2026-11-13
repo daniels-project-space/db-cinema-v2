@@ -1,5 +1,7 @@
 "use client";
 import { formatGbp } from "@/lib/pricing";
+import { CONTACT_EMAIL } from "@/lib/site";
+import { emailDeliveryStatusLabel, type ResendDeliveryStatus } from "../../../shared/emailDeliveryStatus";
 import { RentalKit } from "@/components/rentals/RentalKit";
 import { CompactRentalImages } from "./CompactRentalImages";
 import { RentalOrderTools } from "./RentalOrderTools";
@@ -7,7 +9,7 @@ import { RestrictedIdentityAlertFailures } from "./RestrictedIdentityAlertFailur
 import { PossibleRestrictedIdentityMatch } from "./PossibleRestrictedIdentityMatch";
 import { AccountDocuments } from "./AccountDocuments";
 import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, usePaginatedQuery, useMutation, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import chatStyles from "@/components/rentals/RentalConversation.module.css";
@@ -47,7 +49,6 @@ function EmailConversationPanel({
   const [error, setError] = useState("");
   const replyConfigured = data?.authorized === true && data.replyConfigured === true;
   const replySetupStatus = data?.authorized === true ? data.replySetupStatus : undefined;
-  const outboundSenderAddress = data?.authorized === true ? data.outboundSenderAddress : null;
   const replyToAddress = data?.authorized === true ? data.replyToAddress : null;
   const thread = data?.authorized ? data.thread : null;
   const messages = data?.authorized ? data.messages : [];
@@ -114,6 +115,23 @@ function EmailConversationPanel({
                 <span>·</span>
                 <time dateTime={new Date(message.at).toISOString()}>{emailDate(message.at)}</time>
                 {message.state !== (fromCustomer ? "received" : "sent") && <span className="rounded-full bg-amber-200/10 px-2 py-0.5 text-amber-100/70">{message.state}</span>}
+                {!fromCustomer && message.state === "sent" && !(message.recipientDeliveryStatuses?.length) && (
+                  <span className="rounded-full border border-sky-200/15 bg-sky-200/[0.06] px-2 py-0.5 text-sky-100/65">
+                    {message.resendEmailId ? "Awaiting delivery status" : "Provider accepted · status unavailable"}
+                  </span>
+                )}
+                {!fromCustomer && message.recipientDeliveryStatuses?.map((delivery: any) => {
+                  const failed = ["bounced", "suppressed", "failed", "complained"].includes(delivery.status);
+                  return (
+                    <span
+                      key={`${delivery.recipient}:${delivery.eventId}`}
+                      title={delivery.reason ? `${delivery.recipient}: ${delivery.reason}` : delivery.recipient}
+                      className={`max-w-full truncate rounded-full border px-2 py-0.5 ${failed ? "border-rose-300/20 bg-rose-300/[0.06] text-rose-100/75" : delivery.status === "delivered" ? "border-emerald-300/20 bg-emerald-300/[0.06] text-emerald-100/75" : "border-amber-300/20 bg-amber-300/[0.06] text-amber-100/75"}`}
+                    >
+                      {emailDeliveryStatusLabel(delivery.status as ResendDeliveryStatus)} · {delivery.recipient}
+                    </span>
+                  );
+                })}
               </div>
               {message.subject && fromCustomer && <p className="mb-2 text-xs font-medium text-white/60">Subject: {message.subject}</p>}
               <p className="whitespace-pre-wrap break-words text-sm leading-6 text-white/85">{message.text}</p>
@@ -126,7 +144,7 @@ function EmailConversationPanel({
         <label htmlFor="email-owner-reply" className="mb-2 block text-xs font-medium text-white/65">Reply by email</label>
         <textarea id="email-owner-reply" value={draft} onChange={(event) => setDraft(event.target.value)} rows={4} maxLength={12000} disabled={!replyConfigured} placeholder={replyConfigured ? "Write an email reply…" : "Email replies are temporarily unavailable"} className="w-full resize-y rounded-2xl border border-white/10 bg-black/20 p-3 text-sm leading-6 text-white outline-none placeholder:text-white/25 focus:border-sky-300/35 disabled:cursor-not-allowed disabled:opacity-45" />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[11px] text-white/40">{replyConfigured ? `Send from ${outboundSenderAddress}; replies go to ${replyToAddress}.` : replySetupStatus === "missing_business_sender" ? "Business email sending is not configured." : "Email reply routing is not configured yet."}</p>
+          <p className="text-[11px] text-white/40">{replyConfigured ? `Email the renter; replies return to ${replyToAddress || "the DB Cinema inbox"}.` : replySetupStatus === "missing_business_sender" ? "Business email sending is not configured." : "Email reply routing is not configured yet."}</p>
           <button type="submit" disabled={!replyConfigured || sending || !draft.trim()} className="rounded-full bg-sky-200 px-4 py-2 text-xs font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">{sending ? "Sending…" : "Send email reply"}</button>
         </div>
         {error && <p role="alert" className="mt-3 text-xs leading-5 text-rose-200">{error}</p>}
@@ -140,11 +158,15 @@ export function RentalInbox({
   focusBookingId,
   focusAccountId,
   focusRevision = 0,
+  focusEmail,
+  focusEmailRevision = 0,
 }: {
   token: string;
   focusBookingId?: string | null;
   focusAccountId?: string | null;
   focusRevision?: number;
+  focusEmail?: string | null;
+  focusEmailRevision?: number;
 }) {
   const [stage, setStage] = useState(focusAccountId ? "general" : "all"),
     [search, setSearch] = useState(""),
@@ -203,6 +225,19 @@ export function RentalInbox({
       setSearch("");
     }
   }, [focusBookingId, focusAccountId, focusRevision]);
+  useEffect(() => {
+    if (focusEmailRevision < 1) return;
+    setStage("emails");
+    setSearch(focusEmail?.trim() ?? "");
+    setSelected(null);
+    setSelectedEmail(null);
+  }, [focusEmail, focusEmailRevision]);
+  useEffect(() => {
+    if (focusEmailRevision < 1 || !focusEmail?.trim() || selectedEmail) return;
+    const address = focusEmail.trim().toLowerCase();
+    const match = emailItems.find(thread => thread.email.trim().toLowerCase() === address);
+    if (match) setSelectedEmail(String(match._id));
+  }, [emailItems, focusEmail, focusEmailRevision, selectedEmail]);
   useEffect(() => {
     if (!ping) return;
     const unlock = () => {
@@ -384,17 +419,17 @@ export function RentalInbox({
           {isEmailStage && emailInbox?.authorized && <section aria-label="Email routing status" className="mb-3 rounded-2xl border border-sky-300/15 bg-sky-300/[0.035] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-xs font-semibold text-white/80">Outbound replies</p>
-                <p className="mt-1 text-[11px] text-white/50">{emailInbox.replyConfigured ? `Ready · sends as ${emailInbox.outboundSenderAddress}; replies to ${emailInbox.replyToAddress}` : emailInbox.replySetupStatus === "missing_business_sender" ? "Business sender needs setup." : "Reply route needs setup."}</p>
+                <p className="text-xs font-semibold text-white/80">Business email</p>
+                <p className="mt-1 text-[11px] text-white/50">{emailInbox.replyConfigured ? `Automated and team replies are tracked here; standard replies go to ${emailInbox.replyToAddress || "the DB Cinema inbox"}.` : emailInbox.replySetupStatus === "missing_business_sender" ? "Business sender needs setup." : "Gaffer reply route needs setup."}</p>
               </div>
-              <span className={`rounded-full px-2 py-1 text-[10px] ${emailInbox.replyConfigured ? "bg-emerald-300/10 text-emerald-100" : "bg-amber-300/10 text-amber-100"}`}>{emailInbox.replyConfigured ? "Ready" : "Needs setup"}</span>
+              <span className={`rounded-full px-2 py-1 text-[10px] ${emailInbox.replyConfigured ? "bg-emerald-300/10 text-emerald-100" : "bg-amber-300/10 text-amber-100"}`}>{emailInbox.replyConfigured ? "Sending ready" : "Needs setup"}</span>
             </div>
             {emailInbox.inboundForwardingAddress ? <div className="mt-3 border-t border-white/[0.07] pt-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[11px] font-medium text-white/75">Gmail forwarding</p>
-                <span className="rounded-full bg-sky-300/10 px-2 py-1 text-[10px] text-sky-100">Forwarding target</span>
+                <p className="text-[11px] font-medium text-white/75">Renter replies to Gaffer</p>
+                <span className="rounded-full bg-amber-300/10 px-2 py-1 text-[10px] text-amber-100">Test needed</span>
               </div>
-              <p className="mt-1 text-[10px] leading-4 text-white/45">Copy this address into Gmail forwarding. The site cannot read whether forwarding is on.</p>
+              <p className="mt-1 text-[10px] leading-4 text-white/45">Forward replies from {CONTACT_EMAIL} here so Gaffer can continue the same email conversation.</p>
               <div className="mt-1 flex min-w-0 items-center gap-1.5">
                 <code className="min-w-0 flex-1 truncate rounded-lg bg-black/20 px-2 py-1.5 text-[10px] text-sky-100" title={emailInbox.inboundForwardingAddress}>{emailInbox.inboundForwardingAddress}</code>
                 <button type="button" onClick={async () => {
@@ -402,7 +437,10 @@ export function RentalInbox({
                   catch { setForwardCopyStatus("Copy manually"); }
                 }} className="shrink-0 rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-white/65 hover:bg-white/[0.06]">{forwardCopyStatus || "Copy"}</button>
               </div>
-              <a href="https://mail.google.com/mail/?authuser=dbcinemarentals%40gmail.com#settings/fwdandpop" target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-lg border border-white/10 px-2.5 py-1.5 text-[10px] text-white/65 hover:bg-white/[0.06]">Open business Gmail forwarding</a>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <a href={`https://mail.google.com/mail/?authuser=${encodeURIComponent(CONTACT_EMAIL)}#inbox`} target="_blank" rel="noreferrer" className="inline-flex rounded-lg border border-white/10 px-2.5 py-1.5 text-[10px] text-white/65 hover:bg-white/[0.06]">Open DB Cinema inbox</a>
+                <a href={`https://mail.google.com/mail/?authuser=${encodeURIComponent(CONTACT_EMAIL)}#settings/fwdandpop`} target="_blank" rel="noreferrer" className="inline-flex rounded-lg border border-white/10 px-2.5 py-1.5 text-[10px] text-white/65 hover:bg-white/[0.06]">Forwarding settings</a>
+              </div>
               <details className="mt-2 text-[10px] leading-4 text-white/50">
                 <summary className="cursor-pointer text-white/65">Setup steps</summary>
                 <ol className="ml-4 mt-1 list-decimal space-y-1">
@@ -411,8 +449,8 @@ export function RentalInbox({
                   <li>Choose “Forward a copy”, keep Gmail’s copy, then Save Changes.</li>
                 </ol>
               </details>
-              <p className="mt-2 text-[10px] leading-4 text-white/40">After enabling forwarding, send a test to the business Gmail. Confirm it appears here before relying on email replies.</p>
-            </div> : <p className="mt-3 border-t border-white/[0.07] pt-3 text-[10px] text-amber-100/70">Inbound address needs setup.</p>}
+              <p className="mt-2 text-[10px] leading-4 text-white/40">Send a test message to Gmail and confirm it appears in this inbox. Forwarding is not verified automatically.</p>
+            </div> : <p className="mt-3 border-t border-white/[0.07] pt-3 text-[10px] text-amber-100/70">Gmail reply forwarding is not configured; email replies cannot re-enter Gaffer.</p>}
           </section>}
           <div className={chatStyles.conversationList}>
             {isEmailStage && emailInbox === undefined && <p className="p-6 text-center text-sm text-white/35">Loading emails…</p>}

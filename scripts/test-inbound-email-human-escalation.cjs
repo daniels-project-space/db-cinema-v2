@@ -48,8 +48,11 @@ const automaticReply = emailInbox.split("export const sendAssistantReply = actio
 assert.match(automaticReply, /const replyTo = OWNER_EMAIL/, "Gaffer replies send customer follow-ups to the monitored Gmail mailbox");
 assert.match(automaticReply, /\n\s+replyTo,\n/);
 assert.match(automaticReply, /args\.humanRequested && thread\.email !== OWNER_EMAIL[\s\S]{0,80}cc: \[OWNER_EMAIL\]/, "only human handoffs CC the owner on Gaffer's customer reply");
-assert.match(emailMailer, /sendBusinessMail/);
-assert.match(emailMailer, /sendBusinessMail\(\{[\s\S]{0,120}to: args\.to/, "Gaffer email replies use the verified DB Cinema sender");
+assert.match(emailMailer, /sendBusinessMailTracked\(/);
+assert.match(emailMailer, /sendBusinessMailTracked\(\{[\s\S]{0,140}to: args\.to/, "Gaffer replies use the tracked Resend sender so provider outcomes reach the central inbox");
+const mailer = readFileSync(path.join(__dirname, "../convex/lib/mailer.ts"), "utf8");
+assert.match(mailer, /configuredBusinessSender[\s\S]{0,220}isBusinessSender\(email\)/, "Tracked replies accept only the verified DB Cinema sender domain");
+assert.doesNotMatch(mailer, /GMAIL_APP_PASSWORD|nodemailer|smtp\.gmail\.com/i, "The retired Gmail SMTP route stays removed");
 assert.match(inboundRoute, /assistant\.humanRequested\s*===\s*true/);
 assert.match(inboundRoute, /api\.emailInbox\.markHumanRequested/);
 const gafferAt = inboundRoute.indexOf("const assistant = await handleChat");

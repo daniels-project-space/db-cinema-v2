@@ -40,12 +40,14 @@ export const listPublished = query({
     }
     return Promise.all(selected.map(async (r) => {
       const account = r.authorAccountId ? await ctx.db.get(r.authorAccountId) : null;
-      const photo = account?.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null;
+      const photo = r.source === "native" && r.authorImagePublic === true
+        ? (account?.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null) ?? account?.googleAvatarUrl ?? null
+        : null;
       return ({
       _id: r._id,
       source: r.source,
       author: r.author,
-      authorImage: photo ?? account?.googleAvatarUrl ?? (r.source === "native" ? null : r.authorImage ?? null),
+      authorImage: r.source === "native" ? photo : r.authorImage ?? null,
       rating: r.rating,
       incentivized: r.incentivized ?? false,encoreReward:r.encoreReward??false,prizeEntry:r.prizeEntry??(!!r.incentivized&&!r.encoreReward),
       text: r.text,
@@ -111,12 +113,14 @@ export const listNativePublished = query({
     );
     return Promise.all(withText.map(async (review) => {
       const account = review.authorAccountId ? await ctx.db.get(review.authorAccountId) : null;
-      const photo = account?.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null;
+      const photo = review.authorImagePublic === true
+        ? (account?.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null) ?? account?.googleAvatarUrl ?? null
+        : null;
       return {
         _id: review._id,
         source: review.source,
         author: review.author,
-        authorImage: photo ?? account?.googleAvatarUrl ?? (review.source === "native" ? null : review.authorImage ?? null),
+        authorImage: photo,
         rating: review.rating,
         incentivized: review.incentivized ?? false,
         encoreReward: review.encoreReward ?? false,
@@ -209,8 +213,8 @@ export const insertChunk = mutation({
 
 /** A logged-in customer leaves a verified review for one of their bookings. */
 export const submitNative = mutation({
-  args: { token: v.string(), bookingId: v.id("bookings"), rating: v.number(), text: v.string() },
-  handler: async (ctx, { token, bookingId, rating, text }) => {
+  args: { token: v.string(), bookingId: v.id("bookings"), rating: v.number(), text: v.string(), showProfilePhoto: v.optional(v.boolean()) },
+  handler: async (ctx, { token, bookingId, rating, text, showProfilePhoto }) => {
     const acct = await accountForToken(ctx, token);
     if (!acct) throw new Error("Please sign in to review.");
     const b = await ownedBooking(ctx, acct, bookingId);
@@ -224,7 +228,7 @@ export const submitNative = mutation({
       source: "native",
       author: acct.name ?? acct.email.split("@")[0],
       authorAccountId: acct._id,
-      authorImage: (acct.avatarStorageId && acct.avatarStorageId === acct.avatarOwnedStorageId ? await ctx.storage.getUrl(acct.avatarStorageId) : null) ?? acct.googleAvatarUrl ?? undefined,
+      authorImagePublic: showProfilePhoto === true,
       rating,
       text: text.trim(),
       product: b.lineItems[0]?.title,

@@ -94,12 +94,12 @@ export default function ContactPage() {
                 }}>
                   <p className="text-sm text-white/65">{name} · {email}</p>
                   <label htmlFor="contact-account-password" className="hud-label block">Choose a password</label>
-                  <input id="contact-account-password" type="password" autoComplete="new-password" minLength={6} required value={password} onChange={event => setPassword(event.target.value)} className="input w-full" />
+                  <input id="contact-account-password" type="password" autoComplete="new-password" minLength={8} maxLength={256} placeholder="8 to 256 characters" required value={password} onChange={event => setPassword(event.target.value)} className="input w-full" />
                   <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.025] px-3 py-3 text-xs leading-5 text-white/65">
                     <input type="checkbox" checked={termsAndPrivacyAcknowledged} onChange={event => setTermsAndPrivacyAcknowledged(event.target.checked)} disabled={!termsVersion} required className="mt-1 h-4 w-4 shrink-0 accent-[#c49a6c]" />
                     <span>I agree to the current <Link href={termsVersion ? `/legal/terms?version=${encodeURIComponent(termsVersion)}` : "/legal/terms"} target="_blank" rel="noreferrer" className="text-accent-300 underline underline-offset-2">Terms and Conditions</Link> and acknowledge the <Link href="/legal/privacy" target="_blank" rel="noreferrer" className="text-accent-300 underline underline-offset-2">Privacy Notice</Link>.</span>
                   </label>
-                  <button type="submit" className="btn-primary w-full py-3" disabled={busy || password.length < 6 || !termsAndPrivacyAcknowledged || !termsVersion}>{busy ? "Creating…" : "Save password & create account"}</button>
+                  <button type="submit" className="btn-primary w-full py-3" disabled={busy || password.length < 8 || password.length > 256 || !termsAndPrivacyAcknowledged || !termsVersion}>{busy ? "Creating…" : "Save password & create account"}</button>
                   <p className="text-xs leading-relaxed text-white/45">Confirm your email to keep your conversation private. Your name and email are already filled in.</p>
                   <Link className="block text-sm text-accent-300" href="/account?conversation=general#chat">Already have an account? Sign in →</Link>
                 </form>}

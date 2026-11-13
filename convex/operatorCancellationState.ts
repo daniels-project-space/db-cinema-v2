@@ -9,6 +9,7 @@ import {queueRentalEmail} from "./lib/rentalEmailQueue";
 import {queueRmv2Sync} from "./lib/rmv2SyncQueue";
 import {queueOwnerNotification} from "./lib/adminPush";
 import {assertAdmin,checkAdminToken} from "./adminAuth";
+import { bumpVerificationRetentionRevision } from "./lib/verificationRetentionRevision";
 const DAY=86400000;
 const money=v.object({cashRemainingPence:v.number(),securityRemainingPence:v.number(),spentCreditPence:v.number()});
 export const ownerStatus=query({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,a)=>{
@@ -41,8 +42,9 @@ export const begin=internalMutation({args:{bookingId:v.id("bookings"),reason:v.s
  const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",b._id)).take(101);
  if(refunds.length>100||refunds.some(r=>["prepared","pending"].includes(r.status)))throw Error("Finish or review the existing refund first.");
  const expiredProposal=b.activeItemSwapId?await expireUnacceptedItemSwap(ctx,b):null;
- const id=await ctx.db.insert("operator_cancellation_offers",{bookingId:b._id,accountId:account._id,recipientEmail:account.email,reason:a.reason.trim().slice(0,400)||"Equipment unexpectedly unavailable",state:"waiting",cancelledAt:now,decisionAfter:now+OPERATOR_CANCEL_GRACE_MS,pickupAt,dueAt:now+OPERATOR_CANCEL_GRACE_MS,generation:0,attempts:0,leaseUntil:0,updatedAt:now});
+ const id=await ctx.db.insert("operator_cancellation_offers",{bookingId:b._id,accountId:account._id,recipientEmail:account.email,reason:a.reason.trim().slice(0,400)||"DB Cinema cancellation",state:"waiting",cancelledAt:now,decisionAfter:now+OPERATOR_CANCEL_GRACE_MS,pickupAt,dueAt:now+OPERATOR_CANCEL_GRACE_MS,generation:0,attempts:0,leaseUntil:0,updatedAt:now});
  await ctx.db.patch(b._id,{status:"cancelled",cancelledAt:now,adminCancellationReason:a.reason.trim().slice(0,400),accountId:account._id,cancellationDecision:{kind:"full_refund",createdAt:now,operatorOfferId:id}});
+ await bumpVerificationRetentionRevision(ctx,{...b,accountId:account._id});
  if(expiredProposal)await postRentalMessage(ctx,{accountId:account._id,bookingId:b._id,sender:"system",text:"The pending equipment-change offer closed when the rental was cancelled. Your original confirmed items and price were unchanged."});
  for(const r of reservations){if(r.status==="hold")await ctx.db.delete(r._id);else if(r.status!=="cancelled")await ctx.db.patch(r._id,{status:"cancelled"});}
  await queueOwnerNotification(ctx,{eventKey:`operator-cancel-start:${id}`,kind:"booking_cancelled",accountId:account._id,bookingId:b._id,title:"Rental cancelled · settlement waiting",body:"The one-hour account decision window has started. No refund or account credit has been issued."});

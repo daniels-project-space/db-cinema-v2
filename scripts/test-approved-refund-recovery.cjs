@@ -37,6 +37,7 @@ const other = put('accounts', { email: 'old@rental-test.invalid' });
 put('sessions', { token: 'other', accountId: other._id, expiresAt: Date.now() + 60000 });
 const ctx = { db, scheduler: { runAfter: async () => {} },
   runQuery: async (ref, args) => {
+    if (ref === 'rentalRequests.blockingActionsInternal') return requests.blockingActionsInternal.handler(ctx, args);
     if (ref.startsWith('bookings.')) return bookings[ref.split('.')[1]].handler(ctx, args);
     if (ref.startsWith('cancellationRecovery.')) return recovery[ref.split('.')[1]].handler(ctx, args);
     if (ref.startsWith('operatorCancellationState.')) return load('convex/operatorCancellationState.ts')[ref.split('.')[1]].handler(ctx,args);

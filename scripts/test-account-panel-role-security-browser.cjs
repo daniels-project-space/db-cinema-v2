@@ -96,11 +96,12 @@ async function browserRoleCheck() {
     assert.equal(await client.evaluate(`!!document.querySelector('a[href^="https://business.didit.me"]')`), false, "renter cannot see the admin Didit case link");
     assert.equal(await client.evaluate(`!!document.querySelector('a[href^="/account/verification/"]')`), true, "renter still has their own verification/upload route");
     assert.equal(await client.evaluate(`!!document.querySelector('textarea[aria-label="Message"]')`), true, "renter retains the chat composer");
-    assert.equal(await client.evaluate(`!!document.querySelector('button[aria-label^="Attach an image"]:not(:disabled)')`), true, "renter retains image attachment control when the synthetic service is available");
+    for (let attempt = 0; attempt < 100 && !await client.evaluate(`!!document.querySelector('button[aria-label^="Attach a JPG"]:not(:disabled)')`); attempt++) await wait(20);
+    assert.equal(await client.evaluate(`!!document.querySelector('button[aria-label^="Attach a JPG"]:not(:disabled)')`), true, "renter retains image/text attachment control when the synthetic service is available");
     for (const text of ["Reschedule", "Request kit change", "Cancel · refund options"]) assert(renter.body.includes(text), `real RenterChat shows its renter request action: ${text}`);
     assert.equal(await client.evaluate(`!![...document.querySelectorAll('button')].find(node=>node.textContent.includes('Review and approve £12.00 with your bank'))`), true, "renter retains their bank authentication action");
     assert.equal(await client.evaluate(`!![...document.querySelectorAll('summary')].find(node=>node.textContent.includes('Raise a concern about this assessment'))`), true, "renter retains their dispute path");
-    for (const text of ["Prepare an itemised assessment", "Refund this payment to the original card", "Reconcile bank status", "Match an existing Stripe payment", "Download consent & evidence", "Restrict account", "Restore access", "Admin-only customer notes", "Account management", "Account details", "Verification needs review", "Possible identity match", "View private archive"]) {
+    for (const text of ["Prepare an itemised assessment", "Refund collected claim", "Reconcile bank status", "Match an existing Stripe payment", "Download consent & evidence", "Restrict account", "Restore access", "Admin-only customer notes", "Account management", "Account details", "Verification needs review", "Possible identity match", "View private archive"]) {
       assert.equal(renter.body.includes(text), false, `renter DOM excludes admin-only control: ${text}`);
     }
     await client.cmd("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/?identity=1` }); await wait(180);
@@ -110,7 +111,7 @@ async function browserRoleCheck() {
     await client.cmd("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/?admin=1` }); await wait(200);
     for (let attempt = 0; attempt < 100 && !await client.evaluate(`document.body.innerText.includes('Damage & late-fee collections')`); attempt++) await wait(50);
     const adminText = await client.evaluate("document.body.innerText");
-    for (const text of ["Prepare an itemised assessment", "Refund this payment to the original card", "Reconcile bank status", "Match an existing Stripe payment", "Download consent & evidence"]) assert(adminText.includes(text), `admin positive control renders ${text}`);
+    for (const text of ["Prepare an itemised assessment", "Refund collected claim", "Reconcile bank status", "Match an existing Stripe payment", "Download consent & evidence"]) assert(adminText.includes(text), `admin positive control renders ${text}`);
     console.log("PASS synthetic browser role separation: renter chat, verification route, renter card approval/dispute, and admin-only payment controls.");
   } finally {
     if (client) client.close();

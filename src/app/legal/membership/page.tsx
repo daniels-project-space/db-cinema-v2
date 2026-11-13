@@ -2,11 +2,12 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { MEMBERSHIP_TERMS_VERSION } from "@/lib/membership";
 import {currentLegalVersion} from "@/lib/currentLegalVersion";
-import {ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,IMMEDIATE_CLAIM_LEGAL_VERSION} from "@/lib/legal";
+import {ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,IMMEDIATE_CLAIM_LEGAL_VERSION} from "@/lib/legal";
 export const dynamic="force-dynamic";
 export default async function MembershipTerms() {
  const activeLegalVersion=await currentLegalVersion();
  const setupIntentPolicy=activeLegalVersion===IMMEDIATE_CLAIM_LEGAL_VERSION;
+ const cardHoldPolicy=activeLegalVersion===CARD_HOLD_LEGAL_VERSION;
  const assessment=[ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,"2026-10-v15","2026-10-v16"].includes(activeLegalVersion);
  const sections = [
   ["Your membership", "DB Cinema Rentals offers Starter at £19, Pro at £49 and Studio at £99 per month, billed in GBP. You must be at least 18 and have an account. These are recurring memberships, not a single rental purchase. We are not VAT registered and do not add VAT."],
@@ -24,7 +25,12 @@ export default async function MembershipTerms() {
  ];
  if(assessment){
   for(const section of sections){
-   if(section[0]==="Rental security")section[1]="For new rentals under the current refundable-deposit policy, eligible active members/subscribers and verified Encore renters have no cash deposit. Stripe still saves and verifies a card for evidenced future damage, loss and late-fee payments after itemised notice. ID and address verification remain required. Existing rentals retain their accepted terms; eligibility is confirmed by the final account-bound quote.";
+   if(section[0]==="Rental security")section[1]="For new rentals under the assessment policy, the refundable deposit is £20 below £1,000 equipment replacement value, £50 from £1,000 to below £4,000 and £100 at £4,000 or more. A £0 waiver is available only below £4,000 after the same account completes a previous rental with every item recorded in good condition, no damage or late-fee claim and settled security, and has either an active subscription after its first successful recurring payment or the final Encore level. First rentals, free trials, subscription alone and verification alone never qualify. No separate card hold is placed. Existing rentals keep their accepted terms.";
+  }
+ }
+ if(cardHoldPolicy){
+  for(const section of sections){
+   if(section[0]==="Rental security")section[1]="New rentals use a Stripe card authorisation hold instead of a cash deposit: £50 below £1,000 equipment replacement value, £100 from £1,000 to below £4,000 and £200 at £4,000 or more. It is not a payment, but your bank may temporarily reduce available funds and controls when released funds return. If pickup is more than seven days after checkout, the hold may expire; we request a replacement five hours before pickup and cancel the old one only after the new hold succeeds. A zero-hold exemption is available only below £4,000 after the same account completes a rental with every item recorded in good condition, no damage or late-fee claim and settled security, and has either an active subscription after its first successful recurring payment or the final Encore level. A first rental, free trial or subscription alone never qualifies. An issue-free return cancels the uncaptured hold; any claim needs a specific recorded reason and evidence. The accepted rental quote records the exact amount and exemption.";
   }
  }
  if(setupIntentPolicy){

@@ -72,7 +72,7 @@ export const processDue = internalAction({
   },
 });
 
-/** Render once for the private outbox; no SMTP or provider financial writes. */
+/** Render once for the private outbox; this does not send email or touch payment providers. */
 export const prepareEmail=internalAction({args:{bookingId:v.id("bookings"),deliveryKey:v.string()},handler:async(ctx,{bookingId,deliveryKey})=>{
  const b:any=await ctx.runQuery(internal.reviewFollowUpState.emailContext,{bookingId});
  if(!b?.customerEmail)return null;

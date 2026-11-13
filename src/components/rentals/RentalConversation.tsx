@@ -1,7 +1,7 @@
 "use client";
 import { ChatAttachmentPreview } from "./ChatAttachmentPreview";
 import styles from "./RentalConversation.module.css";
-import { CHAT_IMAGE_ACCEPT, CHAT_IMAGE_HELP, CHAT_IMAGE_LIMIT, isChatImageType } from "../../../shared/chatAttachmentPolicy";
+import { CHAT_ATTACHMENT_ACCEPT, CHAT_ATTACHMENT_HELP, CHAT_ATTACHMENT_LIMIT, CHAT_TEXT_LIMIT, isChatAttachmentNameMatched, isChatAttachmentType, isChatImageType } from "../../../shared/chatAttachmentPolicy";
 import { SmartImage } from "@/components/SmartImage";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useAction } from "convex/react";
@@ -52,7 +52,7 @@ export function RentalConversation({
   escalated?: boolean;
   tools?: React.ReactNode;
   openRevision?: number;
-  bookingSummary?: { items?: { index?: number; title: string; qty: number; heroImage?: string | null; imageSources?: string[] }[]; dates: string; count: number };
+  bookingSummary?: { heading?: string; items?: { index?: number; title: string; qty: number; heroImage?: string | null; imageSources?: string[] }[]; dates: string; count: number };
   handoverDetails?: { phone: string; pickupAddress?: string | null; returnAddress?: string | null; pickupInstructions?: string | null; fulfilment: "pickup" | "delivery" };
   workspaceIdentity?: { name?: string | null; phone?: string | null; photo?: string | null; privatePortrait?: React.ReactNode; membershipLabel?: string | null; encoreLabel?: string | null; verified?: boolean };
   renterWorkspace?: boolean;
@@ -228,9 +228,6 @@ export function RentalConversation({
       });
     }
   }, [thread?.page[0]?._id, bookingId, accountId, token, admin, read, visible]);
-  useEffect(() => {
-    scrollLatestAndNotificationIntoView();
-  }, [thread?.page[0]?._id, scopeKey]);
   async function submit() {
     if (!text.trim() || busy) return;
     const requestedScope = scope.current;
@@ -269,7 +266,7 @@ export function RentalConversation({
     const requestedScope = scope.current;
     setAttachmentBusy(true); setError(null); setCleanCandidate(null);
     try {
-      if (!file.size || file.size > CHAT_IMAGE_LIMIT || !isChatImageType(file.type)) throw Error(CHAT_IMAGE_HELP);
+      if (!file.size || file.size > CHAT_ATTACHMENT_LIMIT || !isChatAttachmentType(file.type) || !isChatAttachmentNameMatched(file.name, file.type) || file.type === "text/plain" && file.size > CHAT_TEXT_LIMIT || clean && !isChatImageType(file.type)) throw Error(CHAT_ATTACHMENT_HELP);
       const upload = clean ? await createCleanChatImage(file) : file;
       const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await upload.arrayBuffer()))).map(part => part.toString(16).padStart(2, "0")).join("");
       if (scope.current !== requestedScope) return;
@@ -354,7 +351,7 @@ export function RentalConversation({
   }, [invitationId, invitationAccount, notificationDeviceStatus]);
   function scrollLatestAndNotificationIntoView() {
     const scroller = body.current;
-    if (!scroller || !pinnedToLatest.current) return;
+    if (!scroller || (!pinnedToLatest.current && !notificationInvitation?.visible)) return;
     const renderedMessages = scroller.querySelectorAll<HTMLElement>("[data-message-id]");
     const latestMessage = renderedMessages.item(renderedMessages.length - 1);
     if (!latestMessage) {
@@ -365,11 +362,46 @@ export function RentalConversation({
     const latestBounds = latestMessage.getBoundingClientRect();
     const invitation = scroller.querySelector<HTMLElement>('[aria-label="Chat notifications"]');
     const rentalItems = scroller.querySelector<HTMLElement>('[data-testid="rental-items-in-chat"]');
-    const targetBottom = rentalItems?.getBoundingClientRect().bottom ?? invitation?.getBoundingClientRect().bottom ?? latestBounds.bottom;
+    const targetBottom = invitation ? invitation.getBoundingClientRect().bottom + 3 : rentalItems?.getBoundingClientRect().bottom ?? latestBounds.bottom;
     const needed = Math.max(0, targetBottom - viewport.bottom);
     const keepLatestVisible = Math.max(0, latestBounds.top - viewport.top);
-    scroller.scrollTop += rentalItems ? needed : Math.min(needed, keepLatestVisible);
+    scroller.scrollTop += invitation ? needed : rentalItems ? needed : Math.min(needed, keepLatestVisible);
+
+    // On narrow account workspaces, the latest rental card can pin the scroll
+    // position while leaving the oldest bubble only partly visible under the
+    // profile header. Keep the newest content in view, but snap that clipped
+    // bubble fully above the scrollport so it never reads as header overlap.
+    if (admin && workspaceIdentity && window.matchMedia("(max-width: 600px)").matches) {
+      const oldestMessage = renderedMessages.item(0);
+      if (oldestMessage) {
+        const scrollportTop = scroller.getBoundingClientRect().top;
+        const oldestBounds = oldestMessage.getBoundingClientRect();
+        if (oldestBounds.top < scrollportTop && oldestBounds.bottom > scrollportTop) {
+          scroller.dataset.chatClearance = "true";
+          const scrollClearance = oldestBounds.bottom - scrollportTop + 4;
+          scroller.scrollTop += scrollClearance;
+        }
+      }
+    }
   }
+  useEffect(() => {
+    const scroller = body.current;
+    if (!scroller) return;
+    let frame = 0;
+    const keepLatestVisible = () => {
+      if (!pinnedToLatest.current && !notificationInvitation?.visible) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(scrollLatestAndNotificationIntoView);
+    };
+    const observer = new ResizeObserver(keepLatestVisible);
+    observer.observe(scroller);
+    if (scroller.parentElement) observer.observe(scroller.parentElement);
+    keepLatestVisible();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [thread?.page[0]?._id, scopeKey, notificationInvitation?.id, notificationInvitation?.visible]);
   useEffect(() => {
     if (notificationInvitation?.visible) scrollLatestAndNotificationIntoView();
   }, [notificationInvitation]);
@@ -380,6 +412,7 @@ export function RentalConversation({
       return;
     }
     try { localStorage.setItem("dbc_chat_notification_offer:" + invitationAccount, "dismissed"); } catch {}
+    pinnedToLatest.current = true;
     setNotificationInvitation({ id: invitationId, visible: false });
   }
   function openGafferGearHelp() {
@@ -420,7 +453,16 @@ export function RentalConversation({
             {!admin && teamHandling && <p className="mt-1 max-w-sm text-xs leading-relaxed text-white/45">The team has your enquiry. Add any other details here; replies will appear in this conversation.</p>}
           </div>
         </div>
-        <div className={styles.headerActions}>{workspaceIdentity && onStar && <button type="button" onClick={onStar} disabled={starDisabled} aria-pressed={starred} aria-label={starred ? "Remove customer from starred" : "Star customer"} className={styles.starButton}><svg viewBox="0 0 24 24" fill={starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m12 2.5 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3.1-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9L12 2.5Z"/></svg></button>}{renterPhone && dialablePhone && /^\+?\d+$/.test(dialablePhone) && <a className={workspaceIdentity ? styles.workspaceCall : styles.phone} href={`tel:${dialablePhone}`} aria-label={`Call ${workspaceIdentity?.name || (thread && "renter" in thread ? thread.renter?.name : null) || "renter"} at ${renterPhone}`} title={renterPhone}>{workspaceIdentity ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M5 3h3l2 5-2 1.5a14 14 0 0 0 6.5 6.5l1.5-2 5 2v3a2 2 0 0 1-2 2C10.2 20.5 3.5 13.8 3 5a2 2 0 0 1 2-2Z" /></svg> : <>{renterPhone} <span aria-hidden="true">·</span></>}<span className={workspaceIdentity ? styles.workspaceCallLabel : undefined}>Call</span></a>}
+        <div className={styles.headerActions}>
+          {!admin && <div className={styles.renterHeaderShortcuts}>
+            {!teamHandling && <button type="button" data-testid="rental-gaffer-gear-help" aria-label="Ask Gaffer about gear, dates or a quote" title="Ask Gaffer about gear, dates or a quote" onClick={openGafferGearHelp} className={styles.renterHeaderShortcut}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m12 3 1.2 5.8L19 10l-5.8 1.2L12 17l-1.2-5.8L5 10l5.8-1.2L12 3Z"/><path d="m19 15 .6 2.4L22 18l-2.4.6L19 21l-.6-2.4L16 18l2.4-.6L19 15Z"/></svg><span className={styles.renterHeaderShortcutText}>Ask Gaffer</span>
+            </button>}
+            {!notificationInvitation?.visible && <button type="button" data-testid="renter-notification-settings" aria-label="Notification settings" title="Notification settings" onClick={() => window.dispatchEvent(new Event("dbc:open-renter-notifications"))} className={styles.renterHeaderShortcut}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0v5l-2 3v1h16v-1l-2-3V8ZM9 20h6"/></svg><span className={styles.renterHeaderShortcutText}>Alerts</span>
+            </button>}
+          </div>}
+          {workspaceIdentity && onStar && <button type="button" onClick={onStar} disabled={starDisabled} aria-pressed={starred} aria-label={starred ? "Remove customer from starred" : "Star customer"} className={styles.starButton}><svg viewBox="0 0 24 24" fill={starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m12 2.5 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3.1-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9L12 2.5Z"/></svg></button>}{renterPhone && dialablePhone && /^\+?\d+$/.test(dialablePhone) && <a className={workspaceIdentity ? styles.workspaceCall : styles.phone} href={`tel:${dialablePhone}`} aria-label={`Call ${workspaceIdentity?.name || (thread && "renter" in thread ? thread.renter?.name : null) || "renter"} at ${renterPhone}`} title={renterPhone}>{workspaceIdentity ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M5 3h3l2 5-2 1.5a14 14 0 0 0 6.5 6.5l1.5-2 5 2v3a2 2 0 0 1-2 2C10.2 20.5 3.5 13.8 3 5a2 2 0 0 1 2-2Z" /></svg> : <>{renterPhone} <span aria-hidden="true">·</span></>}<span className={workspaceIdentity ? styles.workspaceCallLabel : undefined}>Call</span></a>}
         {workspaceIdentity ? <details className={styles.headerMenu}><summary aria-label="Conversation actions" title="Conversation actions">•••</summary><div><p>{teamHandling ? "Team handling this conversation" : "Gaffer is available"}</p><button type="button" onClick={handoff} disabled={handoffBusy} className={styles.handoff}>{handoffBusy ? "Updating…" : teamHandling ? "Hand to Gaffer" : "Take over"}</button></div></details> : (admin || teamHandling) && <button onClick={handoff} disabled={handoffBusy} className={styles.handoff}>
           {handoffBusy ? "Updating…" : admin ? teamHandling ? "Hand to Gaffer" : "Take over" : "Get back to Gaffer"}
         </button>}</div>
@@ -439,13 +481,6 @@ export function RentalConversation({
         <div>{!workspaceIdentity && <h4>{title}</h4>}<p>{bookingSummary ? `${bookingSummary.dates} · ${bookingSummary.count} ${bookingSummary.count === 1 ? "listing" : "listings"}` : bookingId ? "Messages, collection and return" : "Account support and enquiries"}</p></div>
         <span className={styles.stage}>{stageLabel ?? RENTAL_STAGE_LABELS[stage] ?? stage}</span>
         {bookingId && admin && workspaceIdentity && !tools && <details className={styles.workspaceRentalDetails}><summary aria-label="Verification and price controls">Controls</summary><div><RentalVerificationSummary bookingId={bookingId} token={token} admin /><RentalPricePanel key={`price-${bookingId}`} token={token} bookingId={bookingId} admin /></div></details>}
-      </div>}
-      {!admin && <div className="mt-3 flex flex-wrap items-center gap-2">
-        {!teamHandling && <button type="button" data-testid="rental-gaffer-gear-help" onClick={openGafferGearHelp} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-emerald-200/20 bg-white/[0.055] px-3 text-left text-xs text-emerald-50/90 shadow-[inset_0_1px_0_#ffffff0a] backdrop-blur-xl transition hover:border-emerald-200/35 hover:bg-emerald-200/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200/60">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 shrink-0" aria-hidden="true"><path d="m12 3 1.2 5.8L19 10l-5.8 1.2L12 17l-1.2-5.8L5 10l5.8-1.2L12 3Z"/><path d="m19 15 .6 2.4L22 18l-2.4.6L19 21l-.6-2.4L16 18l2.4-.6L19 15Z"/></svg>
-          <span className="hidden sm:inline">Ask Gaffer about gear, dates or a quote</span><span className="sm:hidden">Ask Gaffer · gear &amp; quotes</span>
-        </button>}
-        {!notificationInvitation?.visible && <button type="button" aria-label="Notification settings" className="min-h-10 rounded-xl border border-white/10 px-3 text-xs text-white/60 transition hover:border-white/20 hover:text-white/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40" onClick={() => window.dispatchEvent(new Event("dbc:open-renter-notifications"))}><span className="hidden sm:inline">Notification settings</span><span className="sm:hidden">Alerts</span></button>}
       </div>}
       {bookingId && (!admin || !tools) && !workspaceIdentity && <RentalVerificationSummary bookingId={bookingId} token={token} admin={admin}/>}
       {!admin && bookingId && (
@@ -579,7 +614,7 @@ export function RentalConversation({
               </div>
               {!admin && notificationDeviceStatus === "inactive" && notificationInvitation?.id === String(m._id) && notificationInvitation.visible && <div className={styles.notificationCard} aria-label="Chat notifications">
                 <span className={styles.notificationIcon} aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M18 8a6 6 0 0 0-12 0v5l-2 3v1h16v-1l-2-3V8ZM9 20h6"/><path d="M18.5 3v3m-1.5-1.5h3"/></svg></span>
-                <div className={styles.notificationCopy}><strong>Chat alerts</strong><p><span className={styles.notificationDesktop}>Get message and booking updates. On iPhone, add DB Cinema to your Home Screen first.</span><span className={styles.notificationMobile}>{notificationPlatform === "ios" ? "Message and rental alerts. iPhone: Safari → Share ↗ → Add to Home Screen." : notificationPlatform === "android" ? "Message and rental alerts. Android: Chrome ⋮ → Install app / Add to Home Screen." : "Message and rental alerts. Mobile: browser menu → Add to Home Screen."}</span></p><div><button type="button" onClick={() => dismissNotificationInvitation(true)}>Turn on notifications</button><button type="button" onClick={() => dismissNotificationInvitation(false)}>Not now</button></div></div>
+                <div className={styles.notificationCopy}><strong>Chat alerts</strong><p><span className={styles.notificationDesktop}>Get message and booking updates. On iPhone, add DB Cinema to your Home Screen first.</span><span className={styles.notificationMobile}>{notificationPlatform === "ios" ? <>iPhone: Safari → <svg className={styles.notificationShareIcon} aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M12 15V3m-4 4 4-4 4 4M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg> Share → Add to Home Screen</> : notificationPlatform === "android" ? "Android: Chrome ⋮ → Install app" : "Browser menu ⋮ → Install app"}</span></p><div><button type="button" onClick={() => dismissNotificationInvitation(true)}>Turn on notifications</button><button type="button" onClick={() => dismissNotificationInvitation(false)}>Not now</button></div></div>
               </div>}
               </Fragment>
             );
@@ -587,7 +622,7 @@ export function RentalConversation({
           </>
         )}
         {bookingSummary?.items?.length ? <section className={styles.rentalItemsCard} data-testid="rental-items-in-chat" aria-label="Items in this rental">
-          <div className={styles.rentalItemsHeading}><strong>{renterWorkspace ? `Your kit · ${bookingSummary.dates}` : "Items in this rental"}</strong><span>{renterWorkspace ? stageLabel ?? stage : `${bookingSummary.items.length} ${bookingSummary.items.length === 1 ? "listing" : "listings"}`}</span></div>
+          <div className={styles.rentalItemsHeading}><strong>{renterWorkspace ? `Your kit · ${bookingSummary.dates}` : bookingSummary.heading ?? "Items in this rental"}</strong><span>{renterWorkspace ? stageLabel ?? stage : `${bookingSummary.items.length} ${bookingSummary.items.length === 1 ? "listing" : "listings"}`}</span></div>
           <div className={styles.rentalItemsGrid} data-count={bookingSummary.items.length}>
             {bookingSummary.items.map((item, index) => {
               const imageSources = item.imageSources?.length
@@ -629,8 +664,8 @@ export function RentalConversation({
           }}
           className={styles.composeForm}
         >
-          <input ref={attachmentInput} type="file" accept={CHAT_IMAGE_ACCEPT} aria-label="Choose a JPG, PNG or WebP image" className="sr-only" onChange={event => { const file = event.target.files?.[0]; event.currentTarget.value = ""; void uploadAttachment(file); }} />
-          <button type="button" disabled={!attachmentsAvailable || attachmentBusy} onClick={() => attachmentInput.current?.click()} aria-label={attachmentsAvailable ? "Attach an image, JPG, PNG or WebP up to 10 MB" : "Image attachments temporarily unavailable"} title={attachmentsAvailable ? CHAT_IMAGE_HELP : "Image attachments temporarily unavailable"} className={`rounded-2xl border border-white/15 px-3 text-sm text-white/70 disabled:opacity-40 ${styles.attachButton}`}>{attachmentBusy ? "…" : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m8 12.5 6.8-6.8a3.5 3.5 0 0 1 5 5l-8.3 8.3a5 5 0 0 1-7-7l8-8"/><path d="m7.5 15 8-8"/></svg>}</button>
+          <input ref={attachmentInput} type="file" accept={CHAT_ATTACHMENT_ACCEPT} aria-label="Choose a JPG, PNG, WebP or TXT file" className="sr-only" onChange={event => { const file = event.target.files?.[0]; event.currentTarget.value = ""; void uploadAttachment(file); }} />
+          <button type="button" disabled={!attachmentsAvailable || attachmentBusy} onClick={() => attachmentInput.current?.click()} aria-label={attachmentsAvailable ? CHAT_ATTACHMENT_HELP : "Attachments temporarily unavailable"} title={attachmentsAvailable ? CHAT_ATTACHMENT_HELP : "Attachments temporarily unavailable"} className={`rounded-2xl border border-white/15 px-3 text-sm text-white/70 disabled:opacity-40 ${styles.attachButton}`}>{attachmentBusy ? "…" : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m8 12.5 6.8-6.8a3.5 3.5 0 0 1 5 5l-8.3 8.3a5 5 0 0 1-7-7l8-8"/><path d="m7.5 15 8-8"/></svg>}</button>
           <textarea
             ref={composerInput}
             aria-label="Message"

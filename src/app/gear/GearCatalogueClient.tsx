@@ -117,6 +117,32 @@ function GearPageInner() {
 
   const total = cats.reduce((n, c) => n + c.count, 0);
   const tabs = [{ name: "All", count: total }, ...cats];
+  const categoryRailRef = useRef<HTMLDivElement>(null);
+  const [categoryRailEdges, setCategoryRailEdges] = useState({ overflow: false, moreLeft: false, moreRight: false });
+  useEffect(() => {
+    const rail = categoryRailRef.current;
+    if (!rail) return;
+    const updateEdges = () => {
+      const maxScroll = Math.max(0, rail.scrollWidth - rail.clientWidth);
+      // Safari and Chromium can settle a snapping rail a couple of CSS pixels
+      // away from zero/end. Treat that as the boundary so the fade does not
+      // flicker while a user taps the first or last pill.
+      const edgeTolerance = 4;
+      const next = { overflow: maxScroll > edgeTolerance, moreLeft: rail.scrollLeft > edgeTolerance, moreRight: rail.scrollLeft < maxScroll - edgeTolerance };
+      setCategoryRailEdges((current) => current.overflow === next.overflow && current.moreLeft === next.moreLeft && current.moreRight === next.moreRight ? current : next);
+    };
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateEdges);
+    observer?.observe(rail);
+    rail.querySelectorAll("button").forEach((button) => observer?.observe(button));
+    rail.addEventListener("scroll", updateEdges, { passive: true });
+    window.addEventListener("resize", updateEdges, { passive: true });
+    updateEdges();
+    return () => {
+      observer?.disconnect();
+      rail.removeEventListener("scroll", updateEdges);
+      window.removeEventListener("resize", updateEdges);
+    };
+  }, [tabs.length]);
   const brandOptions = useMemo(
     () => [...new Set((listings ?? []).map((listing) => brandForTitle(listing.title)))].sort((a, b) => a.localeCompare(b)),
     [listings],
@@ -224,7 +250,34 @@ function GearPageInner() {
               {activeRefinementCount > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-accent-400 px-1 text-[10px] font-bold text-black">{activeRefinementCount}</span>}
             </button>
             </div>
-            <div role="group" aria-label="Gear categories" className="rail flex min-w-0 flex-wrap gap-1.5 overflow-visible sm:gap-2">
+            <div
+              role="group"
+              aria-label="Gear categories"
+              aria-describedby="gear-category-scroll-hint"
+              ref={categoryRailRef}
+              onKeyDown={(event) => {
+                if (!(["ArrowLeft", "ArrowRight", "Home", "End"] as const).includes(event.key as "ArrowLeft" | "ArrowRight" | "Home" | "End")) return;
+                const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button"));
+                const currentIndex = buttons.indexOf(event.target as HTMLButtonElement);
+                if (currentIndex < 0) return;
+                const nextIndex = event.key === "Home"
+                  ? 0
+                  : event.key === "End"
+                    ? buttons.length - 1
+                    : Math.max(0, Math.min(buttons.length - 1, currentIndex + (event.key === "ArrowRight" ? 1 : -1)));
+                const next = buttons[nextIndex];
+                if (!next || next === event.target) return;
+                event.preventDefault();
+                next.focus({ preventScroll: true });
+                next.scrollIntoView({
+                  block: "nearest",
+                  inline: "nearest",
+                  behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+                });
+              }}
+              className={`rail gear-category-rail snap-x snap-proximity flex min-w-0 flex-nowrap touch-pan-x gap-1.5 overflow-x-auto overscroll-x-contain scroll-px-3 px-1 pr-4 py-1 sm:flex-wrap sm:gap-2 sm:overflow-visible sm:scroll-px-0 sm:px-0 sm:py-0 ${categoryRailEdges.moreLeft ? "gear-category-rail--more-left" : ""} ${categoryRailEdges.moreRight ? "gear-category-rail--more-right" : ""}`}
+            >
+              <span id="gear-category-scroll-hint" className="sr-only sm:hidden">Swipe horizontally or use the arrow keys to reach every category.</span>
               {tabs.map((t) => (
                 <button
                   key={t.name}
@@ -232,7 +285,7 @@ function GearPageInner() {
                   aria-pressed={cat === t.name}
                   aria-label={`Browse ${t.name}, ${t.count} ${t.count === 1 ? "item" : "items"}`}
                   title={`${t.name} · ${t.count}`}
-                  className={`ci-host flex min-h-11 shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-all sm:gap-1.5 sm:px-4 sm:py-1.5 sm:text-sm ${
+                  className={`ci-host snap-start flex min-h-11 shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black sm:snap-align-none sm:gap-1.5 sm:px-4 sm:py-1.5 sm:text-sm ${
                     cat === t.name
                       ? "accent-glow bg-accent-500 text-white"
                       : "glass text-white/50 hover:text-white"

@@ -18,6 +18,7 @@ function load(file) {
     './_generated/api': { internal: refs, api: refs },
     './adminAuth': { assertAdmin: () => {} },
     './availability': { peak: () => 0 },
+    './lib/swapStockFence': { assertSwapStockReconciled: async () => {}, assertActiveItemSwapReady: async () => {}, expireUnacceptedItemSwap: async () => null },
     './lib/rmv2SyncQueue': { queueRmv2Sync: async () => {} },
     './lib/adminPush': { queueOwnerNotification: async (_ctx, notice) => { reviewNotices.push(notice); } },
     './verificationArchive': { queueVerificationArchive: async () => {}, assertVerificationArchive: async () => {} },
@@ -41,7 +42,6 @@ Object.assign(process.env, {
 });
 
 const { webhook, bookingSession, adminReview, reconcileOpenSessions } = load('convex/didit.ts');
-const { claim: claimAdminReview, release: releaseAdminReview } = load('convex/diditReviewClaims.ts');
 const { setDiditResult, setDiditSession, adminSetIdStatus, setDiditManualReview } = load('convex/bookings.ts');
 const { assertDiditCheckoutCapacity } = load('convex/lib/diditCapacity.ts');
 
@@ -161,6 +161,20 @@ function signed(event) {
   await setDiditResult.handler({db:reviewDb,scheduler:{runAfter:async()=>{}}}, {bookingId:'booking-1',sessionId:'session-1',eventId:'new-warning',eventAt:now*1000,status:'manual_review',providerStatus:'In Review',note:'Didit flagged a possible camera capture integrity issue.',poaPostcodes:[]});
   assert.equal(reviewNotices.at(-1)?.kind, 'verification_failure');
   assert.match(reviewNotices.at(-1)?.body, /camera capture integrity/);
+  const rejectedPaidBooking={_id:'booking-declined',status:'pending_verification',lineItems:[],verificationProvider:'didit',diditSessionId:'declined-session-1',idVerifyStatus:'manual_review',guestEmail:'renter@example.invalid',checkoutPaidAt:now*1000,checkoutPaymentAmountPence:10000,checkoutPaymentCurrency:'GBP',checkoutPaymentStatus:'paid',checkoutExpectedAmountPence:10000,stripeCheckoutSessionId:'cs_declined-1',stripePaymentIntentId:'pi_declined-1',currency:'GBP'};
+  const rejectionJobs=[];
+  const queryChain={first:async()=>null,collect:async()=>[],take:async()=>[],unique:async()=>null,order:()=>queryChain};
+  const rejectionDb={get:async()=>rejectedPaidBooking,patch:async(_id,value)=>Object.assign(rejectedPaidBooking,value),insert:async()=> 'synthetic-id',query:()=>({withIndex:()=>queryChain,first:async()=>null})};
+  await setDiditResult.handler({db:rejectionDb,scheduler:{runAfter:async(delay,reference,args)=>rejectionJobs.push({delay,reference,args})}},
+    {bookingId:'booking-declined',sessionId:'declined-session-1',eventId:'declined-event-1',eventAt:now*1000,status:'rejected',providerStatus:'Declined',note:'Didit declined this verification.',poaPostcodes:[]});
+  assert(rejectionJobs.some(job=>job.reference==='checkout:cancelRejectedDiditAfterResult'&&job.args.bookingId==='booking-declined'&&job.args.sessionId==='declined-session-1'&&job.args.eventId==='declined-event-1'),
+    'a final paid Didit rejection schedules settlement for that exact session and event');
+  const noReceiptJobs=[];
+  const noReceiptBooking={...rejectedPaidBooking,_id:'booking-no-receipt',diditSessionId:'unpaid-session',checkoutPaymentStatus:undefined};
+  const noReceiptDb={...rejectionDb,get:async()=>noReceiptBooking,patch:async(_id,value)=>Object.assign(noReceiptBooking,value)};
+  await setDiditResult.handler({db:noReceiptDb,scheduler:{runAfter:async(delay,reference,args)=>noReceiptJobs.push({delay,reference,args})}},
+    {bookingId:'booking-no-receipt',sessionId:'unpaid-session',eventId:'unpaid-declined-event',eventAt:now*1000,status:'rejected',providerStatus:'Declined',note:'Didit declined this verification.',poaPostcodes:[]});
+  assert.equal(noReceiptJobs.some(job=>job.reference==='checkout:cancelRejectedDiditAfterResult'),false,'a booking without a verified paid checkout receipt is never auto-refunded');
   const manuallyApproved = {status:'confirmed',verificationProvider:'didit',diditSessionId:'session-1',
     billingAddress:'10 Downing Street SW1A 1AA',idVerifyStatus:'verified',idVerificationSource:'manual'};
   let manualPatch;
@@ -184,11 +198,11 @@ function signed(event) {
     diditSessionId:'session-1',guestEmail:'renter@example.invalid'};
   const originalFetch = global.fetch;
   const calls = [];
-  let providerStatus = 'In Review', lastPatch;
-  const reviewLockCtx = { db: { get: async () => reviewBooking, patch: async (_id, patch) => Object.assign(reviewBooking, patch) } };
+  let providerStatus = 'In Review', providerFetches = 0;
   const providerReport = () => ({session_id:'session-1',session_kind:'user',workflow_id:'workflow-1',vendor_data:'dbc-booking-booking-1',contact_details:{email:'renter@example.invalid'},status:providerStatus,id_verifications:[{status:'Approved',full_name:'Test Rental Customer',date_of_birth:'1990-01-01'}],liveness_checks:[{status:'Approved'}],face_matches:[{status:'Approved'}],poa_verifications:[{status:'Approved'}]});
   global.fetch = async (url, options={}) => {
-    if (options.method === 'PATCH') { lastPatch = {url, body:JSON.parse(options.body)}; providerStatus = lastPatch.body.new_status; return new Response(JSON.stringify({session_id:'session-1'}),{status:200}); }
+    providerFetches++;
+    if (options.method === 'PATCH') { providerStatus = JSON.parse(options.body).new_status; return new Response(JSON.stringify({session_id:'session-1'}),{status:200}); }
     return new Response(JSON.stringify(providerReport()),{status:200});
   };
   const reviewCtx = {
@@ -196,27 +210,15 @@ function signed(event) {
     runMutation: async (ref, args) => {
       calls.push({ref,args});
       if (ref === 'bookings:setDiditResult') return true;
-      if (ref === 'diditReviewClaims:claim') return claimAdminReview.handler(reviewLockCtx,args);
-      if (ref === 'diditReviewClaims:release') return releaseAdminReview.handler(reviewLockCtx,args);
       return true;
     },
   };
   try {
-    for (const [decision,provider,expected] of [['approve','Approved','verified'],['resubmit','Resubmitted','requires_input'],['decline','Declined','rejected']]) {
-      providerStatus = 'In Review'; lastPatch = null; calls.length = 0;
-      const result = await adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision,note:'Reviewed identity evidence',requestId:`review-request-${decision}-0001`});
-      assert.deepEqual(result,{status:expected,providerStatus:provider});
-      assert.equal(lastPatch.url,'https://verification.didit.me/v3/session/session-1/update-status/');
-      assert.deepEqual(lastPatch.body,{new_status:provider,comment:'Reviewed identity evidence'});
-      assert(calls.some(item=>item.ref==='bookings:setDiditResult'&&item.args.status===expected&&item.args.providerStatus===provider),'provider decision reconciles through the normal rental transition');
-      assert(calls.some(item=>item.ref==='diditReviewClaims:release'),'review claim is released');
-    }
-    const lockBooking={...reviewBooking};
-    const lockCtx={db:{get:async()=>lockBooking,patch:async(_id,patch)=>Object.assign(lockBooking,patch)}};
-    await claimAdminReview.handler(lockCtx,{bookingId:'booking-1',sessionId:'session-1',requestId:'review-request-lock-0001',decision:'approve'});
-    await assert.rejects(claimAdminReview.handler(lockCtx,{bookingId:'booking-1',sessionId:'session-1',requestId:'review-request-lock-0002',decision:'decline'}),/already being sent/);
-    await releaseAdminReview.handler(lockCtx,{bookingId:'booking-1',sessionId:'session-1',requestId:'review-request-lock-0001'});
-    assert.equal(lockBooking.diditReviewClaim,undefined,'review lock is cleared after completion');
+    providerFetches = 0; calls.length = 0;
+    await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'approve',note:'Reviewed identity evidence',requestId:'review-request-approve-0001'}),/safe decision email/);
+    assert.equal(providerFetches,2,'the website reads and previews, but never PATCHes without Didit’s conditional receipt');
+    assert.equal(calls.some(item=>item.ref==='bookings:setDiditResult'),false,'no provider receipt means no rental decision or approval effects');
+    assert(calls.some(item=>item.ref==='diditReviewClaims:claim')&&calls.some(item=>item.ref==='diditReviewClaims:release'),'the per-case operation claim is released after the incomplete preview');
   } finally { global.fetch = originalFetch; }
   try {
     let sentBody;

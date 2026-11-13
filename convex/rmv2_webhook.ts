@@ -24,7 +24,7 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 
 type PaidCheckoutEvidence =
-  | { status: "succeeded"; paymentIntentId: string; paidAt: number }
+  | { status: "succeeded"; paymentIntentId: string; checkoutSessionId: string; paidAt: number }
   | { status: "no_payment_required"; checkoutSessionId: string; paidAt: number };
 import { v } from "convex/values";
 
@@ -76,11 +76,17 @@ export const push = internalAction({
       const stock=(booking as typeof booking & {stockApplicationReceipt?:{kind?:string;swapId?:string;managerRequestId:string;fingerprint:string;executionKey:string;bookingRevision:number}}).stockApplicationReceipt,ack=receipt.stockAcknowledgement;
       const receiptMatchesPush = receipt?.ok === true && receipt.version === 1 && receipt.bookingId === bookingId && receipt.receivedRevision === revision;
       const deferredStock = receiptMatchesPush && !stock && receipt.outcome === "deferred_stock_claim" && Number.isSafeInteger(receipt.appliedRevision);
-      if (!receiptMatchesPush || !applied && !unpaid && !deferredStock) return result(false, "invalid_receipt");
-      if (deferredStock) return result(true, "waiting_for_stock_receipt", undefined, true);
+      const verification = booking.verification;
+      const paidPendingVerification = booking.status === "pending_verification" && verification?.provider === "didit" &&
+        typeof booking.checkoutPaidAt === "number" && booking.checkoutPaidAt > 0 &&
+        !["rejected", "expired"].includes(verification.status ?? "");
+      // A deferred manager mirror is acceptable only when this same delivery
+      // can create the paid booking claim below. Never acknowledge it and wait
+      // for a later retry: that would leave paid stock unclaimed in Rental
+      // Manager during the retry window.
+      if (!receiptMatchesPush || !applied && !unpaid && !(deferredStock && paidPendingVerification)) return result(false, "invalid_receipt");
       if(stock&&(!applied||!ack||ack.managerRequestId!==stock.managerRequestId||ack.fingerprint!==stock.fingerprint||ack.executionKey!==stock.executionKey||ack.bookingRevision!==stock.bookingRevision))return result(false,"invalid_stock_acknowledgement");
 
-      const verification = booking.verification;
       const releaseReason = booking.status === "returned" ? "booking_returned" as const
         : verification?.status === "rejected" ? "verification_declined" as const
         : verification?.status === "expired" ? "verification_expired" as const
@@ -92,9 +98,7 @@ export const push = internalAction({
         } } });
         if (released.status !== "confirmed" || released.result.operation !== "releaseBooking" || released.result.bookingId !== String(booking.id))
           return result(false, "shared_stock_release_unconfirmed");
-      } else if (booking.status === "pending_verification" && verification?.provider === "didit" &&
-          typeof booking.checkoutPaidAt === "number" && booking.checkoutPaidAt > 0 &&
-          !["rejected", "expired"].includes(verification.status ?? "")) {
+      } else if (paidPendingVerification) {
         // The generated API declaration predates this projection field; keep
         // the runtime payload tied to the explicit sync contract until Convex
         // codegen is available in the deployment workspace.

@@ -6,7 +6,7 @@ let created = 0,
 class Stripe {
   constructor() {
     this.paymentIntents = {
-      retrieve: async (id) => ({ id, amount_received: 12000 }),
+      retrieve: async (id) => ({ id, status:"succeeded", currency:"gbp", amount_received: id === "pi_didit_declined" ? 10000 : 12000 }),
     };
     this.refunds = {
       retrieve: async id => [...receipts.values()].find(r => r.id === id),
@@ -49,7 +49,13 @@ const bookings = load("convex/bookings.ts"),
 const account=put("accounts", { email: "cancellation@rental-test.invalid" });
 put("sessions",{token:"request-renter",accountId:account._id,expiresAt:Date.now()+600000});
 const b = put("bookings", {
-  status: "confirmed",
+  status: "pending_verification",
+  siteOnly: true,
+  verificationProvider: "didit",
+  idVerifyStatus: "requires_input",
+  checkoutPaidAt: Date.now(),
+  checkoutPaymentStatus: "paid",
+  agreementDocs: [{ kind: "cancellation", version: "2026-11-v25" }],
   guestEmail: "cancellation@rental-test.invalid",
   paidConfirmedAt: Date.now(),
   verificationProvider: "didit",
@@ -72,6 +78,11 @@ const b = put("bookings", {
     },
   ],
 });
+const pendingReservation = put("reservations", {
+  bookingId: b._id, listingId: "fixture-listing", source: "site", status: "hold",
+  qty: 1, start: Date.UTC(2030, 10, 1), end: Date.UTC(2030, 10, 2),
+});
+const requests = load("convex/rentalRequests.ts");
 let failFinalize = true;
 const ctx = {
   db,
@@ -79,6 +90,8 @@ const ctx = {
   runQuery: async (ref, args) => {
     if (ref === "bookings.getForCancel")
       return bookings.getForCancel.handler(ctx, args);
+    if (ref === "rentalRequests.blockingActionsInternal")
+      return requests.blockingActionsInternal.handler(ctx, args);
     throw Error(ref);
   },
   runMutation: async (ref, args) => {
@@ -95,23 +108,30 @@ const ctx = {
   },
 };
 (async () => {
-  const requests=load("convex/rentalRequests.ts");
-  await requests.submit.handler(ctx,{token:"request-renter",bookingId:b._id,requestId:"retry-linked-cancellation-01",kind:"cancel",detail:"Please cancel and refund the booking under its agreed terms."});
+  await requests.submit.handler(ctx,{token:"request-renter",bookingId:b._id,requestId:"retry-linked-cancellation-01",kind:"cancel",detail:"Please cancel and refund the booking under its agreed terms.",cancellationChoice:"refund"});
   const linked=await db.query("rental_change_requests").withIndex("by_booking",q=>q.eq("bookingId",b._id)).first();
+  await assert.rejects(checkout.cancelByAdmin.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id,reason:"Unapproved cancellation attempt"}),/renter request is still awaiting/,
+    "A paid pending-verification booking cannot settle until its renter request is approved");
+  await assert.rejects(bookings.prepareCancellation.handler(ctx,{bookingId:b._id}),/Only an unstarted rental/,
+    "The internal cancellation mutation cannot bypass the matching approved request");
+  assert.equal(created,0,"An unapproved cancellation request never reaches Stripe");
+  assert.equal(b.status,"pending_verification");
   await requests.review.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id,id:linked._id,decision:"approved",note:"We agree to arrange the cancellation under the accepted terms."});
   const args = { changeRequestId:linked._id,
     token: process.env.ADMIN_TOKEN,
     bookingId: b._id,
     reason: "Owner cancellation request",
   };
+  const approvedCancellationArgs = { ...args, customerChoice: "refund" };
   await assert.rejects(
-    checkout.cancelByAdmin.handler(ctx, args),
+    checkout.cancelByAdmin.handler(ctx, approvedCancellationArgs),
     /database outage/,
   );
   assert.equal(created, 1);assert.equal(linked.execution.status,"processing","Lost database finalisation cannot complete the request");
-  assert.equal(b.status, "confirmed");
+  assert.equal(b.status, "pending_verification", "A paid booking stays pending until the approved cancellation settlement succeeds");
+  assert.equal(pendingReservation.status, "hold", "Stock stays reserved if the provider refund succeeded but finalisation has not completed");
   assert.equal(b.cancellationDecision.quote.refundAmount, 120);
-  await checkout.cancelByAdmin.handler(ctx, args);
+  await checkout.cancelByAdmin.handler(ctx, approvedCancellationArgs);
   assert.equal(created, 1, "one provider refund across retry");
   assert.equal(
     refundListCalls,
@@ -119,6 +139,7 @@ const ctx = {
     "retry does not reprice against already refunded balance",
   );
   assert.equal(b.status, "cancelled");
+  assert.equal(await db.get(pendingReservation._id), null, "Finalized cancellation deletes the pending-verification stock hold");
   assert.equal(b.refundAmount, 120);assert.equal(linked.execution.status,"applied");
   const member = put("accounts", {email:"credit-only@rental-test.invalid"});
   const creditOnly = put("bookings", {status:"confirmed", guestEmail:member.email,
@@ -166,6 +187,48 @@ const ctx = {
       assert.equal(rental.status,'cancelled');
       assert.equal(receipts.get(`dbc-cancel-refund-${rental._id}`).payment_intent,paymentIntentId,'Refund uses this rental’s original payment transaction');
     }
+    const declinedDidit=put('bookings',{status:'pending_verification',siteOnly:true,guestEmail:b.guestEmail,accountId:account._id,checkoutPaidAt:Date.now(),checkoutPaymentAmountPence:10000,checkoutPaymentCurrency:'GBP',checkoutPaymentStatus:'paid',checkoutExpectedAmountPence:10000,stripeCheckoutSessionId:'cs_didit_declined',verificationProvider:'didit',diditSessionId:'didit-session-declined',diditEventId:'didit-event-declined',idVerifyStatus:'rejected',idVerificationSource:'didit',stripePaymentIntentId:'pi_didit_declined',rentalPaidPence:10000,total:120,depositAmount:20,creditApplied:20,currency:'GBP',agreementDocs:[{kind:'cancellation',version:'2026-11-v24'}],lineItems:[{listingId:'fixture-listing',title:'Camera',qty:1,lineTotal:100,start:Date.now()+14*86400000,end:Date.now()+15*86400000}]});
+    const rejectedReservation=put('reservations',{bookingId:declinedDidit._id,source:'site',status:'confirmed',qty:1,start:Date.now()+14*86400000,end:Date.now()+15*86400000});
+    const beforeDeclinedRefund=created;
+    const priorProtectionPolicy=process.env.CANCELLATION_PROTECTION_POLICY_ENABLED;
+    process.env.CANCELLATION_PROTECTION_POLICY_ENABLED='true';
+    const staleDecline=await checkout.cancelRejectedDiditAfterResult.handler(ctx,{bookingId:declinedDidit._id,sessionId:'didit-session-declined',eventId:'old-event'});
+    assert.equal(staleDecline.status,'stale','a superseded Didit rejection event cannot cancel the current booking');
+    const declinedResult=await checkout.cancelRejectedDiditAfterResult.handler(ctx,{bookingId:declinedDidit._id,sessionId:'didit-session-declined',eventId:'didit-event-declined'});
+    if(priorProtectionPolicy===undefined)delete process.env.CANCELLATION_PROTECTION_POLICY_ENABLED;
+    else process.env.CANCELLATION_PROTECTION_POLICY_ENABLED=priorProtectionPolicy;
+    assert.equal(declinedResult.status,'settled','a provider-confirmed rejection starts the same durable cancellation settlement automatically');
+    assert.equal(declinedResult.refundAmount,100,'a declined paid booking refunds only its captured card amount');
+    assert.equal(declinedResult.creditAmount,20,'credit used on the originally confirmed booking is restored after the Didit decline');
+    assert.equal(declinedDidit.status,'cancelled','the rejected booking finishes the normal cancellation settlement');
+    assert.equal(rejectedReservation.status,'cancelled','stock is released only after cancellation settlement succeeds');
+    assert.equal(created,beforeDeclinedRefund+1,'one original-payment refund is issued for the declined booking');
+    assert.equal(declinedDidit.cancellationDecision.quote.bonusCreditAmount,undefined,'Didit rejection never awards a 130% cancellation bonus');
+    assert.equal(declinedDidit.paidConfirmedAt,undefined,'the exception does not depend on final booking confirmation');
+    const invalidReceiptCases=[
+      ['paidConfirmedAt without receipt',{checkoutPaidAt:undefined,checkoutPaymentAmountPence:undefined,checkoutPaymentCurrency:undefined,checkoutPaymentStatus:undefined,checkoutExpectedAmountPence:undefined,stripeCheckoutSessionId:undefined}],
+      ['amount differs from succeeded receipt',{checkoutPaymentAmountPence:9999}],
+      ['expected amount differs from receipt',{checkoutExpectedAmountPence:9999}],
+      ['currency differs from booking',{checkoutPaymentCurrency:'USD'}],
+      ['missing checkout session',{stripeCheckoutSessionId:undefined}],
+      ['missing payment intent',{stripePaymentIntentId:undefined}],
+      ['zero-payment receipt',{checkoutPaymentStatus:'no_payment_required'}],
+    ];
+    for(let i=0;i<invalidReceiptCases.length;i++){
+      const [label,overrides]=invalidReceiptCases[i];
+      const invalid=put('bookings',{status:'pending_verification',guestEmail:b.guestEmail,accountId:account._id,paidConfirmedAt:Date.now(),checkoutPaidAt:Date.now(),checkoutPaymentAmountPence:10000,checkoutPaymentCurrency:'GBP',checkoutPaymentStatus:'paid',checkoutExpectedAmountPence:10000,stripeCheckoutSessionId:`cs_invalid_${i}`,verificationProvider:'didit',idVerifyStatus:'rejected',stripePaymentIntentId:`pi_invalid_${i}`,total:120,depositAmount:20,currency:'GBP',lineItems:[{listingId:'fixture-listing',title:'Camera',qty:1,lineTotal:100,start:Date.now()+14*86400000,end:Date.now()+15*86400000}],...overrides});
+      await assert.rejects(checkout.cancelByAdmin.handler(ctx,{...args,changeRequestId:undefined,bookingId:invalid._id}),/Only unstarted direct bookings/,label);
+      await assert.rejects(bookings.prepareCancellation.handler(ctx,{bookingId:invalid._id}),/Only an unstarted rental/,`${label} cannot bypass the admin eligibility gate`);
+      assert.equal(invalid.status,'pending_verification',`${label} cannot cancel or refund`);
+    }
+    const mismatchedStripeAmount=put('bookings',{status:'pending_verification',guestEmail:b.guestEmail,accountId:account._id,checkoutPaidAt:Date.now(),checkoutPaymentAmountPence:10000,checkoutPaymentCurrency:'GBP',checkoutPaymentStatus:'paid',checkoutExpectedAmountPence:10000,stripeCheckoutSessionId:'cs_stripe_amount_mismatch',verificationProvider:'didit',idVerifyStatus:'rejected',stripePaymentIntentId:'pi_stripe_amount_mismatch',rentalPaidPence:10000,total:120,depositAmount:20,creditApplied:20,currency:'GBP',lineItems:[{listingId:'fixture-listing',title:'Camera',qty:1,lineTotal:100,start:Date.now()+14*86400000,end:Date.now()+15*86400000}]});
+    const refundsBeforeMismatchedStripeAmount=created;
+    await assert.rejects(checkout.cancelByAdmin.handler(ctx,{...args,changeRequestId:undefined,bookingId:mismatchedStripeAmount._id}),/payment does not match this rental's captured currency or ownership/,'the live captured payment must equal the persisted checkout receipt');
+    assert.equal(mismatchedStripeAmount.status,'pending_verification','a mismatched Stripe amount stays pending for review');
+    assert.equal(created,refundsBeforeMismatchedStripeAmount,'no refund is issued for a mismatched Stripe amount');
+    const notDidit=put('bookings',{status:'pending_verification',guestEmail:b.guestEmail,paidConfirmedAt:Date.now(),checkoutPaidAt:Date.now(),checkoutPaymentAmountPence:10000,checkoutPaymentCurrency:'GBP',checkoutPaymentStatus:'paid',checkoutExpectedAmountPence:10000,stripeCheckoutSessionId:'cs_manual_rejected',verificationProvider:'manual',idVerifyStatus:'rejected',stripePaymentIntentId:'pi_manual_rejected',total:120,depositAmount:20,currency:'GBP',lineItems:[{listingId:'fixture-listing',title:'Camera',qty:1,lineTotal:100,start:Date.now()+14*86400000,end:Date.now()+15*86400000}]});
+    await assert.rejects(checkout.cancelByAdmin.handler(ctx,{...args,changeRequestId:undefined,bookingId:notDidit._id}),/Only unstarted direct bookings/,'the rejected-Didit cancellation exception does not apply to other verification providers');
+    assert.equal(notDidit.status,'pending_verification');
   } finally {Date.now=originalNow;}
   console.log(
     "PASS cancellation: Stripe succeeded/database failed; original quote reused; one cash refund; retry finalizes once.",

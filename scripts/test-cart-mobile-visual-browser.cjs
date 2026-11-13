@@ -87,22 +87,24 @@ const modules = {
     const until = async (expression, label) => { for (let i = 0; i < 80; i++) { if (await browser.evaluate(expression)) return; await wait(50); } throw new Error(`Timed out: ${label}; page=${await browser.evaluate("document.documentElement.outerHTML.slice(-500)")}`); };
     await until(`!!document.querySelector('[data-testid="basket-summary"]')`, "synthetic cart renders");
     await until(`(()=>{const images=[...document.querySelectorAll('img[alt="Sony FX3 cinema camera"],img[alt="Sony 24–70mm f/2.8 G Master lens"]')];return images.length===2&&images.every(image=>image.complete&&image.naturalWidth>0&&image.classList.contains('loaded'))})()`, "both synthetic catalog photos load through SmartImage");
+    assert.equal(await browser.evaluate(`document.querySelector('[data-testid="cart-item-date-range"]')?.textContent.trim()`), "6 Nov – 7 Nov 2030 · 2d", "Basket dates use a compact, unambiguous London display");
     const imageProof = await browser.evaluate(`(()=>[...document.querySelectorAll('img[alt="Sony FX3 cinema camera"],img[alt="Sony 24–70mm f/2.8 G Master lens"]')].map(image=>({alt:image.alt,src:new URL(image.src).pathname,width:image.naturalWidth,height:image.naturalHeight,loaded:image.classList.contains('loaded')})))()`);
     assert.deepEqual(imageProof.map(item=>item.src), ["/fixtures/listings/sony-fx3.webp", "/fixtures/listings/sony-24-70.webp"], `Cart renders the resolved primary/fallback catalog image URLs: ${JSON.stringify(imageProof)}`);
     assert(imageProof.every(item=>item.width>=640&&item.height>=400&&item.loaded), `Cart thumbnails are real raster listing photos, not glyphs: ${JSON.stringify(imageProof)}`);
     assert(imageRequests.includes("/fixtures/listings/missing-camera.webp"), "SmartImage tries the listing primary image before switching to its available fallback source");
     const out = "/tmp/dbc-cart-mobile-audit"; fs.mkdirSync(out, { recursive: true });
-    for (const width of [320, 390, 430, 768]) {
-      await browser.cmd("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width < 768 });
+    for (const [width,height] of [[320,640],[390,844],[430,932],[768,900]]) {
+      await browser.cmd("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 768 });
       await wait(80);
       const geometry = await browser.evaluate(`(()=>{const nodes=[...document.querySelectorAll('main, [data-testid="basket-summary"], input, button, [data-cart-dates],img[alt="Sony FX3 cinema camera"],img[alt="Sony 24–70mm f/2.8 G Master lens"]')].filter(e=>e.getBoundingClientRect().width>0);return{width:innerWidth,scrollWidth:document.documentElement.scrollWidth,docHeight:document.documentElement.scrollHeight,outside:nodes.filter(e=>{const r=e.getBoundingClientRect();return r.left < -1 || r.right > innerWidth+1}).map(e=>({tag:e.tagName,text:e.innerText?.slice(0,32),left:e.getBoundingClientRect().left,right:e.getBoundingClientRect().right})).slice(0,5),images:[...document.querySelectorAll('img[alt="Sony FX3 cinema camera"],img[alt="Sony 24–70mm f/2.8 G Master lens"]')].map(i=>({alt:i.alt,loaded:i.complete&&i.naturalWidth>0,src:new URL(i.src).pathname}))}})()`);
       assert.equal(geometry.scrollWidth <= width, true, `Cart has no horizontal overflow at ${width}px: ${JSON.stringify(geometry)}`);
       assert.deepEqual(geometry.outside, [], `Cart controls fit at ${width}px: ${JSON.stringify(geometry)}`);
       assert(geometry.images.length===2&&geometry.images.every(image=>image.loaded), `Both actual product thumbnails remain loaded at ${width}px: ${JSON.stringify(geometry.images)}`);
+      if(width<768){const remove=await browser.evaluate(`(()=>{const r=document.querySelector('button[aria-label="Remove Sony FX3 cinema camera"]')?.getBoundingClientRect();return{width:r?.width??0,height:r?.height??0,left:r?.left??0,right:r?.right??0}})()`);assert(remove.width>=44&&remove.height>=44&&remove.left>=0&&remove.right<=width,`Phone remove control has a 44×44px hit area without escaping the viewport at ${width}px: ${JSON.stringify(remove)}`);}
       assert.equal(await browser.evaluate(`document.querySelectorAll('[data-checkout-item-times]').length`), 0, "Cart does not ask for exact pickup/return times");
       if (width < 768) assert.equal(await browser.evaluate(`!!document.querySelector('[data-testid="mobile-checkout-dock"]')`), true, "Phone cart keeps a checkout action visible");
       const shot = await browser.cmd("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
-      fs.writeFileSync(path.join(out, `cart-${width}-top.png`), Buffer.from(shot.data, "base64"));
+      fs.writeFileSync(path.join(out, `cart-${width}x${height}-top.png`), Buffer.from(shot.data, "base64"));
     }
     await browser.cmd("Emulation.setDeviceMetricsOverride", { width: 320, height: 844, deviceScaleFactor: 1, mobile: true });
     await browser.evaluate(`document.querySelector('[data-testid="mobile-checkout-dock"] button').click()`);

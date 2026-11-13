@@ -6,23 +6,27 @@ import { Reveal } from "@/components/Reveal";
 import { IconArrowRight, IconClock, IconBolt } from "@/components/icons";
 import { BadgeBrowse, BadgeCalendar, BadgeLock, BadgeTruck } from "@/components/AnimatedIcons";
 import { HOURS_WINDOWS } from "@/lib/site";
+import { currentLegalVersion } from "@/lib/currentLegalVersion";
+import { CancellationPolicyQuickGuide } from "@/components/CancellationPolicyQuickGuide";
 
 export const metadata = publicPageMetadata("/how-it-works",'How to hire equipment in London','Choose equipment, check your dates, complete booking and verification, then collect in central London or arrange local delivery.');
+export const dynamic = "force-dynamic";
 
 const STEPS = [
   ["01", "Browse", "Find the gear you need by category — cameras, lenses, lighting, audio and more. Each listing shows live availability and multi-day rates.", BadgeBrowse],
   ["02", "Pick your dates", "Choose your start and end date on the calendar. The longer you rent, the better the per-day rate — applied automatically. Add suggested kit in one tap.", BadgeCalendar],
   ["03", "Book & pay securely", "Checkout shows the rental total and the security terms that apply before you confirm. Your accepted agreement explains whether any refundable payment, card authorisation or saved-card permission applies.", BadgeLock],
-  ["04", "Pickup or delivery", "Collect from central London or get it delivered locally. Shoot, then return it on your end date — that's it.", BadgeTruck],
+  ["04", "Pickup or delivery", "Meet outside the Waterstones bookstore at Trafalgar Square at your confirmed time, or choose local delivery. Return by your agreed time.", BadgeTruck],
 ] as const;
 const MOBILE_STEP_COPY = [
   "Explore cameras, lenses, lighting and audio. Listings show current availability and rental rates.",
   "Choose start and end dates. Multi-day rates apply automatically; add suggested kit in one tap.",
   "Review the rental total and security terms at checkout before you confirm.",
-  "Collect in central London or choose local delivery. Return the kit by the agreed time.",
+  "Meet outside the Waterstones bookstore at Trafalgar Square at the confirmed time, or choose local delivery. Return by your agreed time.",
 ] as const;
 
-export default function HowItWorksPage() {
+export default async function HowItWorksPage() {
+  const cancellationVersion = await currentLegalVersion();
   return (
     <>
       <SiteHeader />
@@ -106,6 +110,10 @@ export default function HowItWorksPage() {
             </div>
           </Reveal>
         </div>
+
+        <Reveal className="mt-12 sm:mt-16">
+          <CancellationPolicyQuickGuide version={cancellationVersion} />
+        </Reveal>
 
         <Reveal className="mt-7 sm:mt-10">
           <Link href="/gear" className="btn-primary px-7 py-3">

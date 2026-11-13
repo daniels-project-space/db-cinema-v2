@@ -6,12 +6,13 @@ import { handleChat } from "@/lib/gaffer";
 import { CONTACT_EMAIL } from "@/lib/site";
 import { formatGafferEmailReply, hasSpecificModelQuoteMismatch, isGmailForwardingConfirmation, isHumanHandoffRequested, newTextOnly, plainBody, recipientCandidates, replyKeyFrom, senderFrom } from "@/lib/inboundEmail";
 import { minimumRentalBasketLines } from "../../../../../shared/gafferEmailQuote";
+import type { ResendDeliveryStatus } from "../../../../../shared/emailDeliveryStatus";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
 export const dynamic = "force-dynamic";
 
-const OWNER_EMAIL = "dbcinemarentals@gmail.com";
+const OWNER_EMAIL = CONTACT_EMAIL;
 
 function verifyResendSignature(req: NextRequest, raw: string): boolean {
   const secret = process.env.RESEND_WEBHOOK_SECRET;
@@ -76,6 +77,13 @@ function addressList(value: unknown): string[] {
     const match = part.match(/<([^>]+)>/);
     return (match?.[1] ?? part).trim().toLowerCase();
   }).filter((part) => part.includes("@"));
+}
+
+function inboundRecipient(value: unknown): string {
+  const received = addressList(value)[0];
+  if (received) return received;
+  const configured = process.env.INBOUND_REPLY_ADDRESS?.trim().toLowerCase();
+  return configured && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(configured) ? configured : OWNER_EMAIL;
 }
 
 function referencesFrom(headers: any, field: string): string[] {
@@ -209,7 +217,43 @@ async function processResendEmail(req: NextRequest, raw: string) {
   if (!verifyResendSignature(req, raw)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   let event: any;
   try { event = JSON.parse(raw); } catch { return NextResponse.json({ error: "bad payload" }, { status: 400 }); }
-  if (event?.type !== "email.received") return NextResponse.json({ ok: true, ignored: "event type" });
+  const eventName = String(event?.type ?? "");
+  const deliveryStatusByEvent: Record<string, ResendDeliveryStatus> = {
+    "email.delivered": "delivered",
+    "email.delivery_delayed": "delivery_delayed",
+    "email.bounced": "bounced",
+    "email.suppressed": "suppressed",
+    "email.failed": "failed",
+    "email.complained": "complained",
+  };
+  const deliveryStatus = deliveryStatusByEvent[eventName];
+  if (deliveryStatus) {
+    const resendEmailId = String(event?.data?.email_id ?? "").trim();
+    const webhookEventId = String(req.headers.get("svix-id") ?? "").trim();
+    if (!resendEmailId || !webhookEventId) return NextResponse.json({ error: "missing delivery event identity" }, { status: 400 });
+    const date = Date.parse(String(event?.data?.created_at ?? event?.created_at ?? ""));
+    const detail = event?.data?.bounce?.message ?? event?.data?.suppressed?.message ??
+      event?.data?.failed?.message ?? event?.data?.failed?.reason ?? event?.data?.reason;
+    const reason = typeof detail === "string" ? detail.replace(/[\r\n\t]+/g, " ").trim().slice(0, 500) : undefined;
+    const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL);
+    try {
+      const result: any = await client.mutation(api.emailInbox.recordResendDeliveryEvent, {
+        secret: process.env.INBOUND_EMAIL_SECRET,
+        webhookEventId,
+        resendEmailId,
+        eventType: deliveryStatus,
+        recipients: addressList(event?.data?.to).slice(0, 25),
+        from: String(event?.data?.from ?? ""),
+        occurredAt: Number.isFinite(date) ? date : Date.now(),
+        ...(reason ? { reason } : {}),
+      });
+      return NextResponse.json({ ok: true, ...result });
+    } catch (error) {
+      console.error("[email/inbound] could not record Resend delivery status", String((error as any)?.message ?? error));
+      return NextResponse.json({ error: "delivery status could not be recorded" }, { status: 503, headers: { "Retry-After": "120" } });
+    }
+  }
+  if (eventName !== "email.received") return NextResponse.json({ ok: true, ignored: "event type" });
   const emailId = String(event?.data?.email_id ?? "").trim();
   if (!emailId) return NextResponse.json({ error: "missing inbound email id" }, { status: 400 });
   const apiKey = process.env.RESEND_API_KEY;
@@ -274,7 +318,7 @@ async function processLegacyFollowUp(req: NextRequest, raw: string, secret: stri
   try {
     const resolved: any = await client.mutation(api.emailInbox.resolveReplyKey, { secret, replyKey, email });
     if (resolved.ok) {
-      const recipient = addressList(msg?.to ?? msg?.To ?? msg?.envelope?.to)[0] ?? `gaffer+${replyKey}@${process.env.INBOUND_EMAIL_DOMAIN ?? "dbcinemarentals.com"}`;
+      const recipient = inboundRecipient(msg?.to ?? msg?.To ?? msg?.envelope?.to);
       return processGafferInboundEmail({
         providerId,
         messageId: messageId || undefined,
@@ -291,7 +335,7 @@ async function processLegacyFollowUp(req: NextRequest, raw: string, secret: stri
 
     const followUp: any = await client.mutation(api.followUp.resolveInbound, { secret, replyKey, email });
     if (!followUp.ok) return NextResponse.json({ ok: true, ignored: "unknown reply address" });
-    const recipient = addressList(msg?.to ?? msg?.To ?? msg?.envelope?.to)[0] ?? `gaffer+${replyKey}@${process.env.INBOUND_EMAIL_DOMAIN ?? "dbcinemarentals.com"}`;
+    const recipient = inboundRecipient(msg?.to ?? msg?.To ?? msg?.envelope?.to);
     return processGafferInboundEmail({
       providerId,
       messageId: messageId || undefined,

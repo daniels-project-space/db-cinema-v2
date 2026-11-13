@@ -50,5 +50,21 @@ const ctx={db};
  const handover=(await chat.getConversation.handler(ctx,{token:'qa-renter',bookingId:booking._id})).handoverDetails;
  assert.equal(handover.phone,LEO_SUPPORT_PHONE);assert.equal(handover.pickupAddress,TRAFALGAR_PICKUP_ADDRESS);assert.equal(handover.returnAddress,TRAFALGAR_PICKUP_ADDRESS);assert.equal(handover.pickupInstructions,TRAFALGAR_PICKUP_INSTRUCTIONS,'Paid, confirmed rentals with a booking-level Didit pass expose the agreed collection point and instructions');
  assert.equal(await operations.details.handler(ctx,{token:'foreign',bookingId:booking._id}),null);
+ const handoverMessage=put('messages',{accountId:account._id,bookingId:booking._id,sender:'renter',text:'Please change the return time'});
+ const openHandoverRequest=put('rental_change_requests',{requestId:'renter-handover-guard-001',accountId:account._id,bookingId:booking._id,kind:'handover',detail:'Please move the return to 19:00',messageId:handoverMessage._id,createdAt:Date.now(),requestedHandover:{lineIndexes:[0],kind:'return',time:'19:00'},requestedSnapshot:'fixture-snapshot',status:'pending'});
+ const bookingBeforeDirectTimeGuards=JSON.stringify(booking);
+ const directTimeChanges=[
+  ['legacy pickup-time mutation',()=>operations.changePickupTime.handler(ctx,{token:'qa-owner',bookingId:booking._id,requestId:'fixture-legacy-direct-time-001',lineIndex:0,pickupTime:'11:00',expectedSnapshot:'fixture-snapshot',reason:'Legacy direct change test'})],
+  ['direct pickup/return-time mutation',()=>operations.changeHandoverTimes.handler(ctx,{token:'qa-owner',bookingId:booking._id,requestId:'fixture-direct-handover-time-001',lineIndexes:[0],kind:'return',time:'20:00',expectedSnapshot:'fixture-snapshot',reason:'Direct change test'})],
+ ];
+ for(const state of [
+  {status:'pending'},
+  {status:'approved'},
+  {status:'approved',execution:{operation:'handover',operationKey:'fixture-key',status:'processing',startedAt:Date.now()}},
+ ]){
+  await db.patch(openHandoverRequest._id,state);
+  for(const [label,attempt] of directTimeChanges)await assert.rejects(attempt(),/A renter request is still awaiting a decision or completion/,`${label} must wait while a handover request is ${state.status}${state.execution?' processing':''}`);
+ }
+ assert.equal(JSON.stringify(booking),bookingBeforeDirectTimeGuards,'Blocked direct time changes leave the booking unchanged');
  console.log('PASS actual owner/renter clock projections and handover UI values: per-item overrides, mixed dates/intraday hires, explicit unknowns, genuine midnight, quantity grouping and immutable booking/charges. No live writes.');
 })().catch(e=>{console.error(e);process.exitCode=1});

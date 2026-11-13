@@ -3,9 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { GafferCall } from "@/components/GafferCall";
-import { IconArrowRight, IconStar } from "@/components/icons";
+import { IconArrowRight } from "@/components/icons";
 
-type Rating = { ratingValue: number; reviewCount: number; reviewCountLabel: string } | null;
 type Cat = { name: string; count: number };
 
 /**
@@ -29,7 +28,7 @@ const CALLOUTS: {
   { cat: "Audio", unit: "kits", dot: [1455, 420], label: [1245, 662], from: [1270, 650] },
 ];
 
-export function HeroCinematic({ rating, categories }: { rating: Rating; categories: Cat[] }) {
+export function HeroCinematic({ categories }: { categories: Cat[] }) {
   const c1Ref = useRef<HTMLVideoElement>(null);
   const c2Ref = useRef<HTMLVideoElement>(null);
   const loopRef = useRef<HTMLVideoElement>(null);
@@ -410,37 +409,6 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
             className="col-span-2 min-h-11 justify-self-center !min-h-11 !px-4 !py-2 !text-xs !font-medium sm:!px-5 sm:!py-2.5 sm:!text-sm lg:!px-8 lg:!py-3 lg:!text-base"
           />
         </div>
-        {rating && (
-          <div
-            className="max-w-full"
-            style={{
-              opacity: ctaVisible ? 1 : 0,
-              transition: `opacity ${mobile ? ".7s" : "1s"} cubic-bezier(0.16,1,0.3,1)`,
-              transitionDelay: mobile ? "0.2s" : "0.48s",
-            }}
-          >
-            {/* the rating is the proof — make it go to the proof. A plain hash
-                link, so the browser does the smooth scroll (html already sets
-                scroll-behavior: smooth, and drops it under prefers-reduced-motion). */}
-            <a
-              href="#reviews"
-              aria-label={`Rated ${rating.ratingValue.toFixed(2)} out of 5 from ${rating.reviewCountLabel} renter reviews; read all reviews`}
-              className="group mt-3 inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border border-white/15 bg-black/30 px-2.5 py-1.5 text-xs text-white/70 shadow-lg backdrop-blur-md transition-colors hover:border-accent-400/40 hover:bg-black/45 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent-400/70 sm:gap-3 sm:px-4 sm:py-2 sm:text-sm lg:mt-5"
-            >
-              <span aria-hidden="true" className="flex text-accent-400">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <IconStar key={i} className="h-3 w-3 sm:h-4 sm:w-4" />
-                ))}
-              </span>
-              <span className="font-mono font-semibold text-white">{rating.ratingValue.toFixed(2)}</span>
-              <span className="text-white/40">/ 5</span>
-              <span className="text-white/35">·</span>
-              <span className="font-medium underline decoration-white/30 decoration-dotted underline-offset-4 transition-colors group-hover:decoration-accent-400/70">
-                {rating.reviewCountLabel} reviews
-              </span>
-            </a>
-          </div>
-        )}
       </div>
     </>
   );

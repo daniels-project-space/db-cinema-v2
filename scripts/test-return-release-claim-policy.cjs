@@ -4,7 +4,10 @@ const policy = load("shared/rentalSecurity.ts");
 const refunds = new Map();
 const intents = new Map();
 const refundCalls = [];
+const securityClaimCalls = [];
+const cancelCalls = [];
 let cancelFailures = 0;
+let loseRefundResponse = false;
 class StripeFixture {
   refunds = {
     retrieve: async (id) => [...refunds.values()].find((row) => row.id === id),
@@ -16,12 +19,14 @@ class StripeFixture {
         row = { ...args, id: `re_fixture_${refunds.size}`, status: "succeeded", currency: "gbp" };
         refunds.set(options.idempotencyKey, row);
       }
+      if (loseRefundResponse) { loseRefundResponse = false; throw new Error("Lost provider response after refund creation"); }
       return row;
     },
   };
   paymentIntents = {
     retrieve: async (id) => intents.get(id),
-    cancel: async (id) => {
+    cancel: async (id, _params, options) => {
+      cancelCalls.push({ id, idempotencyKey: options?.idempotencyKey });
       if (cancelFailures > 0) { cancelFailures -= 1; throw new Error("Stripe fixture transient cancellation failure"); }
       const intent = intents.get(id);
       intent.status = "canceled";
@@ -33,6 +38,8 @@ class StripeFixture {
 setMock("stripe", { default: StripeFixture });
 process.env.STRIPE_SECRET_KEY = "sk_test_fixture";
 process.env.ADMIN_TOKEN = "return-release-fixture";
+const ownerClaimFixture = "a".repeat(64);
+process.env.OWNER_RETURN_CLAIM_TOKEN = ownerClaimFixture;
 const checkout = load("convex/checkout.ts");
 const bookings = load("convex/bookings.ts");
 const admin = load("convex/adminAuth.ts");
@@ -55,11 +62,22 @@ const ctx = {
   runMutation: async (ref, args) => {
     if (ref === "adminAuth.assertAdminInternal") return admin.assertAdminInternal.handler(ctx, args);
     if (ref === "savedCardState.markReturn") return cards.markReturn.handler(ctx, args);
+    if (ref === "securityChargeState.prepareFromReturnDecision") {
+      securityClaimCalls.push({ mode: "notice", args });
+      return `charge_fixture_${securityClaimCalls.length}`;
+    }
     if (!ref.startsWith("bookings.")) throw Error(`Unexpected mutation ${ref}`);
     return bookings[ref.split(".")[1]].handler(ctx, args);
   },
   runAction: async (ref,args) => {
     if (ref === "checkout.markReturned") return checkout.markReturned.handler(ctx,args);
+    if (ref === "securityCharges.submitReturnDecisionClaim") {
+      const booking = await db.get(args.bookingId);
+      assert(Number.isSafeInteger(booking?.returnDecision?.ownerClaimAuthorizedAt), "Only a previously owner-authorized return can use the internal retry path.");
+      assert.equal("ownerClaimToken" in args, false, "The internal retry uses the durable authorization receipt, not a persisted owner secret.");
+      securityClaimCalls.push({ mode: "immediate", args });
+      return { id: `charge_fixture_${securityClaimCalls.length}`, status: "paid" };
+    }
     throw Error(`Unexpected action ${ref}`);
   },
 };
@@ -80,10 +98,13 @@ function selection(booking, chargeLate = false, lateClaimReason) {
     inspection: [{ key: "legacy:0:0", condition: "good", details: "", openCase: false }],
   };
 }
+function withOwnerClaim(value) { return { ...value, ownerClaimToken: ownerClaimFixture }; }
 (async () => {
   const noClaim = rental();
   assert.ok(lateFeeQuote(noClaim.lineItems, noClaim.returnTime, now).amount > 0, "the no-claim fixture must be late by the objective quote");
+  const claimsBeforeCleanReturn = securityClaimCalls.length;
   const result = await checkout.markReturned.handler(ctx, selection(noClaim));
+  assert.equal(securityClaimCalls.length, claimsBeforeCleanReturn, "A return without an explicit claim never prepares or charges a saved card.");
   assert.equal(result.lateAmount, 0);
   assert.equal(noClaim.lateFeeAmount, 0);
   assert.equal(noClaim.lateFeeWaivedAmount, undefined);
@@ -91,6 +112,29 @@ function selection(booking, chargeLate = false, lateClaimReason) {
   assert.equal(noClaim.depositRefundAmount, 50);
   assert.equal(noClaim.returnStatement.lateAssessed, 0);
   assert.equal(noClaim.returnStatement.lateWaived, 0);
+
+  const claimWithoutOwner = rental();
+  const noOwnerClaim = selection(claimWithoutOwner, true, "Documented late return claim for the fixture.");
+  const claimCallsBeforeOwnerGate = securityClaimCalls.length;
+  const refundCallsBeforeOwnerGate = refundCalls.length;
+  await assert.rejects(checkout.markReturned.handler(ctx, noOwnerClaim), /Only the account owner can authorize/);
+  assert.equal(claimWithoutOwner.returnDecision, undefined, "Missing owner authorization must reject before recording return or settlement state.");
+  assert.equal(securityClaimCalls.length, claimCallsBeforeOwnerGate, "Missing owner authorization must not create a saved-card charge.");
+  assert.equal(refundCalls.length, refundCallsBeforeOwnerGate, "Missing owner authorization must not create a Stripe refund.");
+
+  const wrongOwner = rental();
+  await assert.rejects(checkout.markReturned.handler(ctx, { ...selection(wrongOwner, true, "Documented late return claim for the fixture."), ownerClaimToken: "b".repeat(64) }), /Only the account owner can authorize/);
+  assert.equal(wrongOwner.returnDecision, undefined, "Wrong owner authorization must also reject before mutation.");
+
+  const configuredOwnerToken = process.env.OWNER_RETURN_CLAIM_TOKEN;
+  delete process.env.OWNER_RETURN_CLAIM_TOKEN;
+  const cleanWithoutConfiguredOwner = rental(0);
+  await checkout.markReturned.handler(ctx, selection(cleanWithoutConfiguredOwner));
+  assert.equal(cleanWithoutConfiguredOwner.status, "returned", "A clean return must remain automatic if owner-only claims are not configured.");
+  const unconfiguredClaim = rental();
+  await assert.rejects(checkout.markReturned.handler(ctx, withOwnerClaim(selection(unconfiguredClaim, true, "Documented late return claim for the fixture."))), /Owner-only return claims are not configured/);
+  assert.equal(unconfiguredClaim.returnDecision, undefined, "Missing server-side owner configuration must prevent any claim mutation.");
+  process.env.OWNER_RETURN_CLAIM_TOKEN = configuredOwnerToken;
 
   const missingReason = rental();
   const callsBeforeMissingReason = refundCalls.length;
@@ -112,10 +156,106 @@ function selection(booking, chargeLate = false, lateClaimReason) {
   assert.equal(unexplainedRetention.returnDecision, undefined);
 
   const claimed = rental();
-  await checkout.markReturned.handler(ctx, selection(claimed, true, "Owner claim for equipment returned after the agreed time."));
+  await checkout.markReturned.handler(ctx, withOwnerClaim(selection(claimed, true, "Owner claim for equipment returned after the agreed time.")));
   assert.equal(claimed.lateFeeAmount, 100);
   assert.equal(claimed.lateFeeClaimReason, "Owner claim for equipment returned after the agreed time.");
   assert.equal(claimed.returnStatement.lateClaimReason, claimed.lateFeeClaimReason);
+  assert(Number.isSafeInteger(claimed.returnDecision.ownerClaimAuthorizedAt), "The frozen claim stores a non-secret owner authorization receipt.");
+  assert.equal("ownerClaimToken" in claimed.returnDecision, false, "The authorization receipt never stores the owner secret.");
+
+  const recoverClaim = rental();
+  recoverClaim.lineItems[0].dailyRate = 10;
+  const recoverClaimSelection = withOwnerClaim(selection(recoverClaim, true, "The kit came back after the agreed London return time."));
+  loseRefundResponse = true;
+  const refundCallsBeforeClaimRecovery = refundCalls.length;
+  await assert.rejects(checkout.markReturned.handler(ctx, recoverClaimSelection), /Lost provider response after refund creation/);
+  assert(Number.isSafeInteger(recoverClaim.returnDecision.ownerClaimAuthorizedAt));
+  assert.equal(recoverClaim.depositRefunded, false, "The ambiguous refund remains incomplete until its original provider receipt is recovered.");
+  const originalClaimRefund = [...refunds.values()].find(row => row.metadata?.dbc_deposit_return_booking === String(recoverClaim._id));
+  assert(originalClaimRefund, "The fixture stores the provider-created refund before simulating the lost response.");
+  const authorizationReceiptAt = recoverClaim.returnDecision.ownerClaimAuthorizedAt;
+  const configuredOwnerTokenForRecovery = process.env.OWNER_RETURN_CLAIM_TOKEN;
+  delete process.env.OWNER_RETURN_CLAIM_TOKEN;
+  const recoveredClaim = await checkout.reconcileDepositRefund.handler(ctx, { refundId: originalClaimRefund.id });
+  process.env.OWNER_RETURN_CLAIM_TOKEN = configuredOwnerTokenForRecovery;
+  assert.equal(recoveredClaim.ok, true, "A Stripe refund webhook resumes the exact frozen owner-authorized decision without the owner secret.");
+  assert.equal(recoverClaim.depositRefunded, true);
+  assert.equal(recoverClaim.depositRefundAmount, 50);
+  assert.equal(recoverClaim.lateFeeClaimReason, recoverClaimSelection.lateClaimReason);
+  assert.equal(recoverClaim.returnDecision.ownerClaimAuthorizedAt, authorizationReceiptAt, "Recovery preserves the original immutable authorization receipt.");
+  assert.equal(refundCalls.length, refundCallsBeforeClaimRecovery + 1, "Webhook recovery observes the original refund instead of creating a duplicate.");
+
+  await assert.rejects(checkout.markReturned.handler(ctx, {
+    ...selection(recoverClaim), damageKept: 1, depositKept: 1, damageNote: "A different claim after the original return was frozen.",
+    inspection: [{ key: "legacy:0:0", condition: "issue", details: "A different claim after the original return was frozen.", openCase: false }],
+  }), /saved (?:deposit|return) decision/i, "A stored receipt cannot authorize changed claim amounts or evidence.");
+  const newClaimWithoutOwner = rental(0);
+  await assert.rejects(checkout.markReturned.handler(ctx, selection(newClaimWithoutOwner, true, "A new claim without owner confirmation.")), /Only the account owner can authorize/);
+  assert.equal(newClaimWithoutOwner.returnDecision, undefined, "An authorization receipt for another rental cannot authorize a new claim.");
+
+  const immediateClaim = rental(0);
+  immediateClaim.securityPolicyVersion = policy.IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION;
+  immediateClaim.savedCardLimit = 50;
+  immediateClaim.lineItems[0].dailyRate = 10;
+  immediateClaim.stripePaymentIntentId = undefined;
+  immediateClaim.paymentSources = [];
+  const immediateSelection = withOwnerClaim(selection(immediateClaim, true, "The kit came back after the agreed London return time."));
+  const beforeImmediateClaim = securityClaimCalls.length;
+  const immediateResult = await checkout.markReturned.handler(ctx, immediateSelection);
+  assert.equal(securityClaimCalls.length, beforeImmediateClaim + 1);
+  assert.equal(securityClaimCalls.at(-1).mode, "immediate");
+  assert.equal(securityClaimCalls.at(-1).args.kind, "late");
+  assert.equal(securityClaimCalls.at(-1).args.reason, immediateSelection.lateClaimReason);
+  assert.equal(immediateResult.claims[0].status, "paid");
+  const immediateRequestId = securityClaimCalls.at(-1).args.requestId;
+  await checkout.markReturned.handler(ctx, immediateSelection);
+  assert.equal(securityClaimCalls.at(-1).args.requestId, immediateRequestId, "Retry reuses the immutable return-claim request key.");
+
+  const damageClaim = rental(0);
+  damageClaim.securityPolicyVersion = policy.IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION;
+  damageClaim.savedCardLimit = 50;
+  damageClaim.stripePaymentIntentId = undefined;
+  damageClaim.paymentSources = [];
+  const damageSelection = selection(damageClaim);
+  damageSelection.actualReturnedAt = Date.UTC(2026, 10, 3, 19, 0);
+  damageSelection.damageKept = 25;
+  damageSelection.damageNote = "Severe permanent marks on the lens barrel; repair quote £25.";
+  damageSelection.claimBasis = "severe_cosmetic_damage";
+  damageSelection.inspection = [{ key: "legacy:0:0", condition: "issue", details: damageSelection.damageNote, openCase: false }];
+  damageSelection.ownerClaimToken = ownerClaimFixture;
+  const beforeDamageClaim = securityClaimCalls.length;
+  const damageResult = await checkout.markReturned.handler(ctx, damageSelection);
+  assert.equal(securityClaimCalls.length, beforeDamageClaim + 1);
+  assert.equal(securityClaimCalls.at(-1).args.kind, "damage");
+  assert.equal(securityClaimCalls.at(-1).args.amount, 25);
+  assert.equal(securityClaimCalls.at(-1).args.claimBasis, "severe_cosmetic_damage");
+  assert.equal(damageClaim.returnDecision.claimBasis, "severe_cosmetic_damage");
+  assert.equal(damageResult.claims[0].status, "paid");
+
+  const noticeOnlyClaim = rental(0);
+  noticeOnlyClaim.securityPolicyVersion = policy.SETUP_INTENT_SECURITY_POLICY_VERSION;
+  noticeOnlyClaim.savedCardLimit = 50;
+  noticeOnlyClaim.lineItems[0].dailyRate = 10;
+  noticeOnlyClaim.stripePaymentIntentId = undefined;
+  noticeOnlyClaim.paymentSources = [];
+  const noticeSelection = withOwnerClaim(selection(noticeOnlyClaim, true, "The kit came back after the agreed London return time."));
+  const beforeNoticeClaim = securityClaimCalls.length;
+  const noticeResult = await checkout.markReturned.handler(ctx, noticeSelection);
+  assert.equal(securityClaimCalls.length, beforeNoticeClaim + 1);
+  assert.equal(securityClaimCalls.at(-1).mode, "notice");
+  assert.equal(securityClaimCalls.at(-1).args.immediate, false, "Older signed terms keep the agreed notice period.");
+  assert.equal(noticeResult.claims[0].status, "notice_pending");
+
+  const noDamageBasis = rental(0);
+  noDamageBasis.securityPolicyVersion = policy.IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION;
+  noDamageBasis.savedCardLimit = 50;
+  noDamageBasis.stripePaymentIntentId = undefined;
+  noDamageBasis.paymentSources = [];
+  const missingBasis = selection(noDamageBasis);
+  missingBasis.damageKept = 1;
+  missingBasis.damageNote = "Permanent damage documented on the camera body.";
+  await assert.rejects(checkout.markReturned.handler(ctx, missingBasis), /Choose whether the saved-card claim/);
+  assert.equal(noDamageBasis.returnDecision, undefined, "A policy basis is required before a claim can be saved.");
 
   const held = rental(0);
   held.securityPolicyVersion = policy.LEGACY_TEN_PERCENT_HOLD_POLICY;
@@ -155,6 +295,11 @@ function selection(booking, chargeLate = false, lateClaimReason) {
   assert.equal(cardHold.depositRefunded, undefined, "releasing a hold is not recorded as a cash refund");
   assert.equal(refundCalls.length, cardHoldRefundCalls, "an uncaptured authorization release creates no refund");
   assert.equal(cardHold.returnStatement.holdStatus, "released");
+  assert.equal(cardHold.returnStatement.holdAmount, 50, "The return record preserves the signed temporary authorisation amount");
+  assert.equal(cardHold.returnStatement.securityPolicyVersion, policy.CARD_HOLD_SECURITY_POLICY_VERSION, "The return receipt retains its card-hold policy branch");
+  const cardHoldEmail = returnStatementEmail(cardHold.returnStatement).html;
+  assert.match(cardHoldEmail, /Temporary card authorisation hold: £50\.00; cancelled without a charge/);
+  assert.doesNotMatch(cardHoldEmail, /No security payment or card hold was taken|refund issued/);
 
   const transient = rental(0);
   transient.securityPolicyVersion = policy.LEGACY_TEN_PERCENT_HOLD_POLICY;
@@ -188,6 +333,47 @@ function selection(booking, chargeLate = false, lateClaimReason) {
   assert.equal(intents.get("pi_card_hold_transient").status, "canceled", "bounded recovery finds the new primary hold field and retries its release");
   assert.equal(cardHoldTransient.depositHoldStatus, "released");
   assert.equal(cardHoldTransient.lateFeeAmount, 0);
+
+  const savedCardClaimHold = rental(0);
+  savedCardClaimHold.securityPolicyVersion = policy.IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION;
+  savedCardClaimHold.savedCardLimit = 50;
+  savedCardClaimHold.lineItems[0].dailyRate = 10;
+  savedCardClaimHold.depositHoldAmount = 50;
+  savedCardClaimHold.stripeDepositIntentId = "pi_saved_claim_hold";
+  savedCardClaimHold.depositHoldStatus = "held";
+  savedCardClaimHold.depositHoldRenewalIntentId = "pi_saved_claim_renewal";
+  savedCardClaimHold.depositHoldPreviousIntentIds = ["pi_saved_claim_superseded"];
+  savedCardClaimHold.stripePaymentIntentId = undefined;
+  savedCardClaimHold.paymentSources = [];
+  for (const id of ["pi_saved_claim_hold", "pi_saved_claim_renewal", "pi_saved_claim_superseded"])
+    intents.set(id, { id, status: "requires_capture", amount_capturable: 5000, amount_received: 0 });
+  const savedCardClaimSelection = withOwnerClaim(selection(savedCardClaimHold, true, "The kit came back after the agreed return time."));
+  const savedClaimCallsBeforeReleaseFailure = securityClaimCalls.length;
+  const savedClaimCancelCallsBeforeReleaseFailure = cancelCalls.length;
+  cancelFailures = 1;
+  await assert.rejects(checkout.markReturned.handler(ctx, savedCardClaimSelection), /transient cancellation failure/);
+  assert(Number.isSafeInteger(savedCardClaimHold.returnDecision?.ownerClaimAuthorizedAt), "The scheduled retry is tied to a frozen owner-authorized claim.");
+  assert.equal(securityClaimCalls.length, savedClaimCallsBeforeReleaseFailure, "A failed hold release stops before the saved-card claim is submitted.");
+  assert(scheduled.some(([, ref, args]) => ref === "checkout.recoverDepositReturn" && args.bookingId === savedCardClaimHold._id), "A saved-card claim with hold cleanup failure schedules bounded recovery.");
+  const savedClaimReceipt = savedCardClaimHold.returnDecision.ownerClaimAuthorizedAt;
+  const ownerTokenBeforeSavedClaimRecovery = process.env.OWNER_RETURN_CLAIM_TOKEN;
+  delete process.env.OWNER_RETURN_CLAIM_TOKEN;
+  await checkout.recoverDepositReturn.handler(ctx, { bookingId: savedCardClaimHold._id, attempt: 0 });
+  process.env.OWNER_RETURN_CLAIM_TOKEN = ownerTokenBeforeSavedClaimRecovery;
+  assert.equal(savedCardClaimHold.status, "returned", "Recovery completes the exact frozen return after the hold provider recovers.");
+  assert.equal(savedCardClaimHold.returnDecision.ownerClaimAuthorizedAt, savedClaimReceipt, "Recovery does not replace the authorization receipt.");
+  for (const id of ["pi_saved_claim_hold", "pi_saved_claim_renewal", "pi_saved_claim_superseded"])
+    assert.equal(intents.get(id).status, "canceled", `The saved-card return releases ${id}.`);
+  assert.deepEqual(savedCardClaimHold.depositHoldPreviousIntentIds, [], "Released superseded holds are cleared only after Stripe confirms cancellation.");
+  assert.equal(securityClaimCalls.length, savedClaimCallsBeforeReleaseFailure + 1, "The claim is submitted only after all authorizations are released.");
+  const savedClaimRequestId = securityClaimCalls.at(-1).args.requestId;
+  assert.equal(securityClaimCalls.at(-1).args.kind, "late");
+  const primaryReleaseAttempts = cancelCalls.filter((call) => call.id === "pi_saved_claim_hold");
+  assert.equal(primaryReleaseAttempts.length, 2, "The failed primary cancellation is retried, not treated as released.");
+  assert.equal(new Set(primaryReleaseAttempts.map((call) => call.idempotencyKey)).size, 1, "Retry preserves the primary hold cancellation idempotency key.");
+  await checkout.recoverDepositReturn.handler(ctx, { bookingId: savedCardClaimHold._id, attempt: 1 });
+  assert.equal(cancelCalls.length, savedClaimCancelCallsBeforeReleaseFailure + 4, "A replay observes canceled holds without canceling them again.");
+  assert.equal(securityClaimCalls.at(-1).args.requestId, savedClaimRequestId, "A replay keeps the deterministic claim key for the frozen decision.");
 
   const savedPolicy = rental(0);
   savedPolicy.securityPolicyVersion = policy.SECURITY_POLICY_VERSION;
@@ -224,10 +410,41 @@ function selection(booking, chargeLate = false, lateClaimReason) {
   claimedHold.stripePaymentIntentId = undefined;
   claimedHold.paymentSources = [];
   intents.set("pi_explicit_late_claim_hold", { id: "pi_explicit_late_claim_hold", status: "requires_capture", amount_capturable: 5000, amount_received: 0 });
-  await checkout.markReturned.handler(ctx, selection(claimedHold, true, "The late return caused additional agreed rental time."));
+  await checkout.markReturned.handler(ctx, withOwnerClaim(selection(claimedHold, true, "The late return caused additional agreed rental time.")));
   assert.equal(claimedHold.lateFeeAmount, 100);
   assert.equal(claimedHold.lateFeeClaimReason, "The late return caused additional agreed rental time.");
   assert.equal(intents.get("pi_explicit_late_claim_hold").status, "requires_capture", "only a documented, explicit claim may leave the hold available for review");
+
+  const claimedHoldWithAux = rental(0);
+  claimedHoldWithAux.securityPolicyVersion = policy.LEGACY_TEN_PERCENT_HOLD_POLICY;
+  claimedHoldWithAux.depositHoldAmount = 50;
+  claimedHoldWithAux.stripeDepositIntentId = "pi_claim_primary";
+  claimedHoldWithAux.depositHoldStatus = "held";
+  claimedHoldWithAux.depositHoldRenewalIntentId = "pi_claim_renewal";
+  claimedHoldWithAux.depositHoldRenewalStatus = "renewed";
+  claimedHoldWithAux.depositHoldPreviousIntentIds = ["pi_claim_previous"];
+  claimedHoldWithAux.stripePaymentIntentId = undefined;
+  claimedHoldWithAux.paymentSources = [];
+  for (const id of ["pi_claim_primary", "pi_claim_renewal", "pi_claim_previous"])
+    intents.set(id, { id, status: "requires_capture", amount_capturable: 5000, amount_received: 0 });
+  const claimedAuxSelection = selection(claimedHoldWithAux, true, "The equipment return was late; the agreed additional rental time is itemised.");
+  const cancelStart = cancelCalls.length;
+  cancelFailures = 1;
+  await assert.rejects(checkout.markReturned.handler(ctx, withOwnerClaim(claimedAuxSelection)), /transient cancellation failure/);
+  assert.deepEqual(claimedHoldWithAux.depositHoldPreviousIntentIds, ["pi_claim_previous"], "A failed auxiliary cancellation keeps its receipt linked for recovery.");
+  assert.equal(claimedHoldWithAux.depositHoldRenewalIntentId, "pi_claim_renewal", "A failed renewal cancellation is not cleared from the booking.");
+  assert.equal(intents.get("pi_claim_primary").status, "requires_capture", "The explicitly claimed current authorization remains available for the late claim.");
+  const ownerTokenForAuxRetry = process.env.OWNER_RETURN_CLAIM_TOKEN;
+  delete process.env.OWNER_RETURN_CLAIM_TOKEN;
+  try { await checkout.markReturned.handler(ctx, claimedAuxSelection); }
+  finally { process.env.OWNER_RETURN_CLAIM_TOKEN = ownerTokenForAuxRetry; }
+  const auxCancelAttempts = cancelCalls.slice(cancelStart).filter(row => row.id === "pi_claim_renewal");
+  assert.equal(auxCancelAttempts.length, 2, "The failed renewal release is retried from the saved owner-authorized decision.");
+  assert.equal(auxCancelAttempts[0].idempotencyKey, auxCancelAttempts[1].idempotencyKey, "A cancellation retry reuses its stable provider key exactly once.");
+  assert.equal(intents.get("pi_claim_renewal").status, "canceled");
+  assert.equal(intents.get("pi_claim_previous").status, "canceled");
+  assert.equal(claimedHoldWithAux.depositHoldRenewalStatus, "released");
+  assert.deepEqual(claimedHoldWithAux.depositHoldPreviousIntentIds, [], "Only provider-confirmed cancellations are removed from the saved record.");
 
   const releaseEmail=returnStatementEmail({number:"DBC-R-TEST",issuedAt:now,actualReturnedAt:now,supplierName:"Db Cinema Rentals",customerEmail:"renter@example.invalid",lineItems:[],subtotal:0,discount:0,deliveryFee:0,creditApplied:0,checkoutPaid:0,securityPaid:0,securityRefunded:0,holdStatus:"released",damageTotal:0,damageFromHold:0,lateAssessed:0,lateWaived:0,lateBreakdown:[]});
   assert.match(releaseEmail.html,/Any unused card authorisation holds for this rental have been released/);

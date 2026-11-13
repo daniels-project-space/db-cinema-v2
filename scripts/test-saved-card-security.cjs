@@ -77,7 +77,9 @@ const actionCtx={runQuery:async(ref,args)=>{
  const ready={...b,status:'confirmed',savedCardStatus:'needs_setup',idVerifyStatus:'verified',verificationExpiresAt:Date.now()+86400000,verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},verificationArchiveReady:true};
  assert.equal(load('shared/rentalReadiness.ts').rentalStageLabel(ready),'Awaiting saved-card setup');assert.equal(load('shared/verificationJourney.ts').verificationJourney(ready).ready,false);assert.equal(load('shared/verificationJourney.ts').verificationJourney({...ready,savedCardStatus:'saved'}).ready,true);
  await assert.rejects(prepare(b,'damage',200.001,'fraction'),/penny/);
- await assert.rejects(state.prepare.handler(ctx,{token:'foreign',bookingId:b._id,requestId:'foreign-request-0001',kind:'damage',amount:20,reason:'Documented fixture'}));
+ const beforeForeignAttempt=(tables.get('rental_security_charges')??[]).length;
+ await assert.rejects(actions.prepareClaim.handler(actionCtx,{token:'foreign',ownerClaimToken:'synthetic-owner-claim',confirmed:true,bookingId:b._id,requestId:'foreign-request-0001',kind:'damage',amount:20,reason:'Documented fixture'}));
+ assert.equal((tables.get('rental_security_charges')??[]).length,beforeForeignAttempt,'A foreign admin token cannot create an itemised assessment through the public action');
  const damage=await prepare(b,'damage',200,'damage-0001');assert.equal(b.savedCardChargeReservedPence,20000);
  assert.equal(await prepare(b,'damage',200,'damage-0001'),damage);assert.equal(b.savedCardChargeReservedPence,20000);
  await assert.rejects(prepare(b,'damage',201,'damage-0001'),/different/);
@@ -137,7 +139,7 @@ const actionCtx={runQuery:async(ref,args)=>{
  const legal=load('shared/legalDocuments.ts');assert.equal(legal.RENTAL_DRAFT_RELEASE_READY,false);const terms=JSON.stringify(legal.LEGAL_DOCS.terms);
  assert.match(terms,/£100 per rental/);assert.match(terms,/actually incurred and evidenced/);assert.match(terms,/age, condition and depreciation/);assert.match(terms,/separate payment approval/);
  const checkout=fs.readFileSync('src/app/checkout/page.tsx','utf8');
- assert(checkout.includes("An authorised team member may send notice and attempt one payment immediately"),'The new checkout text describes v22 immediate claim consent');
+ assert(checkout.includes("After return, we record the amount, reason and evidence, send itemised notice, then may make one card attempt"),'Checkout requires an itemised notice after recording the amount, reason and evidence before the one permitted card attempt');
  assert(checkout.includes("Notice and a seven-day query period apply before collection"),'Historic v1 agreement wording remains explicit');
  assert(checkout.includes("This checkbox does not authorise later off-session charges"),'Card Hold wording remains distinct');
  const holdDocs=setupLegal.agreementsForSecurityPolicy(policy.CARD_HOLD_SECURITY_POLICY_VERSION);

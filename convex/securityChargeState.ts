@@ -1,15 +1,36 @@
 import { ASSESSMENT_SECURITY_POLICY_VERSION, isSetupIntentSecurityPolicy, isImmediateClaimSecurityPolicy } from "../shared/rentalSecurity";
-import { query, mutation, internalMutation, internalQuery } from './_generated/server';
+import { query, mutation, internalMutation, internalQuery, type MutationCtx, type QueryCtx } from './_generated/server';
 import { v } from 'convex/values';
 import { assertAdmin, checkAdminToken } from './adminAuth';
+import { adminSessionMigrationReady, assertAdminScopeSession } from './adminAccountSessionV2';
 import { accountForToken, ownedBooking, postRentalMessage } from './lib/rentalChat';
 import { assertSavedCardCollection, retainedDepositPence, isSavedCardRental, SECURITY_COLLECTION_NOTICE_HOURS, SECURITY_COLLECTION_DAYS } from '../shared/savedCardSecurity';
 import { internal } from './_generated/api';
+import type { Id } from './_generated/dataModel';
 import { queueOwnerNotification } from './lib/adminPush';
 const released = (state:string) => ['failed','voided'].includes(state);
 const idArgs={id:v.id('rental_security_charges')};
+async function authorizePaymentRead(ctx:QueryCtx|MutationCtx,token:string){
+ if(process.env.ADMIN_SESSION_BILLING_PORTAL_V2==='enabled'){
+  if(!adminSessionMigrationReady())throw Error('Admin session migration is not ready.');
+  await assertAdminScopeSession(ctx,token,'payments:read');
+ }else if(!checkAdminToken(token))throw Error('unauthorized');
+}
+async function authorizePaymentWrite(ctx:MutationCtx,token:string,operation:string){
+ if(process.env.ADMIN_SESSION_BILLING_PORTAL_V2==='enabled'){
+  if(!adminSessionMigrationReady())throw Error('Admin session migration is not ready.');
+  await assertAdminScopeSession(ctx,token,'payments:write');
+  await ctx.db.insert('admin_audit_log',{at:Date.now(),success:true,limited:false,fn:operation});
+ }else await assertAdmin(ctx,token,operation);
+}
+export const authorizeAdminPayment=internalMutation({args:{token:v.string(),operation:v.string()},handler:async(ctx,a)=>{
+ await authorizePaymentWrite(ctx,a.token,a.operation);
+}});
 export const list = query({args:{token:v.string(),bookingId:v.id('bookings'),admin:v.optional(v.boolean())},handler:async(ctx,a)=>{
- if(a.admin){if(!checkAdminToken(a.token))return null;}else{const account=await accountForToken(ctx,a.token);if(!account)return null;await ownedBooking(ctx,account,a.bookingId);}
+ if(a.admin){
+  if(process.env.ADMIN_SESSION_BILLING_PORTAL_V2==='enabled')await authorizePaymentRead(ctx,a.token);
+  else if(!checkAdminToken(a.token))return null;
+ }else{const account=await accountForToken(ctx,a.token);if(!account)return null;await ownedBooking(ctx,account,a.bookingId);}
  const b=await ctx.db.get(a.bookingId);if(!isSavedCardRental(b))return null;
  const rows=await ctx.db.query('rental_security_charges').withIndex('by_booking',q=>q.eq('bookingId',a.bookingId)).order('desc').take(100);
  const gross=b!.savedCardChargePaidPence??0,refunded=rows.reduce((n,r)=>n+(r.refundedPence??0),0);
@@ -17,8 +38,9 @@ export const list = query({args:{token:v.string(),bookingId:v.id('bookings'),adm
   damageAssessed:b!.savedCardDamageAssessed??b!.returnDecision?.damageKept??0,lateAssessed:b!.lateFeeAmount??0,returnedAt:b!.actualReturnedAt??null,
   securityPolicyVersion:b!.securityPolicyVersion??null,rows:rows.map(r=>({id:r._id,kind:r.kind,claimBasis:r.claimBasis??null,amount:r.amountPence/100,reason:r.reason,state:r.state,paid:(r.paidPence??0)/100,createdAt:r.createdAt,noticeAt:r.noticeAt??null,collectAfter:r.collectAfter??null,disputeReason:r.disputeReason??null,disputeResolution:r.disputeResolution??null,disputeResolvedAt:r.disputeResolvedAt??null,refunded:(r.refundedPence??0)/100,refundStatus:r.refundReceipt?.status??null,refundReason:r.refundReason??null,refundEmailStatus:r.refundEmailStatus??null,...(a.admin?{refundApprovalUrl:r.refundReceipt?.approvalUrl??null,receiptNoticeAt:r.receiptNoticeAt??null,refundEmailAt:r.refundEmailAt??null,refundEmailError:r.refundEmailError??null}:{}),error:r.error??null}))};
 }});
-export const prepare = mutation({args:{token:v.string(),bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),amount:v.number(),reason:v.string(),immediate:v.optional(v.boolean())},handler:async(ctx,a)=>{
- await assertAdmin(ctx,a.token,'securityCharges.prepare');
+const prepareArgs={bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),amount:v.number(),reason:v.string(),immediate:v.optional(v.boolean())};
+type PrepareArgs={bookingId:Id<'bookings'>;requestId:string;kind:'damage'|'late';claimBasis?:'loss'|'severe_cosmetic_damage';amount:number;reason:string;immediate?:boolean};
+async function prepareClaim(ctx:MutationCtx,a:PrepareArgs){
  if(!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId)||!Number.isFinite(a.amount)||a.amount<=0||Math.round(a.amount*100)/100!==a.amount||a.reason.trim().length<10||a.reason.length>4000)throw Error('Enter a positive penny-accurate amount and itemised evidence/reason.');
  const amountPence=Math.round(a.amount*100),reason=a.reason.trim();
  const previous=await ctx.db.query('rental_security_charges').withIndex('by_request',q=>q.eq('bookingId',a.bookingId).eq('requestId',a.requestId)).unique();
@@ -47,6 +69,31 @@ export const prepare = mutation({args:{token:v.string(),bookingId:v.id('bookings
  const basisText=a.claimBasis==='loss'?' · lost or unreturned item':a.claimBasis==='severe_cosmetic_damage'?' · severe, permanent cosmetic damage':'';
  await postRentalMessage(ctx,{accountId:b!.accountId,bookingId:b!._id,sender:'system',text:`An itemised ${a.kind==='late'?'late-return':'damage/loss'} assessment${basisText} of £${a.amount.toFixed(2)} has been prepared. No payment has been taken. You will receive the evidence and proposed collection date before any card collection. ${reason}`});
  if(!immediatePolicy)await ctx.scheduler.runAfter(0,internal.securityCharges.sendNotice,{id});return id;
+}
+// Claim creation is an internal state operation. Public callers must pass
+// through securityCharges actions, which enforce the owner-only credential.
+export const prepare = internalMutation({args:prepareArgs,handler:prepareClaim});
+// Private callers already establish their own write authority at the workflow
+// boundary; keep those deterministic paths independent of the browser token.
+export const prepareFromReturnDecision=internalMutation({args:prepareArgs,handler:prepareClaim});
+export const prepareFromAdminAction=internalMutation({args:prepareArgs,handler:prepareClaim});
+/** Return retries may use the prior owner receipt only for this exact frozen claim. */
+export const prepareFromFrozenReturnDecision=internalMutation({args:prepareArgs,handler:async(ctx,a)=>{
+ const b=await ctx.db.get(a.bookingId),d=b?.returnDecision;
+ if(!b||b.status!=='returned'||b.actualReturnedAt!==d?.actualReturnedAt||!d||typeof d.ownerClaimAuthorizedAt!=='number'||!Number.isSafeInteger(d.ownerClaimAuthorizedAt)||d.ownerClaimAuthorizedAt<=0)throw Error('A frozen owner-authorized returned decision is required.');
+ const safeBookingId=String(a.bookingId).replace(/[^A-Za-z0-9-]/g,'-').slice(-36);
+ const expectedRequestId=`return-${safeBookingId}-${Math.trunc(d.actualReturnedAt)}-${a.kind}`;
+ if(a.requestId!==expectedRequestId)throw Error('This request does not match the frozen return claim.');
+ const amountPence=Math.round(a.amount*100),reason=a.reason.trim();
+ if(a.kind==='late'){
+  if(!d.chargeLate||a.claimBasis!==undefined||reason!==(d.lateClaimReason??'').trim()||amountPence!==Math.round((b.lateFeeAmount??0)*100)||amountPence<=0)
+   throw Error('The late charge does not match the frozen owner-authorized return decision.');
+ }else{
+  const expectedAmount=Math.max(0,Math.round(d.damageKept*100)-Math.round((d.depositKept??0)*100));
+  if(d.damageKept<=0||amountPence!==expectedAmount||reason!==(d.damageNote??'').trim()||a.claimBasis!==d.claimBasis||
+   !d.inspection?.some((item:any)=>item.condition!=='good'))throw Error('The damage charge does not match the frozen owner-authorized return decision.');
+ }
+ return prepareClaim(ctx,{...a,immediate:true});
 }});
 export const context=internalQuery({args:idArgs,handler:async(ctx,{id})=>{const charge=await ctx.db.get(id);if(!charge)return null;const booking=await ctx.db.get(charge.bookingId),account=await ctx.db.get(charge.accountId);const rows=await ctx.db.query('rental_security_charges').withIndex('by_booking',q=>q.eq('bookingId',charge.bookingId)).take(100);return {charge,booking,account,collectionPaused:rows.some(r=>r.disputedAt&&!r.disputeResolvedAt)||!!booking?.cancellationDecision||!account||account.blockedAt!=null};}});
 export const claimNotice=internalMutation({args:{...idArgs,receipt:v.optional(v.boolean())},handler:async(ctx,{id,receipt})=>{
@@ -112,7 +159,7 @@ export const dispute=mutation({args:{token:v.string(),...idArgs,reason:v.string(
  await postRentalMessage(ctx,{accountId:r.accountId,bookingId:r.bookingId,sender:'renter',text:`I dispute security assessment ${String(r._id).slice(-8)}: ${a.reason.trim()}`});
 }});
 export const closePrepared=mutation({args:{token:v.string(),...idArgs,reason:v.string()},handler:async(ctx,a)=>{
- await assertAdmin(ctx,a.token,'securityCharges.void');const r=await ctx.db.get(a.id);if(!r)throw Error('Charge missing.');
+ await authorizePaymentWrite(ctx,a.token,'securityChargeState.closePrepared');const r=await ctx.db.get(a.id);if(!r)throw Error('Charge missing.');
  if(r.attemptedAt||!['notice_pending','notice_sent'].includes(r.state))throw Error('A bank attempt exists; reconcile or refund it rather than deleting its history.');
  if(a.reason.trim().length<5)throw Error('Record why this assessment is withdrawn.');const b=await ctx.db.get(r.bookingId);if(!b)throw Error('Rental missing.');
  await ctx.db.patch(b._id,{savedCardChargeReservedPence:Math.max(0,(b.savedCardChargeReservedPence??0)-r.amountPence)});await ctx.db.patch(r._id,{state:'voided',updatedAt:Date.now(),error:a.reason.trim()});
@@ -132,7 +179,7 @@ export const pendingRefunds=internalQuery({args:{},handler:async(ctx)=>{
  return rows.filter(r=>(r.refundLeaseUntil??0)<=Date.now()).map(r=>r._id);
 }});
 export const proposeResolution=mutation({args:{token:v.string(),...idArgs,explanation:v.string()},handler:async(ctx,a)=>{
- await assertAdmin(ctx,a.token,'securityCharges.proposeDisputeResolution');const r=await ctx.db.get(a.id);if(!r?.disputedAt||r.disputeResolvedAt)throw Error('There is no unresolved dispute.');
+ await authorizePaymentWrite(ctx,a.token,'securityChargeState.proposeResolution');const r=await ctx.db.get(a.id);if(!r?.disputedAt||r.disputeResolvedAt)throw Error('There is no unresolved dispute.');
  if(a.explanation.trim().length<10||a.explanation.length>4000)throw Error('Record the reviewed evidence and proposed resolution.');
  await ctx.db.patch(r._id,{disputeResolution:a.explanation.trim(),updatedAt:Date.now()});
  await postRentalMessage(ctx,{accountId:r.accountId,bookingId:r.bookingId,sender:'system',text:`Review of assessment ${String(r._id).slice(-8)} (${r.state==='voided'?'withdrawn without payment':`£${(r.amountPence/100).toFixed(2)}`}): ${a.explanation.trim()} Collection remains paused. Please review the proposed resolution in your account.`});
@@ -145,7 +192,7 @@ export const acceptResolution=mutation({args:{token:v.string(),...idArgs,expecte
  await postRentalMessage(ctx,{accountId:r.accountId,bookingId:r.bookingId,sender:'renter',text:`I have reviewed and accept the resolution of assessment ${String(r._id).slice(-8)} (${r.state==='voided'?'withdrawn without payment':`£${(r.amountPence/100).toFixed(2)}`}): ${r.disputeResolution}. My statutory and bank dispute rights remain unchanged.`});
 }});
 export const evidence=query({args:{token:v.string(),...idArgs},handler:async(ctx,a)=>{
- if(!checkAdminToken(a.token))throw Error('unauthorized');const r=await ctx.db.get(a.id);if(!r)throw Error('Assessment missing.');const b=await ctx.db.get(r.bookingId);if(!b||b.accountId!==r.accountId)throw Error('Rental account binding changed.');
+ await authorizePaymentRead(ctx,a.token);const r=await ctx.db.get(a.id);if(!r)throw Error('Assessment missing.');const b=await ctx.db.get(r.bookingId);if(!b||b.accountId!==r.accountId)throw Error('Rental account binding changed.');
  return {format:1,rentalId:b._id,assessmentId:r._id,kind:r.kind,amount:r.amountPence/100,reason:r.reason,createdAt:r.createdAt,
   acceptedAgreement:JSON.parse(r.consentSnapshot),explicitConsentRecordedAt:b.laterChargeConsentAt,cardSavedFromCheckout:b.savedCardSessionId,
   equipmentInspection:b.returnDecision?.inspection??[],pickedUpAt:b.pickedUpAt,returnedAt:b.actualReturnedAt,

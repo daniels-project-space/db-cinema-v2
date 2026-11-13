@@ -60,6 +60,11 @@ async function pbkdf2(password: string, saltHex: string) {
 }
 
 const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+const PASSWORD_SIGNIN_WINDOW_MS = 15 * 60 * 1000;
+const PASSWORD_SIGNIN_ATTEMPT_LIMIT = 8;
+// Use the same PBKDF2 cost when the email has no usable password, so the
+// public sign-in action returns the same credential error for every state.
+const DUMMY_PASSWORD_SALT_HEX = "00112233445566778899aabbccddeeff";
 
 // ── internal db helpers ──────────────────────────────────────────
 export const _byEmail = internalQuery({
@@ -139,14 +144,48 @@ export async function _applyPendingCollectiveGrant(ctx: any, accountId: any, ema
 }
 
 export const _session = internalMutation({
-  args: { accountId: v.id("accounts"), token: v.string() },
-  handler: async (ctx, { accountId, token }) => {
+  args: { accountId: v.id("accounts"), token: v.string(), expectedPasswordHash: v.optional(v.string()) },
+  handler: async (ctx, { accountId, token, expectedPasswordHash }) => {
     const account = await ctx.db.get(accountId);
-    if (!account || account.blockedAt != null) throw new ConvexError(accountAuthError("ACCOUNT_BLOCKED"));
-    if (account.emailVerificationRequired && !account.emailVerifiedAt)
-      throw new ConvexError(accountAuthError("EMAIL_VERIFICATION_REQUIRED"));
+    if (!account || account.blockedAt != null || account.emailVerificationRequired && !account.emailVerifiedAt ||
+        expectedPasswordHash !== undefined && account.hash !== expectedPasswordHash)
+      throw new ConvexError(expectedPasswordHash !== undefined
+        ? accountAuthError("INVALID_CREDENTIALS")
+        : accountAuthError(account?.blockedAt != null ? "ACCOUNT_BLOCKED" : "EMAIL_VERIFICATION_REQUIRED"));
     const now = Date.now();
+    await ctx.db.patch(accountId, { passwordSignInWindowStartedAt: undefined, passwordSignInAttemptCount: undefined });
     await ctx.db.insert("sessions", { token, accountId, createdAt: now, expiresAt: now + SESSION_TTL_MS });
+  },
+});
+
+/** Reserve one of eight password checks per account in a 15-minute fixed
+ * window. The counter lives on the account row, so arbitrary emails cannot
+ * create an unbounded number of limiter rows. The window expires lazily on the
+ * next attempt; success and password changes clear it. Convex actions do not
+ * expose the source IP, so this is keyed by the normalized account email. */
+export const _reservePasswordSignInAttempt = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    if (!validAccountEmail(email) || email !== email.trim().toLowerCase()) return null;
+    const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", email)).first();
+    if (!account || account.blockedAt != null || account.emailVerificationRequired && !account.emailVerifiedAt ||
+        !account.hash || !account.salt) return null;
+
+    const now = Date.now();
+    let windowStartedAt = account.passwordSignInWindowStartedAt;
+    let attempts = account.passwordSignInAttemptCount ?? 0;
+    if (!Number.isSafeInteger(windowStartedAt) || windowStartedAt! > now || now - windowStartedAt! >= PASSWORD_SIGNIN_WINDOW_MS ||
+        !Number.isSafeInteger(attempts) || attempts < 0) {
+      windowStartedAt = now;
+      attempts = 0;
+    }
+    if (attempts >= PASSWORD_SIGNIN_ATTEMPT_LIMIT) return { throttled: true as const };
+
+    await ctx.db.patch(account._id, {
+      passwordSignInWindowStartedAt: windowStartedAt,
+      passwordSignInAttemptCount: attempts + 1,
+    });
+    return { accountId: account._id, salt: account.salt, hash: account.hash, throttled: false as const };
   },
 });
 
@@ -169,12 +208,42 @@ export const sweepExpiredSessions = internalMutation({
   },
 });
 
+/** Remove the account-level Didit reuse grant once its 90-day window ends.
+ * Rental-level verification state is deliberately untouched, so an already
+ * confirmed or active booking keeps its original approval. The nested-field
+ * index and page cap keep the cleanup bounded as the account table grows. */
+export const purgeExpiredRentalVerification = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, { cursor }) => {
+    const now = Date.now();
+    const page = await ctx.db.query("accounts")
+      .withIndex("by_rental_verification_expiry", q => q.lte("rentalVerification.expiresAt", now))
+      .order("asc")
+      .paginate({ cursor: cursor ?? null, numItems: 50, maximumRowsRead: 50 });
+    let cleared = 0;
+    for (const candidate of page.page) {
+      const account = await ctx.db.get(candidate._id);
+      const record = account?.rentalVerification;
+      const indexedRecord = candidate.rentalVerification;
+      if (!account || !record || !indexedRecord ||
+        !Number.isSafeInteger(record.expiresAt) || record.expiresAt > now ||
+        record.sourceBookingId !== indexedRecord.sourceBookingId ||
+        record.verifiedAt !== indexedRecord.verifiedAt ||
+        record.expiresAt !== indexedRecord.expiresAt) continue;
+      await ctx.db.patch(account._id, { rentalVerification: undefined, idVerified: false });
+      cleared++;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.accounts.purgeExpiredRentalVerification, { cursor: page.continueCursor });
+    return { cleared, hasMore: !page.isDone };
+  },
+});
+
 // ── public actions ───────────────────────────────────────────────
 export const signUp = action({
   args: { email: v.string(), password: v.string(), name: v.optional(v.string()), next: v.optional(v.union(v.literal("chat"),v.literal("review"))), bookingId: v.optional(v.id("bookings")), termsAndPrivacyAcknowledged: v.boolean(), termsVersion: v.string(), privacyNoticeVersion: v.string() },
   handler: async (ctx, { email, password, name, next, bookingId, termsAndPrivacyAcknowledged, termsVersion, privacyNoticeVersion }): Promise<{ token: string }> => {
     const e = email.trim().toLowerCase();
-    if (!validAccountEmail(e) || password.length < 6)
+    if (!validAccountEmail(e) || password.length < 8 || password.length > 256)
       throw new ConvexError(accountAuthError("SIGNUP_INVALID_INPUT"));
     if (!termsAndPrivacyAcknowledged)
       throw new ConvexError(accountAuthError("SIGNUP_TERMS_REQUIRED"));
@@ -202,18 +271,17 @@ export const signIn = action({
   args: { email: v.string(), password: v.string() },
   handler: async (ctx, { email, password }): Promise<{ token: string }> => {
     const e = email.trim().toLowerCase();
-    if (!validAccountEmail(e) || !password)
+    if (!validAccountEmail(e) || !password || password.length > 256)
       throw new ConvexError(accountAuthError("INVALID_INPUT"));
-    const acct: any = await ctx.runQuery(internal.accounts._byEmail, { email: e });
-    if (!acct) throw new ConvexError(accountAuthError("INVALID_CREDENTIALS"));
-    if (acct.blockedAt != null) throw new ConvexError(accountAuthError("ACCOUNT_BLOCKED"));
-    if(acct.emailVerificationRequired&&!acct.emailVerifiedAt)throw new ConvexError(accountAuthError("EMAIL_VERIFICATION_REQUIRED"));
-    if (!acct.hash || !acct.salt)
-      throw new ConvexError(accountAuthError("PASSWORD_NOT_SET"));
-    const hash = await pbkdf2(password, acct.salt);
-    if (hash !== acct.hash) throw new ConvexError(accountAuthError("INVALID_CREDENTIALS"));
+    const attempt: any = await ctx.runMutation(internal.accounts._reservePasswordSignInAttempt, { email: e });
+    if (!attempt || attempt.throttled) {
+      await pbkdf2(password, DUMMY_PASSWORD_SALT_HEX);
+      throw new ConvexError(accountAuthError("INVALID_CREDENTIALS"));
+    }
+    const hash = await pbkdf2(password, attempt.salt);
+    if (hash !== attempt.hash) throw new ConvexError(accountAuthError("INVALID_CREDENTIALS"));
     const token = randomHex(24);
-    await ctx.runMutation(internal.accounts._session, { accountId: acct._id, token });
+    await ctx.runMutation(internal.accounts._session, { accountId: attempt.accountId, token, expectedPasswordHash: attempt.hash });
     return { token };
   },
 });
@@ -722,14 +790,14 @@ export const _authFor = internalQuery({
 export const _setPassword = internalMutation({
   args: { accountId: v.id("accounts"), salt: v.string(), hash: v.string() },
   handler: async (ctx, { accountId, salt, hash }) => {
-    await ctx.db.patch(accountId, { salt, hash });
+    await ctx.db.patch(accountId, { salt, hash, passwordSignInWindowStartedAt: undefined, passwordSignInAttemptCount: undefined });
   },
 });
 
 export const changePassword = action({
   args: { token: v.string(), oldPassword: v.string(), newPassword: v.string() },
   handler: async (ctx, { token, oldPassword, newPassword }) => {
-    if (newPassword.length < 6) throw new Error("New password must be 6+ characters.");
+    if (newPassword.length < 8 || newPassword.length > 256) throw new Error("New password must be 8 to 256 characters.");
     const a: any = await ctx.runQuery(internal.accounts._authFor, { token });
     if (!a) throw new Error("unauthorized");
     if(a.hash&&a.salt){const oldHash = await pbkdf2(oldPassword,a.salt);if(oldHash!==a.hash)throw new Error("Current password is incorrect.");}

@@ -14,6 +14,7 @@ import { archiveRetention } from "./verificationArchive";
 import { archiveCaseConversation } from "./lib/chatCaseArchive";
 import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
 import type { InspectionItem } from "../shared/returnInspection";
+import { bumpVerificationRetentionRevision } from "./lib/verificationRetentionRevision";
 
 async function caseAdminRead(ctx:QueryCtx,token:string) {
   if(process.env.ADMIN_SESSION_RENTAL_CASES_V2==="enabled") {
@@ -81,13 +82,14 @@ async function assertCaseRetentionAvailable(ctx: any, booking: any) {
   }
   if (booking.status === "returned" && !retainedArchive && (!Number.isFinite(booking.returnedAt) || booking.returnedAt <= Date.now() - 90 * 86400000)) throw Error("Verification retention has already expired or its closure date is unknown. Review this case before opening it; expired copies cannot be revived.");
 }
-export const openCase = mutation({ args: { token: v.string(), bookingId: v.id("bookings"), itemKey: v.string(), details: v.string(), requestId: v.string(), confirmed: v.boolean(), reviewedMatches:v.optional(v.array(v.object({id:v.id("rental_damage_cases"),status:v.union(v.literal("open"),v.literal("closed")),openedAt:v.number()}))) }, handler: async (ctx, args) => {
+export const openCase = mutation({ args: { token: v.string(), bookingId: v.id("bookings"), itemKey: v.string(), caseType:v.optional(v.union(v.literal("damage"),v.literal("loss"),v.literal("theft"),v.literal("insurance_follow_up"),v.literal("other"))), details: v.string(), requestId: v.string(), confirmed: v.boolean(), reviewedMatches:v.optional(v.array(v.object({id:v.id("rental_damage_cases"),status:v.union(v.literal("open"),v.literal("closed")),openedAt:v.number()}))) }, handler: async (ctx, args) => {
   await caseAdminWrite(ctx, args.token, "returnInspections.openCase");
   const details = args.details.trim();
+  const caseType=args.caseType??"damage";
   if (!args.confirmed || details.length < 10 || details.length > 2000 || !/^[a-zA-Z0-9-]{16,80}$/.test(args.requestId)) throw Error("Review the item and record an issue of 10–2000 characters before confirming.");
   const prior = await ctx.db.query("rental_damage_cases").withIndex("by_booking_request", q => q.eq("bookingId", args.bookingId).eq("requestId", args.requestId)).unique();
   if (prior) {
-    if (prior.itemKey !== args.itemKey || prior.details !== details) throw Error("This case request belongs to different details.");
+    if (prior.itemKey !== args.itemKey || prior.details !== details || (prior.caseType??"damage")!==caseType) throw Error("This case request belongs to different details.");
     await archiveCaseConversation(ctx, prior);
     return prior._id;
   }
@@ -103,7 +105,8 @@ export const openCase = mutation({ args: { token: v.string(), bookingId: v.id("b
   await assertCaseRetentionAvailable(ctx,booking);
   const account = await accountForRental(ctx, booking);
   const openedAt = Date.now();
-  const id = await ctx.db.insert("rental_damage_cases", { bookingId: booking._id, ...(account ? { accountId: account._id } : {}), itemKey: item.key, title: item.title, ...(item.inventoryUnitId ? { inventoryUnitId: item.inventoryUnitId as any } : {}), details, status: "open", openedAt, requestId: args.requestId });
+  const id = await ctx.db.insert("rental_damage_cases", { bookingId: booking._id, ...(account ? { accountId: account._id } : {}), itemKey: item.key, title: item.title, ...(item.inventoryUnitId ? { inventoryUnitId: item.inventoryUnitId as any } : {}), caseType, details, status: "open", openedAt, requestId: args.requestId });
+  await bumpVerificationRetentionRevision(ctx,booking);
   await archiveCaseConversation(ctx, { _id: id, bookingId: booking._id, ...(account ? { accountId: account._id } : {}), openedAt });
   await queueRmv2Sync(ctx, booking._id);
   return id;
@@ -119,6 +122,7 @@ export const closeCase = mutation({ args: { token: v.string(), caseId: v.id("ren
   if((record.lifecycleVersion??0)!==(args.expectedVersion??0))throw Error("This case changed. Review its current status before closing.");
   if (record.status === "closed") {if(record.resolution!==resolution)throw Error("This case was already closed with a different resolution.");return;}
   await ctx.db.patch(record._id, { status: "closed", resolution, closedAt: Date.now() });
+  await bumpVerificationRetentionRevision(ctx,await ctx.db.get(record.bookingId));
   await queueRmv2Sync(ctx, record.bookingId);
 } });
 
@@ -148,7 +152,9 @@ export const exportCaseSummary = mutation({args:{token:v.string(),bookingId:v.id
   if(updates.length>100||reopens.length>100)throw Error("Case history needs review before exporting.");
   const timestamp=(value:number|undefined)=>value!==undefined&&Number.isFinite(value)&&Number.isFinite(new Date(value).getTime())&&value>0?new Date(value).toISOString():"Missing or invalid";
   const history=[...updates.map(update=>({at:update.addedAt,text:`Update (${timestamp(update.addedAt)}):\n${update.details}`})),...reopens.map(event=>({at:event.reopenedAt,text:`Reopened (${timestamp(event.reopenedAt)}):\n${event.reason}\nPrevious resolution (${timestamp(event.previousClosedAt)}):\n${event.previousResolution}`}))].sort((left,right)=>left.at-right.at);
-  const report=["DB CINEMA RENTALS — PRIVATE INTERNAL CASE SUMMARY","This is not an insurer claim. Identity documents and chat attachments are not included.",`Rental ID: ${args.bookingId}`,`Case ID: ${args.caseId}`,`Item: ${record.title}`,`Status: ${record.status}`,`Opened: ${timestamp(record.openedAt)}`,`Issue:\n${record.details}`,record.status==="closed"?`Closed: ${timestamp(record.closedAt)}\nResolution:\n${record.resolution??"Not recorded"}`:"",...history.map(item=>item.text),`Generated: ${timestamp(Date.now())}`].filter(Boolean).join("\n\n");
+  const caseType=record.caseType??"damage";
+  const caseLabel=caseType==="insurance_follow_up"?"Insurance follow-up (internal)":caseType.charAt(0).toUpperCase()+caseType.slice(1);
+  const report=["DB CINEMA RENTALS — PRIVATE INTERNAL CASE SUMMARY","This is not an insurer claim. Identity documents and chat attachments are not included.",`Rental ID: ${args.bookingId}`,`Case ID: ${args.caseId}`,`Case type: ${caseLabel}`,`Item: ${record.title}`,`Status: ${record.status}`,`Opened: ${timestamp(record.openedAt)}`,`Issue:\n${record.details}`,record.status==="closed"?`Closed: ${timestamp(record.closedAt)}\nResolution:\n${record.resolution??"Not recorded"}`:"",...history.map(item=>item.text),`Generated: ${timestamp(Date.now())}`].filter(Boolean).join("\n\n");
   return {report};
 }});
 
@@ -167,6 +173,7 @@ export const reopenCase = mutation({args:{token:v.string(),bookingId:v.id("booki
   await archiveCaseConversation(ctx,record);
   await ctx.db.insert("rental_case_reopens",{caseId:args.caseId,bookingId:args.bookingId,requestId:args.requestId,reason,previousClosedAt:record.closedAt!,previousResolution:record.resolution,previousVersion:args.expectedVersion,reopenedAt:Date.now()});
   await ctx.db.patch(record._id,{status:"open",closedAt:undefined,resolution:undefined,lifecycleVersion:(record.lifecycleVersion??0)+1});
+  await bumpVerificationRetentionRevision(ctx,booking);
   await queueRmv2Sync(ctx,record.bookingId);
   return {status:"reopened" as const};
 }});

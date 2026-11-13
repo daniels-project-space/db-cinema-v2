@@ -5,8 +5,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { BadgeShield, BadgeTruck } from "@/components/AnimatedIcons";
 import styles from "./DeliveryProtectionTile.module.css";
+import { COMPANY_CANCELLATION_GUARANTEE_LEGAL_VERSIONS } from "@/lib/legal";
 
-function DeliverySlide({ protection, outgoing = false, incoming = false }: { protection: boolean; outgoing?: boolean; incoming?: boolean }) {
+function DeliverySlide({ protection, companyCancellationForAnyReason, outgoing = false, incoming = false }: { protection: boolean; companyCancellationForAnyReason: boolean; outgoing?: boolean; incoming?: boolean }) {
   return <>
     <Image src={protection ? "/images/home/cancellation-protection-20261103.webp" : "/images/home/london-delivery-20261028.webp"} alt="" fill sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw" className="trust-card-image object-cover transition-transform duration-700 ease-out group-hover:scale-[1.045]" />
     <div className="absolute inset-0 bg-gradient-to-t from-[#070709] via-[#070709]/55 to-black/5" aria-hidden />
@@ -18,13 +19,13 @@ function DeliverySlide({ protection, outgoing = false, incoming = false }: { pro
       </div>
       <div className="absolute inset-x-0 bottom-0 p-2 min-[360px]:p-3 sm:p-6">
         <h2 className="mt-1 max-w-[17rem] font-display text-[12px] font-semibold leading-tight text-white min-[360px]:text-sm sm:mt-4 sm:text-2xl">{protection ? "Cancellation protection for free" : "Delivered across London"}</h2>
-        {protection ? <p className="mt-1 line-clamp-2 max-w-[18rem] text-[9px] leading-[1.25] text-white/75 min-[360px]:text-[10px] sm:mt-2 sm:line-clamp-3 sm:text-sm sm:leading-relaxed">If kit is unavailable before pickup, all accounts can get a full refund. Accounts not rejected or restricted for a terms violation may choose 130% rental credit. <Link className="underline underline-offset-2" href="/legal/cancellation" tabIndex={outgoing ? -1 : undefined}>See terms</Link></p> : <p className="mt-1 line-clamp-2 max-w-[18rem] text-[9px] leading-[1.25] text-white/75 min-[360px]:text-[10px] sm:mt-2 sm:text-sm sm:leading-relaxed">Reliable delivery and collection, straight to your set.</p>}
+        {protection ? <p className="mt-1 line-clamp-2 max-w-[18rem] text-[9px] leading-[1.25] text-white/75 min-[360px]:text-[10px] sm:mt-2 sm:line-clamp-3 sm:text-sm sm:leading-relaxed">{companyCancellationForAnyReason ? "If DB Cinema cancels your confirmed rental before pickup: full refund, or 130% credit unless restricted or rejected for a terms violation." : "If equipment is unexpectedly unavailable: full refund, or 130% credit unless restricted or rejected for a terms violation."} <Link className="underline underline-offset-2" href="/legal/cancellation" tabIndex={outgoing ? -1 : undefined}>See terms</Link></p> : <p className="mt-1 line-clamp-2 max-w-[18rem] text-[9px] leading-[1.25] text-white/75 min-[360px]:text-[10px] sm:mt-2 sm:text-sm sm:leading-relaxed">Reliable delivery and collection, straight to your set.</p>}
       </div>
     </div>
   </>;
 }
 
-export function DeliveryProtectionTile() {
+export function DeliveryProtectionTile({ version = "2026-11-v18" }: { version?: string }) {
   const [protection, setProtection] = useState(false);
   const [transition, setTransition] = useState<{ from: boolean; to: boolean; id: number } | null>(null);
   const [focused, setFocused] = useState(false);
@@ -32,6 +33,7 @@ export function DeliveryProtectionTile() {
   const activeSlide = useRef(false);
   const transitionId = useRef(0);
   const transitionTimer = useRef<number | undefined>(undefined);
+  const companyCancellationForAnyReason = (COMPANY_CANCELLATION_GUARANTEE_LEGAL_VERSIONS as readonly string[]).includes(version);
 
   const transitionTo = useCallback((next: boolean) => {
     if (activeSlide.current === next) return;
@@ -76,7 +78,7 @@ export function DeliveryProtectionTile() {
       const isOutgoing = transition?.from === slideProtection;
       const testId = isIncoming ? "delivery-slide-incoming" : isOutgoing ? "delivery-slide-outgoing" : isActive ? "delivery-slide" : undefined;
       return <div key={slideProtection ? "protection" : "delivery"} data-testid={testId} aria-hidden={!isActive} inert={!isActive} className={`absolute inset-0 ${styles.layer} ${isIncoming ? styles.entering : isOutgoing ? styles.exiting : isActive ? styles.visible : styles.hidden}`}>
-        <DeliverySlide protection={slideProtection} outgoing={isOutgoing} incoming={isIncoming} />
+        <DeliverySlide protection={slideProtection} companyCancellationForAnyReason={companyCancellationForAnyReason} outgoing={isOutgoing} incoming={isIncoming} />
       </div>;
     })}
   </article>;

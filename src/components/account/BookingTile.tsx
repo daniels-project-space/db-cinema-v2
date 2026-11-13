@@ -19,7 +19,7 @@ import { RentalAdditionApproval } from "@/components/rentals/RentalAdditionAppro
 import { LateFeeApproval } from "@/components/account/LateFeeApproval";
 import { AuthenticatedBookingDownload } from "@/components/account/AuthenticatedBookingDownload";
 import { type EnrichedBooking, groupOf, fmtRange, rentalDays, countdown } from "@/lib/bookingDisplay";
-import { isSetupIntentSecurityPolicy } from "../../../shared/rentalSecurity";
+import { isCardHoldSecurityPolicy, isSetupIntentSecurityPolicy } from "../../../shared/rentalSecurity";
 
 export function BookingTile({
   booking,
@@ -45,6 +45,7 @@ export function BookingTile({
   const tip = booking.lineItems.find((li) => li.tip)?.tip ?? null;
   const isPending = booking.status === "pending_payment";
   const setupIntentPolicy = isSetupIntentSecurityPolicy(booking.securityPolicyVersion);
+  const cardHoldPolicy = isCardHoldSecurityPolicy(booking.securityPolicyVersion);
 
   const del = useAction(api.checkout.cancelUnpaidByCustomer);
   const [busy, setBusy] = useState(false);
@@ -88,12 +89,12 @@ export function BookingTile({
       <RentalAdditionApproval token={token} bookingId={booking._id}/>
 
       <div data-rental-layout={featured || undefined} className={featured ? "grid gap-6 xl:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)]" : ""}>
-      {featured && <RentalKit items={booking.lineItems} showcase prices />}
+      {featured && <RentalKit items={booking.lineItems} showcase prices hideHeroTitle />}
       <div className="min-w-0">
       <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
         <div>
           <StatusPill status={booking.status} booking={booking} />
-          {featured && <h2 className="mt-4 font-display text-2xl leading-tight text-white sm:text-3xl">{rentalTitle(first?.title ?? "Your rental")}</h2>}
+          {featured && <h2 className="mt-4 line-clamp-2 max-w-[30ch] font-display text-lg leading-tight text-white sm:text-3xl">{rentalTitle(first?.title ?? "Your rental")}</h2>}
           {start != null && end != null && <h3 className="mt-3 font-display text-sm font-semibold text-white/90">{fmtRange(start, end)}</h3>}
           <p className="mt-1 text-xs text-white/40">{isHistory && start != null ? new Date(start).getUTCFullYear() : days != null ? `${days} ${days === 1 ? "day" : "days"}` : "Dates to be confirmed"}
             {!isHistory && !isPending && start != null && <span className="ml-2 text-accent-300">{group === "active" && end != null ? `Return ${countdown(end, now)}` : countdown(start, now)}</span>}
@@ -109,7 +110,7 @@ export function BookingTile({
         {!isPending && <p className="mt-4 break-words text-xs leading-5 text-white/50">{logistics}</p>}
         <div data-rental-progress className="mt-6 border-t border-white/10 pt-5"><BookingProgress booking={booking} detailed /></div>
         <dl data-rental-security className="mt-6 grid gap-3 border-t border-white/10 pt-5 sm:grid-cols-2">
-          {setupIntentPolicy ? <div className="sm:col-span-2"><dt className="text-xs text-white/45">Saved-card future-claim ceiling</dt><dd className="mt-1 font-display text-xl text-white">{formatGbp(booking.savedCardLimit ?? 0)}</dd><p className="mt-1 text-[10px] text-white/45">Not charged or held. Any permitted future claim follows the rental agreement you accepted.</p></div> : <>
+          {setupIntentPolicy ? <div className="sm:col-span-2"><dt className="text-xs text-white/45">Saved-card future-claim ceiling</dt><dd className="mt-1 font-display text-xl text-white">{formatGbp(booking.savedCardLimit ?? 0)}</dd><p className="mt-1 text-[10px] text-white/45">Not charged or held. Any permitted future claim follows the rental agreement you accepted.</p></div> : cardHoldPolicy ? <div className="sm:col-span-2"><dt className="text-xs text-white/45">Temporary card hold</dt><dd className="mt-1 font-display text-xl text-white">{formatGbp(booking.depositHoldAmount ?? 0)}</dd><p className="mt-1 text-[10px] text-white/45">{(booking.depositHoldAmount ?? 0) > 0 ? `${booking.depositHoldStatus ?? "Pending"} · not a payment` : "No hold required under the accepted quote"}. An issue-free return cancels the hold; your bank controls when funds are available.</p></div> : <>
             <div><dt className="text-xs text-white/45">Refundable deposit</dt><dd className="mt-1 font-display text-xl text-white">{formatGbp(booking.depositAmount)}</dd><p className="mt-1 text-[10px] text-white/45">{booking.depositRefunded ? "Refund issued" : isPending ? "Due with payment" : "Charged separately from the card hold"}</p></div>
             <div><dt className="text-xs text-white/45">Card authorisation</dt><dd className="mt-1 font-display text-xl text-white">{formatGbp(booking.depositHoldAmount ?? 0)}</dd><p className="mt-1 text-[10px] text-white/45">{(booking.depositHoldAmount ?? 0) > 0 ? `${booking.depositHoldStatus ?? "Pending"} · not a payment` : "No card hold requested"}</p></div>
           </>}
@@ -137,13 +138,14 @@ export function BookingTile({
         {(booking.creditApplied ?? 0) > 0 && <span className="text-amber-300/70">Credit −{formatGbp(booking.creditApplied!)}</span>}
         {(booking.deliveryFee ?? 0) > 0 && <span>Delivery {formatGbp(booking.deliveryFee!)}</span>}
         {setupIntentPolicy && <span>Saved-card future-claim ceiling {formatGbp(booking.savedCardLimit ?? 0)} · not charged or held</span>}
-        {!setupIntentPolicy && booking.depositAmount > 0 && (
+        {!setupIntentPolicy && !cardHoldPolicy && booking.depositAmount > 0 && (
           <span>
             Refundable security payment {formatGbp(booking.depositAmount)}
             {booking.depositRefunded ? " ↩" : ""}
           </span>
         )}
-        {!setupIntentPolicy && (booking.depositHoldAmount ?? 0) > 0 && <span>Separate card hold {formatGbp(booking.depositHoldAmount!)} · {booking.depositHoldStatus ?? "pending"}</span>}
+        {cardHoldPolicy && (booking.depositHoldAmount ?? 0) > 0 && <span>Temporary card hold {formatGbp(booking.depositHoldAmount!)} · {booking.depositHoldStatus ?? "pending"}</span>}
+        {!setupIntentPolicy && !cardHoldPolicy && (booking.depositHoldAmount ?? 0) > 0 && <span>Separate card hold {formatGbp(booking.depositHoldAmount!)} · {booking.depositHoldStatus ?? "pending"}</span>}
         {(booking.lateFeeAmount ?? 0) > 0 && <span className="text-amber-200">Separate late charge {formatGbp(booking.lateFeeAmount!)} · {booking.lateFeeStatus}</span>}
         <span className="font-semibold text-white/70">Total {formatGbp(booking.total)}</span>
       </div>

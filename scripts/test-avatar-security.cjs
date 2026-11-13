@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { load, db, put, setMock } = require("./lib/rentalTestHarness.cjs");
+const { load, db, put, setMock, tables } = require("./lib/rentalTestHarness.cjs");
 const routes = [];
 setMock("convex/server", { ...require("convex/server"), httpRouter: () => ({ route: route => routes.push(route) }) });
 load("convex/http.ts");
@@ -18,9 +18,9 @@ const upsertGoogle = (args, acceptance = legalAcceptance) => googleAuth._upsertG
   { ...inner, scheduler: { runAfter: async () => {} } }, { ...args, ...acceptance },
 );
 const upload = routes.find(route => route.path === "/renter-avatar" && route.method === "POST").handler;
-const account = put("accounts", { email: "fixture@example.invalid", avatarStorageId: "foreign-private", googleAvatarUrl: "https://example.invalid/photo" });
+const account = put("accounts", { email: "fixture@example.invalid", hash: "fixture-password-hash", salt: "fixture-password-salt", avatarStorageId: "foreign-private", googleAvatarUrl: "https://example.invalid/photo" });
 put("sessions", { token: "owner", accountId: account._id, expiresAt: Date.now() + 60000 });
-const other = put("accounts", { email: "other@example.invalid" });
+const other = put("accounts", { email: "other@example.invalid", hash: "fixture-password-hash", salt: "fixture-password-salt" });
 put("sessions", { token: "other", accountId: other._id, expiresAt: Date.now() + 60000 });
 const files = new Map();
 let serial = 0, failBinding = false;
@@ -41,8 +41,46 @@ const request = (token = "owner", body = jpeg, type = "image/jpeg", origin = "ht
     picture: googlePicture,
     token: "google-profile-session",
   });
+  assert.equal((await db.get(other._id)).googleId, "google-profile-fixture",
+    "a password account with the same verified email can establish its first Google link");
+  assert.equal((await db.get(other._id)).hash, "fixture-password-hash",
+    "first-linking Google preserves the existing password credentials");
   assert.equal((await accounts.me.handler(inner, { token: "google-profile-session" })).avatarUrl, googlePicture,
     "a verified Google sign-in supplies the default profile photo when the renter has not uploaded or removed one");
+  const linkedBeforeMismatch = await db.get(other._id);
+  const sessionsBeforeMismatch = (tables.get("sessions") ?? []).length;
+  await assert.rejects(
+    () => upsertGoogle({ email: other.email, googleId: "different-google-subject", name: "Changed Name", picture: "https://example.invalid/changed", token: "mismatch-session" }),
+    /does not match the identity linked to this email/,
+    "a different Google subject cannot take over an already linked account",
+  );
+  assert.deepEqual(await db.get(other._id), linkedBeforeMismatch, "mismatched Google identity cannot mutate profile or verification fields");
+  assert.equal((tables.get("sessions") ?? []).length, sessionsBeforeMismatch, "mismatched Google identity cannot mint a session");
+  await upsertGoogle({ email: other.email, googleId: "google-profile-fixture", token: "matching-google-session" });
+  assert.equal((tables.get("sessions") ?? []).length, sessionsBeforeMismatch + 1, "the already linked Google subject can still sign in");
+  const accountCountBeforeEmailChange = (tables.get("accounts") ?? []).length;
+  const sessionCountBeforeEmailChange = (tables.get("sessions") ?? []).length;
+  await assert.rejects(
+    () => upsertGoogle({ email: "changed-google-email@example.invalid", googleId: "google-profile-fixture", token: "changed-email-session" }),
+    /already linked to a different account/,
+    "a linked Google subject with a newly changed email cannot create a duplicate account",
+  );
+  assert.equal((tables.get("accounts") ?? []).length, accountCountBeforeEmailChange,
+    "changed Google email leaves the existing account set unchanged");
+  assert.equal((tables.get("sessions") ?? []).length, sessionCountBeforeEmailChange,
+    "changed Google email cannot mint a second account session");
+  assert.equal(await db.query("accounts").withIndex("by_email", q => q.eq("email", "changed-google-email@example.invalid")).first(), null,
+    "changed Google email does not create a duplicate account row");
+  const emailOnly = put("accounts", { email: "email-link-only@example.invalid" });
+  const emailOnlyBefore = await db.get(emailOnly._id);
+  const sessionsBeforeEmailOnly = (tables.get("sessions") ?? []).length;
+  await assert.rejects(
+    () => upsertGoogle({ email: emailOnly.email, googleId: "unlinked-google-subject", token: "email-only-google-session" }),
+    /cannot be linked to Google using email alone/,
+    "first-linking Google is limited to an existing password account with the same verified email",
+  );
+  assert.deepEqual(await db.get(emailOnly._id), emailOnlyBefore, "email-only accounts cannot be silently linked to a Google identity");
+  assert.equal((tables.get("sessions") ?? []).length, sessionsBeforeEmailOnly, "email-only account link rejection creates no session");
   await db.patch(other._id, { avatarStorageId: "owned-google-custom", avatarOwnedStorageId: "owned-google-custom" });
   assert.equal((await accounts.me.handler(inner, { token: "google-profile-session" })).avatarUrl,
     "https://storage.example.invalid/owned-google-custom", "an uploaded profile photo takes precedence over Google's default");
@@ -83,6 +121,36 @@ const request = (token = "owner", body = jpeg, type = "image/jpeg", origin = "ht
   await accounts.setAvatar.handler(inner, { token: "owner" });
   await assert.rejects(() => accounts.bindAvatarUpload.handler(inner, { token: "owner", accountId: account._id, revision: stale.revision, storageId: "stale-photo" }));
   assert(!files.has(saved.avatarStorageId), "proven owned avatar is deleted on removal");
+
+  // Reject unbounded public OAuth credentials before JWT decoding, provider
+  // certificate fetch, email lookup, or account/session mutations.
+  const oldClientId = process.env.GOOGLE_CLIENT_ID;
+  const oldFetch = global.fetch;
+  process.env.GOOGLE_CLIENT_ID = "synthetic-google-client-id";
+  let providerFetches = 0, accountLookups = 0, accountWrites = 0;
+  global.fetch = async () => { providerFetches++; throw new Error("Provider fetch must not run"); };
+  const accountCountBeforeOversize = (tables.get("accounts") ?? []).length;
+  const sessionCountBeforeOversize = (tables.get("sessions") ?? []).length;
+  const oversizedCtx = {
+    runQuery: async () => { accountLookups++; throw new Error("Account lookup must not run"); },
+    runMutation: async () => { accountWrites++; throw new Error("Account mutation must not run"); },
+  };
+  try {
+    await assert.rejects(
+      () => googleAuth.signInWithGoogle.handler(oversizedCtx, { credential: "x".repeat(16 * 1024 + 1) }),
+      /too large/,
+      "oversized Google credentials are rejected before parsing or provider access",
+    );
+    assert.equal(providerFetches, 0, "oversized credential never fetches Google certificates");
+    assert.equal(accountLookups, 0, "oversized credential never reads the account table");
+    assert.equal(accountWrites, 0, "oversized credential never writes account/session rows");
+    assert.equal((tables.get("accounts") ?? []).length, accountCountBeforeOversize);
+    assert.equal((tables.get("sessions") ?? []).length, sessionCountBeforeOversize);
+  } finally {
+    global.fetch = oldFetch;
+    if (oldClientId === undefined) delete process.env.GOOGLE_CLIENT_ID;
+    else process.env.GOOGLE_CLIENT_ID = oldClientId;
+  }
   failBinding = true;
   const countBeforeFailure = files.size;
   assert.equal((await upload(ctx, request())).status, 403);
@@ -129,5 +197,5 @@ const request = (token = "owner", body = jpeg, type = "image/jpeg", origin = "ht
   await assert.rejects(() => accounts.commitAvatarUpload.handler(inner, { ...atomic, digest: "0".repeat(64) }));
   await assert.rejects(() => accounts.commitAvatarUpload.handler(inner, { ...atomic, chunks: [...chunks, new ArrayBuffer(1)] }));
   assert.equal(files.size, beforeAtomic + 1, "mismatched, oversize and stale retries cannot store files");
-  console.log("PASS avatar ownership, case-safe bounded cleanup, active references, legacy preservation and stale binding");
+  console.log("PASS Google identity binding, oversized credential rejection, profile-photo fallback/removal, avatar ownership, bounded cleanup, legacy preservation and stale binding");
 })().catch(error => { console.error(error); process.exitCode = 1; });

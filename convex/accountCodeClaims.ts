@@ -34,7 +34,7 @@ export const finish = internalMutation({args:{setupHash:v.string(),salt:v.string
  const needsVerificationRecovery=!account.emailVerifiedAt||account.emailVerificationRequired;
  const sessions=await ctx.db.query("sessions").withIndex("by_account",q=>q.eq("accountId",account!._id)).collect();for(const s of sessions)await ctx.db.delete(s._id);
  const acceptedAt=Date.now();
- await ctx.db.patch(account!._id,{salt:a.salt,hash:a.hash,emailVerifiedAt:acceptedAt,emailVerificationRequired:false,...(row.purpose==="setup"?{accountTermsVersion:a.termsVersion,accountTermsAcceptedAt:acceptedAt,privacyNoticeVersion:a.privacyNoticeVersion,privacyNoticeAcknowledgedAt:acceptedAt}:{})});
+ await ctx.db.patch(account!._id,{salt:a.salt,hash:a.hash,emailVerifiedAt:acceptedAt,emailVerificationRequired:false,passwordSignInWindowStartedAt:undefined,passwordSignInAttemptCount:undefined,...(row.purpose==="setup"?{accountTermsVersion:a.termsVersion,accountTermsAcceptedAt:acceptedAt,privacyNoticeVersion:a.privacyNoticeVersion,privacyNoticeAcknowledgedAt:acceptedAt}:{})});
  if(needsVerificationRecovery)await ctx.scheduler.runAfter(0,internal.verificationArchive.linkVerifiedAccount,{accountId:account!._id,cursor:null});
  await ctx.db.patch(row._id,{usedAt:Date.now(),setupHash:undefined});
  if(row.cartKey){const cart=await ctx.db.query("checkout_carts").withIndex("by_share",q=>q.eq("shareKey",row.cartKey!)).unique();if(cart&&cart.email===account!.email)await ctx.db.patch(cart._id,{accountId:account!._id});}

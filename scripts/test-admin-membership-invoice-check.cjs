@@ -7,10 +7,12 @@ const admin=load('convex/accountAdmin.ts'),checkout=load('convex/checkout.ts'),i
 const member=put('accounts',{email:'member@example.invalid',stripeCustomerId:'cus_fixture',stripeSubscriptionId:'sub_fixture'});
 const grant=put('membership_credit_grants',{accountId:member._id,subscriptionId:'sub_fixture',invoiceId:'in_fixture',creditPence:4900,bonusPence:0,revokedPence:500,paidMembershipPence:4900,createdAt:1700000000000,periodEnd:1800000000000,historicalPriceId:'price_fixture'});
 put('membership_invoice_reviews',{accountId:member._id,subscriptionId:'sub_fixture',invoiceId:'in_fixture',reason:'processing_error',state:'review',createdAt:1700000000000,updatedAt:1700000000000});
-const ctx={db,runMutation:async(ref,args)=>{assert.equal(ref,'accountAdmin.billingPortalTarget');assert.deepEqual(Object.keys(args).sort(),['accountId','token']);return admin.billingPortalTarget.handler(ctx,args);},runQuery:async(ref,args)=>{assert.equal(ref,'accountAdmin.membershipInvoiceReceipt');const result=await admin.membershipInvoiceReceipt.handler(ctx,args);if(relinkAfterReceipt)member.stripeSubscriptionId='sub_changed';return result;}};
+const ctx={db,runMutation:async(ref,args)=>{assert.equal(ref,'accountAdmin.billingPortalTarget');assert.deepEqual(Object.keys(args).sort(),['accountId','purpose','token']);assert.equal(args.purpose,'membership_read');return admin.billingPortalTarget.handler(ctx,args);},runQuery:async(ref,args)=>{assert.equal(ref,'accountAdmin.membershipInvoiceReceipt');const result=await admin.membershipInvoiceReceipt.handler(ctx,args);if(relinkAfterReceipt)member.stripeSubscriptionId='sub_changed';return result;}};
 (async()=>{
  const args={token:'fixture-admin',accountId:member._id};
- const queue=await invoiceReviews.adminList.handler(ctx,args);assert.equal(queue.length,1);assert.equal(queue[0].invoiceId,'in_fixture');await assert.rejects(invoiceReviews.adminList.handler(ctx,{...args,token:'bad'}),/unauthorized/);
+ const paginationOpts={numItems:30,cursor:null};
+ const queue=await invoiceReviews.adminList.handler(ctx,{...args,paginationOpts});assert.equal(queue.page.length,1);assert.equal(queue.page[0].invoiceId,'in_fixture');
+ await assert.rejects(invoiceReviews.adminList.handler(ctx,{...args,token:'bad',paginationOpts}),/unauthorized/);
  await assert.rejects(checkout.adminInspectMembershipInvoice.handler(ctx,{...args,token:'bad'}),/unauthorized/);assert.equal(reads,0);
  subscriptionCustomer='cus_other';await assert.rejects(checkout.adminInspectMembershipInvoice.handler(ctx,args),/does not match/);subscriptionCustomer='cus_fixture';
  invoiceCustomer='cus_other';await assert.rejects(checkout.adminInspectMembershipInvoice.handler(ctx,args),/does not match/);invoiceCustomer='cus_fixture';

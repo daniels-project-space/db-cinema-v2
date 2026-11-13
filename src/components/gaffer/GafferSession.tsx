@@ -188,6 +188,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   const agentResponsePending = useRef(false);
   const agentResponseTextFinished = useRef(false);
   const agentResponseComplete = useRef(false);
+  /** A complete set of client-tool results may open one continuation in that caller turn. */
+  const toolResponsePending = useRef(false);
   /**
    * How many client tools are mid-flight.
    *
@@ -275,6 +277,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     agentResponseComplete.current = false;
     responseTurn.current.reset();
     toolsInFlight.current = 0;
+    toolResponsePending.current = false;
     autoReconnectTried.current = false;
     try { await conv.current?.endSession?.(); } catch { /* already gone */ }
     conv.current = null;
@@ -370,6 +373,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     hasSpoken.current = false;
     awaitingAgent.current = false;
     toolsInFlight.current = 0;
+    toolResponsePending.current = false;
     autoReconnectTried.current = false;
     lastActivity.current = Date.now();
     const { intent, mode, brief, opening } = pageBrief(pathname ?? "/", topic);
@@ -496,6 +500,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       agentResponsePending.current = false;
       agentResponseTextFinished.current = false;
       agentResponseComplete.current = false;
+      toolResponsePending.current = false;
       responseTurn.current.reset();
       setSpeaking(false);
       endedDeliberately.current = false;
@@ -512,6 +517,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
             agentResponsePending.current = true;
             agentResponseTextFinished.current = false;
             agentResponseComplete.current = false;
+            toolResponsePending.current = false;
             toolsInFlight.current += 1;
             memory.current.add("tool", JSON.stringify({ name: k, args, status: "in progress; do not repeat until its outcome is known" }));
             lastActivity.current = Date.now();
@@ -528,6 +534,10 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
             } finally {
               if (myCall === callGeneration.current) {
                 toolsInFlight.current = Math.max(0, toolsInFlight.current - 1);
+                // A parallel lookup set is one logical answer. Do not let
+                // the first result start a spoken conclusion while its
+                // siblings are still returning.
+                toolResponsePending.current = toolsInFlight.current === 0;
                 lastActivity.current = Date.now();
                 if (toolsInFlight.current === 0 && awaitingAgent.current) flushContextUpdates(true);
                 else settleAgentResponse();
@@ -577,16 +587,26 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         },
         onAgentChatResponsePart: (event: { type?: unknown; event_id?: unknown; response_id?: unknown }) => {
           if (!mine()) return;
-          const allowNewResponse = !responseTurn.current.hasStartedResponse || awaitingAgent.current ||
-            toolsInFlight.current > 0 || interruptionAwaitingCaller.current;
+          const allowNewResponse = !responseTurn.current.hasStartedResponse ||
+            (toolsInFlight.current === 0 &&
+              (responseTurn.current.hasUnansweredCallerTurn || toolResponsePending.current));
           if (!responseTurn.current.acceptPart(event, allowNewResponse)) return;
           if (event?.type === "start") {
+            toolResponsePending.current = false;
             agentResponsePending.current = true;
             agentResponseTextFinished.current = false;
             agentResponseComplete.current = false;
             recordTelemetry("agent_response_start", event.event_id);
           } else if (event?.type === "stop") {
             agentResponseTextFinished.current = true;
+            if (responseTurn.current.isAmbiguous) {
+              // The SDK provides no response ID on text-part events. Once an
+              // overlapping start makes the current stream uncorrelatable,
+              // drop its transcript and let this stop release the caller turn.
+              awaitingAgent.current = false;
+              interruptionAwaitingCaller.current = false;
+              callerInterruptedAgentResponse.current = false;
+            }
             recordTelemetry("agent_response_stop", event.event_id);
             settleAgentResponse();
           }
@@ -675,6 +695,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           agentResponsePending.current = false;
           agentResponseTextFinished.current = false;
           agentResponseComplete.current = false;
+          toolResponsePending.current = false;
           responseTurn.current.reset();
           toolsInFlight.current = 0;
           memory.current.clear();
@@ -692,9 +713,11 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
             (agentResponsePending.current && !agentResponseComplete.current);
           if (source === "user" && !responseTurn.current.noteCallerTurn({ event_id, response_id })) return;
           if (source === "ai") {
-            const allowNewResponse = !responseTurn.current.hasStartedResponse || awaitingAgent.current ||
-              toolsInFlight.current > 0 || interruptionAwaitingCaller.current;
+            const allowNewResponse = !responseTurn.current.hasStartedResponse ||
+              (toolsInFlight.current === 0 &&
+                (responseTurn.current.hasUnansweredCallerTurn || toolResponsePending.current));
             if (!responseTurn.current.acceptMessage({ event_id, response_id, message }, allowNewResponse)) return;
+            toolResponsePending.current = false;
           }
           memory.current.add(source, message);
           if (source === "user") {

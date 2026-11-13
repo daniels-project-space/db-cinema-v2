@@ -5,6 +5,13 @@ import { internal } from "../_generated/api";
 import { bookingHasCaseArchive } from "./chatCaseArchive";
 
 export const GAFFER_AUTO_RESUME_MS = 4 * 60 * 60 * 1000;
+const rentalChangeRequestLabels = {
+  dates: "Date change",
+  items: "Kit change",
+  extension: "Extension",
+  cancel: "Cancellation",
+  handover: "Time change",
+} as const;
 /** Shared boundaries for customer and owner rental conversations. */
 export async function accountForToken(ctx: any, token: string, requireExpiry = false) {
   const s = await ctx.db
@@ -103,11 +110,17 @@ export async function postRentalMessage(
       chatUnreadOwner: patch.unreadOwner,
       chatUnreadRenter: patch.unreadRenter,
     });
-  if (a.sender === "renter" && (!deferOwnerAlert || thread?.escalated)) await queueOwnerNotification(ctx, {
-    eventKey: `renter-message:${id}`, kind: "renter_message", accountId: a.accountId, bookingId: a.bookingId,
-    title: a.bookingId ? "New rental message" : "New support message",
-    body: a.bookingId ? "A renter replied in a rental conversation. Tap to open it." : "A renter sent a general enquiry. Tap to open it.",
-  });
+  if (a.sender === "renter" && (!deferOwnerAlert || thread?.escalated)) {
+    const requestKind = a.meta?.type === "rental_change_request" && typeof a.meta.kind === "string" &&
+      Object.prototype.hasOwnProperty.call(rentalChangeRequestLabels, a.meta.kind)
+      ? rentalChangeRequestLabels[a.meta.kind as keyof typeof rentalChangeRequestLabels]
+      : undefined;
+    await queueOwnerNotification(ctx, {
+      eventKey: `renter-message:${id}`, kind: "renter_message", accountId: a.accountId, bookingId: a.bookingId,
+      title: requestKind ? `Rental request · ${requestKind}` : a.bookingId ? "New rental message" : "New support message",
+      body: requestKind ? "Review the renter’s request in the rental chat." : a.bookingId ? "A renter replied in a rental conversation. Tap to open it." : "A renter sent a general enquiry. Tap to open it.",
+    });
+  }
   if (a.sender === "owner" || a.sender === "bot" || a.sender === "system") await queueRenterNotification(ctx, {
     eventKey: `rental-message:${id}`, kind: a.sender === "system" ? "booking" : "messages",
     accountId: a.accountId, bookingId: a.bookingId, messageAt: now,

@@ -9,6 +9,7 @@ const unit = put("inventory_units", { name: "Camera", quantityOwned: 1 });
 const listing = put("listings", { title: "Camera", components: [{ inventoryUnitId: unit._id, qty: 1 }] });
 const booking = put("bookings", { accountId: account._id, guestEmail: account.email, status: "active", lineItems: [{ listingId: listing._id, qty: 1, start: 1, end: 2 }] });
 put("reservations", { bookingId: booking._id, listingId: listing._id, inventoryUnitId: unit._id, start: 1, end: 2, qty: 1, source: "site", status: "active" });
+const rentalThread = put("chat_threads", { accountId: account._id, bookingId: booking._id, escalated: false, updatedAt: Date.now() });
 const archive = put("verification_archives", { bookingId: booking._id, accountId: account._id, status: "complete", sessionId: "fixture-session" });
 const args = { token: process.env.ADMIN_TOKEN, bookingId: booking._id, itemKey: `${unit._id}:0`, details: "Inspect the damaged mount", requestId: "fixture-case-0123456789", confirmed: true };
 
@@ -17,6 +18,10 @@ const args = { token: process.env.ADMIN_TOKEN, bookingId: booking._id, itemKey: 
   await assert.rejects(inspections.openCase.handler(ctx, { ...args, confirmed: false }), /confirming/);
   await assert.rejects(inspections.openCase.handler(ctx, { ...args, itemKey: "foreign-item" }), /no longer available/);
   const id = await inspections.openCase.handler(ctx, args);
+  const caseChatArchive = await db.query("chat_case_archives").withIndex("by_case", q => q.eq("caseId", id)).first();
+  assert.equal(caseChatArchive.bookingId, booking._id, "Opening a case archives its rental booking");
+  assert.equal(caseChatArchive.threadId, rentalThread._id, "The case archive is linked to that booking's rental conversation");
+  assert.equal(rentalThread.caseArchivedAt, (await db.get(id)).openedAt, "The live rental thread receives the same archive marker");
   assert.equal(await inspections.openCase.handler(ctx, args), id, "a retried request cannot duplicate a case");
   const updateArgs={token:args.token,bookingId:booking._id,caseId:id,details:'Photographs received from renter',confirmed:true};
   await assert.rejects(inspections.addCaseUpdate.handler(ctx,{...updateArgs,token:'bad'}),/unauthorized/);
@@ -45,7 +50,7 @@ const args = { token: process.env.ADMIN_TOKEN, bookingId: booking._id, itemKey: 
   await assert.rejects(inspections.addCaseUpdate.handler(ctx,{...updateArgs,details:'A different new update after closure'}),/Only an open case/);
   await inspections.closeCase.handler(ctx, closeArgs);
   const closedCase=await db.get(id);await assert.rejects(inspections.openCase.handler(ctx,{...args,requestId:'fixture-stale-status-123456',reviewedMatches:[{id,status:'open',openedAt:closedCase.openedAt}]}),error=>error.data?.code==='CASE_MATCH_REVIEW'&&error.data.matches[0].status==='closed','A changed case status requires a fresh review');
-  const realClosedAt=closedCase.closedAt;closedCase.closedAt=closedCase.openedAt-1;assert.equal((await archiveRetention(ctx,archive)).status,'unknown-closure','Impossible case chronology must never allow automatic deletion');assert.equal((await archiveRetention(ctx,archive)).viewable,false);assert.equal((await archiveRetention(ctx,archive)).reviewDetails,undefined,'Case identifiers are not included in ordinary retention decisions');const detail=(await archiveRetention(ctx,archive,true)).reviewDetails;assert.equal(detail.caseId,closedCase._id);assert.equal(detail.bookingId,booking._id);assert.equal(detail.closedAt,closedCase.closedAt);closedCase.closedAt=Date.now()+86400000;assert.equal((await archiveRetention(ctx,archive)).status,'unknown-closure','A future case closure needs review');closedCase.closedAt=realClosedAt;
+  const realClosedAt=closedCase.closedAt;closedCase.closedAt=closedCase.openedAt-1;const invalidCaseRetention=await archiveRetention(ctx,archive);assert.equal(invalidCaseRetention.status,'unknown-closure','Impossible case chronology must enter the bounded review window');assert.equal(invalidCaseRetention.reviewWindowEligible,true);assert.equal(invalidCaseRetention.viewable,true);assert.equal(invalidCaseRetention.reviewDetails,undefined,'Case identifiers are not included in ordinary retention decisions');const detail=(await archiveRetention(ctx,archive,true)).reviewDetails;assert.equal(detail.caseId,closedCase._id);assert.equal(detail.bookingId,booking._id);assert.equal(detail.closedAt,closedCase.closedAt);closedCase.closedAt=Date.now()+86400000;assert.equal((await archiveRetention(ctx,archive)).status,'unknown-closure','A future case closure needs review');closedCase.closedAt=realClosedAt;
   await assert.rejects(inspections.closeCase.handler(ctx, { ...closeArgs, resolution: "A different resolution" }), /different resolution/, "A retry cannot silently replace the saved case outcome");
   await assert.rejects(inspections.closeCase.handler(ctx, { ...closeArgs, resolution: "x".repeat(2001) }), /10–2000/, "Long resolutions must not be silently truncated");
   assert.equal((await archiveRetention(ctx, archive)).status, "expires");
@@ -55,7 +60,7 @@ const args = { token: process.env.ADMIN_TOKEN, bookingId: booking._id, itemKey: 
   const reopenArgs={token:args.token,bookingId:booking._id,caseId:id,requestId:'fixture-reopen-0123456789',reason:'New insurance evidence received',expectedClosedAt:record.closedAt,expectedResolution:record.resolution,expectedVersion:0,confirmed:true};
   await assert.rejects(inspections.reopenCase.handler(ctx,reopenArgs),/retention has already expired/,'Reopening cannot revive expired copies');
   await assert.rejects(inspections.openCase.handler(ctx, { ...args, requestId: "fixture-expired-01234567", reviewedMatches:[{id,status:record.status,openedAt:record.openedAt}] }), /retention has already expired/);
-  await assert.rejects(retentionHold.handler(ctx, { token: args.token, archiveId: archive._id, reason: "Insurance claim needs review",expectedReason:"",expectedRevision:0,confirmed:true }), /retention has already expired/, "the direct hold mutation cannot revive expired copies either");
+  await assert.rejects(retentionHold.handler(ctx, { token: args.token, archiveId: archive._id, reason: "Insurance claim needs review",expectedReason:"",expectedRevision:0,confirmed:true }), /Manual document holds are disabled/, "the direct endpoint cannot create a standalone or indefinite raw-document hold");
   assert.equal((tables.get("rental_damage_cases") ?? []).length, 1, "an expired archive cannot be revived by opening a case");
   archive.status = "deleted";
   await assert.rejects(inspections.openCase.handler(ctx, { ...args, requestId: "fixture-no-archive-123456", reviewedMatches:[{id,status:record.status,openedAt:record.openedAt}] }), /retention has already expired/, "an old rental with deleted copies cannot restart retention through a later backfill");

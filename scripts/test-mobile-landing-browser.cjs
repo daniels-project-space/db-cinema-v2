@@ -57,7 +57,10 @@ const connect = new Function('require', source.slice(0, source.indexOf('const { 
       return fs.createReadStream(file).pipe(res);
     }
     res.setHeader('Content-Type', 'text/html');
-    res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>body{margin:0;background:#08080a}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>');
+    const blockScript = new URL(req.url || '/', 'http://fixture.local').searchParams.has('block-video')
+      ? `<script>window.__allowLandingVideo=false;window.__nativeLandingPlay=HTMLMediaElement.prototype.play;HTMLMediaElement.prototype.play=function(){if(!window.__allowLandingVideo){const error=new Error('Autoplay blocked by test');error.name='NotAllowedError';return Promise.reject(error)}return window.__nativeLandingPlay.apply(this,arguments)};const auto=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,'autoplay');Object.defineProperty(HTMLMediaElement.prototype,'autoplay',{configurable:true,get(){return false},set(value){if(!value&&auto?.set)auto.set.call(this,false)}});const set=Element.prototype.setAttribute;Element.prototype.setAttribute=function(name,value){if(name.toLowerCase()==='autoplay'&&this instanceof HTMLMediaElement)return;return set.call(this,name,value)}</script>`
+      : '';
+    res.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>body{margin:0;background:#08080a}</style></head><body><div id="root"></div>${blockScript}<script src="/fixture.js"></script></body></html>`);
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   let browser;
@@ -70,10 +73,9 @@ const connect = new Function('require', source.slice(0, source.indexOf('const { 
     await browser.cmd('Page.navigate', { url: 'http://127.0.0.1:' + server.address().port });
     const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
     const layouts=[];
-    for (const width of [320,390,430,768,1024]) {
+    for (const [width,height] of [[320,640],[390,844],[430,932],[768,900],[1024,844],[1440,844]]) {
       const mobileViewport = width < 768;
       const compactVideoSource = width <= 768;
-      const height = width >= 1024 ? 600 : 844;
       await browser.cmd('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: mobileViewport ? 3 : 1, mobile: mobileViewport }); await wait(100);
       await browser.cmd('Page.navigate', { url: 'http://127.0.0.1:' + server.address().port }); await wait(100);
       for (let count = 0; count < 90 && !(await browser.evaluate(`(() => {const v=document.querySelector('video');return v && v.currentTime > .35 && !v.paused})()`)); count++) await wait(100);
@@ -87,16 +89,24 @@ const connect = new Function('require', source.slice(0, source.indexOf('const { 
       const reviewTextRect=reviewCard?.querySelector('.hygglo-review-quote')?.getBoundingClientRect();
       const callouts=document.querySelector('[data-testid="hero-gear-callouts"]');
       const gearCalloutsVisible=!!callouts&&getComputedStyle(callouts).display!=='none'&&getComputedStyle(callouts).visibility!=='hidden';
+      const legacyNavProbe=document.createElement('nav');legacyNavProbe.className='hero-mobile-category-nav';document.body.appendChild(legacyNavProbe);const legacyNavDisplay=getComputedStyle(legacyNavProbe).display;legacyNavProbe.remove();
+      const calloutText=callouts?.textContent?.toUpperCase()??'';
       const extraCategories=!!document.querySelector('[data-testid="hero-mobile-callouts"], [data-testid="hero-mobile-category-nav"]');
+      const heroReviewSummary=!!document.querySelector('[data-testid="mobile-landing-hero"] [aria-label*="renter reviews"]')||!!document.querySelector('[data-testid="mobile-landing-hero"]')?.textContent.includes('1,300+');
       const heroActions=['Book rental gear','How it works','Call us'].map(label=>{const e=[...document.querySelectorAll('a,button')].find(node=>node.textContent.includes(label));if(!e)return{label,found:false};const r=e.getBoundingClientRect();return{label,found:true,left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height,groupOpacity:Number(getComputedStyle(e.parentElement).opacity),insideHero:!!hero&&r.left>=hero.left&&r.right<=hero.right&&r.top>=hero.top&&r.bottom<=hero.bottom}});
-      return { width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth,hero:box('[data-testid="mobile-landing-hero"]'), next:box('[data-testid="mobile-next-section"]'), gearCalloutsVisible,extraCategories, heroActions, rows:document.querySelectorAll('[data-testid="hygglo-review-row"]').length,
+      const activeVideo=videos.find(video=>Number(getComputedStyle(video).opacity)>=.98)??videos[0];
+      return { width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth,hero:box('[data-testid="mobile-landing-hero"]'), next:box('[data-testid="mobile-next-section"]'), gearCalloutsVisible,legacyNavDisplay,calloutText,extraCategories,heroReviewSummary, heroActions, rows:document.querySelectorAll('[data-testid="hygglo-review-row"]').length,
         reviewCard:reviewCardRect&&{left:reviewCardRect.left,right:reviewCardRect.right,width:reviewCardRect.width,center:(reviewCardRect.left+reviewCardRect.right)/2,textLeft:reviewTextRect?.left,textRight:reviewTextRect?.right},
-        video:videos[0] && {src:videos[0].currentSrc,paused:videos[0].paused,time:videos[0].currentTime,readyState:videos[0].readyState,muted:videos[0].muted,inline:videos[0].playsInline} };
+        video:activeVideo&&{src:activeVideo.currentSrc,paused:activeVideo.paused,time:activeVideo.currentTime,readyState:activeVideo.readyState,muted:activeVideo.muted,inline:activeVideo.playsInline} };
       })()`);
       assert.equal(layout.overflow,false,`The mobile landing fits ${width}px without page overflow: ${JSON.stringify(layout)}`);
       assert(layout.hero && layout.next && layout.hero.bottom <= layout.next.top + 1, `The next section starts after the clipped hero video at ${width}px`);
       assert.equal(layout.extraCategories, false, `No extra category labels or bubble row is added at ${width}px`);
+      if (width < 768) assert.equal(layout.legacyNavDisplay, 'none', `The previous mobile category overlay stays hidden at ${width}px`);
+      assert.equal(layout.heroReviewSummary,false,`Review totals appear below the carousel, not in the hero at ${width}px`);
       assert.equal(layout.gearCalloutsVisible, width >= 1024, `The gear callouts stay hidden on phone/tablet widths and return on a wide desktop layout (${width}px)`);
+      if(width<1024) assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('[data-testid="hero-gear-callouts"]')).display`),"none",`The Cameras/Lenses/Lighting/Audio SVG overlay is not displayed below 1024px (${width}px)`);
+      if(width>=1024) assert(["CAMERAS","LENSES","LIGHTING","AUDIO"].every(label=>layout.calloutText.includes(label)),`Desktop preserves all four gear callout labels at ${width}px: ${layout.calloutText}`);
       assert(layout.heroActions.every(action=>action.found), `The same three hero actions remain available at ${width}px`);
       assert(layout.heroActions.every(action=>action.width>0&&action.height>0&&action.insideHero&&action.groupOpacity>=0.98), `All hero actions finish fading in with visible boxes inside the hero at ${width}px: ${JSON.stringify(layout.heroActions)}`);
       if (width < 1024) assert(layout.heroActions.every(action=>Math.round(action.height)>=44), `Touch targets are at least 44px tall without leaving the hero at ${width}px: ${JSON.stringify(layout.heroActions)}`);
@@ -105,17 +115,18 @@ const connect = new Function('require', source.slice(0, source.indexOf('const { 
       assert(layout.reviewCard.textLeft >= layout.reviewCard.left && layout.reviewCard.textRight <= layout.reviewCard.right, `Review text remains inside its full card at ${width}px: ${JSON.stringify(layout.reviewCard)}`);
       if (width <= 430) assert(Math.abs(layout.reviewCard.center - width / 2) <= 4, `The initial mobile card is centered at ${width}px: ${JSON.stringify(layout.reviewCard)}`);
       assert(layout.video && !layout.video.paused && layout.video.time > 0.35 && layout.video.muted && layout.video.inline, `The muted landing film plays inline at ${width}px`);
-      assert(layout.video.src.endsWith(compactVideoSource ? '/intro-mobile.mp4' : '/intro.mp4'), `The appropriate landing source is selected at ${width}px`);
+      assert(/\/(?:intro|intro2|loop)(?:-mobile)?\.mp4$/.test(layout.video.src), `An expected cinematic clip is active at ${width}px: ${layout.video.src}`);
+      assert.equal(layout.video.src.endsWith('-mobile.mp4'), compactVideoSource, `The appropriate landing source is selected at ${width}px: ${layout.video.src}`);
       layouts.push(layout);
       const responsiveScreenshot = await browser.cmd('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
-      fs.writeFileSync(`/tmp/dbcinema-mobile-landing-${width}.png`, Buffer.from(responsiveScreenshot.data, 'base64'));
+      fs.writeFileSync(`/tmp/dbcinema-mobile-landing-${width}x${height}.png`, Buffer.from(responsiveScreenshot.data, 'base64'));
       if (width <= 430) {
         await browser.evaluate(`document.querySelector('[data-testid="hygglo-review-row"]').scrollIntoView({block:'center'})`);
         await wait(120);
         const centeredReview = await browser.evaluate(`(() => {const r=document.querySelector('[data-testid="hygglo-review-card"]').getBoundingClientRect();return{left:r.left,right:r.right,center:(r.left+r.right)/2}})()`);
-        assert(centeredReview.left >= 0 && centeredReview.right <= width && Math.abs(centeredReview.center-width/2) <= 12, `The scrolled-to review screenshot shows a centered, complete card at ${width}px: ${JSON.stringify(centeredReview)}`);
+        assert(centeredReview.left >= 0 && centeredReview.right <= width, `The scrolled-to review screenshot shows a complete card while it moves at ${width}px: ${JSON.stringify(centeredReview)}`);
         const reviewScreenshot = await browser.cmd('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
-        fs.writeFileSync(`/tmp/dbcinema-mobile-reviews-${width}.png`, Buffer.from(reviewScreenshot.data, 'base64'));
+        fs.writeFileSync(`/tmp/dbcinema-mobile-reviews-${width}x${height}.png`, Buffer.from(reviewScreenshot.data, 'base64'));
         await browser.evaluate('scrollTo(0,0)');
       }
     }
@@ -155,7 +166,22 @@ const connect = new Function('require', source.slice(0, source.indexOf('const { 
     assert(fullFeed.every(row => Math.abs(row.card.center - 195) <= 5), `A complete review card stays centered in every mobile rail: ${JSON.stringify(fullFeed)}`);
     const allReviews = await browser.cmd('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
     fs.writeFileSync('/tmp/dbcinema-mobile-landing-390-100reviews.png', Buffer.from(allReviews.data, 'base64'));
-    console.log('PASS mobile hero flow, inline muted video playback, single-review rail motion, and reduced-motion rail behavior.');
+    await browser.cmd('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
+    await browser.cmd('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+    await browser.cmd('Page.navigate', { url: 'http://127.0.0.1:' + server.address().port + '/?block-video=1' });
+    for (let count = 0; count < 100 && !(await browser.evaluate(`!!document.querySelector('[data-testid="hero-video-play"]')`)); count++) await wait(50);
+    const blockedFallback = await browser.evaluate(`(() => {const button=document.querySelector('[data-testid="hero-video-play"]'),video=document.querySelector('video');const r=button?.getBoundingClientRect();return{visible:!!button&&getComputedStyle(button).display!=='none'&&getComputedStyle(button).visibility!=='hidden',label:button?.getAttribute('aria-label'),height:r?.height,insideHero:!!button&&!!document.querySelector('[data-testid="mobile-landing-hero"]')&&r.top>=document.querySelector('[data-testid="mobile-landing-hero"]').getBoundingClientRect().top&&r.bottom<=document.querySelector('[data-testid="mobile-landing-hero"]').getBoundingClientRect().bottom,paused:video?.paused,poster:video?.poster}})()`);
+    assert(blockedFallback.visible && blockedFallback.height >= 44 && blockedFallback.insideHero, `A blocked mobile autoplay shows a tappable play fallback inside the landing hero: ${JSON.stringify(blockedFallback)}`);
+    assert.equal(blockedFallback.label, 'Play the landing page film');
+    await wait(850);
+    const blockedActions = await browser.evaluate(`(() => {const hero=document.querySelector('[data-testid="mobile-landing-hero"]'),labels=['Book rental gear','How it works','Call us'];return labels.map(label=>{const node=[...hero.querySelectorAll('a,button')].find(item=>item.textContent.includes(label));return{label,visible:!!node&&getComputedStyle(node.parentElement).opacity>=.95&&getComputedStyle(node).pointerEvents!=='none',height:node?.getBoundingClientRect().height}})})()`);
+    assert(blockedActions.every(action=>action.visible&&action.height>=44), `The blocked-video fallback leaves the primary hero actions visible and usable: ${JSON.stringify(blockedActions)}`);
+    const blockedShot = await browser.cmd('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+    fs.writeFileSync('/tmp/dbcinema-mobile-landing-390-play-fallback.png', Buffer.from(blockedShot.data, 'base64'));
+    await browser.evaluate(`window.__allowLandingVideo=true;document.querySelector('[data-testid="hero-video-play"]').click()`);
+    for (let count = 0; count < 80 && !(await browser.evaluate(`(() => {const v=document.querySelector('video');return v&&!v.paused&&v.currentTime>.1})()`)); count++) await wait(50);
+    assert(await browser.evaluate(`(() => {const v=document.querySelector('video');return v&&!v.paused&&v.currentTime>.1})()`), 'The play fallback successfully starts the landing video after a user action');
+    console.log('PASS landing callouts, muted inline autoplay, visible play recovery, and mobile review-rail motion under normal/reduced motion.');
     console.log('LAYOUTS', JSON.stringify(layouts));
   } finally {
     if (browser) { browser.close(); await fetch((process.env.DBC_CDP_URL || 'http://localhost:9224') + '/json/close/' + browser.tabId).catch(() => {}); }

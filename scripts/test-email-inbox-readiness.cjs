@@ -33,12 +33,27 @@ const thread = put("email_threads", {
   assert.equal(disconnected.replyToAddress, "dbcinemarentals@gmail.com");
   assert.equal(disconnected.inboundForwardingAddress, "support@resend-inbox.example.invalid", "only the admin email thread receives the configured Gmail-forwarding address");
 
-  let sentReply;
+  delete process.env.INBOUND_REPLY_ADDRESS;
+  const staleDomainOnly = await inbox.adminThread.handler(ctx, args);
+  assert.equal(staleDomainOnly.replyConfigured, false, "the retired INBOUND_EMAIL_DOMAIN fallback cannot mark mail ready");
+  assert.equal(staleDomainOnly.replySetupStatus, "missing_reply_route");
+  assert.equal(staleDomainOnly.inboundForwardingAddress, null);
+  let staleRouteCalls = 0;
+  await assert.rejects(inbox.sendGafferFollowUp.handler({
+    runMutation: async () => { staleRouteCalls++; return { state: "claimed" }; },
+    runAction: async () => { staleRouteCalls++; return { sent: true }; },
+  }, { email: "renter@example.invalid", name: "Renter", subject: "Call follow-up", text: "Details", replyKey: "abcdef0123456789abcdef01" }), /reply route is not configured/);
+  assert.equal(staleRouteCalls, 0, "a new follow-up is not prepared or sent through the unverified legacy domain");
+  process.env.INBOUND_REPLY_ADDRESS = "support@resend-inbox.example.invalid";
+
+  let sentReply, finalizedReply;
   const replyCtx = {
-    runMutation: async (ref) => ref.endsWith("claimAutomaticReply")
-      ? { state: "claimed", outboundId: "email_messages:out", deliveryKey: "fixture-key", thread: { email: "renter@example.invalid", subject: "Rental question", replyKey: "a".repeat(24) }, inbound: { messageId: "<inbound@example.invalid>", references: [] } }
-      : { ok: true },
-    runAction: async (_ref, payload) => { sentReply = payload; return { sent: true, messageId: "<outbound@example.invalid>" }; },
+    runMutation: async (ref, payload) => {
+      if (ref.endsWith("claimAutomaticReply")) return { state: "claimed", outboundId: "email_messages:out", deliveryKey: "fixture-key", thread: { email: "renter@example.invalid", subject: "Rental question", replyKey: "a".repeat(24) }, inbound: { messageId: "<inbound@example.invalid>", references: [] } };
+      if (ref.endsWith("finishAutomaticReply")) finalizedReply = payload;
+      return { ok: true };
+    },
+    runAction: async (_ref, payload) => { sentReply = payload; return { sent: true, messageId: "<outbound@example.invalid>", resendEmailId: "resend-email-fixture" }; },
   };
   const sent = await inbox.sendAssistantReply.handler(replyCtx, {
     secret: process.env.INBOUND_EMAIL_SECRET,
@@ -51,6 +66,7 @@ const thread = put("email_threads", {
   assert.equal(sentReply.replyTo, "dbcinemarentals@gmail.com", "Gaffer replies return to the monitored business Gmail");
   assert.equal(sentReply.to, "renter@example.invalid");
   assert.equal(sentReply.deliveryKey, "fixture-key");
+  assert.equal(finalizedReply.resendEmailId, "resend-email-fixture", "the Resend message ID reaches the durable central thread finalizer");
 
   const denied = await inbox.adminThread.handler(ctx, { ...args, token: "wrong-token" });
   assert.equal(denied.authorized, false);

@@ -39,7 +39,7 @@ Object.assign(process.env, {
   RENTAL_CHECKOUT_ENABLED: 'true', DIDIT_API_KEY: 'test', DIDIT_WORKFLOW_ID: 'test', DIDIT_WEBHOOK_SECRET: 'test', DIDIT_APPLICATION_ID: 'test', DIDIT_ENVIRONMENT: 'sandbox',
   STRIPE_WEBHOOK_SECRET: 'test', STRIPE_SECRET_KEY: 'test', STRIPE_RENTAL_PAYMENT_METHOD_CONFIGURATION_ID: 'test',
   INVOICE_SECRET: 'test', APP_URL: 'https://example.invalid', BUSINESS_LEGAL_NAME: 'Test supplier',
-  BUSINESS_INVOICE_ADDRESS: 'Test address', RESEND_API_KEY: 'test',
+  BUSINESS_INVOICE_ADDRESS: 'Test address', RESEND_API_KEY: 'test', RESEND_FROM: 'DB Cinema Rentals <bookings@dbcinemarentals.com>',
 });
 class StripeStub {
   static lastCheckout;

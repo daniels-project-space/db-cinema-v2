@@ -10,14 +10,24 @@ export function RentalDeliveryQuotePanel({ token, booking }: { token: string; bo
   const createQuote = useAction(api.rentalDelivery.createQuote);
   const cancelQuote = useAction(api.rentalDelivery.cancelQuote);
   const [open, setOpen] = useState(false);
-  const [deliveryAddress, setDeliveryAddress] = useState(booking.address ?? "");
+  const [addressDraft, setAddressDraft] = useState({ bookingId: booking._id, sourceAddress: booking.address ?? "", value: booking.address ?? "" });
+  const deliveryAddress = addressDraft.bookingId === booking._id && addressDraft.sourceAddress === (booking.address ?? "") ? addressDraft.value : booking.address ?? "";
+  const setDeliveryAddress = (value: string) => setAddressDraft({ bookingId: booking._id, sourceAddress: booking.address ?? "", value });
   const [deliveryLegs, setDeliveryLegs] = useState<"one_way" | "round_trip">("round_trip");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  useEffect(() => { if (!deliveryAddress && booking.address) setDeliveryAddress(booking.address); }, [booking.address, deliveryAddress]);
+  // This panel can remain mounted while the admin changes the selected rental.
+  // Never carry a previous renter's delivery address into the next quote.
+  useEffect(() => { setAddressDraft({ bookingId: booking._id, sourceAddress: booking.address ?? "", value: booking.address ?? "" }); }, [booking._id, booking.address]);
+  useEffect(() => {
+    setDeliveryLegs("round_trip");
+    setOpen(false);
+    setError("");
+    setNotice("");
+  }, [booking._id]);
   const current = state?.authorized ? state.quotes.find((quote: any) => ["awaiting_acceptance", "creating_checkout", "checkout_open"].includes(quote.status)) : null;
-  const eligible = !!state?.authorized && !current && booking.status === "confirmed" && booking.idVerifyStatus === "verified" && booking.fulfilment === "pickup" && !booking.deliveryLegs && !booking.cancellationDecision && !booking.returnDecision && !booking.activeAdditionId && !booking.activeDeliveryQuoteId && !booking.activeExtensionId && !booking.activePriceAdjustmentId;
+  const eligible = !!state?.authorized && !current && booking.status === "confirmed" && booking.idVerifyStatus === "verified" && booking.fulfilment === "pickup" && !booking.deliveryLegs && !booking.cancellationDecision && !booking.returnDecision && !booking.activeAdditionId && !booking.activeDeliveryQuoteId && !booking.activeExtensionId && !booking.activePriceAdjustmentId && !booking.activeItemSwapId;
   useEffect(() => { if (!eligible) setOpen(false); }, [eligible]);
   async function submit() {
     if (busy || !eligible) return;

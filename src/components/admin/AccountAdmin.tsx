@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAction, useMutation, useQuery, usePaginatedQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import type { Id } from "@cvx/_generated/dataModel";
@@ -16,6 +16,7 @@ import { PrivateVerificationPortrait } from "./PrivateVerificationPortrait";
 import { RentalVerificationSummary } from "@/components/rentals/RentalVerificationSummary";
 import { SavedCardCharges } from "@/components/rentals/SavedCardCharges";
 import { MembershipInvoiceRecovery } from "./MembershipInvoiceRecovery";
+import { PossibleRestrictedIdentityAccountMatches } from "./PossibleRestrictedIdentityMatch";
 
 const LEVELS = [
   ["automatic", "Automatic"],
@@ -66,30 +67,6 @@ const actionPaths: Record<string, string> = {
 function ActionIcon({name}: {name: string}) {
   return <svg className={styles.actionIcon} aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d={actionPaths[name]}/></svg>;
 }
-function PossibleIdentityMatch({ token, bookingId }: { token: string; bookingId: string }) {
-  const result = useQuery(api.accountAdmin.possibleRestrictedIdentityMatches, { token, bookingId: bookingId as any });
-  if (!result?.matches.length) return null;
-  const matchCount = `${result.matches.length}${result.more ? "+" : ""} possible ${result.matches.length === 1 && !result.more ? "match" : "matches"}`;
-  return <details className={styles.identityWarning} data-testid="admin-identity-match-notice">
-    <summary className={styles.identityWarningSummary}>
-      <span className={styles.identityWarningGlyph} aria-hidden="true">!</span>
-      <span className={styles.identityWarningCopy}>
-        <strong>Possible account match</strong>
-        <span>{matchCount} · Review manually; booking stays open.</span>
-      </span>
-      <svg className={styles.identityWarningChevron} aria-hidden="true" viewBox="0 0 16 16" fill="none"><path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-    </summary>
-    <div className={styles.identityWarningDetails} data-testid="admin-identity-match-details">
-      <p>Identity details overlap. This is not proof of identity.</p>
-      {result.matches.map((match: {id: string; name: string | null; email: string; blockedReason: string | null}) => <div className={styles.identityWarningMatch} key={match.id}>
-        <strong>{match.name || "Unnamed customer"}</strong>
-        <span>{match.email}</span>
-        {match.blockedReason && <span className={styles.identityWarningReason}>{match.blockedReason}</span>}
-      </div>)}
-      {result.more && <p>More matches are available in the customer directory.</p>}
-    </div>
-  </details>;
-}
 type Level = (typeof LEVELS)[number][0];
 type EncoreLevel = (typeof ENCORE_LEVELS)[number][0];
 type ProfileDraft = {
@@ -102,16 +79,23 @@ type ProfileDraft = {
 };
 
 type AccountRentalOption = {id:string;title:string;start:number};
+function rentalPickerLabel(rental: {title:string;start:number|null}) {
+  const dateLabel = rental.start == null ? "Date pending" : new Date(rental.start).toLocaleDateString("en-GB", {day:"numeric",month:"short",year:"numeric",timeZone:"UTC"});
+  const compactTitle = rental.title.replace(/\s+(?:cinema\s+)?(?:camera|lens)$/i, "").trim() || rental.title;
+  const visibleTitle = compactTitle.length <= 26 ? compactTitle : `${compactTitle.slice(0, 25).trimEnd()}…`;
+  return {label:`${dateLabel} · ${visibleTitle}`, fullLabel:`${rental.title} · ${dateLabel}`};
+}
 function AccountPayments({token,rentals}:{token:string;rentals:AccountRentalOption[]}) {
   const [bookingId,setBookingId]=useState(rentals[0]?.id??"");
-  useEffect(()=>{if(!rentals.some(r=>r.id===bookingId))setBookingId(rentals[0]?.id??"");},[bookingId,rentals]);
+  const selectedBookingId=rentals.some(r=>r.id===bookingId)?bookingId:rentals[0]?.id??"";
+  useEffect(()=>{if(bookingId!==selectedBookingId)setBookingId(selectedBookingId);},[bookingId,selectedBookingId]);
   return <section className={styles.card} aria-label="Customer card claims" data-testid="admin-account-payments">
     <header><h3>Saved-card claims</h3></header>
     {!rentals.length?<p className={styles.empty}>No rentals are linked to this account.</p>:<>
-      <label className={styles.paymentRentalSelect}>Rental<select aria-label="Rental for payment controls" value={bookingId} onChange={e=>setBookingId(e.target.value)}>
-        {rentals.map(r=><option key={r.id} value={r.id}>{r.title} · {new Date(r.start).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric",timeZone:"UTC"})}</option>)}
+      <label className={styles.paymentRentalSelect}>Rental<select aria-label="Rental for payment controls" value={selectedBookingId} onChange={e=>setBookingId(e.target.value)}>
+        {rentals.map(r=>{const option=rentalPickerLabel(r);return <option key={r.id} value={r.id} title={option.fullLabel}>{option.label}</option>})}
       </select></label>
-      {bookingId?<SavedCardCharges key={bookingId} token={token} bookingId={bookingId} admin/>:null}
+      {selectedBookingId?<SavedCardCharges key={selectedBookingId} token={token} bookingId={selectedBookingId} admin/>:null}
     </>}
   </section>;
 }
@@ -120,12 +104,14 @@ export function AccountAdmin({
   token,
   onRental,
   onConversation,
+  onEmail,
   onDocumentsChange,
 }: {
   token: string;
   onDocumentsChange?: (customer: string | null) => void;
   onRental?: (id: string) => void;
   onConversation?: (accountId: string, bookingId: string | null) => void;
+  onEmail?: (email: string) => void;
 }) {
   const profileRef = useRef<HTMLElement>(null);
   const actionRailRef = useRef<HTMLElement>(null);
@@ -138,9 +124,11 @@ export function AccountAdmin({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [level, setLevel] = useState<Level>("automatic"),
     [encoreLevel, setEncoreLevel] = useState<EncoreLevel>("automatic"),
-    [reason, setReason] = useState("");
+    [accessReason, setAccessReason] = useState(""),
+    [restrictionReason, setRestrictionReason] = useState("");
+  const [restrictionClass, setRestrictionClass] = useState<"" | "access_only" | "identity_safety_blacklist">("");
   const [busy, setBusy] = useState(false),
-    [confirmBlock, setConfirmBlock] = useState<{ blockedAt: number | null; noticeId: Id<"account_restriction_notices"> | null; reason: string; revision: number } | null>(null);
+    [confirmBlock, setConfirmBlock] = useState<{ blockedAt: number | null; action: "restrict" | "restore" | "reclassify"; restrictionClass: "access_only" | "identity_safety_blacklist"; expectedRestrictionClass: "access_only" | "identity_safety_blacklist" | null; noticeId: Id<"account_restriction_notices"> | null; reason: string; revision: number } | null>(null);
   const [message, setMessage] = useState("");
   const filter = "all" as const;
   const [tierFilter, setTierFilter] = useState<"all" | "standard" | "plus" | "pro" | "studio">("all"),
@@ -166,7 +154,8 @@ export function AccountAdmin({
   const [billingView, setBillingView] = useState<"payments" | "invoices" | "credits">("payments");
   const [safetyView, setSafetyView] = useState<"notes" | "restriction">("notes");
   useEffect(() => {
-    setReason("");
+    setAccessReason("");
+    setRestrictionReason("");
     setConfirmBlock(null);
     setMessage("");
   }, [section]);
@@ -237,6 +226,10 @@ export function AccountAdmin({
   const searchPending = input !== email || authorized === undefined || status === "LoadingFirstPage" || messageSearchActive && messageSearchStatus === "LoadingFirstPage";
   const selected = !authorized || searchPending ? undefined :
     matchingAccounts.find((a) => a.id === selectedId) ?? matchingAccounts[0];
+  useEffect(() => {
+    setRestrictionClass(selected?.restrictionClass ?? "");
+    setConfirmBlock(null);
+  }, [selectedId, selected?.restrictionClass]);
   // Replaced during render so a result cannot reach a different profile,
   // including closing and reopening the same account or changing admin session.
   const scope = useRef<{ token: string; accountId: string | undefined; panelClosed: boolean }>({ token, accountId: selected?.id, panelClosed });
@@ -250,6 +243,9 @@ export function AccountAdmin({
     api.accountAdmin.detail,
     selected && !panelClosed ? { token, accountId: selected.id } : "skip",
   );
+  // Convex detail data can lag during a profile switch. Never feed the prior
+  // renter's rentals into payment controls under the newly selected profile.
+  const paymentRentals = selected && detail?.id === selected.id ? detail.rentals as AccountRentalOption[] : [];
   const reviewQueue = useQuery(api.accountAdmin.verificationReviews, selected && !panelClosed ? {token,accountId:selected.id as any} : "skip");
   const history = useQuery(
     api.accountAdmin.history,
@@ -269,7 +265,8 @@ export function AccountAdmin({
   useEffect(() => {
     setLevel((selected?.override ?? "automatic") as Level);
     setEncoreLevel((selected?.encoreOverride ?? "automatic") as EncoreLevel);
-    setReason("");
+    setAccessReason("");
+    setRestrictionReason("");
     setConfirmBlock(null);
     setProfileDraft(null);
   }, [selected?.id, selected?.override, selected?.encoreOverride, selected?.blocked, selected?.blockedAt, selected?.restrictionNoticeId, selected?.blockedReason, selected?.restrictionRevision, token, panelClosed]);
@@ -316,7 +313,11 @@ export function AccountAdmin({
           year: "numeric",
         })
       : "Not recorded";
-  function selectAccount(id: string) {
+  function selectAccount(id: string, clearSearch = false) {
+    if (clearSearch) {
+      setInput("");
+      setEmail("");
+    }
     if (scope.current.accountId !== id || scope.current.panelClosed)
       scope.current = { token, accountId: id, panelClosed: false };
     setSelectedId(id);
@@ -391,7 +392,8 @@ export function AccountAdmin({
     }
   }
   async function apply(kind: "access" | "block") {
-    if (!selected || panelClosed || busy || searchPending || (kind === "block" && (!confirmBlock || !reason.trim()))) return;
+    const actionReason = kind === "access" ? accessReason : restrictionReason;
+    if (!selected || panelClosed || busy || searchPending || (kind === "block" && (!confirmBlock || !actionReason.trim()))) return;
     const origin = scope.current;
     setBusy(true);
     setMessage("");
@@ -404,26 +406,29 @@ export function AccountAdmin({
           expectedLevel: selected.override as Level,
           encoreLevel: encoreLevel === "automatic" ? "automatic" : Number(encoreLevel) as 1 | 2 | 3,
           expectedEncoreLevel: selected.encoreOverride === "automatic" ? "automatic" : Number(selected.encoreOverride) as 1 | 2 | 3,
-          reason,
+          reason: actionReason,
         });
       else
         await setBlocked({
           token,
           accountId: selected.id,
-          blocked: confirmBlock!.blockedAt === null,
-          reason,
-          expected: confirmBlock!,
+          blocked: confirmBlock!.action !== "restore",
+          restrictionClass: confirmBlock!.restrictionClass,
+          reason: actionReason,
+          expected: { blockedAt: confirmBlock!.blockedAt, restrictionClass: confirmBlock!.expectedRestrictionClass, noticeId: confirmBlock!.noticeId, reason: confirmBlock!.reason, revision: confirmBlock!.revision },
         });
       if (scope.current !== origin) return;
       setMessage(
         kind === "access"
-          ? "Rental access saved."
+          ? "Rental tier and Encore saved."
+          : confirmBlock?.action === "reclassify"
+            ? "Restriction type updated. The account remains blocked."
           : selected.blocked
             ? "Account unblocked. They can sign in again."
             : "Account blocked. Sessions and sign-in links revoked.",
       );
       setConfirmBlock(null);
-      if (kind === "block") setReason("");
+      if (kind === "block") setRestrictionReason("");
     } catch (error) {
       if (scope.current !== origin) return;
       setMessage(
@@ -485,10 +490,11 @@ export function AccountAdmin({
           type="button"
           key={rental.id}
           className={styles.rental}
+          data-testid="admin-rental-history-row"
           onClick={() => onRental?.(rental.id)}
           disabled={!onRental}
         >
-          <div className={styles.kitPhotos} aria-label="Booked equipment">
+          <div className={styles.kitPhotos} aria-label="Booked equipment" data-testid="admin-rental-history-images">
             {(rental.items?.length ? rental.items.map(item => ({ ...item, imageSources: item.imageSources?.length ? item.imageSources : item.heroImage ? [item.heroImage] : rental.items?.length === 1 ? rental.imageSources ?? [] : [] })) : [{ title: rental.title, qty: rental.quantity, imageSources: rental.imageSources }]).map((item, index) => {
               const imageSources = Array.isArray(item.imageSources) ? item.imageSources : [];
               return (
@@ -499,13 +505,13 @@ export function AccountAdmin({
               );
             })}
           </div>
-          <span className={styles.rentalTitle}>
-            <strong>{rental.title}</strong>
+          <span className={styles.rentalTitle} data-testid="admin-rental-history-title">
+            <strong title={rental.title}>{rental.title}</strong>
             <small>
               {date(rental.start)} · {rental.quantity} items
             </small>
           </span>
-          <span className={styles.status}>
+          <span className={styles.status} data-testid="admin-rental-history-status">
             {rental.status.replaceAll("_", " ")}
           </span>
         </button>
@@ -528,7 +534,12 @@ export function AccountAdmin({
   const managedRental = detail?.rentals.find(rental =>
     managedRentalSelection !== null && managedRentalSelection.accountId === selected?.id && rental.id === managedRentalSelection.bookingId,
   ) ?? detail?.rentals.find(rental => rental.id === activeRental?.id) ?? detail?.rentals[0] ?? null;
+  // Keep a selected rental visible in the message timeline while the support
+  // thread is open. A rental thread always uses its own booking context.
+  const conversationRental = activeConversationId ? activeRental : managedRental;
   const reviewRentals = reviewQueue?.items ?? [];
+  // Check the account's bounded set of verified rentals in one admin query;
+  // do not tie the safety alert to whichever chat happens to be selected.
   const currentPlan = detail ? subscriptionSummary(detail) : null;
   const currentPlanLabel = currentPlan
     ? ["Not linked", "No plan"].includes(currentPlan.label) ? "No plan" : currentPlan.label
@@ -583,13 +594,13 @@ export function AccountAdmin({
           </button>
           <div id="admin-account-filter-fields" className={styles.filterFields}>
           <label>
-            <span className={styles.filterLabel}>Subscription</span>
+            <span className={styles.filterLabel}>Rental tier</span>
             <select
               value={tierFilter}
               onChange={(e) => { setTierFilter(e.target.value as typeof tierFilter); setPage(0); setSelectedId(null); }}
             >
-              <option value="all">All plans</option>
-              <option value="standard">No active plan</option>
+              <option value="all">All rental tiers</option>
+              <option value="standard">Standard · no paid plan</option>
               {LEVELS.filter(([key]) => key !== "automatic" && key !== "standard").map(
                 ([key, name]) => (
                   <option key={key} value={key}>
@@ -737,15 +748,16 @@ export function AccountAdmin({
             title={activeRental?.title ?? "Account support"}
             stage={activeRental?.status ?? "support"}
             stageLabel={activeRental?.status.replaceAll("_", " ") ?? "Account support"}
-            bookingSummary={activeRental ? {
-              items: (activeRental.items ?? []).map(item => ({
+            bookingSummary={conversationRental ? {
+              heading: activeConversationId ? "Items in this rental" : "Selected rental",
+              items: (conversationRental.items ?? []).map(item => ({
                 title: item.title,
                 qty: item.qty,
                 heroImage: item.heroImage ?? item.imageSources?.[0] ?? null,
                 imageSources: item.imageSources?.length ? item.imageSources : item.heroImage ? [item.heroImage] : [],
               })),
-              dates: `${date(activeRental.start)} – ${date(activeRental.end)}`,
-              count: activeRental.items?.length || activeRental.quantity,
+              dates: `${date(conversationRental.start)} – ${date(conversationRental.end)}`,
+              count: conversationRental.items?.length || conversationRental.quantity,
             } : undefined}
           />
           {onConversation && <button type="button" className={styles.openFullInbox} onClick={() => onConversation(selected.id, activeConversation?.bookingId ?? null)}>Open in full inbox ↗</button>}
@@ -797,15 +809,15 @@ export function AccountAdmin({
           </header>
           <div className={styles.summary} data-testid="admin-account-summary">
           <div className={styles.summaryStatus} role="status" aria-label={selected.blocked ? "Account status: restricted" : "Account status: unrestricted"} title="Sign-in and booking access. Verification and rental approval are shown separately."><span><ActionIcon name="overview"/> Account status</span><strong className={selected.blocked ? styles.blocked : styles.verified}>{selected.blocked ? "Restricted" : "Unrestricted"}</strong></div>
-          <button type="button" data-testid="admin-membership-summary" aria-label={`Manage membership: ${label(selected.tier)}, ${selectedEncoreAccessible}, subscription ${currentPlanLabel}`} aria-expanded={section === "membership"} aria-controls="customer-action-content" onClick={openMembership}>
+          <button type="button" data-testid="admin-membership-summary" aria-label={`Membership: ${label(selected.tier)}, ${selectedEncoreAccessible}; Stripe subscription ${currentPlanLabel}`} aria-expanded={section === "membership"} aria-controls="customer-action-content" onClick={openMembership}>
               <span><ActionIcon name="membership"/> Membership</span>
               <strong>
-                <><span data-testid="admin-membership-summary-value" className={`${styles.summaryValue} ${selectedEncoreMetric?.encoreLevel === null && !selectedEncore ? styles.summaryValueReview : ""}`} title={`${label(selected.tier)} · ${selectedEncoreLabel}`} aria-hidden="true">{`${label(selected.tier)} · ${selectedEncoreLabel}`}</span><span data-testid="admin-membership-plan-summary" className={`${styles.billingChip} ${currentPlan?.tone === "ready" ? styles.billingChipReady : currentPlan?.tone === "attention" ? styles.actionStatusAttention : styles.billingChipMuted}`}>{currentPlanLabel}</span>{selectedEncore ? <span className={styles.visuallyHidden}>{`${selected.encoreOverride === "automatic" ? "Earned" : "Assigned"} ${encoreName(selectedEncore)}`}</span> : null}</>
+                <><span data-testid="admin-membership-summary-value" className={`${styles.summaryValue} ${selectedEncoreMetric?.encoreLevel === null && !selectedEncore ? styles.summaryValueReview : ""}`} title={`${label(selected.tier)} · ${selectedEncoreLabel}`} aria-hidden="true">{`${label(selected.tier)} · ${selectedEncoreLabel}`}</span><span data-testid="admin-subscription-summary" className={`${styles.summaryPlan} ${currentPlan?.tone === "ready" ? styles.summaryPlanReady : currentPlan?.tone === "attention" ? styles.summaryPlanAttention : styles.summaryPlanMuted}`} title={`Paid plan · ${currentPlanLabel}`} aria-hidden="true">{currentPlanLabel}</span>{selectedEncore ? <span className={styles.visuallyHidden}>{`${selected.encoreOverride === "automatic" ? "Earned" : "Assigned"} ${encoreName(selectedEncore)}`}</span> : null}</>
                 <span className={styles.summaryCaret} aria-hidden="true">{section === "membership" ? "↑" : "↗"}</span>
               </strong>
             </button>
           </div>
-          {activeRental && <PossibleIdentityMatch key={activeRental.id} token={token} bookingId={activeRental.id}/>}
+          {!panelClosed && <PossibleRestrictedIdentityAccountMatches key={selected.id} token={token} accountId={selected.id as any} onOpenAccount={id => selectAccount(id, true)}/>}
           <nav
             className={styles.profileTabs}
             data-testid="admin-account-profile-sections"
@@ -827,7 +839,6 @@ export function AccountAdmin({
                 className={`${section === key ? styles.active : ""} ${key === "verification" ? styles.verificationAttention : ""}`}
               >
                 <span className={styles.actionLabel}><ActionIcon name={key === "billing" ? "billing" : key === "safety" ? "notes" : key}/>{key === "verification" ? <>{name}<span className={styles.reviewCount}>{reviewRentals.length}</span></> : <>{name}{key === "rentals" && detail ? ` · ${detail.rentals.length}${detail.rentalsMore ? "+" : ""}` : ""}</>}</span>
-                {key === "billing" && detail && detail.credit > 0 && <span className={styles.actionBalance} aria-label={`Available account credit ${formatGbp(detail.credit)}`}>{formatGbp(detail.credit)}</span>}
                 <span aria-hidden>{section === key ? "−" : "+"}</span>
               </button>
             ))}
@@ -872,7 +883,7 @@ export function AccountAdmin({
                     <label>Reason<textarea maxLength={500} className="input mt-1 min-h-14 w-full" value={profileDraft.reason} disabled={busy} onChange={event => setProfileDraft(current => current?.accountId === selected.id ? {...current,reason:event.target.value} : current)} placeholder="Saved to account history"/></label>
                     <p className={styles.profileEditHint}>Login email is managed separately.</p>
                     <div className={styles.profileEditActions}><button type="submit" className="btn-primary px-4 py-2 text-xs" disabled={busy || profileDraft.reason.trim().length < 3}>{busy ? "Saving…" : "Save details"}</button><button type="button" className={styles.profileCancel} disabled={busy} onClick={() => setProfileDraft(null)}>Cancel</button></div>
-                  </form> : <dl><dt>Name</dt><dd>{detail.name || "Not supplied"}</dd><dt>Email</dt><dd><a href={`mailto:${selected.email}`}>{selected.email}</a></dd><dt>Phone</dt><dd>{detail.phone ? <a href={`tel:${detail.phone.replace(/[^\d+]/g, "")}`}>{detail.phone}</a> : "Not supplied"}</dd><dt>Address</dt><dd>{detail.address || "Not supplied"}</dd><dt>Account created</dt><dd>{date(detail.createdAt)}</dd></dl>}
+                  </form> : <dl><dt>Name</dt><dd>{detail.name || "Not supplied"}</dd><dt>Email</dt><dd>{onEmail ? <button type="button" data-testid="admin-open-email-thread" aria-label={`Open tracked email conversations for ${selected.email}`} onClick={() => onEmail(selected.email)} className="text-left text-sky-200/80 underline decoration-sky-200/25 underline-offset-2 hover:text-sky-100">{selected.email}</button> : selected.email}</dd><dt>Phone</dt><dd>{detail.phone || "Not supplied"}</dd><dt>Address</dt><dd>{detail.address || "Not supplied"}</dd><dt>Account created</dt><dd>{date(detail.createdAt)}</dd></dl>}
                 </section>}
                 {section === "rentals" && <>
                   <nav className={styles.profileSubtabs} aria-label="Rental view">
@@ -885,7 +896,7 @@ export function AccountAdmin({
                     {detail.rentalsMore && <p className={styles.empty}>Showing the latest 100 rental requests.</p>}
                   </section> : managedRental ? <section className={styles.card} data-testid="admin-selected-rental-actions" aria-label={`Manage ${managedRental.title}`}>
                     {detail.rentals.length > 1 && <label className={styles.paymentRentalSelect}>Rental to manage<select aria-label="Rental to manage" data-testid="admin-managed-rental-select" value={managedRental.id} onChange={event => setManagedRentalSelection({ accountId: selected.id, bookingId: event.target.value })}>
-                      {detail.rentals.map(rental => <option key={rental.id} value={rental.id}>{rental.title} · {date(rental.start)}</option>)}
+                      {detail.rentals.map(rental => {const option=rentalPickerLabel(rental);return <option key={rental.id} value={rental.id} title={option.fullLabel}>{option.label}</option>})}
                     </select></label>}
                     <RentalExtensionPanel key={`extension-${managedRental.id}`} token={token} bookingId={managedRental.id} admin />
                     <RentalOrderTools key={managedRental.id} token={token} bookingId={managedRental.id} showSavedCardTools={false} compactControls />
@@ -898,9 +909,12 @@ export function AccountAdmin({
                     <button type="button" data-testid="admin-billing-view-credits" className={styles.profileSubtab} aria-pressed={billingView === "credits"} onClick={() => setBillingView("credits")}>Credits</button>
                   </nav>
                   {billingView === "payments" && <>
-                    <AccountPayments token={token} rentals={detail.rentals as AccountRentalOption[]}/>
+                    <AccountPayments key={`${token}:${selected.id}`} token={token} rentals={paymentRentals}/>
                   </>}
-                  {billingView === "invoices" && <AdminInvoiceLibrary key={selected.id} token={token} accountId={selected.id}/>}
+                  {billingView === "invoices" && <>
+                    <MembershipInvoiceRecovery key={`membership-credit-${selected.id}`} token={token} accountId={selected.id as Id<"accounts">} />
+                    <AdminInvoiceLibrary key={selected.id} token={token} accountId={selected.id}/>
+                  </>}
                   {billingView === "credits" && <AccountCreditPanel token={token} accountId={selected.id}/>}
                 </>}
                 {section === "verification" && reviewRentals.map(rental => <section key={rental.id} className={styles.card}><h3>{rental.title}</h3><p>{date(rental.start)}</p><RentalVerificationSummary token={token} bookingId={rental.id} admin /></section>)}
@@ -922,7 +936,7 @@ export function AccountAdmin({
                 {section === "membership" && <div className={styles.membershipPanel} data-testid="admin-membership-panel">
                   <section className={`${styles.card} ${styles.accessPanel}`} data-testid="admin-membership-controls">
                     <div className={styles.accessCloseHeader}>
-                      <div><h3>Membership</h3><p>Rental tier · Encore · Subscription</p></div>
+                      <div><h3>Rental access</h3></div>
                       <button type="button" className={styles.accessClose} onClick={() => setSection("closed")} aria-label="Close membership controls">×</button>
                     </div>
                     {selected.blocked && (
@@ -970,13 +984,13 @@ export function AccountAdmin({
                     </label>
                     <p className={styles.accessHelp} data-testid="admin-account-level-help">Uses the plan · no billing or deposit change.</p>
                     <label className="mt-4 block text-xs text-white/65">
-                      Admin reason
+                      Reason for access change
                       <textarea
-                        value={reason}
+                        value={accessReason}
                         disabled={busy}
                         maxLength={500}
-                        onChange={(e) => setReason(e.target.value)}
-                        data-testid="admin-account-reason"
+                        onChange={(e) => setAccessReason(e.target.value)}
+                        data-testid="admin-account-access-reason"
                         className="input mt-2 min-h-14 w-full"
                         placeholder="Saved to account history"
                       />
@@ -988,7 +1002,7 @@ export function AccountAdmin({
                         disabled={
                           busy ||
                           searchPending ||
-                          !reason.trim() ||
+                          !accessReason.trim() ||
                           level === selected.override && encoreLevel === selected.encoreOverride
                         }
                         onClick={() => apply("access")}
@@ -1018,9 +1032,15 @@ export function AccountAdmin({
                                   ? `${label(change.before)} → ${label(change.after)}`
                                   : change.kind === "profile_update"
                                     ? `Profile details updated · ${change.before}`
-                                  : change.after === "blocked"
-                                    ? "Account blocked"
-                                    : "Account unblocked"}
+                                    : change.kind === "identity_retention_hold"
+                                      ? "Verification archive permanently retained for identity review"
+                                      : change.kind === "restriction_reclassify"
+                                        ? "Account restriction type updated"
+                                        : change.kind === "block"
+                                          ? "Account restricted"
+                                          : change.kind === "unblock"
+                                            ? "Account access restored"
+                                            : "Account setting updated"}
                               </span>
                               <span className="ml-2">
                                 {new Date(change.at).toLocaleDateString(
@@ -1033,15 +1053,13 @@ export function AccountAdmin({
                         </ul>
                       </details>
                     )}
-                  </section>
-                  <section className={`${styles.card} ${styles.billingCard}`} aria-label="Membership subscription" data-testid="admin-membership-plan">
+                    <div className={styles.billingSubpanel} aria-label="Stripe subscription" data-testid="admin-membership-plan">
                     <header className={styles.billingHeader}>
-                      <h3>Subscription plan</h3>
-                      {currentPlan && <span className={`${styles.billingChip} ${currentPlan.tone === "ready" ? styles.billingChipReady : currentPlan.tone === "attention" ? styles.actionStatusAttention : styles.billingChipMuted}`} data-testid="admin-plan-detail-status">{currentPlan.label}</span>}
+                      <h3>Stripe subscription</h3>
                     </header>
                     {detail.hasBillingCustomer && <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <button type="button" data-testid="admin-billing-controls" aria-label={selected.hasSubscription ? "Manage subscription in Stripe" : "Open Stripe customer"} onClick={openBilling} disabled={busy || searchPending} className={styles.billingPortalButton}>
-                        <ActionIcon name="billing"/><span>{busy ? "Opening Stripe…" : selected.hasSubscription ? "Manage in Stripe" : "Open Stripe customer"}</span><span aria-hidden="true">↗</span>
+                      <button type="button" data-testid="admin-billing-controls" aria-label="Open Stripe billing settings" onClick={openBilling} disabled={busy || searchPending} className={styles.billingPortalButton}>
+                        <ActionIcon name="billing"/><span>{busy ? "Opening Stripe…" : "Open in Stripe"}</span><span aria-hidden="true">↗</span>
                       </button>
                       {selected.hasSubscription && <button type="button" data-testid="admin-membership-refresh" aria-label="Refresh subscription status from Stripe" onClick={() => void refreshMembershipStatus()} disabled={busy || searchPending} className={styles.billingPortalButton}>
                         <span>{busy ? "Refreshing…" : "Refresh status"}</span>
@@ -1052,8 +1070,8 @@ export function AccountAdmin({
                       {detail.paidThrough ? <div><span>{detail.cancelAtPeriodEnd ? "Ends" : "Paid through"}</span><strong>{date(detail.paidThrough)}</strong></div> : null}
                     </div></div>}
                     {detail.membershipStatus === "provider_missing" && <div role="status" className={styles.billingNotice}><span className={styles.billingNoticeGlyph}>!</span><span>Subscription not found in Stripe</span></div>}
-                    {!detail.hasBillingCustomer && <p className={styles.empty}>No Stripe subscription is linked to this account.</p>}
-                    <MembershipInvoiceRecovery key={selected.id} token={token} accountId={selected.id as Id<"accounts">} />
+                    {!detail.hasBillingCustomer && <p className={styles.empty}>No paid plan is linked to this account.</p>}
+                    </div>
                   </section>
                 </div>}
                 {section === "safety" && safetyView === "restriction" && (
@@ -1062,14 +1080,23 @@ export function AccountAdmin({
                     <p className="mt-2 text-xs leading-5 text-white/65">{selected.blocked ? "Sign-in and new bookings blocked · rentals and balances stay." : "Blocks sign-in and new bookings · active rentals stay."} Email notice sent when possible.</p>
                     {selected.blocked && detail.restrictionNotice && <p role="status" className="mt-2 text-xs text-white/70">{detail.restrictionNotice.state === "sent" ? "Notice accepted · delivery unconfirmed." : detail.restrictionNotice.state === "attention" ? "Notice needs attention." : detail.restrictionNotice.state === "skipped" ? "Notice skipped · account changed." : "Notice queued."}</p>}
                     {selected.blockedReason && <p className="mt-2 text-xs text-rose-200">Current reason: {selected.blockedReason}</p>}
-                    <label className="mt-4 block text-xs text-white/65">Reason<textarea value={reason} disabled={busy} maxLength={500} onChange={e => { setReason(e.target.value); setConfirmBlock(null); }} data-testid="admin-account-reason" className="input mt-2 min-h-20 w-full" placeholder="Saved to admin history" /></label>
-                    <button type="button" data-testid="admin-account-block" disabled={busy || searchPending || !reason.trim()} onClick={() => setConfirmBlock({blockedAt:selected.blockedAt ?? null,noticeId:selected.restrictionNoticeId ?? null,reason:selected.blockedReason,revision:selected.restrictionRevision ?? 0})} className="mt-3 rounded-lg border border-rose-300/35 px-4 py-2 text-xs text-rose-200 disabled:opacity-40">{selected.blocked ? "Review restore" : "Review restriction"}</button>
-                    {confirmBlock && <div className="mt-4 rounded-xl border border-rose-300/25 p-4 text-xs leading-5 text-white/65" role="group" aria-label="Confirm account change"><p className="font-medium text-white">{selected.blocked ? "Restore" : "Restrict"} {selected.name || "customer"}?</p><p className="mt-1">{selected.blocked ? "Sign-in returns; old sessions stay closed." : "Blocks sign-in and new bookings · active rentals stay."}</p><p className="mt-2 break-words">Reason: {reason.trim()}</p><div className="mt-3 flex gap-3"><button type="button" data-testid="admin-account-confirm-block" onClick={() => apply("block")} disabled={busy || searchPending || !reason.trim()} className="text-rose-200">{selected.blocked ? "Restore access" : "Restrict account"}</button><button type="button" onClick={() => setConfirmBlock(null)}>Cancel</button></div></div>}
+                    <label className="mt-4 block text-xs text-white/65">Restriction type
+                      <select value={restrictionClass} disabled={busy} onChange={event => { setRestrictionClass(event.target.value as typeof restrictionClass); setConfirmBlock(null); setMessage(""); }} data-testid="admin-account-restriction-class" className="input mt-2 w-full">
+                        <option value="">Choose restriction type</option>
+                        <option value="access_only">Access restriction</option>
+                        <option value="identity_safety_blacklist">Identity / safety blacklist</option>
+                      </select>
+                    </label>
+                    {restrictionClass === "access_only" && <p className="mt-2 text-xs text-white/55">{selected.restrictionClass === "identity_safety_blacklist" ? "Blocks access and stops new match alerts. Files follow the rental and case schedule." : "Blocks access. Verification files follow the rental and case schedule."}</p>}
+                    {restrictionClass === "identity_safety_blacklist" && <p className="mt-2 text-xs text-amber-100/70">Possible future matches alert the team for review. Files follow the rental and case schedule.</p>}
+                    <label className="mt-4 block text-xs text-white/65">Reason<textarea value={restrictionReason} disabled={busy} maxLength={500} onChange={e => { setRestrictionReason(e.target.value); setConfirmBlock(null); }} data-testid="admin-account-restriction-reason" className="input mt-2 min-h-20 w-full" placeholder="Saved to admin history" /></label>
+                    <button type="button" data-testid="admin-account-block" disabled={busy || searchPending || !restrictionReason.trim() || !restrictionClass} onClick={() => restrictionClass && setConfirmBlock({blockedAt:selected.blockedAt ?? null,action:selected.blocked ? restrictionClass === selected.restrictionClass ? "restore" : "reclassify" : "restrict",restrictionClass,expectedRestrictionClass:selected.restrictionClass ?? null,noticeId:selected.restrictionNoticeId ?? null,reason:selected.blockedReason,revision:selected.restrictionRevision ?? 0})} className="mt-3 rounded-lg border border-rose-300/35 px-4 py-2 text-xs text-rose-200 disabled:opacity-40">{selected.blocked ? restrictionClass === selected.restrictionClass ? "Review restore" : "Review type change" : "Review restriction"}</button>
+                    {confirmBlock && <div className="mt-4 rounded-xl border border-rose-300/25 p-4 text-xs leading-5 text-white/65" role="group" aria-label="Confirm account change"><p className="font-medium text-white">{confirmBlock.action === "reclassify" ? `Change restriction type for ${selected.name || "customer"}?` : confirmBlock.action === "restore" ? `Restore ${selected.name || "customer"}?` : `Restrict ${selected.name || "customer"}?`}</p><p className="mt-1">{confirmBlock.action === "reclassify" ? "Access stays blocked. No new renter email is sent." : confirmBlock.action === "restore" ? "Sign-in returns; old sessions stay closed." : "Blocks sign-in and new bookings · active rentals stay."}</p><p className="mt-1">{confirmBlock.restrictionClass === "identity_safety_blacklist" ? "Future possible matches alert the team for manual review. This does not block a matched renter automatically; files follow the rental and case schedule." : selected.restrictionClass === "identity_safety_blacklist" ? "Stops future match alerts. Files still follow the rental and case schedule." : "Verification files follow the rental and case schedule."}</p><p className="mt-2 break-words">Reason: {restrictionReason.trim()}</p><div className="mt-3 flex gap-3"><button type="button" data-testid="admin-account-confirm-block" onClick={() => apply("block")} disabled={busy || searchPending || !restrictionReason.trim()} className="text-rose-200">{confirmBlock.action === "reclassify" ? "Save type" : confirmBlock.action === "restore" ? "Restore access" : "Restrict account"}</button><button type="button" onClick={() => setConfirmBlock(null)}>Cancel</button></div></div>}
                   </section>
                 )}
               </>
             )}
-            {message && section !== "access" && (
+            {message && section !== "membership" && (
               <p role="status" className={styles.message}>
                 {message}
               </p>

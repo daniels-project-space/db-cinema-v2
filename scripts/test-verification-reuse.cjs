@@ -202,6 +202,9 @@ function providerContext(runMutation,sourceSnapshot=source){return {runMutation,
  await bookings.revokeVerificationReuse.handler(ctx,{sourceBookingId:source._id});assert.equal(next.idVerifyStatus,'requires_input');assert.equal(account.rentalVerification,undefined);
  assert.equal(recycled.rentalVerification,record,'revocation follows the permanent owner, not a recycled email');source.guestEmail=account.email;
  await db.patch(next._id,{depositHoldAmount:0});
+ await db.patch(next._id,{status:'pending_verification',paidConfirmedAt:now,verificationProvider:'didit',idVerifyStatus:'rejected'});
+ await assert.rejects(bookings.adminSetStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:next._id,status:'confirmed'}),/Didit verification must be approved/,'A paid booking declined by Didit cannot be marked confirmed by an admin status mutation');
+ await db.patch(next._id,{status:'confirmed',idVerifyStatus:'requires_input'});
  await assert.rejects(bookings.adminSetStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:next._id,status:'active'}),/Didit verification must be approved/);
  await db.patch(next._id,{paidConfirmedAt:now-91*86400000,idVerifyStatus:'verified',verificationProvider:'didit',idVerificationSource:'reused_didit',idVerifiedAt:now-91*86400000,verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},verificationExpiresAt:now-1});
  const archiveModule=load('convex/verificationArchive.ts'), realArchiveGuard=archiveModule.assertVerificationArchive;

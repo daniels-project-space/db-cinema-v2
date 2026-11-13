@@ -5,7 +5,7 @@ import { droneDocumentType, DRONE_DOCUMENT_LIMIT } from "./lib/droneDocument";
 import { chatAttachmentsReady, chatAttachmentScannerHealthy, scanChatAttachment, CHAT_ATTACHMENT_LIMIT } from "./lib/chatAttachmentScanner";
 import { chatAttachmentName } from "./lib/chatAttachmentName";
 import { adminSessionMigrationReady } from "./adminAccountSessionV2";
-import { isChatImageType } from "../shared/chatAttachmentPolicy";
+import { CHAT_TEXT_LIMIT, isChatAttachmentNameMatched, isChatAttachmentType, isChatImageType } from "../shared/chatAttachmentPolicy";
 
 const http = httpRouter();
 
@@ -192,18 +192,20 @@ http.route({ path: "/chat-attachment", method: "POST", handler: httpAction(async
     const bytes = new Uint8Array(size);
     let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-    const contentType = droneDocumentType(bytes, req.headers.get("content-type") ?? "");
-    if (!isChatImageType(contentType)) throw Error("Image attachments only.");
-    const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(part => part.toString(16).padStart(2, "0")).join("");
+    const contentType = req.headers.get("content-type") ?? "";
     const encodedName = req.headers.get("x-chat-filename") ?? "attachment";
     if (encodedName.length > 1080) throw Error("Invalid filename.");
     const name = decodeURIComponent(encodedName);
+    if (!isChatAttachmentType(contentType) || !isChatAttachmentNameMatched(name, contentType)) throw Error("Unsupported file type or extension.");
+    if (contentType === "text/plain" && size > CHAT_TEXT_LIMIT) throw Error("Text file too large.");
+    const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(part => part.toString(16).padStart(2, "0")).join("");
     if (reservation.status === "published") {
       if (reservation.sha256 !== sha256 || reservation.size !== size || reservation.contentType !== contentType || reservation.name !== chatAttachmentName(name, contentType)) throw Error("Upload retry does not match the original file.");
       return Response.json({ ok: true }, { headers });
     }
     const verdict = await scanChatAttachment(bytes, sha256, nonce, { endpoint: process.env.CHAT_ATTACHMENT_SCANNER_URL ?? "", token: process.env.CHAT_ATTACHMENT_SCANNER_TOKEN ?? "" });
-    await ctx.runMutation(internal.chatAttachments.recordScan, { id, marker, contentType, size, sha256, ...verdict });
+    if (verdict.contentType !== contentType) throw Error("File contents do not match the selected file type.");
+    await ctx.runMutation(internal.chatAttachments.recordScan, { id, marker, size, sha256, contentType: verdict.contentType, engine: verdict.engine, signatureVersion: verdict.signatureVersion, signatureUpdatedAt: verdict.signatureUpdatedAt });
     storageId = await ctx.storage.store(new Blob([bytes], { type: marker }));
     const stored = await ctx.storage.get(storageId);
     if (!stored || stored.size !== size) throw Error("File unavailable.");

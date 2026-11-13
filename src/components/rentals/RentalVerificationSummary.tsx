@@ -130,7 +130,7 @@ function DiditReviewCard({
 
   async function submitDecision(next: "approve" | "resubmit" | "decline") {
     if (reviewReason.trim().length < 5) {
-      setRefreshMessage("Add a short decision reason first.");
+      setRefreshMessage("Add a short reason first.");
       return;
     }
     setDecision(next);
@@ -144,7 +144,7 @@ function DiditReviewCard({
         requestId: globalThis.crypto?.randomUUID?.() ?? `review-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       });
       setReviewReason("");
-      setRefreshMessage(next === "approve" ? "Approved · rental updated." : next === "resubmit" ? "Resubmission sent to the renter." : "Declined · rental updated.");
+      setRefreshMessage(next === "approve" ? "Approved · rental updated." : next === "resubmit" ? "Resubmission sent." : "Declined · automatic settlement queued under the accepted terms. No bonus credit applies.");
     } catch (error) {
       setRefreshMessage(error instanceof Error ? error.message : "Decision not confirmed · refresh the case.");
     } finally {
@@ -184,9 +184,9 @@ function DiditReviewCard({
           <div className="flex items-center justify-between gap-2"><p className="text-[9px] font-semibold uppercase tracking-[.12em] text-[#bda991]">Case ID</p><button type="button" aria-label="Copy Didit case ID" disabled={!sessionId} onClick={() => void copyCaseId()} className="min-h-8 shrink-0 rounded-lg border border-white/10 px-2 text-[10px] font-medium text-[#edc89f] disabled:opacity-40">{caseIdCopied ? "Copied" : "Copy ID"}</button></div>
           <code className="mt-1 block break-all font-mono text-[10px] text-[#f0e2d1]">{sessionId || "Unavailable"}</code>
         </div>
-        <p className="text-[10px] text-[#c6b5a1]">Search this ID in Didit.</p>
+        <p className="text-[10px] text-[#c6b5a1]">Check the findings, then record your decision.</p>
         <div className="grid grid-cols-2 gap-2">
-          <button type="button" aria-label="Open Didit verification" disabled={!sessionId || openingLink || checking || decision !== null} onClick={() => void openDiditVerification()} className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#d5a474]/30 bg-white/[.025] px-3 font-semibold text-[#edc89f] transition hover:bg-white/[.06] disabled:opacity-50">{openingLink ? "Opening…" : "Open verification ↗"}</button>
+          <button type="button" aria-label="Open Didit verification" disabled={!sessionId || openingLink || checking || decision !== null} onClick={() => void openDiditVerification()} className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#d5a474]/30 bg-white/[.025] px-3 font-semibold text-[#edc89f] transition hover:bg-white/[.06] disabled:opacity-50">{openingLink ? "Opening…" : "Open Didit ↗"}</button>
           <button type="button" aria-label="Refresh Didit decision" disabled={checking || decision !== null} className="min-h-10 rounded-xl bg-gradient-to-br from-[#e4bb8e] to-[#c89b6d] px-3 font-semibold text-[#21170e] shadow-[0_8px_18px_rgba(200,155,109,.14)] transition hover:brightness-105 disabled:opacity-50" onClick={() => void refreshDecision()}>{checking ? "Refreshing…" : "Refresh status"}</button>
         </div>
         <label className="block text-[10px] font-medium text-[#e4c49b]" htmlFor={`didit-review-reason-${bookingId}`}>Decision reason</label>
@@ -197,7 +197,7 @@ function DiditReviewCard({
           rows={2}
           disabled={decision !== null || checking}
           onChange={event => setReviewReason(event.target.value)}
-          placeholder="Short reason for this decision"
+          placeholder="Short reason · sent with the Didit decision"
           className="min-h-[56px] w-full resize-y rounded-xl border border-white/[.1] bg-black/20 px-3 py-2 text-[11px] leading-4 text-white outline-none placeholder:text-white/35 focus:border-[#e4b77d]/45 disabled:opacity-50"
         />
         <div className="grid grid-cols-2 gap-2">

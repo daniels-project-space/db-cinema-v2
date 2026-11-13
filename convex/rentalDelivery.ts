@@ -32,7 +32,7 @@ export const createQuote = action({
     const booking = context?.booking;
     const account = context?.account;
     if (!booking || !account || account.blockedAt != null) throw Error("A valid renter account and rental conversation are required.");
-    if (booking.status !== "confirmed" || booking.idVerifyStatus !== "verified" || booking.fulfilment !== "pickup" || booking.deliveryLegs || booking.cancellationDecision || booking.returnDecision || booking.activeAdditionId || booking.activeDeliveryQuoteId || booking.activeExtensionId || booking.activePriceAdjustmentId)
+    if (booking.status !== "confirmed" || booking.idVerifyStatus !== "verified" || booking.fulfilment !== "pickup" || booking.deliveryLegs || booking.cancellationDecision || booking.returnDecision || booking.activeAdditionId || booking.activeDeliveryQuoteId || booking.activeExtensionId || booking.activePriceAdjustmentId || booking.activeItemSwapId)
       throw Error("Only a verified, confirmed rental with pickup selected can receive a delivery quote.");
     const deliveryAddress = args.deliveryAddress.trim();
     if (deliveryAddress.length < 10 || deliveryAddress.length > 300) throw Error("Enter the delivery address the renter gave you.");

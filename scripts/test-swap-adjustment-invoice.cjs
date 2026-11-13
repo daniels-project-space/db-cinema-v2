@@ -27,11 +27,13 @@ global.fetch=async(url,options={})=>{
 setMock("./lib/mailer",{sendMail:async payload=>{sent.push(payload);return true;}});
 const invoice=load("convex/invoice.ts");
 const invoiceAdjustments=load("convex/invoiceAdjustments.ts");
+const bookings=load("convex/bookings.ts");
 const invoiceHandlers={...invoice,...invoiceAdjustments};
 const account=put("accounts",{email:"renter@example.invalid"});
 const booking=put("bookings",{accountId:account._id,status:"confirmed"});
 const swap=put("rental_item_swaps",{bookingId:booking._id,accountId:account._id,status:"applied"});
-const stock=put("swap_stock_applied_receipts",{swapId:swap._id,deliveryState:"pending",stockRisk:false});
+booking.activeItemSwapId=swap._id;
+const stock=put("swap_stock_applied_receipts",{swapId:swap._id,bookingId:booking._id,deliveryState:"pending",stockRisk:false});
 const receipt=put("rental_swap_adjustment_receipts",{
   swapId:swap._id,bookingId:booking._id,accountId:account._id,recipientEmail:account.email,
   originalInvoiceNumber:"DBC-12345678",issuedAt:Date.now(),currency:"GBP",
@@ -39,7 +41,7 @@ const receipt=put("rental_swap_adjustment_receipts",{
   cardChargePence:2400,cardRefundPence:0,accountCreditRestoredPence:500,requiresStockAck:true,
   emailState:"pending",lastAttemptAt:0,
 });
-const ctx={db,runMutation:async(reference,args)=>invoiceHandlers[reference.split(".").at(-1)].handler(ctx,args),runQuery:async(reference,args)=>invoiceHandlers[reference.split(".").at(-1)].handler(ctx,args)};
+const ctx={db,scheduler:{runAfter:async()=>{}},runMutation:async(reference,args)=>invoiceHandlers[reference.split(".").at(-1)].handler(ctx,args),runQuery:async(reference,args)=>invoiceHandlers[reference.split(".").at(-1)].handler(ctx,args)};
 
 (async()=>{
   assert.notEqual(
@@ -56,7 +58,11 @@ const ctx={db,runMutation:async(reference,args)=>invoiceHandlers[reference.split
   assert.equal(receipt.emailState,"pending");
 
   stock.deliveryState="acknowledged";
-  booking.activeItemSwapId=undefined;
+  stock.acknowledgedAt=Date.now();
+  assert.equal(await invoiceAdjustments.swapAdjustmentInvoiceData.handler(ctx,{receiptId:receipt._id,bookingId:booking._id,key:process.env.INVOICE_SECRET}),null,"An acknowledged receipt still respects the active settlement fence");
+  await bookings.markReturnedStatus.handler(ctx,{bookingId:booking._id});
+  assert.equal(booking.status,"returned");
+  assert.equal(booking.activeItemSwapId,undefined,"A clean return clears only the applied swap whose Rental Manager acknowledgement is saved");
   assert.equal(await invoiceAdjustments.swapAdjustmentInvoiceData.handler(ctx,{receiptId:receipt._id,bookingId:booking._id,key:"wrong"}),null,"PDF data is unavailable without the existing invoice secret");
   const adjustmentData=await invoiceAdjustments.swapAdjustmentInvoiceData.handler(ctx,{receiptId:receipt._id,bookingId:booking._id,key:process.env.INVOICE_SECRET});
   assert.equal(adjustmentData.documentType,"supplementary_invoice");

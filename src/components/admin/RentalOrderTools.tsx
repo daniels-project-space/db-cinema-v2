@@ -23,6 +23,7 @@ import { RentalSwapRecovery } from "./RentalSwapRecovery";
 import { RentalSwapStockReview } from "./RentalSwapStockReview";
 import { RentalSwapProposal } from "./RentalSwapProposal";
 import { InventoryConflictRefund } from "./InventoryConflictRefund";
+import { CompactRentalImages } from "./CompactRentalImages";
 import { RENTAL_TIME_SLOTS } from "../../../shared/rentalWindow";
 import { hasCashDepositPolicy } from "../../../shared/rentalSecurity";
 
@@ -66,16 +67,20 @@ export function RentalOrderTools({
   showSavedCardTools?: boolean;
   /** Group the account-rail actions into short, discoverable rows. */
   compactControls?: boolean;
+  /** The exact extension request already shown by the adjacent live extension panel. */
   initialMode?:"reschedule"|"refund"|"add";
 }) {
   const requestScope = `${token}:${bookingId}`;
-  const [approvedRequests, setApprovedRequests] = useState<{ scope: string; loaded: boolean; dates: boolean; cancel: boolean }>({ scope: "", loaded: false, dates: false, cancel: false });
-  const publishApprovedRequests = useCallback((pending: { dates: boolean; cancel: boolean }, ready: boolean) => {
-    setApprovedRequests(previous => previous.scope === requestScope && previous.loaded === ready && previous.dates === pending.dates && previous.cancel === pending.cancel
+  const [itemQuoteRequest, setItemQuoteRequest] = useState<{ requestId: string; lineIndexes: number[] } | null>(null);
+  const prepareItemChangeQuote = useCallback((request: { requestId: string; lineIndexes: number[] }) => setItemQuoteRequest(request), []);
+  const clearItemChangeQuote = useCallback(() => setItemQuoteRequest(null), []);
+  const [blockingRequests, setBlockingRequests] = useState<{ scope: string; loaded: boolean; any: boolean; dates: boolean; cancel: boolean; handover: boolean }>({ scope: "", loaded: false, any: false, dates: false, cancel: false, handover: false });
+  const publishBlockingRequests = useCallback((pending: { any: boolean; dates: boolean; cancel: boolean; handover: boolean }, ready: boolean) => {
+    setBlockingRequests(previous => previous.scope === requestScope && previous.loaded === ready && previous.any === pending.any && previous.dates === pending.dates && previous.cancel === pending.cancel && previous.handover === pending.handover
       ? previous
       : { scope: requestScope, loaded: ready, ...pending });
   }, [requestScope]);
-  const approvedRequestStateReady = approvedRequests.scope === requestScope && approvedRequests.loaded;
+  const blockingRequestStateReady = blockingRequests.scope === requestScope && blockingRequests.loaded;
   const b = useQuery(api.rentalOperations.details, {
     token,
     bookingId: bookingId as any,
@@ -142,6 +147,7 @@ export function RentalOrderTools({
     b.activeAdditionId || b.activeDeliveryQuoteId || b.activeItemSwapId ||
     b.activeExtensionId || b.activePriceAdjustmentId,
   );
+  const diditDeclinedPending = b.status === "pending_verification" && b.verificationProvider === "didit" && b.idVerifyStatus === "rejected";
   const savedApprovalUrl = safeStripeApprovalUrl(processing?.refundReceipts?.find(receipt => receipt.status === "awaiting_approval")?.approvalUrl);
   const processingApprovalUrl = savedApprovalUrl ?? (refundApproval && processing?.requestId === refundApproval.requestId ? safeStripeApprovalUrl(refundApproval.url) : undefined);
   async function submit() {
@@ -280,36 +286,46 @@ export function RentalOrderTools({
   const compactButton = (base: string) => `${compactControls ? "w-full justify-start rounded-xl text-left" : "rounded-full"} ${base}`;
   const changeButtons = <>
     {["pending_payment", "confirmed", "active"].includes(b.status) && <button data-testid="rental-action-add-item" disabled={busy || !!b.returnDecision || !!processing || hasActiveRentalChange || !!b.cancellationDecision} onClick={() => { request.current = null; setMode("add"); setError(""); }} className={compactButton("border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35")}>Add item</button>}
-    {b.status === "confirmed" && approvedRequestStateReady && !approvedRequests.dates && <button data-testid="rental-action-reschedule" disabled={busy || !!b.returnDecision || !!processing || !!b.cancellationDecision || hasActiveRentalChange} onClick={() => { setDate(new Date(Math.min(...b.lineItems.map(l => l.start))).toISOString().slice(0, 10)); setEndDate(""); setKeepAgreedPrice(false); setRescheduleSnapshot(b.controlsSnapshot); setMode("reschedule"); setError(""); }} className={compactButton("border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35")}>Change dates</button>}
-    {(["pickup-time","return-time"] as const).filter(kind=>b.status === "confirmed" || b.status === "active" && kind === "return-time").map(kind=><button data-testid={`rental-action-${kind}`} key={kind} type="button" disabled={busy || !!b.returnDecision || !!processing || !!b.cancellationDecision || hasActiveRentalChange} onClick={()=>{setHandoverLines(b.lineItems.map((_,index)=>index));setHandoverTime("");setHandoverSnapshot(b.controlsSnapshot);request.current=null;setMode(kind);setError("");}} className={compactButton("border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35")}>Change {kind === "pickup-time" ? "pickup" : "return"} time</button>)}
+    {b.status === "confirmed" && blockingRequestStateReady && !blockingRequests.any && <button data-testid="rental-action-reschedule" disabled={busy || !!b.returnDecision || !!processing || !!b.cancellationDecision || hasActiveRentalChange} onClick={() => { setDate(new Date(Math.min(...b.lineItems.map(l => l.start))).toISOString().slice(0, 10)); setEndDate(""); setKeepAgreedPrice(false); setRescheduleSnapshot(b.controlsSnapshot); setMode("reschedule"); setError(""); }} className={compactButton("border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35")}>Change dates</button>}
+    {blockingRequestStateReady && !blockingRequests.any
+      ? (["pickup-time", "return-time"] as const)
+        .filter(kind => b.status === "confirmed" || b.status === "active" && kind === "return-time")
+        .map(kind => (
+          <button data-testid={`rental-action-${kind}`} key={kind} type="button" disabled={busy || !!b.returnDecision || !!processing || !!b.cancellationDecision || hasActiveRentalChange} onClick={() => { setHandoverLines(b.lineItems.map((_, index) => index)); setHandoverTime(""); setHandoverSnapshot(b.controlsSnapshot); request.current = null; setMode(kind); setError(""); }} className={compactButton("border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35")}>
+            Change {kind === "pickup-time" ? "pickup" : "return"} time
+          </button>
+        ))
+      : null}
   </>;
   const handoverButtons = <>
-    {b.status === "confirmed" && <button data-testid="rental-action-pickup" disabled={busy || !!processing || !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId) || !!b.cancellationDecision || !!b.returnDecision} onClick={async () => { setBusy(true); setError(""); setResult(""); try { await setStatus({ token, bookingId: bookingId as any, status: "active" }); setResult("Pickup recorded. Rental is now out."); } catch (e: any) { setError(e.message ?? "Pickup could not be recorded."); } finally { setBusy(false); } }} className={compactButton("border border-accent-300/30 bg-accent-300/10 px-3 py-2 text-accent-200 disabled:opacity-35")}>Mark picked up</button>}
+    {b.status === "confirmed" && <button data-testid="rental-action-pickup" disabled={!blockingRequestStateReady || blockingRequests.any || busy || !!processing || !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId) || !!b.cancellationDecision || !!b.returnDecision} onClick={async () => { setBusy(true); setError(""); setResult(""); try { await setStatus({ token, bookingId: bookingId as any, status: "active" }); setResult("Pickup recorded. Rental is now out."); } catch (e: any) { setError(e.message ?? "Pickup could not be recorded."); } finally { setBusy(false); } }} className={compactButton("border border-accent-300/30 bg-accent-300/10 px-3 py-2 text-accent-200 disabled:opacity-35")}>Mark picked up</button>}
     {showReturn && (b.status === "active" || !!b.returnDecision && b.status !== "returned") && <button data-testid="rental-action-return" disabled={busy || !!processing || hasActiveRentalChange || !!b.cancellationDecision} onClick={() => setReturnOpen(v => !v)} className={compactButton("border border-accent-300/30 bg-accent-300/10 px-3 py-2 text-accent-200 disabled:opacity-35")}>{b.returnDecision ? "Resume return" : "Record return"}</button>}
   </>;
   const paymentButtons = <>
-    {["confirmed", "pending_payment"].includes(b.status) && approvedRequestStateReady && !approvedRequests.cancel && <button data-testid="rental-action-cancel" disabled={busy || !!b.returnDecision || !!processing || hasActiveRentalChange} onClick={() => { setMode("cancel"); setError(""); }} className={compactButton("border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35")}>{b.cancellationDecision ? "Resume cancellation" : "Cancel rental"}</button>}
-    {["confirmed", "active"].includes(b.status) && b.stripePaymentIntentId && <button data-testid="rental-action-refund" disabled={busy || !!processing || !!b.returnDecision || !!b.cancellationDecision || hasActiveRentalChange} onClick={() => { setMode("refund"); setError(""); }} className={compactButton("border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35")}>Refund payment</button>}
+    {(["confirmed", "pending_payment"].includes(b.status) || diditDeclinedPending) && blockingRequestStateReady && !blockingRequests.cancel && <button data-testid="rental-action-cancel" disabled={busy || blockingRequests.any || !!b.returnDecision || !!processing || hasActiveRentalChange} title={blockingRequests.any ? "Resolve the renter’s open request first" : undefined} onClick={() => { setMode("cancel"); setError(""); }} className={compactButton("border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35")}>{b.cancellationDecision ? "Resume cancellation" : diditDeclinedPending ? "Retry settlement" : "Cancel rental"}</button>}
+    {["confirmed", "active"].includes(b.status) && b.stripePaymentIntentId && <button data-testid="rental-action-refund" disabled={busy || !!processing || !!b.returnDecision || !!b.cancellationDecision || hasActiveRentalChange} onClick={() => { setMode("refund"); setError(""); }} className={compactButton("border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35")}>Refund rental charge</button>}
   </>;
   const hasChangeActions = ["pending_payment", "confirmed", "active"].includes(b.status);
   const hasHandoverActions = b.status === "confirmed" || showReturn && (b.status === "active" || !!b.returnDecision && b.status !== "returned");
-  const hasPaymentActions = ["confirmed", "pending_payment"].includes(b.status) || ["confirmed", "active"].includes(b.status) && !!b.stripePaymentIntentId;
+  const hasPaymentActions = ["confirmed", "pending_payment"].includes(b.status) || ["confirmed", "active"].includes(b.status) && !!b.stripePaymentIntentId || diditDeclinedPending;
   return (
     <div data-testid="owner-rental-tools">
       {b.verificationConfirmationIssue === "inventory_unavailable" && <div role="alert" className="mb-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-xs text-amber-100">
         <p className="font-semibold">Checkout completed · equipment needs review</p>
         <p className="mt-1">This booking is not confirmed. Check live availability and contact the renter before arranging an alternative. If the booking cannot be fulfilled, review the original payment and any refund in Stripe using the normal approval process. Do not mark the rental confirmed without available stock.</p>
       </div>}
-      <InventoryConflictRefund key={`${token}:${bookingId}`} token={token} bookingId={bookingId}/>
-      <RentalRequestHistory token={token} bookingId={bookingId} admin onApprovedActions={publishApprovedRequests} />
-      <RentalSwapRecovery key={JSON.stringify([token,bookingId])} token={token} bookingId={bookingId} />
-      <RentalSwapStockReview key={JSON.stringify([token,bookingId])} token={token} bookingId={bookingId} />
-      {b.status === "confirmed" && <RentalSwapProposal key={JSON.stringify([token,bookingId])} token={token} bookingId={bookingId} items={b.lineItems} />}
-      <OperatorCancellationStatus key={bookingId} token={token} bookingId={bookingId}/>
+      {diditDeclinedPending && <div role="alert" data-testid="didit-declined-rental-notice" className="mb-3 rounded-xl border border-rose-300/20 bg-rose-300/[.05] px-3 py-2.5 text-xs text-rose-100"><p className="font-medium">Didit declined · settlement queued</p><p className="mt-1 text-rose-100/70">Accepted terms apply. No 130% bonus. Retry if it stays pending.</p></div>}
       <section className={chatStyles.bookingFacts} aria-label="Booked equipment and handover">
+        {b.lineItems.length > 0 && <div className="mb-3"><CompactRentalImages items={b.lineItems} /></div>}
         <div className={chatStyles.factsIdentity}><div className="min-w-0"><h5>{rentalTitle(b.lineItems[0]?.title ?? "Rental kit")}</h5><p>DBC-{bookingId.slice(-8).toUpperCase()} · {b.lineItems.length} listings</p></div></div>
         <dl><div><dt>Rental dates</dt><dd>{b.lineItems.length ? rentalDate(Math.min(...b.lineItems.map(l => l.start)), Math.max(...b.lineItems.map(l => l.end))) : "Dates need review"}</dd></div><div><dt>{b.fulfilment === "delivery" ? "Delivery" : "Collection"}</dt><dd>{rentalHandoverLabel(b,"pickup")}</dd></div><div><dt>Return</dt><dd>{rentalHandoverLabel(b,"return")}</dd></div><div><dt>Customer</dt><dd>{b.guestName || b.guestEmail}</dd></div><div><dt>Verification</dt><dd data-verified={b.idVerifyStatus === "verified"}>{b.idVerifyStatus === "verified" ? "✓ Verified" : (b.idVerifyStatus ?? "Required").replaceAll("_", " ")}</dd></div></dl>
       </section>
+      <InventoryConflictRefund key={`inventory-conflict:${token}:${bookingId}`} token={token} bookingId={bookingId}/>
+      <RentalRequestHistory token={token} bookingId={bookingId} admin onBlockingRequests={publishBlockingRequests} onPrepareItemChange={prepareItemChangeQuote} />
+      <RentalSwapRecovery key={`swap-recovery:${token}:${bookingId}`} token={token} bookingId={bookingId} />
+      <RentalSwapStockReview key={`swap-stock-review:${token}:${bookingId}`} token={token} bookingId={bookingId} />
+      {b.status === "confirmed" && <RentalSwapProposal key={`swap-proposal:${token}:${bookingId}`} token={token} bookingId={bookingId} items={b.lineItems} itemChangeRequest={itemQuoteRequest} onItemChangeQuoteSent={clearItemChangeQuote} />}
+      <OperatorCancellationStatus key={`cancellation-status:${bookingId}`} token={token} bookingId={bookingId}/>
       {b.fulfilment === "delivery" && b.deliveryLegs === "one_way" && <p className="mt-2 rounded-lg border border-sky-200/10 bg-sky-300/[0.04] px-3 py-2 text-xs text-sky-100/70">One-way delivery · renter returns the kit to the Trafalgar Square collection point.</p>}
       <dl className={chatStyles.paymentSummary} aria-label="Booking financial summary">
         <div><dt>Booking total</dt><dd>{formatGbp(b.total)}</dd></div>
@@ -317,8 +333,8 @@ export function RentalOrderTools({
         <div><dt>Card authorisation</dt><dd>{formatGbp(b.depositHoldAmount ?? 0)}</dd></div>
       </dl>
       <RentalDeliveryQuotePanel token={token} booking={b} />
-      <RentalReviewRequest key={`${token}:${bookingId}`} token={token} bookingId={bookingId} />
-      {["confirmed", "active", "returned"].includes(b.status) && <RentalCasePanel key={`${token}:${bookingId}`} token={token} bookingId={bookingId} />}
+      <RentalReviewRequest key={`review-request:${token}:${bookingId}`} token={token} bookingId={bookingId} />
+      {["confirmed", "active", "returned"].includes(b.status) && <RentalCasePanel key={`rental-case:${token}:${bookingId}`} token={token} bookingId={bookingId} />}
       <p className="mb-2 text-[10px] uppercase tracking-[.16em] text-white/35">Rental actions</p>
       {cancellation && cancellation.status !== "succeeded" && <div role="status" className="mb-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-xs text-amber-100">
         <p>{cancellation.status === "attention" ? "Cancellation needs payment review. The existing refund was not completed." : b.status === "pending_verification" ? "Refund settlement is processing. This booking remains unconfirmed until the provider settlement is complete." : "Cancellation settlement is processing. The rental remains reserved until refunds and security release are confirmed."}</p>
@@ -416,7 +432,7 @@ export function RentalOrderTools({
                     ? "Change return time"
                   : mode === "add"
                     ? "Add another item"
-                    : "Refund rental payment"}
+                    : "Refund rental charge"}
             </h4>
             <button
               type="button"

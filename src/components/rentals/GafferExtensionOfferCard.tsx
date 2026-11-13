@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { SmartImage } from "@/components/SmartImage";
 
 type OfferLine = {
@@ -54,7 +55,12 @@ const dateLabel = (value: unknown) => {
 };
 
 const lineIndex = (item: OfferLine, fallback: number) => Number.isSafeInteger(item.lineIndex) ? item.lineIndex! : Number.isSafeInteger(item.index) ? item.index! : fallback;
-const lineImage = (item: OfferLine) => item.imageSources?.filter((value): value is string => typeof value === "string" && value.length > 0) ?? (item.heroImage || item.image ? [item.heroImage || item.image!] : []);
+const lineImage = (item: OfferLine) => {
+  const sources = item.imageSources?.filter((value): value is string => typeof value === "string" && value.trim().length > 0) ?? [];
+  if (sources.length) return sources;
+  const fallback = item.heroImage || item.image;
+  return typeof fallback === "string" && fallback.trim() ? [fallback] : [];
+};
 
 function OfferItem({ item, unavailable = false, unchecked = false, legacy = false, interactive = true, alternatives = [] }: { item: OfferLine; unavailable?: boolean; unchecked?: boolean; legacy?: boolean; interactive?: boolean; alternatives?: OfferLine[] }) {
   const due = dateLabel(item.originalEnd ?? item.dueAt ?? item.end);
@@ -91,13 +97,14 @@ function OfferItem({ item, unavailable = false, unchecked = false, legacy = fals
 }
 
 export function GafferExtensionOfferCard({ offer, legacy = false, interactive = true, bookingItems = [] }: { offer: ExtensionOffer; legacy?: boolean; interactive?: boolean; bookingItems?: BookedItemPhoto[] }) {
+  const [showAllItems, setShowAllItems] = useState(false);
   const items = Array.isArray(offer.items) ? offer.items : [];
   const availableIndexes = Array.isArray(offer.availableIndexes) ? new Set(offer.availableIndexes) : null;
   const unavailableItems = Array.isArray(offer.unavailableItems) ? offer.unavailableItems : [];
   const unavailableWithPhotos = unavailableItems.map((item, index) => {
     if (lineImage(item).length) return item;
-    const itemPosition = lineIndex(item, index);
-    const bookedItem = bookingItems.find(row => row.index === itemPosition) ?? bookingItems.find(row => row.title === item.title);
+    const itemPosition = Number.isSafeInteger(item.lineIndex) ? item.lineIndex : Number.isSafeInteger(item.index) ? item.index : null;
+    const bookedItem = (itemPosition === null ? undefined : bookingItems.find(row => row.index === itemPosition)) ?? bookingItems.find(row => row.title === item.title);
     return bookedItem ? { ...item, imageSources: bookedItem.imageSources, heroImage: bookedItem.heroImage } : item;
   });
   const unchecked = offer.quoteStatus === "duration_required";
@@ -107,20 +114,26 @@ export function GafferExtensionOfferCard({ offer, legacy = false, interactive = 
   const benefit = typeof offer.benefit === "string" ? offer.benefit : offer.benefit?.label;
   const saving = pounds((typeof offer.benefit === "object" ? offer.benefit?.saving ?? offer.benefit?.amount : undefined) ?? offer.benefitSaving);
   const total = pounds(offer.total);
+  const visibleUncheckedItems = showAllItems ? items : items.slice(0, 6);
+  const visibleAvailableItems = showAllItems ? availableItems : availableItems.slice(0, 6);
+  const visibleUnavailableItems = showAllItems ? unavailableWithPhotos : unavailableWithPhotos.slice(0, 6);
+  const hiddenItemCount = unchecked
+    ? Math.max(0, items.length - 6)
+    : Math.max(0, availableItems.length - 6) + Math.max(0, unavailableWithPhotos.length - 6);
   const statusLabel = offer.quoteStatus === "duration_required" ? "Choose duration to check" : unavailableItems.length || offer.quoteStatus === "partial" ? "Some items available" : offer.quoteStatus === "unavailable" ? "No items available" : offer.quoteStatus ? "Availability checked" : "Live stock check";
   const alternatives = Array.isArray(offer.alternatives) ? offer.alternatives : [];
   return <section data-testid="gaffer-extension-card" aria-label="Extension options for your rental" className="mt-3 overflow-hidden rounded-2xl border border-sky-200/15 bg-gradient-to-br from-sky-200/[0.09] via-white/[0.035] to-transparent p-3 shadow-[inset_0_1px_0_#ffffff0b] backdrop-blur-xl">
     <div className="flex flex-wrap items-start justify-between gap-2.5"><div><p className="text-[10px] font-medium uppercase tracking-[0.16em] text-sky-100/55">Your rental · extension</p><h4 className="mt-1 text-sm font-semibold text-white/90">{legacy ? "Check extra time" : "Extension estimate"}</h4></div><span className="rounded-full border border-sky-200/15 bg-sky-200/[0.07] px-2 py-1 text-[10px] text-sky-100/75">{statusLabel}</span></div>
     {total && <div className="mt-3 flex flex-wrap items-end justify-between gap-2 rounded-xl border border-sky-100/10 bg-black/15 px-3 py-2"><div><p className="text-[9px] uppercase tracking-[.13em] text-white/40">Proposed total · available items only</p>{benefit && <p className="mt-1 text-[10px] text-emerald-100/75">{benefit}{saving ? ` · saves ${saving}` : ""}</p>}{!benefit && saving && <p className="mt-1 text-[10px] text-emerald-100/75">Member saving · {saving}</p>}</div><strong className="text-lg font-semibold text-white">{total}</strong></div>}
     {!total && (benefit || saving) && <p className="mt-2 text-[10px] text-emerald-100/75">{benefit ?? "Member saving"}{saving ? ` · saves ${saving}` : ""}</p>}
-    {unchecked && items.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2" data-testid="extension-offer-unchecked-items"><p className="sm:col-span-2 text-[10px] font-medium uppercase tracking-[.13em] text-white/45">Items in this rental · choose extra days to check</p>{items.slice(0, 6).map((item, index) => <OfferItem key={`unchecked-${lineIndex(item, index)}`} item={item} unchecked interactive={interactive} />)}</div>}
-    {availableItems.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2" data-testid="extension-offer-available-items">{availableItems.slice(0, 6).map((item, index) => <OfferItem key={`available-${lineIndex(item, index)}`} item={item} legacy={legacy} interactive={interactive} />)}</div>}
-    {unavailableWithPhotos.length > 0 && <div className="mt-3 space-y-2" data-testid="extension-offer-unavailable-items"><p className="text-[10px] font-medium uppercase tracking-[.13em] text-amber-100/70">Keep these on the original schedule</p>{unavailableWithPhotos.slice(0, 6).map((item, index) => <OfferItem key={`unavailable-${lineIndex(item, index)}`} item={item} unavailable interactive={interactive} alternatives={item.alternatives ?? alternatives.filter(candidate => candidate.lineIndex === item.lineIndex || candidate.index === item.index)} />)}</div>}
-    {items.length > 6 && <p className="mt-2 text-[10px] text-white/40">+{items.length - 6} more items</p>}
+    {unchecked && items.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2" data-testid="extension-offer-unchecked-items"><p className="sm:col-span-2 text-[10px] font-medium uppercase tracking-[.13em] text-white/45">Items in this rental · choose extra days to check</p>{visibleUncheckedItems.map((item, index) => <OfferItem key={`unchecked-${lineIndex(item, index)}`} item={item} unchecked interactive={interactive} />)}</div>}
+    {availableItems.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2" data-testid="extension-offer-available-items">{visibleAvailableItems.map((item, index) => <OfferItem key={`available-${lineIndex(item, index)}`} item={item} legacy={legacy} interactive={interactive} />)}</div>}
+    {unavailableWithPhotos.length > 0 && <div className="mt-3 space-y-2" data-testid="extension-offer-unavailable-items"><p className="text-[10px] font-medium uppercase tracking-[.13em] text-amber-100/70">Keep these on the original schedule</p>{visibleUnavailableItems.map((item, index) => <OfferItem key={`unavailable-${lineIndex(item, index)}`} item={item} unavailable interactive={interactive} alternatives={item.alternatives ?? alternatives.filter(candidate => candidate.lineIndex === item.lineIndex || candidate.index === item.index)} />)}</div>}
+    {hiddenItemCount > 0 && <button type="button" data-testid="extension-offer-expand-items" aria-expanded={showAllItems} onClick={() => setShowAllItems(value => !value)} className="mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-white/10 px-2.5 text-[10px] font-medium text-white/65 transition hover:border-sky-100/20 hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-100/50">{showAllItems ? "Show fewer items" : `Show all items · ${hiddenItemCount} more`}</button>}
     {offer.quoteStatus === "unavailable" && unavailableItems.length === 0 && <p className="mt-3 text-[11px] text-amber-100/70">No items are available for those extra dates. Your original return times still apply.</p>}
     {offer.quoteStatus === "duration_required" && <p className="mt-3 text-[11px] text-white/55">Choose how many extra days in the request form to check current availability and price.</p>}
     {legacy && unavailableItems.length === 0 && <p className="mt-3 text-[11px] leading-relaxed text-white/55">Choose days and items for a live total. Anything not selected stays due at its original time.</p>}
-    {!legacy && <p className="mt-3 text-[11px] leading-relaxed text-white/55">Estimate only. Unavailable items stay due on their original schedule. Your rental changes only after you submit a request, the team approves it and any payment is complete.</p>}
+    {!legacy && <p className="mt-3 text-[11px] leading-relaxed text-white/55">Estimate only · unavailable items keep their original return time. Changes apply after team approval and payment.</p>}
     {interactive && <button type="button" data-testid="gaffer-extension-open" onClick={() => window.dispatchEvent(new Event("dbc:open-rental-extension"))} className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl border border-sky-100/20 bg-sky-100/[0.12] px-3.5 text-xs font-medium text-sky-50 transition hover:bg-sky-100/[0.18] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-100/60">{legacy ? "Check availability & total" : "Continue to request"}</button>}
   </section>;
 }

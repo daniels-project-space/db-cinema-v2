@@ -5,6 +5,7 @@ export const OPERATOR_CREDIT_DAYS=365;
 export type OperatorCancellationPreview={
  state:"waiting"|"email_pending"|"offered"|"chosen"|"settled"|"review";
  choice:"refund"|"credit"|null;choiceDeadline:number;bookingTitle:string;creditAllowed:boolean;
+ cancellationTermsVersion:string;
  refund:{cardRefundPence:number;restoredCreditPence:number};
  credit:{cardRefundPence:number;principalPence:number;bonusPence:number;creditPence:number;validDays:number};
 };

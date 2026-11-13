@@ -114,7 +114,7 @@
 .header .identity > span { width:48px; height:48px; }
 @media(min-width:1151px) { .header { min-height:84px; } .bookingStrip { min-height:112px; } }
 
-.bookingFacts { margin-bottom:23px; border-bottom:1px solid #353737; padding-bottom:20px; }
+.bookingFacts { margin-bottom:23px; border-bottom:1px solid #353737; padding-bottom:20px; container:booking-facts / inline-size; }
 .factsIdentity { display:flex; gap:15px; align-items:center; margin-bottom:18px; }
 .factsPhoto { width:86px; height:72px; background:#141717; border-radius:4px; flex-shrink:0; }
 .factsPhoto img { object-fit:contain; }
@@ -125,6 +125,12 @@
 .bookingFacts dt { color:#a5a6a8; }
 .bookingFacts dd { margin:0; text-align:right; color:#d4d6d0; max-width:65%; overflow-wrap:anywhere; }
 .bookingFacts dd[data-verified=true] { color:#68b68e; }
+@container booking-facts (max-width: 320px) {
+  .bookingFacts dl { gap:7px; }
+  .bookingFacts dl > div { display:grid; gap:2px; padding:5px 0; border-bottom:1px solid #ffffff0b; }
+  .bookingFacts dt { font-size:10px; }
+  .bookingFacts dd { max-width:100%; text-align:left; line-height:1.4; }
+}
 
 /* Admin navigation stays in the directory's normal flow. Notifications must
    never displace or cover the independently scrolling rental conversation. */
@@ -185,6 +191,12 @@
 .identityBadges span+span { border-color:#aaa9a2; background:#242424; box-shadow:0 0 9px #e8e6dc45; }
 .workspace .supportStatus { margin-top:5px; font-size:10px; }
 .workspace .headerActions { gap:4px; }
+.renterHeaderShortcuts { display:flex; flex:0 0 auto; align-items:center; gap:7px; }
+.renterHeaderShortcut { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:38px; padding:0 11px; border:1px solid #ffffff18; border-radius:11px; background:linear-gradient(145deg,#ffffff0b,#ffffff04); color:#ded5c8; font-size:11px; font-weight:600; transition:background .18s,border-color .18s,color .18s; }
+.renterHeaderShortcut:hover { border-color:#d6b18866; background:#d2a47614; color:#fff0dc; }
+.renterHeaderShortcut:focus-visible { outline:2px solid #e5bd92; outline-offset:2px; }
+.renterHeaderShortcut svg { width:16px; height:16px; flex:0 0 16px; color:#d9b289; }
+.renterHeaderShortcutText { white-space:nowrap; }
 .workspaceCall { display:inline-flex; align-items:center; gap:7px; min-height:42px; padding:0 11px; border:1px solid #c59a72; border-radius:9px; background:linear-gradient(#aa7e58,#704b30); box-shadow:inset 0 1px #f5d2ae38; color:#fff0dc; font-size:15px; font-weight:600; }
 .workspaceCall svg { width:16px; height:16px; }
 .workspacePhone { color:#f0e6d9; font-size:11px; line-height:1.2; white-space:nowrap; }
@@ -247,6 +259,7 @@
 .notificationCopy button { min-height:44px; padding:9px 12px; border:1px solid #e6bc8b5c; border-radius:11px; background:#c5966530; color:#ffe5c7; font-size:12px; font-weight:600; }
 .notificationCopy button + button { border-color:transparent; background:transparent; color:#d8cfc4; }
 .notificationCopy button:hover { background:#c5966545; }
+.notificationShareIcon { display:inline-block; width:13px; height:13px; vertical-align:-2px; }
 @media(max-width:600px) { .notificationCard { width:100%; margin-left:0; } }
 .workspace .replyStatus { margin-bottom:5px; }
 .workspace .composer > div { margin-bottom:6px; }
@@ -266,6 +279,9 @@
 .workspace .identity > div:last-child { min-width:0; }
 .workspace .header h3 { overflow-wrap:anywhere; }
 .workspace .message :global(.management-conversation-message-copy) { min-width:0; overflow-wrap:anywhere; }
+@media(max-width:600px) {
+ :global([data-management-screen=accounts]) .workspace .messages[data-chat-clearance="true"] { padding-bottom:64px; }
+}
 .handoverDetails { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:14px; padding:12px 18px; border-bottom:1px solid #ffffff12; background:linear-gradient(105deg,#c5966513,#ffffff04 72%); }
 .handoverLocations { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px 18px; min-width:0; }
 .handoverLocations div { min-width:0; }
@@ -278,6 +294,11 @@
 .handoverDetails > a strong { font-size:10px; font-weight:500; white-space:nowrap; }
 .renterControls { flex:0 0 auto; padding:10px 20px; border-top:1px solid #ffffff0b; border-bottom:1px solid #ffffff0b; background:#111313; }
 .requestActions { display:flex; flex-wrap:wrap; gap:8px; }
+.mobileActionsToggle { display:none; }
+.requestAction.mobileOnlyAction { display:none; }
+.mobileActionsChevron { width:14px; height:14px; flex:0 0 auto; transition:transform .18s ease; }
+.requestActions[data-open="true"] .mobileActionsChevron { transform:rotate(180deg); }
+.requestActionList { display:contents; }
 .requestAction { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:0; padding:8px 13px; border:1px solid #ffffff1b; border-radius:999px; background:linear-gradient(135deg,#ffffff0a,#ffffff03); color:#d8d6d0; font-size:12px; line-height:1.25; text-align:center; transition:background .18s ease,border-color .18s ease,color .18s ease,transform .18s ease; }
 .requestAction:hover { border-color:#c99a714d; background:#c99a7111; color:#fff4e6; }
 .requestAction:focus-visible { outline:2px solid #e5bd92; outline-offset:2px; }
@@ -286,7 +307,7 @@
 .requestActionIcon { display:none; width:16px; height:16px; flex:0 0 auto; }
 .requestActionMobileLabel { display:none; }
 .workspace .composeForm textarea { flex:1 1 0; width:0; }
-@media(max-width:767px) { .workspace .header { gap:8px; padding:12px; flex-wrap:wrap; } .workspaceAvatar { flex-basis:46px; width:46px; height:46px; } .workspace .header h3 { font-size:19px; } .workspace .headerActions { margin-left:auto; } .workspaceCall { min-height:38px; padding:0 10px; } .workspace .handoff { padding:7px; } .workspace .messages { min-height:300px; padding:18px 12px; } .workspace .message :global(.management-conversation-message-row) { max-width:92%; } .workspace .notificationCard { gap:9px; padding:10px; border-radius:14px; } .workspace .notificationIcon { flex-basis:32px; width:32px; height:32px; border-radius:10px; } .workspace .notificationIcon svg { width:18px; height:18px; } .workspace .notificationCopy strong { font-size:12px; } .workspace .notificationCopy p { margin:3px 0 6px; font-size:11px; line-height:1.35; } .workspace .notificationCopy > div { gap:4px; } .workspace .notificationCopy button { min-height:38px; padding:7px 9px; font-size:11px; } }
+@media(max-width:767px) { .workspace .header { gap:8px; padding:12px; flex-wrap:nowrap; } .workspaceAvatar { flex-basis:46px; width:46px; height:46px; } .workspace .header h3 { font-size:19px; } .workspace .headerActions { margin-left:auto; } .renterHeaderShortcuts { gap:4px; } .renterHeaderShortcut { width:36px; min-width:36px; height:36px; min-height:36px; padding:0; border-radius:10px; } .renterHeaderShortcutText { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; } .workspaceCall { min-height:38px; padding:0 10px; } .workspace .handoff { padding:7px; } .workspace .messages { min-height:300px; padding:18px 12px; } .workspace .message :global(.management-conversation-message-row) { max-width:92%; } .workspace .notificationCard { gap:9px; padding:10px; border-radius:14px; } .workspace .notificationIcon { flex-basis:32px; width:32px; height:32px; border-radius:10px; } .workspace .notificationIcon svg { width:18px; height:18px; } .workspace .notificationCopy strong { font-size:12px; } .workspace .notificationCopy p { margin:3px 0 6px; font-size:11px; line-height:1.35; } .workspace .notificationCopy > div { gap:4px; } .workspace .notificationCopy button { min-height:44px; padding:7px 9px; font-size:11px; } }
 .notificationDesktop { display:inline; }
 .notificationMobile { display:none; }
 @media(max-width:767px) {
@@ -296,14 +317,36 @@
  .handoverDetails > a { justify-self:end; min-height:38px; padding:6px 8px; }
  .rentalKitGrid { grid-template-columns:minmax(0,1fr); }
  .renterControls { padding:7px 10px; }
- .requestActions { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; max-width:100%; }
- .requestAction { width:100%; min-width:0; min-height:48px; flex-direction:column; gap:2px; padding:3px 2px; border-radius:12px; font-size:10px; line-height:1.1; white-space:normal; }
- .requestActionIcon { display:block; width:13px; height:13px; }
+ .requestActions { display:flex; flex-direction:column; gap:6px; max-width:100%; }
+ .mobileActionsToggle { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; min-height:42px; padding:0 12px; border:1px solid #ffffff17; border-radius:12px; background:linear-gradient(110deg,#ffffff0a,#ffffff03); color:#e9dfd2; font-size:12px; font-weight:550; text-align:left; }
+ .mobileActionsToggle:focus-visible { outline:2px solid #e5bd92; outline-offset:2px; }
+ .mobileActionsToggle svg:first-child { width:16px; height:16px; margin-right:0; color:#d8ae7a; }
+ .mobileActionsToggle .mobileActionsChevron { margin-left:auto; }
+ .requestActionList { display:none; }
+ .requestActions[data-open="true"] .requestActionList { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+ .requestActions[data-open="true"] .mobileOnlyAction { display:inline-flex; }
+ .requestAction { width:100%; min-width:0; min-height:42px; flex-direction:row; justify-content:flex-start; gap:7px; padding:7px 9px; border-radius:11px; font-size:11px; line-height:1.2; white-space:normal; }
+ .requestActionIcon { display:block; width:14px; height:14px; }
  .requestActionDesktopLabel { display:none; }
- .requestActionMobileLabel { display:block; white-space:nowrap; }
+ .requestActionMobileLabel { display:block; white-space:normal; text-align:left; }
  .workspace :global([data-testid="rental-extension-panel"]) { padding:9px 12px; }
+ .conversation [data-testid="rental-extension-panel"][data-renter-compact="true"][data-open="false"] { display:none; }
 }
-@media(max-width:360px) { .workspace .header { gap:5px; } .workspace .header .identity { gap:8px; } .workspaceAvatar { flex-basis:40px; width:40px; height:40px; } .workspace .header h3 { font-size:18px; } .workspace .headerActions { gap:1px; } .workspaceCall { justify-content:center; width:38px; padding:0; } .workspaceCallLabel { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); } .starButton { width:26px; } .headerMenu summary { width:24px; } .workspace .composeForm textarea { min-height:42px; padding:9px 36px 9px 10px; font-size:13px; } .workspace .composeForm button { min-width:40px; min-height:42px; padding:7px; } .workspace .composeForm .emojiControl { right:48px; } .workspace .composeForm .emojiToggle { min-width:38px; min-height:42px; }
+@media(max-width:360px) { .workspace .header { gap:5px; } .workspace .header .identity { gap:8px; } .workspaceAvatar { flex-basis:40px; width:40px; height:40px; } .workspace .header h3 { font-size:18px; } .workspace .headerActions { gap:1px; } .renterHeaderShortcuts { gap:3px; } .renterHeaderShortcut { width:34px; min-width:34px; height:34px; min-height:34px; } .workspaceCall { justify-content:center; width:38px; padding:0; } .workspaceCallLabel { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); } .starButton { width:26px; } .headerMenu summary { width:24px; } .workspace .composeForm textarea { min-height:42px; padding:9px 36px 9px 10px; font-size:13px; } .workspace .composeForm button { min-width:40px; min-height:42px; padding:7px; } .workspace .composeForm .emojiControl { right:48px; } .workspace .composeForm .emojiToggle { min-width:38px; min-height:42px; }
+}
+@media(max-width:360px) {
+ .renterInbox[data-renter-support=true] .workspace .message :global(.management-conversation-message-copy) { padding:8px 10px; font-size:13px; line-height:1.35; }
+ .requestActions[data-open="true"] .requestActionList { grid-template-columns:repeat(3,minmax(0,1fr)); }
+ .requestActions[data-open="true"] .requestAction { gap:4px; padding-inline:5px; font-size:10px; }
+ .requestActionIcon { width:12px; height:12px; }
+ .renterInbox .workspace .rentalItemsCard { padding:4px; }
+ .renterInbox .workspace .rentalItemsHeading { display:none; }
+ .renterInbox .workspace .rentalItem { gap:4px; padding:3px; }
+}
+@media(min-width:361px) and (max-width:430px) {
+ .requestActions[data-open="true"] .requestActionList { grid-template-columns:repeat(3,minmax(0,1fr)); }
+ .requestActions[data-open="true"] .requestAction { gap:5px; padding-inline:7px; font-size:10px; }
+ .requestActionIcon { width:13px; height:13px; }
 }
 
 @media (min-width:1101px) and (max-width:1350px) {
@@ -365,7 +408,7 @@
  .renterInbox .renterDirectory > .renterThread { flex:0 0 min(82vw,300px); min-height:76px; height:76px; scroll-snap-align:start; scroll-snap-stop:always; }
  .renterInbox[data-renter-support=true] > .workspace { display:flex; flex:1; flex-direction:column; height:100%; min-height:0; border-radius:0; overflow:hidden; }
  .renterInbox[data-renter-support=true] .workspace .main { flex:1; min-height:0; overflow:hidden; }
- .renterInbox[data-renter-support=true] .workspace .messages { flex:1; height:auto; min-height:120px; padding:16px 12px; }
+ .renterInbox[data-renter-support=true] .workspace .messages { flex:1; height:auto; min-height:120px; gap:8px; padding:8px 12px; }
 }
 @media(min-width:768px) and (max-width:1023px) {
  .renterInbox .workspace .messages { min-height:max(300px,calc(100dvh - 455px)); }
@@ -399,11 +442,11 @@
  .workspace .rentalItemCopy span { font-size:9px; }
 }
 @media(max-width:640px) {
- .renterInbox:not([data-renter-support=true]) { display:flex; flex-direction:column; height:100%; min-height:0; margin:0; padding:0; overflow:hidden; }
+ .renterInbox:not([data-renter-support=true]) { display:flex; flex-direction:column; height:calc(100dvh - var(--management-site-header-height, 60px)); min-height:0; margin:0; padding:0; overflow:hidden; }
  .renterInbox:not([data-renter-support=true]) > .workspace { display:flex; flex:1; flex-direction:column; height:100%; min-height:0; border-radius:0; overflow:hidden; }
  .renterInbox:not([data-renter-support=true]) .workspace .main { display:flex; flex:1; flex-direction:column; min-height:0; overflow:hidden; }
  .renterInbox:not([data-renter-support=true]) .workspace .messages { flex:1 1 auto; height:auto; min-height:80px; overflow-y:auto; }
- .renterInbox:not([data-renter-support=true]) .workspace .composer { flex:0 0 auto; }
+ .renterInbox:not([data-renter-support=true]) .workspace .composer { flex:0 0 auto; padding-bottom:calc(env(safe-area-inset-bottom, 0px) + 10px); }
  .renterInbox .renterDirectory { flex-basis:50px; height:50px; padding:0 10px 4px; }
  .renterInbox .renterDirectory > .renterThread { flex-basis:min(78vw,280px); min-height:44px; height:44px; padding:5px 7px; gap:7px; }
  .renterInbox .renterThreadIcon { flex-basis:32px; width:32px; height:32px; }
@@ -422,6 +465,13 @@
  .renterInbox .workspace .notificationCopy strong { font-size:11px; line-height:1.2; }
  .renterInbox .workspace .notificationCopy p { margin:2px 0 4px; font-size:10px; line-height:1.25; }
  .renterInbox .workspace .notificationCopy button { min-height:44px; padding:7px 9px; font-size:11px; }
+ .renterInbox .workspace .notificationCard { gap:0; padding:5px 8px; }
+ .renterInbox .workspace .notificationIcon { display:none; }
+ .renterInbox .workspace .notificationCopy { flex:1; min-width:0; }
+ .renterInbox .workspace .notificationCopy strong { display:none; }
+ .renterInbox .workspace .notificationCopy p { margin:0 0 3px; font-size:11px; line-height:1.15; white-space:nowrap; }
+ .renterInbox .workspace .notificationCopy > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; }
+ .renterInbox .workspace .notificationCopy button { min-width:0; min-height:46px; padding:6px 7px; font-size:11px; line-height:1.2; white-space:nowrap; }
  .renterInbox .workspace .rentalItemsCard { padding:6px; }
  .renterInbox .workspace .rentalItemsHeading { margin-bottom:5px; }
  .renterInbox .workspace .rentalItemsHeading strong { font-size:11px; }
@@ -451,7 +501,7 @@
  .renterInbox .workspace .main:has([data-testid="extension-request-form"], [data-testid="renter-rental-tools"] form) { overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:#b9816066 transparent; }
  .renterInbox .workspace:has([data-testid="extension-request-form"], [data-testid="renter-rental-tools"] form) { position:relative; }
  .renterInbox .workspace:has([data-testid="extension-request-form"], [data-testid="renter-rental-tools"] form) .composer { position:absolute; z-index:5; inset:auto 0 0; width:100%; }
- .renterInbox .workspace .main:has([data-testid="extension-request-form"], [data-testid="renter-rental-tools"] form) { padding-bottom:74px; }
+ .renterInbox .workspace .main:has([data-testid="extension-request-form"], [data-testid="renter-rental-tools"] form) { padding-bottom:calc(74px + env(safe-area-inset-bottom, 0px)); }
  .renterInbox .workspace .main:has([data-testid="extension-request-form"], [data-testid="renter-rental-tools"] form)::-webkit-scrollbar { width:4px; }
  .renterInbox .workspace .main:has([data-testid="extension-request-form"], [data-testid="renter-rental-tools"] form)::-webkit-scrollbar-thumb { border-radius:99px; background:#b9816066; }
 }

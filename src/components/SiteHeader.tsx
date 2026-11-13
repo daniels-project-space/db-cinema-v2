@@ -8,7 +8,7 @@ import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
 import { IconArrowRight, IconCart, IconMenu, IconUser, IconX } from "@/components/icons";
@@ -17,8 +17,8 @@ import { FormSevenCoin, FormSevenMobileTrigger, useSpinAndShine } from "@/compon
 
 type NavItem = { href: string; label: string; external?: boolean };
 
-// Full set — everything lives here for the mobile sheet (a separate,
-// already-scrollable menu). The desktop row shows a trimmed subset below;
+// Full set — everything lives here for the mobile sheet (its own scrollable
+// region on short screens). The desktop row shows a trimmed subset below;
 // Membership / How it works move into the profile dropdown(s) instead.
 const NAV: NavItem[] = [
   { href: "/gear", label: "Gear" },
@@ -47,6 +47,8 @@ export function SiteHeader() {
   const pathname = usePathname();
   const [menu, setMenu] = useState(false);
   const [mobile, setMobile] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
+  const mobileMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const [scrolled, setScrolled] = useState(false);
   const [signatureOpen, setSignatureOpen] = useState(false);
   /**
@@ -109,11 +111,64 @@ export function SiteHeader() {
   // close the mobile sheet on navigation + lock body scroll while open
   useEffect(() => setMobile(false), [pathname]);
   useEffect(() => {
-    document.body.style.overflow = mobile ? "hidden" : "";
+    if (!mobile) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = "";
+      document.body.style.overflow = previousOverflow;
     };
   }, [mobile]);
+
+  const closeMobileMenu = useCallback(() => {
+    setMobile(false);
+    window.requestAnimationFrame(() => mobileMenuTriggerRef.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    if (!mobile) return;
+    const dialog = mobileMenuRef.current;
+    if (!dialog) return;
+
+    const focusable = () =>
+      Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getClientRects().length > 0);
+
+    dialog.querySelector<HTMLElement>("[data-mobile-menu-close]")?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeMobileMenu();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const items = focusable();
+      if (!items.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [closeMobileMenu, mobile]);
 
   const avatar = me?.avatarUrl ?? null;
 
@@ -391,6 +446,7 @@ export function SiteHeader() {
                 FORM 7 collaboration — had no way in at all. Those pages were
                 only reachable by shrinking the window. */}
             <button
+              ref={mobileMenuTriggerRef}
               onClick={() => setMobile(true)}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70 transition hover:border-accent-400/40 hover:bg-white/[0.07] hover:text-white"
               aria-label="Open menu"
@@ -404,22 +460,33 @@ export function SiteHeader() {
 
       {/* mobile menu — full-screen sheet with staggered links */}
       <div
+        ref={mobileMenuRef}
         /* No md:hidden here. The button that opens this is visible at every
            width, so hiding the sheet above md meant a desktop click set the
            state and then rendered display:none — the menu appeared to do
            nothing at all. */
-        className={`fixed inset-0 z-50 flex flex-col bg-[#060608]/[0.985] px-6 pb-10 pt-4 transition-opacity duration-300 ${
+        className={`fixed inset-0 z-50 flex flex-col overflow-y-auto overscroll-contain bg-[#060608]/[0.985] px-6 transition-opacity duration-300 ${
           mobile ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
+        style={{
+          paddingTop: "calc(env(safe-area-inset-top) + 1rem)",
+          paddingBottom: "calc(env(safe-area-inset-bottom) + 2.5rem)",
+        }}
         role="dialog"
         aria-modal="true"
+        aria-labelledby="mobile-site-menu-title"
+        aria-hidden={!mobile}
+        inert={!mobile}
+        tabIndex={-1}
+        data-testid="mobile-site-menu"
       >
         <div className="flex items-center justify-between">
-          <span className="font-display text-lg font-bold">
+          <span id="mobile-site-menu-title" className="font-display text-lg font-bold">
             <span className="text-white">DB</span> <span className="gradient-text">CINEMA</span>
           </span>
           <button
-            onClick={() => setMobile(false)}
+            data-mobile-menu-close
+            onClick={() => closeMobileMenu()}
             className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 text-white/70"
             aria-label="Close menu"
           >
@@ -445,7 +512,7 @@ export function SiteHeader() {
                   href={n.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={() => setMobile(false)}
+                  onClick={() => closeMobileMenu()}
                   className="group flex items-center justify-between border-b border-white/[0.06] py-4"
                   style={style}
                 >
@@ -457,7 +524,7 @@ export function SiteHeader() {
               <Link
                 key={n.href + n.label}
                 href={n.href}
-                onClick={() => setMobile(false)}
+                onClick={() => closeMobileMenu()}
                 className="group flex items-center justify-between border-b border-white/[0.06] py-4"
                 style={style}
               >
@@ -470,7 +537,7 @@ export function SiteHeader() {
         <button
           type="button"
           onClick={() => {
-            setMobile(false);
+            closeMobileMenu();
             window.dispatchEvent(new CustomEvent("dbc:open-gaffer-chat"));
           }}
           className="group flex items-center justify-between border-b border-white/[0.06] py-4 text-left"
@@ -485,7 +552,7 @@ export function SiteHeader() {
           spinning={spinning}
           shining={shining}
           onOpen={() => {
-            setMobile(false);
+            closeMobileMenu();
             setSignatureOpen(true);
           }}
         />

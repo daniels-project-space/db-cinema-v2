@@ -5,6 +5,22 @@ import { v,ConvexError } from "convex/values";
 import { bump } from "./rateLimit";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { linkVerificationCopies } from "./lib/verificationOwnership";
+/** Account bootstrap is allowed only when a paid booking has a complete,
+ * self-consistent signed Terms + Privacy snapshot. This records the renter's
+ * actual checkout acceptance; it never upgrades a historic agreement. */
+function acceptedAccountTerms(booking: any) {
+ const acceptedAt=booking.agreementSignedAt,docs=booking.agreementDocs;
+ if(!Number.isSafeInteger(acceptedAt)||acceptedAt<=0||!Array.isArray(docs)||!booking.agreementName?.trim())return null;
+ let snapshot:any;
+ try{snapshot=JSON.parse(booking.agreementSnapshot??"")}catch{return null}
+ if(snapshot?.format!==1||snapshot.acceptedAt!==acceptedAt||snapshot.signer!==booking.agreementName.trim()||
+   snapshot.particulars?.timeZone!=="Europe/London"||!Array.isArray(snapshot.particulars?.lineItems)||!Array.isArray(snapshot.documents))return null;
+ const unique=(kind:string)=>{const matches=docs.filter((doc:any)=>doc?.kind===kind);return matches.length===1&&typeof matches[0].version==="string"&&matches[0].version.length>0?matches[0]:null};
+ const terms=unique("terms"),rental=unique("rental-agreement"),privacy=unique("privacy");
+ if(!terms||!rental||!privacy||terms.version!==rental.version||snapshot.version!==rental.version)return null;
+ if(snapshot.documents.length!==docs.length||docs.some((doc:any)=>snapshot.documents.filter((saved:any)=>saved?.kind===doc?.kind&&saved?.version===doc?.version).length!==1))return null;
+ return {accountTermsVersion:terms.version,accountTermsAcceptedAt:acceptedAt,privacyNoticeVersion:privacy.version,privacyNoticeAcknowledgedAt:acceptedAt};
+}
 /** Runs inside the attested paid-booking transaction, independently of email delivery. */
 export async function ensurePaidBookingAccount(ctx: any, booking: any) {
  if(!["confirmed","active"].includes(booking.status))return null;
@@ -15,7 +31,9 @@ export async function ensurePaidBookingAccount(ctx: any, booking: any) {
  const customer=booking.customerId?await ctx.db.get(booking.customerId):null;
  const details={name:booking.guestName??customer?.name??booking.agreementName,phone:booking.guestPhone??customer?.phone,address:booking.billingAddress??booking.address};
  if(!account){
-  const id=await ctx.db.insert("accounts",{email,...details,emailVerificationRequired:true,firstRentalPaidAt:Date.now(),createdAt:Date.now()});
+  const acceptance=acceptedAccountTerms(booking);
+  if(!acceptance)return null;
+  const id=await ctx.db.insert("accounts",{email,...details,...acceptance,emailVerificationRequired:true,firstRentalPaidAt:Date.now(),createdAt:Date.now()});
   await ensureReferralCode(ctx,id);account=await ctx.db.get(id);
   await ctx.db.patch(booking._id,{accountCreatedAtCheckout:true});
  }else{

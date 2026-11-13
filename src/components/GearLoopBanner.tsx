@@ -20,7 +20,7 @@ export function GearLoopBanner({
   browseCompact?: boolean;
 } = {}) {
   return (
-    <section className={`section-window relative w-full overflow-hidden ${browseCompact ? "h-[20svh] min-h-[160px] max-h-[200px] md:h-[36svh] md:min-h-[300px] md:max-h-[360px] lg:h-[46vh] lg:min-h-[320px] lg:max-h-none" : compact ? mobileTight ? "h-[28svh] min-h-[210px] max-h-[280px] md:h-[36svh] md:min-h-[300px] md:max-h-[360px] lg:h-[46vh] lg:min-h-[320px] lg:max-h-none" : "h-[36svh] min-h-[240px] sm:h-[46vh] sm:min-h-[320px]" : "h-[46vh] min-h-[320px]"}`}>
+    <section className={`section-window relative w-full overflow-hidden ${browseCompact ? "h-[16svh] min-h-[136px] max-h-[160px] md:h-[36svh] md:min-h-[300px] md:max-h-[360px] lg:h-[46vh] lg:min-h-[320px] lg:max-h-none" : compact ? mobileTight ? "h-[28svh] min-h-[210px] max-h-[280px] md:h-[36svh] md:min-h-[300px] md:max-h-[360px] lg:h-[46vh] lg:min-h-[320px] lg:max-h-none" : "h-[36svh] min-h-[240px] sm:h-[46vh] sm:min-h-[320px]" : "h-[46vh] min-h-[320px]"}`}>
       {motion ? <LoopingBannerVideo src="/gear-loop.mp4" mobileSrc="/gear-loop-mobile.mp4" mobileAutoplay poster="/gear-loop-poster.jpg" /> : <img
         className="absolute inset-0 h-full w-full object-cover object-center"
         src="/gear-loop-poster.jpg"

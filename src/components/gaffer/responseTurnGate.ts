@@ -28,13 +28,15 @@ export function createResponseTurnGate() {
   let activeTextFinished = false;
   let activeStopObserved = false;
   let activeMessageObserved = false;
+  // The installed SDK's response-part and final-message payloads carry only a
+  // monotonically increasing event_id, not a response_id. If another start
+  // arrives while one answer is open, following deltas without response IDs
+  // cannot safely be assigned to either answer.
+  let activeResponseAmbiguous = false;
   let responsePartsObserved = false;
   let hasStartedResponse = false;
-  let hasCompletedResponse = false;
   let callerTurn = 0;
-  let completedCallerTurn = -1;
   let latestPartCallerTurn = -1;
-  let interrupted = false;
   const closedResponseIds: string[] = [];
   const discardedResponseIds: string[] = [];
   const staleResponseText = new Map<string, string>();
@@ -63,6 +65,7 @@ export function createResponseTurnGate() {
     activeTextFinished = false;
     activeStopObserved = false;
     activeMessageObserved = false;
+    activeResponseAmbiguous = false;
     activeResponseText = "";
   };
   const matchesActive = (event: AgentResponseEvent) => {
@@ -89,17 +92,19 @@ export function createResponseTurnGate() {
       if (incoming !== null) latestCallerEventId = incoming;
       callerTurn += 1;
       discardActive();
-      interrupted = false;
       return true;
     },
 
-    /** Interruptions invalidate the current response before its late events arrive. */
+    /**
+     * Interruptions invalidate the current response before its late events
+     * arrive. An interruption event alone does not authorize another answer;
+     * the caller transcript must arrive first.
+     */
     interrupt(event: AgentResponseEvent = {}) {
       const incoming = eventId(event.event_id);
       if (activeResponseId) remember(discardedResponseIds, activeResponseId);
       discardActive();
       if (incoming !== null && (latestStartEventId === null || incoming > latestStartEventId)) latestStartEventId = incoming;
-      interrupted = true;
     },
 
     /**
@@ -115,14 +120,19 @@ export function createResponseTurnGate() {
       if (type === "start") {
         if (incomingId && (closedResponseIds.includes(incomingId) || discardedResponseIds.includes(incomingId))) return false;
         if (incomingId && incomingId === activeResponseId) return false;
-        if ((activeResponseId !== null || activeStartEventId !== null) && !interrupted) {
+        if (activeResponseId !== null || activeStartEventId !== null) {
           if (incomingId) {
             remember(discardedResponseIds, incomingId);
             if (!staleResponseText.has(incomingId)) staleResponseText.set(incomingId, "");
+          } else if (incomingEventId === null || activeStartEventId === null || incomingEventId > activeStartEventId) {
+            // Without response IDs, a distinct start means later event IDs
+            // may be a second answer. Fail closed instead of appending its
+            // conclusion to the earlier spoken turn.
+            activeResponseAmbiguous = true;
           }
           return false;
         }
-        if (!allowNewResponse && !interrupted) {
+        if (!allowNewResponse) {
           if (incomingId) {
             remember(discardedResponseIds, incomingId);
             if (!staleResponseText.has(incomingId)) staleResponseText.set(incomingId, "");
@@ -144,11 +154,11 @@ export function createResponseTurnGate() {
         activeTextFinished = false;
         activeStopObserved = false;
         activeMessageObserved = false;
+        activeResponseAmbiguous = false;
         activeResponseText = "";
         if (incomingEventId !== null) latestStartEventId = incomingEventId;
         hasStartedResponse = true;
         latestPartCallerTurn = callerTurn;
-        interrupted = false;
         return true;
       }
       if (type !== "delta" && type !== "stop") return false;
@@ -157,6 +167,14 @@ export function createResponseTurnGate() {
         return false;
       }
       if (!matchesActive(event)) return false;
+      if (activeResponseAmbiguous) {
+        // A stop still closes the uncorrelatable provider turn so it cannot
+        // leave the caller state pending forever. Its final text is discarded.
+        if (type !== "stop" || activeStopObserved) return false;
+        activeTextFinished = true;
+        activeStopObserved = true;
+        return true;
+      }
       if (type === "delta" && activeTextFinished) return false;
       if (type === "stop") {
         if (activeStopObserved) return false;
@@ -175,6 +193,7 @@ export function createResponseTurnGate() {
       const incomingEventId = eventId(event.event_id);
       const text = normalizedText(event.message);
       if (incomingEventId !== null && latestCallerEventId !== null && incomingEventId < latestCallerEventId) return false;
+      if (activeResponseAmbiguous) return false;
       if (incomingId && (closedResponseIds.includes(incomingId) || discardedResponseIds.includes(incomingId))) return false;
       if (!incomingId && text && [...staleResponseText.values()].some(stale => normalizedText(stale) === text)) return false;
       if (responsePartsObserved && activeResponseId === null && activeStartEventId === null && latestPartCallerTurn === callerTurn) return false;
@@ -188,15 +207,19 @@ export function createResponseTurnGate() {
           !!normalizedText(stale) && normalizedText(stale) === text);
         if (!incomingId && matchesStaleText && !matchesActiveText) return false;
         if (!incomingId && staleResponseText.size > 0 && [...staleResponseText.values()].some(Boolean) && !matchesActiveText && !matchesStaleText) return false;
-      } else if (latestAgentEventId !== null && incomingEventId !== null && incomingEventId <= latestAgentEventId) {
-        return false;
-      } else if (hasCompletedResponse && completedCallerTurn === callerTurn && !allowNewResponse) {
-        return false;
+      } else {
+        // A final transcript without a matching active start must not bypass
+        // the same caller/tool gate that rejected its start event. Otherwise
+        // a partial tool result can still land as a complete answer through
+        // the separate `onMessage` callback.
+        if (!allowNewResponse) return false;
+        if (latestAgentEventId !== null && incomingEventId !== null && incomingEventId <= latestAgentEventId) return false;
       }
       if (incomingEventId !== null) latestAgentEventId = Math.max(latestAgentEventId ?? incomingEventId, incomingEventId);
       activeTextFinished = true;
       activeMessageObserved = true;
       hasStartedResponse = true;
+      latestPartCallerTurn = callerTurn;
       return true;
     },
 
@@ -214,9 +237,6 @@ export function createResponseTurnGate() {
     /** Seal only after both response text and audible speech have finished. */
     complete() {
       discardActive();
-      hasCompletedResponse = true;
-      completedCallerTurn = callerTurn;
-      interrupted = false;
     },
 
     reset() {
@@ -232,17 +252,16 @@ export function createResponseTurnGate() {
       activeResponseText = "";
       responsePartsObserved = false;
       hasStartedResponse = false;
-      hasCompletedResponse = false;
       callerTurn = 0;
-      completedCallerTurn = -1;
       latestPartCallerTurn = -1;
-      interrupted = false;
       closedResponseIds.length = 0;
       discardedResponseIds.length = 0;
       staleResponseText.clear();
     },
 
     get hasStartedResponse() { return hasStartedResponse; },
+    get hasUnansweredCallerTurn() { return callerTurn > latestPartCallerTurn; },
     get hasActiveResponse() { return activeResponseId !== null || activeStartEventId !== null; },
+    get isAmbiguous() { return activeResponseAmbiguous; },
   };
 }

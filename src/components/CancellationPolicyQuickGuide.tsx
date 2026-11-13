@@ -1,4 +1,4 @@
-const CURRENT_CANCELLATION_VERSIONS = ["2026-11-v21", "2026-11-v22", "2026-11-v23"];
+const CURRENT_CANCELLATION_VERSIONS = ["2026-11-v21", "2026-11-v22", "2026-11-v23", "2026-11-v24", "2026-11-v25"];
 
 export function CancellationPolicyQuickGuide({
   includeCompanyCancellation = true,
@@ -8,7 +8,9 @@ export function CancellationPolicyQuickGuide({
   version?: string;
 }) {
   const currentPolicy = CURRENT_CANCELLATION_VERSIONS.includes(version);
-  const inclusiveSevenDayBoundary = version === "2026-11-v23";
+  const inclusiveSevenDayBoundary = version === "2026-11-v23" || version === "2026-11-v24" || version === "2026-11-v25";
+  const companyCancellationForAnyReason = version === "2026-11-v24" || version === "2026-11-v25";
+  const companyCancellationLabel = companyCancellationForAnyReason ? "DB Cinema cancels" : "Equipment unexpectedly unavailable";
   const outcomes = currentPolicy
     ? [
         { label: `${inclusiveSevenDayBoundary ? "7+" : ">7"} days · refund`, value: "100%", width: "77%", color: "bg-emerald-300" },
@@ -16,16 +18,16 @@ export function CancellationPolicyQuickGuide({
         { label: inclusiveSevenDayBoundary ? ">48h · under 7 days" : ">48h · up to 7 days", value: "100%", width: "77%", color: "bg-sky-300" },
         { label: "48 hours or less · no refund", value: "0%", width: "0%", color: "bg-rose-300" },
         ...(includeCompanyCancellation ? [
-          { label: "DB cancels · refund", value: "100%", width: "77%", color: "bg-emerald-300" },
-          { label: "DB cancels · eligible credit", value: "130%", width: "100%", color: "bg-accent-300" },
+          { label: `${companyCancellationLabel} · refund`, value: "100%", width: "77%", color: "bg-emerald-300" },
+          { label: `${companyCancellationLabel} · eligible credit`, value: "130%", width: "100%", color: "bg-accent-300" },
         ] : []),
       ]
     : [
         { label: "More than 7 days · refund", value: "100%", width: "77%", color: "bg-emerald-300" },
         { label: "7 days or less · credit", value: "100%", width: "77%", color: "bg-sky-300" },
         ...(includeCompanyCancellation ? [
-          { label: "DB cancels · refund option", value: "100%", width: "77%", color: "bg-emerald-300" },
-          { label: "DB cancels · credit option", value: "130%", width: "100%", color: "bg-accent-300" },
+          { label: `${companyCancellationLabel} · refund option`, value: "100%", width: "77%", color: "bg-emerald-300" },
+          { label: `${companyCancellationLabel} · credit option`, value: "130%", width: "100%", color: "bg-accent-300" },
         ] : []),
       ];
 
@@ -44,8 +46,8 @@ export function CancellationPolicyQuickGuide({
       </div>
       <div className={`mt-5 grid gap-3 ${currentPolicy ? "sm:grid-cols-2" : includeCompanyCancellation ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
         {includeCompanyCancellation && <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
-          <h3 className="text-sm font-semibold text-white">DB Cinema cancels before pickup</h3>
-          <p className="mt-2 text-xs leading-5 text-white/65">Full refund for everyone. If your account is not restricted or rejected for a terms violation, you may choose 130% credit instead.</p>
+          <h3 className="text-sm font-semibold text-white">{companyCancellationForAnyReason ? "If DB Cinema cancels" : "If equipment is unexpectedly unavailable"}</h3>
+          <p className="mt-2 text-xs leading-5 text-white/65">{companyCancellationForAnyReason ? "For a confirmed rental cancelled before pickup, choose a full refund or eligible 130% account credit." : "If DB Cinema cancels before pickup because equipment is unexpectedly unavailable, choose a full refund or eligible 130% account credit."}</p>
         </article>}
         {currentPolicy ? <>
           <article className="rounded-2xl border border-white/10 bg-black/20 p-4">

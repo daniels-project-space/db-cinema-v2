@@ -85,7 +85,7 @@ async function main() {
   await client.mutation(starred, { token: result.token, accountId, starred: true });
   assert.deepEqual(await client.query(inspectAccount, { accountId }), { starred: true, successfulStars: 1 });
   const grant = makeFunctionReference("accountCredits:grantAdmin"), creditStatus = makeFunctionReference("accountCredits:grantStatus");
-  const grantArgs = { token: result.token, accountId, amount: 10, requestId: "synthetic-credit-request-12345", expectedRevision: 0 };
+  const grantArgs = { token: result.token, accountId, amount: 10, requestId: "synthetic-credit-request-12345", expectedRevision: 0, reason: "Synthetic authorization regression" };
   await assert.rejects(other.mutation(grant, grantArgs));
   const credit = await client.mutation(grant, grantArgs);
   assert.equal(credit.replayed, false);

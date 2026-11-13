@@ -21,13 +21,23 @@ const ctx = {
 const currentTermsVersion = legalVersionForPolicy(policy);
 const base = {
   email: "new-renter@example.invalid",
-  password: "fixture-password",
+  password: "12345678",
   termsAndPrivacyAcknowledged: true,
   termsVersion: currentTermsVersion,
   privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION,
 };
 
 (async () => {
+  await assert.rejects(
+    accounts.signUp.handler(ctx, { ...base, email: "short-password@example.invalid", password: "1234567" }),
+    error => error instanceof ConvexError && error.data.code === "SIGNUP_INVALID_INPUT",
+  );
+  await assert.rejects(
+    accounts.signUp.handler(ctx, { ...base, email: "long-password@example.invalid", password: "x".repeat(257) }),
+    error => error instanceof ConvexError && error.data.code === "SIGNUP_INVALID_INPUT",
+  );
+  assert.equal((tables.get("accounts") ?? []).length, 0, "Seven-character passwords cannot create an account");
+
   await assert.rejects(
     accounts.signUp.handler(ctx, { ...base, email: "no-consent@example.invalid", termsAndPrivacyAcknowledged: false }),
     error => error instanceof ConvexError && error.data.code === "SIGNUP_TERMS_REQUIRED",

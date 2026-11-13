@@ -2,6 +2,9 @@ const assert=require('node:assert/strict');
 const {load,db,put,tables,setMock}=require('./lib/rentalTestHarness.cjs');
 const {legalVersionForPolicy,CURRENT_PRIVACY_NOTICE_VERSION}=load('shared/legalVersioning.ts');
 const claims=load('convex/accountClaims.ts');
+const {agreementsForSecurityPolicy}=load('src/lib/legal.ts'),{IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION}=load('shared/rentalSecurity.ts');
+const acceptedDocuments=agreementsForSecurityPolicy(IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION);
+function attachAcceptedTerms(booking){const acceptedAt=Date.now(),signer=booking.guestName;Object.assign(booking,{agreementName:signer,agreementSignedAt:acceptedAt,agreementDocs:acceptedDocuments.map(({kind,version})=>({kind,version})),agreementSnapshot:JSON.stringify({format:1,version:acceptedDocuments.find(doc=>doc.kind==='rental-agreement').version,acceptedAt,signer,documents:acceptedDocuments.map(doc=>({...doc,text:{title:doc.title,updated:'November 2026',sections:[]}})),particulars:{timeZone:'Europe/London',lineItems:[]}})});}
 (async()=>{
  const recoveryJobs=[];const ctx={db,scheduler:{runAfter:async(...args)=>recoveryJobs.push(args)}};await assert.rejects(load('convex/rateLimit.ts').hit.handler(ctx,{key:'account-signin:owner@example.invalid',limit:999,windowMs:1}),/Reserved/);const account=put('accounts',{email:'owner@example.invalid',createdAt:Date.now()});
  assert.equal(await claims.prepareSignIn.handler(ctx,{email:'missing@example.invalid',secretHash:'unknown'}),null);
@@ -39,6 +42,7 @@ const claims=load('convex/accountClaims.ts');
  await assert.rejects(claims.exchange.handler(ctx,{secretHash:'attacker-signup-link',sessionToken:'attack-reactivate'}),/expired|no longer valid/);
  const guestCustomer=put('customers',{email:'paid-guest@example.invalid',name:'Old customer name',phone:'old'});
  const unpaid=put('bookings',{status:'pending_payment',guestEmail:'paid-guest@example.invalid',guestName:'Booking Name',guestPhone:'07700000000',customerId:guestCustomer._id,billingAddress:'Booking address'});
+ attachAcceptedTerms(unpaid);
  assert.equal(await claims.ensurePaidBookingAccount(ctx,unpaid),null,'Unpaid booking cannot create an account');
  await db.patch(unpaid._id,{status:'confirmed'});
  const paid=await claims.ensurePaidBookingAccount(ctx,unpaid);
@@ -51,6 +55,7 @@ const claims=load('convex/accountClaims.ts');
  const existingBooking=put('bookings',{status:'confirmed',guestEmail:account.email,guestName:'Do not replace owner',guestPhone:'wrong',billingAddress:'wrong'});
  const oldProfile=account.name;await claims.ensurePaidBookingAccount(ctx,existingBooking);assert.equal(account.name,oldProfile,'Guest payment never overwrites an established account profile');
  const paidCaller=put('bookings',{status:'pending_payment',guestEmail:'confirmed-caller@example.invalid',guestName:'Paid Caller',guestPhone:'07700123456',billingAddress:'London booking address',lineItems:[]});
+ attachAcceptedTerms(paidCaller);
  const scheduled=[];const paidCtx={db,scheduler:{runAfter:async(_delay,ref)=>scheduled.push(ref)}};
  const confirmedBooking=load('convex/bookings.ts');await confirmedBooking.confirm.handler(paidCtx,{bookingId:paidCaller._id,paymentIntentId:'pi_attested'});
  const actualAccount=await db.query('accounts').withIndex('by_email',q=>q.eq('email',paidCaller.guestEmail)).unique();assert.equal(actualAccount.name,'Paid Caller');assert.equal(actualAccount.phone,'07700123456');assert.equal(actualAccount.address,'London booking address');assert.equal(actualAccount.emailVerificationRequired,true);assert(scheduled.includes('accountAccess.sendForRental'));

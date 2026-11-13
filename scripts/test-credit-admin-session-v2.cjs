@@ -18,7 +18,7 @@ process.env.ADMIN_TOKEN = "legacy-credit-fixture";
 (async () => {
   for (const [token, scopes] of [[readToken, ["payments:read"]], [writeToken, ["payments:write"]]])
     await sessions.createSession.handler(ctx, { tokenDigest: hash(token), principalId: `admin:${hash(identity)}`, scopes, expiresAt: Date.now() + 60_000 });
-  const grant = { token: writeToken, accountId: account._id, amount: 10, requestId: "fixture-credit-session-12345", expectedRevision: 0 };
+  const grant = { token: writeToken, accountId: account._id, amount: 10, requestId: "fixture-credit-session-12345", expectedRevision: 0, reason: "Goodwill for the delayed return." };
   await assert.rejects(credits.grantAdmin.handler(ctx, { ...grant, token: readToken }), /unauthorized/);
   await assert.rejects(credits.grantAdmin.handler(ctx, { ...grant, token: process.env.ADMIN_TOKEN }), /unauthorized/);
   await assert.rejects(credits.grantAdmin.handler({ ...ctx, auth: { getUserIdentity: async () => ({ tokenIdentifier: "other" }) } }, grant), /unauthorized/);
@@ -26,6 +26,7 @@ process.env.ADMIN_TOKEN = "legacy-credit-fixture";
   const status = await credits.grantStatus.handler(ctx, { token: readToken, accountId: account._id, requestId: grant.requestId });
   assert.equal(status.revision, 1);
   assert.equal(status.receipt.amount, 10);
+  assert.equal(status.availablePence, 1000, "The read-scoped admin session can read the account-credit balance projection");
   assert.equal((await credits.statement.handler(ctx, { token: readToken, creditId: result.creditId })).amount, 10);
   harness.put("sessions", { token: "fixture-customer", accountId: account._id, expiresAt: Date.now() + 60_000 });
   assert.equal((await credits.statement.handler(ctx, { token: "fixture-customer", creditId: result.creditId })).amount, 10);

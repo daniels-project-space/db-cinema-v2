@@ -17,7 +17,7 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     '@cvx/_generated/api': `export const api={analytics:{track:'track',recordGafferCallTelemetry:'recordGafferCallTelemetry'}};`,
     '@/lib/session': `export const getSessionId=()=> 'synthetic';`,
     'next/navigation': `export const usePathname=()=>'/gear';`,
-    '@/components/gaffer/useGafferTools': `export const useGafferTools=()=>({clientTools:{},dynamicVariables:{},noteCustomerMessage:value=>window.customerMessages.push(value),resetPriceRequest(){},noteAgentAlignment(){},noteAgentMessage:value=>window.agentAnswers.push(value),resetSpokenFocus(){}});`,
+    '@/components/gaffer/useGafferTools': `export const useGafferTools=()=>({clientTools:{lookup:async()=>window.lookupFactory?window.lookupFactory():'synthetic tool result'},dynamicVariables:{},noteCustomerMessage:value=>window.customerMessages.push(value),resetPriceRequest(){},noteAgentAlignment(){},noteAgentMessage:value=>window.agentAnswers.push(value),resetSpokenFocus(){}});`,
     '@/components/gaffer/callContext': `export const pageBrief=()=>({intent:'gear',mode:'sales',brief:'synthetic page',opening:'Hello'});export const isSignOff=()=>false;`,
     '@/components/gaffer/hintTiming': `export const createHintController=()=>({reset(){},noteTalking(){}});`,
     '@/components/gaffer/micPermission': `export const micState=async()=> 'granted';export const requestMic=async()=>({ok:true});`,
@@ -71,7 +71,53 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
       'C: I will check the dates and confirm the available choices.',
     ], 'Late B events are ignored and the next caller turn accepts its own coherent response');
     assert.equal(await client.evaluate('window.userMessages.length'), 0);
-    console.log('PASS synthetic browser overlap regression: stale/overlapping response IDs cannot reset, finish, or replace the active spoken turn; a new caller turn still works.');
+
+    // Match the installed SDK's actual wire types: text_response_part and
+    // agent_response expose event_id, but no response_id. A second start makes
+    // subsequent deltas ambiguous; its final message must never replace the
+    // earlier conclusion, and its stop must still release the caller turn.
+    await client.evaluate(`(()=>{const c=window.voiceConfig;c.onMessage({source:'user',event_id:120,message:'Can I extend this rental?'});window.agentMode='speaking';c.onModeChange({mode:'speaking'});c.onAgentChatResponsePart({type:'start',event_id:121});c.onAgentChatResponsePart({type:'delta',event_id:122,text:'A: I can check the requested dates'});c.onAgentChatResponsePart({type:'start',event_id:123});c.onAgentChatResponsePart({type:'delta',event_id:124,text:'B: the booking is cancelled.'});c.onAgentChatResponsePart({type:'stop',event_id:125});c.onMessage({source:'ai',event_id:126,message:'B: the booking is cancelled.'});window.agentMode='listening';c.onModeChange({mode:'listening'})})()`);
+    assert.deepEqual(await client.evaluate('window.agentAnswers'), [
+      'A: I can check the requested dates and show the available extension options.',
+      'C: I will check the dates and confirm the available choices.',
+    ], 'Actual SDK payloads without response IDs cannot replace the prior conclusion with an overlapping answer');
+    assert.equal(await client.evaluate('document.querySelectorAll("output")[1].textContent'), 'false', 'The ambiguous response closes cleanly after audio ends');
+    await client.evaluate(`(()=>{const c=window.voiceConfig;c.onMessage({source:'user',event_id:130,message:'What dates are available?'});window.agentMode='speaking';c.onModeChange({mode:'speaking'});c.onAgentChatResponsePart({type:'start',event_id:131});c.onAgentChatResponsePart({type:'delta',event_id:132,text:'D: I will check the dates.'});c.onAgentChatResponsePart({type:'stop',event_id:133});c.onMessage({source:'ai',event_id:134,message:'D: I will check the dates.'});window.agentMode='listening';c.onModeChange({mode:'listening'})})()`);
+    assert.deepEqual(await client.evaluate('window.agentAnswers'), [
+      'A: I can check the requested dates and show the available extension options.',
+      'C: I will check the dates and confirm the available choices.',
+      'D: I will check the dates.',
+    ], 'A later caller turn still accepts its own response after an ambiguous turn is discarded');
+    // A provider interruption can arrive before any new caller transcript.
+    // It closes the current answer but must not, by itself, authorize the
+    // agent to start speaking a new conclusion for the same caller turn.
+    await client.evaluate(`(()=>{const c=window.voiceConfig;c.onMessage({source:'user',event_id:140,message:'Can I change the return time?'});window.agentMode='speaking';c.onModeChange({mode:'speaking'});c.onAgentChatResponsePart({type:'start',event_id:141});c.onAgentChatResponsePart({type:'delta',event_id:142,text:'E: I can check the requested return time.'});c.onAgentChatResponsePart({type:'stop',event_id:143});c.onMessage({source:'ai',event_id:144,message:'E: I can check the requested return time.'});window.agentMode='listening';c.onModeChange({mode:'listening'});window.agentMode='speaking';c.onModeChange({mode:'speaking'});c.onInterruption({event_id:145});c.onAgentChatResponsePart({type:'start',event_id:146});c.onAgentChatResponsePart({type:'delta',event_id:147,text:'F: The booking is cancelled.'});c.onAgentChatResponsePart({type:'stop',event_id:148});c.onMessage({source:'ai',event_id:149,message:'F: The booking is cancelled.'});window.agentMode='listening';c.onModeChange({mode:'listening'})})()`);
+    assert.deepEqual((await client.evaluate('window.agentAnswers')).slice(-1), ['E: I can check the requested return time.'], 'An interruption without a new caller turn cannot start or replace the answer');
+
+    await client.evaluate(`(()=>{const c=window.voiceConfig;c.onMessage({source:'user',event_id:150,message:'Actually, can I return at 7pm?'});window.agentMode='speaking';c.onModeChange({mode:'speaking'});c.onAgentChatResponsePart({type:'start',event_id:151});c.onAgentChatResponsePart({type:'delta',event_id:152,text:'G: I will check the 7pm return time.'});c.onAgentChatResponsePart({type:'stop',event_id:153});c.onMessage({source:'ai',event_id:154,message:'G: I will check the 7pm return time.'});window.agentMode='listening';c.onModeChange({mode:'listening'})})()`);
+    assert.deepEqual((await client.evaluate('window.agentAnswers')).slice(-1), ['G: I will check the 7pm return time.'], 'A genuine caller turn reopens the response gate normally');
+
+    assert.equal(await client.evaluate('window.voiceConfig.clientTools.lookup({}).then(value=>{window.toolResult=value;return value})'), 'synthetic tool result',
+      'The synthetic client tool result returns through the real wrapped call');
+    await client.evaluate(`(()=>{const c=window.voiceConfig;window.agentMode='speaking';c.onModeChange({mode:'speaking'});c.onAgentChatResponsePart({type:'start',event_id:161});c.onAgentChatResponsePart({type:'delta',event_id:162,text:'H: The tool result confirms the request.'});c.onAgentChatResponsePart({type:'stop',event_id:163});c.onMessage({source:'ai',event_id:164,message:'H: The tool result confirms the request.'});window.agentMode='listening';c.onModeChange({mode:'listening'})})()`);
+    assert.deepEqual((await client.evaluate('window.agentAnswers')).slice(-1), ['H: The tool result confirms the request.'], 'A completed tool result can authorize its one same-turn continuation');
+
+    // Parallel results are one logical answer. A partial result must not
+    // authorize an early conclusion while a sibling lookup is still pending.
+    await client.evaluate(`(()=>{window.lookupResolvers=[];window.lookupFactory=()=>new Promise(resolve=>window.lookupResolvers.push(resolve));const c=window.voiceConfig;c.onMessage({source:'user',event_id:170,message:'Can I extend and add another lens?'});window.pendingLookups=[c.clientTools.lookup({}),c.clientTools.lookup({})]})()`);
+    for (let attempt = 0; attempt < 30 && await client.evaluate('window.lookupResolvers.length < 2'); attempt++) await wait(10);
+    assert.equal(await client.evaluate('window.lookupResolvers.length'), 2, 'Both synthetic item lookups are in flight');
+    await client.evaluate('window.lookupResolvers.shift()("first item is available")');
+    await wait(10);
+    await client.evaluate(`(()=>{const c=window.voiceConfig;c.onAgentChatResponsePart({type:'start',event_id:171});c.onAgentChatResponsePart({type:'delta',event_id:172,text:'I: Both items are available.'});c.onAgentChatResponsePart({type:'stop',event_id:173});c.onMessage({source:'ai',event_id:174,message:'I: Both items are available.'})})()`);
+    assert.equal(await client.evaluate('window.agentAnswers.includes("I: Both items are available.")'), false, 'A partial tool set cannot trigger a premature conclusion');
+    assert.equal(await client.evaluate('window.lookupResolvers.length'), 1, 'The sibling lookup remains pending');
+    await client.evaluate('window.lookupResolvers.shift()("second item is available")');
+    await wait(10);
+    await client.evaluate(`(()=>{const c=window.voiceConfig;c.onAgentChatResponsePart({type:'start',event_id:175});c.onAgentChatResponsePart({type:'delta',event_id:176,text:'J: Both items are available.'});c.onAgentChatResponsePart({type:'stop',event_id:177});c.onMessage({source:'ai',event_id:178,message:'J: Both items are available.'});window.agentMode='listening';c.onModeChange({mode:'listening'})})()`);
+    assert.equal(await client.evaluate('window.agentAnswers.at(-1)'), 'J: Both items are available.', 'A complete tool set may deliver one coherent answer');
+    assert.equal(await client.evaluate('window.userMessages.length'), 0);
+    console.log('PASS synthetic browser overlap regression: overlapping starts, interruption-only starts, and partial parallel-tool results cannot replace a spoken answer; complete results and genuine caller turns still work.');
   } finally {
     if (client) client.close();
     if (chrome.exitCode === null) { const done = new Promise(resolve => chrome.once('exit', resolve)); chrome.kill(); await done; }

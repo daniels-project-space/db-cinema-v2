@@ -227,6 +227,7 @@ import type * as swml from "../swml.js";
 import type * as sync from "../sync.js";
 import type * as verificationArchive from "../verificationArchive.js";
 import type * as verificationArchiveWorker from "../verificationArchiveWorker.js";
+import type * as verificationRetentionReview from "../verificationRetentionReview.js";
 import type * as verificationReuseClaimState from "../verificationReuseClaimState.js";
 import type * as verificationReuseClaims from "../verificationReuseClaims.js";
 import type * as voice from "../voice.js";
@@ -459,6 +460,7 @@ declare const fullApi: ApiFromModules<{
   sync: typeof sync;
   verificationArchive: typeof verificationArchive;
   verificationArchiveWorker: typeof verificationArchiveWorker;
+  verificationRetentionReview: typeof verificationRetentionReview;
   verificationReuseClaimState: typeof verificationReuseClaimState;
   verificationReuseClaims: typeof verificationReuseClaims;
   voice: typeof voice;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { formatGbp } from "@/lib/pricing";
@@ -59,9 +59,11 @@ function AmountSummary({ deltaPence }: { deltaPence: number }) {
   </div>;
 }
 
-export function RentalSwapProposal({ token, bookingId, items }: { token: string; bookingId: string; items: RentalLine[] }) {
+type ItemChangeQuoteRequest = { requestId: string; lineIndexes: number[] };
+export function RentalSwapProposal({ token, bookingId, items, itemChangeRequest, onItemChangeQuoteSent }: { token: string; bookingId: string; items: RentalLine[]; itemChangeRequest?: ItemChangeQuoteRequest | null; onItemChangeQuoteSent?: () => void }) {
   const ready = useQuery(api.rentalSwapState.readiness, { token });
   const [open, setOpen] = useState(false);
+  const [requestedQuote, setRequestedQuote] = useState<ItemChangeQuoteRequest | null>(null);
   const [lineIndex, setLineIndex] = useState("");
   const [action, setAction] = useState<ChangeAction>("replace");
   const [search, setSearch] = useState("");
@@ -70,12 +72,47 @@ export function RentalSwapProposal({ token, bookingId, items }: { token: string;
   const [review, setReview] = useState<Review | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const itemChangeRequestId = itemChangeRequest?.requestId;
+  const requestedLineKey = itemChangeRequest?.lineIndexes.join(",") ?? "";
+  const currentLinesKey = items.map(line => JSON.stringify([line.listingId, line.title, line.qty, line.start, line.end])).join("|");
+
+  useEffect(() => {
+    if (!itemChangeRequestId || !requestedLineKey) return;
+    const requestedIndexes = requestedLineKey.split(",").map(Number);
+    const firstLineIndex = requestedIndexes[0];
+    if (requestedIndexes.some(index => !Number.isSafeInteger(index) || index < 0 || index >= items.length)) {
+      setRequestedQuote(null);
+      setOpen(false);
+      setLineIndex("");
+      setStaged([]);
+      setReview(null);
+      setMessage("The renter’s selected items are no longer in this booking. Review the current kit before quoting.");
+      return;
+    }
+    setRequestedQuote({ requestId: itemChangeRequestId, lineIndexes: requestedIndexes });
+    setOpen(true);
+    setLineIndex(String(firstLineIndex));
+    setAction("replace");
+    setReplacement(null);
+    setStaged([]);
+    setReview(null);
+    setSearch("");
+    setMessage("");
+  }, [itemChangeRequestId, requestedLineKey, currentLinesKey]);
 
   const catalog = usePaginatedQuery(
     api.catalog.adminListListings,
     ready && open && action === "replace" && search.trim().length >= 2 ? { token, search: search.trim() } : "skip",
     { initialNumItems: 20 },
   );
+  const basketEdits = useMemo<ProposalChange[]>(() => staged.map(change => change.action === "remove"
+    ? { lineIndex: change.lineIndex, action: "remove" }
+    : { lineIndex: change.lineIndex, action: "replace", newListingId: change.replacement!.id }), [staged]);
+  const selectedLineForPreview = lineIndex === "" ? undefined : items[Number(lineIndex)];
+  const selectedChangesForPreview: ProposalChange[] = selectedLineForPreview && (action === "remove" || replacement)
+    ? action === "remove" ? [{ lineIndex: Number(lineIndex), action: "remove" }] : [{ lineIndex: Number(lineIndex), action: "replace", newListingId: replacement!.id }]
+    : [];
+  const candidateBasketEdits = [...basketEdits, ...selectedChangesForPreview];
   const singlePreview = useQuery(
     api.rentalSwapState.previewForAdmin,
     ready && open && staged.length === 0 && action === "replace" && lineIndex !== "" && replacement
@@ -89,12 +126,15 @@ export function RentalSwapProposal({ token, bookingId, items }: { token: string;
       ? { token, bookingId: bookingId as never, changes: singleRemovalEdits as never }
       : "skip",
   );
-  const basketEdits = useMemo<ProposalChange[]>(() => staged.map(change => change.action === "remove"
-    ? { lineIndex: change.lineIndex, action: "remove" }
-    : { lineIndex: change.lineIndex, action: "replace", newListingId: change.replacement!.id }), [staged]);
+  const candidateBasketPreview = useQuery(
+    api.rentalSwapState.previewBasketForAdmin,
+    ready && open && staged.length > 0 && selectedLineForPreview && selectedChangesForPreview.length === 1
+      ? { token, bookingId: bookingId as never, changes: candidateBasketEdits as never }
+      : "skip",
+  );
   const basketPreview = useQuery(
     api.rentalSwapState.previewBasketForAdmin,
-    ready && open && (staged.length >= 2 || staged.some(change => change.action === "remove"))
+    ready && open && staged.length > 0
       ? { token, bookingId: bookingId as never, changes: basketEdits as never }
       : "skip",
   );
@@ -114,12 +154,14 @@ export function RentalSwapProposal({ token, bookingId, items }: { token: string;
   const selectedChanges: ProposalChange[] = selectedLine && (action === "remove" || replacement)
     ? action === "remove" ? [{ lineIndex: Number(lineIndex), action: "remove" }] : [{ lineIndex: Number(lineIndex), action: "replace", newListingId: replacement!.id }]
     : [];
+  const currentPreview = staged.length > 0 ? candidateBasketPreview : action === "remove" ? removalPreview : singlePreview;
 
   const addCurrent = () => {
     const index = Number(lineIndex);
-    if (lineIndex === "" || usedLines.has(index) || action === "replace" && !replacement || staged.length >= 16) return;
+    if (lineIndex === "" || usedLines.has(index) || action === "replace" && !replacement || staged.length >= 16 || !currentPreview?.ok) return;
     setStaged(current => [...current, { lineIndex: index, action, ...(action === "replace" && replacement ? { replacement } : {}) }]);
-    setLineIndex(""); setReplacement(null); setSearch(""); setAction("replace"); setReview(null); setMessage("");
+    const nextRequestedIndex = requestedQuote?.lineIndexes.find(requestedIndex => requestedIndex !== index && !usedLines.has(requestedIndex) && Number.isSafeInteger(requestedIndex) && requestedIndex >= 0 && requestedIndex < items.length);
+    setLineIndex(nextRequestedIndex === undefined ? "" : String(nextRequestedIndex)); setReplacement(null); setSearch(""); setAction("replace"); setReview(null); setMessage("");
   };
   const startReview = (value: any, changes: ProposalChange[], rows: StagedChange[], singleReplacement = false) => setReview({
     snapshot: value.quoteSnapshot,
@@ -132,7 +174,7 @@ export function RentalSwapProposal({ token, bookingId, items }: { token: string;
   });
   const restoredCredit = (quote: any) => quote.restore.reduce((sum: number, item: any) => sum + item.amountPence, 0);
 
-  return <details data-testid="admin-equipment-change" className="group mt-3 w-full max-w-[680px] overflow-hidden rounded-[18px] border border-white/[0.1] bg-[linear-gradient(145deg,rgba(52,43,32,.60),rgba(25,26,26,.96)_55%,rgba(18,19,19,.98))] text-sm shadow-[0_14px_35px_rgba(0,0,0,.24)] backdrop-blur-xl" onToggle={event => setOpen(event.currentTarget.open)}>
+  return <details data-testid="admin-equipment-change" open={open} className="group mt-3 w-full max-w-[680px] overflow-hidden rounded-[18px] border border-white/[0.1] bg-[linear-gradient(145deg,rgba(52,43,32,.60),rgba(25,26,26,.96)_55%,rgba(18,19,19,.98))] text-sm shadow-[0_14px_35px_rgba(0,0,0,.24)] backdrop-blur-xl" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3 marker:hidden sm:p-3.5">
       <span className="flex min-w-0 items-center gap-2.5">
         <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-[#d8ae7a]/25 bg-[#d8ae7a]/[0.09] text-base text-[#e5bd91]">↔</span>
@@ -141,10 +183,11 @@ export function RentalSwapProposal({ token, bookingId, items }: { token: string;
       <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-white/10 text-white/60 transition-transform group-open:rotate-180">⌄</span>
     </summary>
     <div className="border-t border-white/[0.08] p-3 sm:p-3.5">
+      {requestedQuote && <p role="status" data-testid="equipment-change-request-context" className="mb-3 rounded-xl border border-[#d8ae7a]/20 bg-[#d8ae7a]/[.06] px-3 py-2 text-[10px] leading-4 text-[#ead0ae]">Renter selected {requestedQuote.lineIndexes.length} item{requestedQuote.lineIndexes.length === 1 ? "" : "s"}; confirm the live quote below.</p>}
       {!review && <p className="mb-3 text-[10px] leading-4 text-white/55">One quote covers availability and the card difference. The renter accepts before anything changes.</p>}
 
       {staged.length > 0 && !review && <div className="mb-3 rounded-2xl border border-white/[0.08] bg-black/15 p-2.5">
-        <div className="mb-2 flex items-center justify-between gap-2"><p className="text-[10px] font-semibold text-[#ead0ae]">Combined change <span className="text-white/45">· {staged.length}</span></p><span className="text-[9px] uppercase tracking-[0.12em] text-white/40">Draft</span></div>
+        <div className="mb-2 flex items-center justify-between gap-2"><p className="text-[10px] font-semibold text-[#ead0ae]">{staged.length === 1 ? "Equipment change" : "Combined change"} <span className="text-white/45">· {staged.length} {staged.length === 1 ? "item" : "items"}</span></p><span className="text-[9px] uppercase tracking-[0.12em] text-white/40">Draft</span></div>
         <div className="grid gap-2">{stagedRows.map(row => row.current && <div key={`${row.lineIndex}:${row.action}:${row.replacement?.id ?? "removed"}`} className="space-y-1.5">
           <ChangePair current={row.current} replacement={row.replacement} action={row.action} quantity={row.quantity} />
           <button type="button" disabled={busy} aria-label={`Remove ${row.action === "remove" ? row.current.title : row.replacement?.title ?? "replacement"} from draft`} onClick={() => { setStaged(current => current.filter(change => change.lineIndex !== row.lineIndex)); setReview(null); }} className="rounded-lg px-2 py-1 text-[10px] text-white/55 underline decoration-white/20 underline-offset-2 hover:text-white/85 disabled:opacity-40">Remove from draft</button>
@@ -168,7 +211,7 @@ export function RentalSwapProposal({ token, bookingId, items }: { token: string;
       </label>}
 
       {open && action === "replace" && search.trim().length >= 2 && !review && <div className="mt-2 max-h-48 space-y-1.5 overflow-y-auto rounded-xl border border-white/[0.08] bg-black/15 p-1.5">
-        {catalog.results.filter(item => !item.displayOnly).map(item => <button data-testid="swap-catalog-result" type="button" key={item._id} disabled={busy} aria-pressed={replacement?.id === item._id} onClick={() => { setReplacement({ id: item._id, title: item.title, heroImage: item.heroImage, imageSources: item.imageSources }); setReview(null); setMessage(""); }} className={`flex w-full min-w-0 items-center gap-2.5 rounded-xl border p-2 text-left transition ${replacement?.id === item._id ? "border-[#d8ae7a]/50 bg-[#d8ae7a]/[0.08]" : "border-white/[0.06] bg-white/[0.015] hover:border-white/20"}`}>
+        {catalog.results.filter(item => !item.displayOnly).map(item => <button data-testid={`swap-catalog-result-${item._id}`} type="button" key={item._id} disabled={busy} aria-pressed={replacement?.id === item._id} onClick={() => { setReplacement({ id: item._id, title: item.title, heroImage: item.heroImage, imageSources: item.imageSources }); setReview(null); setMessage(""); }} className={`flex w-full min-w-0 items-center gap-2.5 rounded-xl border p-2 text-left transition ${replacement?.id === item._id ? "border-[#d8ae7a]/50 bg-[#d8ae7a]/[0.08]" : "border-white/[0.06] bg-white/[0.015] hover:border-white/20"}`}>
           <SmartImage fit="contain" src={imageList(item)[0]} fallbackSources={imageList(item).slice(1)} alt={`${item.title} listing photo`} className="h-10 w-12 shrink-0 rounded-lg border border-white/[0.08] bg-black/25 object-contain" />
           <span className="min-w-0 flex-1 truncate text-[10px] text-white/80">{item.title}</span><span aria-hidden="true" className="text-xs text-[#e5bd91]">{replacement?.id === item._id ? "✓" : "＋"}</span>
         </button>)}
@@ -177,7 +220,8 @@ export function RentalSwapProposal({ token, bookingId, items }: { token: string;
       </div>}
 
       {selectedLine && !review && (action === "remove" || replacement) && <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button type="button" disabled={busy || usedLines.has(Number(lineIndex)) || staged.length >= 16} onClick={addCurrent} className="rounded-xl border border-white/15 bg-white/[0.035] px-3 py-2 text-[10px] font-medium text-white/75 hover:border-white/25 disabled:opacity-40">Add to combined change</button>
+        {currentPreview === undefined ? <span role="status" className="text-[10px] text-white/50">Checking stock and price…</span> : currentPreview === null ? <span role="status" className="text-[10px] text-amber-100/75">Quote unavailable. Try again.</span> : currentPreview.ok ? <span role="status" className="text-[10px] text-emerald-200/80">Available to quote</span> : <span role="status" className="text-[10px] text-amber-100/80">Cannot quote this change · check stock or open rental changes</span>}
+        <button type="button" disabled={busy || !currentPreview?.ok || usedLines.has(Number(lineIndex)) || staged.length >= 16} onClick={addCurrent} className="rounded-xl border border-white/15 bg-white/[0.035] px-3 py-2 text-[10px] font-medium text-white/75 hover:border-white/25 disabled:opacity-40">Add to combined change</button>
         {staged.length === 0 && <span className="text-[10px] text-white/40">or review this item alone</span>}
       </div>}
 
@@ -199,11 +243,11 @@ export function RentalSwapProposal({ token, bookingId, items }: { token: string;
         </>}
       </div>}
 
-      {(staged.length >= 2 || staged.some(change => change.action === "remove")) && !review && <div className="mt-3 rounded-2xl border border-white/[0.08] bg-black/15 p-2.5">
-        {basketPreview === undefined ? <p className="text-[10px] text-white/55">Checking combined availability and price…</p> : basketPreview === null ? <p className="text-[10px] text-white/55">Unable to load this combined quote.</p> : !basketPreview.ok ? <p role="status" className="text-[10px] leading-4 text-amber-100">{basketPreview.error}</p> : <>
+      {staged.length > 0 && !review && <div className="mt-3 rounded-2xl border border-white/[0.08] bg-black/15 p-2.5">
+        {basketPreview === undefined ? <p className="text-[10px] text-white/55">Checking availability and price…</p> : basketPreview === null ? <p className="text-[10px] text-white/55">Unable to load this quote.</p> : !basketPreview.ok ? <p role="status" className="text-[10px] leading-4 text-amber-100">{basketPreview.error}</p> : <>
           <AmountSummary deltaPence={basketPreview.quote.deltaPence} />
           {restoredCredit(basketPreview.quote) > 0 && <p className="mt-1.5 text-[10px] text-white/55">Credit restored · {formatGbp(restoredCredit(basketPreview.quote) / 100)}</p>}
-          <button type="button" disabled={busy} onClick={() => startReview(basketPreview, basketEdits, stagedRows)} className="mt-2.5 min-h-9 w-full rounded-xl border border-[#d8ae7a]/30 bg-[#d8ae7a]/[0.08] px-3 py-2 text-[10px] font-semibold text-[#f0d0a7] hover:bg-[#d8ae7a]/[0.14]">Review combined change</button>
+          <button type="button" disabled={busy} onClick={() => startReview(basketPreview, basketEdits, stagedRows)} className="mt-2.5 min-h-9 w-full rounded-xl border border-[#d8ae7a]/30 bg-[#d8ae7a]/[0.08] px-3 py-2 text-[10px] font-semibold text-[#f0d0a7] hover:bg-[#d8ae7a]/[0.14]">{staged.length === 1 ? "Review change" : "Review combined change"}</button>
         </>}
       </div>}
 
@@ -229,7 +273,7 @@ export function RentalSwapProposal({ token, bookingId, items }: { token: string;
               } else {
                 await proposeBasket({ token, bookingId: bookingId as never, changes: review.changes as never, requestId: review.requestId, quoteSnapshot: review.snapshot, confirmed: true } as never);
               }
-              setMessage("Equipment change sent to the renter's conversation."); setReview(null); setReplacement(null); setStaged([]); setSearch(""); setLineIndex(""); setAction("replace");
+              setMessage("Equipment change sent to the renter's conversation."); setReview(null); setReplacement(null); setStaged([]); setSearch(""); setLineIndex(""); setAction("replace"); setRequestedQuote(null); onItemChangeQuoteSent?.();
             } catch (error) {
               setMessage(error instanceof Error ? error.message : "The proposal could not be sent. Review the quote and try again.");
             } finally { setBusy(false); }

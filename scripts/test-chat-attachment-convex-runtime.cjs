@@ -40,7 +40,16 @@ async function main() {
     if (calls.some(([call]) => !source.includes(call))) throw Error("The isolated scanner bridge no longer matches the application.");
     for (const [call, replacement] of calls) source = source.replace(call, replacement);
     fs.writeFileSync(scanner, source);
-  } else fs.writeFileSync(scanner, `export const CHAT_ATTACHMENT_LIMIT=10*1024*1024;\nexport function chatAttachmentsReady(){return true;}\nexport async function chatAttachmentScannerHealthy(){return true;}\nexport async function scanChatAttachment(){return {engine:'synthetic',signatureVersion:'fixture',signatureUpdatedAt:Date.now()};}\n`);
+  } else fs.writeFileSync(scanner, `export const CHAT_ATTACHMENT_LIMIT=10*1024*1024;
+export function chatAttachmentsReady(){return true;}
+export async function chatAttachmentScannerHealthy(){return true;}
+export async function scanChatAttachment(bytes){
+  const png=bytes.length>=8&&bytes[0]===137&&bytes[1]===80&&bytes[2]===78&&bytes[3]===71&&bytes[4]===13&&bytes[5]===10&&bytes[6]===26&&bytes[7]===10;
+  const jpeg=bytes.length>=3&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255;
+  const webp=bytes.length>=12&&bytes[0]===82&&bytes[1]===73&&bytes[2]===70&&bytes[3]===70&&bytes[8]===87&&bytes[9]===69&&bytes[10]===66&&bytes[11]===80;
+  const contentType=png?'image/png':jpeg?'image/jpeg':webp?'image/webp':'text/plain';
+  return {contentType,engine:'synthetic',signatureVersion:'fixture',signatureUpdatedAt:Date.now()};
+}\n`);
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, CONVEX_AGENT_MODE: "anonymous", XDG_CONFIG_HOME: path.join(workspace, "config") };
   child = spawn(path.join(root, "node_modules/.bin/convex"), ["dev", "--typecheck", "disable", "--codegen", "disable", "--tail-logs", "disable"], { cwd: workspace, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
   let output = ""; child.stdout.on("data", data => output += data); child.stderr.on("data", data => output += data);
@@ -77,6 +86,22 @@ async function main() {
   await client.mutation(binding, { messageId, attachmentId: state.attempts[0]._id });
   assert.equal((await fetch(download, { method: "POST", headers })).status, 200, "Restoring the original binding restores the original owner's access");
   assert.equal((await fetch(preview, { method: "POST", headers })).status, 200, "Restoring the original binding restores the original owner's preview");
+  const note = Buffer.from("Synthetic pickup note.\\n", "utf8");
+  const noteHeaders = { ...headers, "content-type": "text/plain", "x-chat-filename": "pickup.txt" };
+  const noteUrl = `${endpoint}?bookingId=${fixture.bookingId}&key=${"9".repeat(32)}`;
+  const noteUpload = await fetch(noteUrl, { method: "POST", headers: noteHeaders, body: note });
+  if (noteUpload.status !== 200) console.error("TXT RESPONSE", await noteUpload.text(), output.slice(-3000));
+  assert.equal(noteUpload.status, 200, "A clean TXT attachment is accepted with a matching scanner type");
+  state = await client.query(inspect, { accountId: fixture.accountId });
+  const noteAttempt = state.attempts.find(attempt => attempt.name === "pickup.txt");
+  assert(noteAttempt && noteAttempt.status === "published");
+  assert.equal(state.messages.find(message => message.meta?.attachmentId === noteAttempt._id)?.meta?.contentType, "text/plain");
+  const noteDownload = `${endpoint}?bookingId=${fixture.bookingId}&download=${noteAttempt._id}`;
+  const noteResponse = await fetch(noteDownload, { method: "POST", headers: noteHeaders });
+  assert.equal(noteResponse.status, 200);
+  assert.equal(noteResponse.headers.get("content-type"), "application/octet-stream");
+  assert.deepEqual(Buffer.from(await noteResponse.arrayBuffer()), note);
+  assert.equal((await fetch(`${endpoint}?bookingId=${fixture.bookingId}&preview=${noteAttempt._id}`, { method: "POST", headers: noteHeaders })).status, 415, "TXT downloads are not served as inline previews");
   if (socket) {
     const eicar = Buffer.from(['X5O!P%@AP[4\\PZX54(P^)7CC)7}', '$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'].join(''));
     const data = Buffer.concat([Buffer.from('Comment\0'), eicar]), type = Buffer.from('tEXt'), chunk = Buffer.alloc(data.length + 12);
@@ -116,7 +141,7 @@ async function main() {
     assert.equal(response.status, 200);
   }
   assert(replayLimited, "Published-upload retries are rate-limited before reading another body");
-  state = await client.query(inspect, { accountId: fixture.accountId }); assert.equal(state.messages.length, socket ? 3 : 1);
+  state = await client.query(inspect, { accountId: fixture.accountId }); assert.equal(state.messages.length, socket ? 4 : 2);
   await client.mutation(makeFunctionReference("chat_attachment_qualify:expireSession"), {});
   assert.equal((await fetch(download, { method: "POST", headers })).status, 403, "An expired renter session cannot download an existing file");
   console.log(`PASS isolated local Convex attachment upload, atomic publication, content-bound retry, byte-exact download and cross-account denial. Scanner: ${socket ? "real isolated ClamAV and adapter via test-only loopback" : "synthetic"}; readiness gate is test-only. No production data or providers.`);

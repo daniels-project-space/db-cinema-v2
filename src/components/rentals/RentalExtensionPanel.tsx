@@ -37,6 +37,8 @@ export function RentalExtensionPanel({ token, bookingId, admin = false, showTrig
   }, [admin]);
   useEffect(() => { setNotice(""); }, [state?.requests[0]?.status]);
   const selectedIndexes = selected ?? state?.items.map(item => item.index) ?? [];
+  const current = state?.requests.find(r => ["pending", "approved", "awaiting_payment", "refund_pending"].includes(r.status));
+  const recent = current ?? state?.requests[0];
   const replacementArgs = quote?.unavailableItems?.length && state ? {
     items: state.items.filter(item => selectedIndexes.includes(item.index)).map(item => ({
       key: String(item.index),
@@ -51,8 +53,6 @@ export function RentalExtensionPanel({ token, bookingId, admin = false, showTrig
   } : "skip";
   const alternatives = useQuery(api.cartReplacements.forCart, replacementArgs);
   if (!state) return null;
-  const current = state.requests.find(r => ["pending", "approved", "awaiting_payment", "refund_pending"].includes(r.status));
-  const recent = current ?? state.requests[0];
   const paymentLinkInChat = !!recent && paymentRequestsInChat.includes(recent.id);
   const eligible = state.actionReady === true && ["confirmed", "active"].includes(state.status);
   if (!eligible && !recent) return null;
@@ -78,14 +78,14 @@ export function RentalExtensionPanel({ token, bookingId, admin = false, showTrig
     } catch (e: any) { setError(e.message ?? "The request could not be updated."); }
     finally { setBusy(false); }
   }
-  return <section aria-label={admin ? "Extension requests" : "Rental extension request"} data-testid="rental-extension-panel" className="scroll-mt-24 border-b border-sky-300/15 bg-sky-300/[0.035] px-5 py-4">
+  return <section aria-label={admin ? "Extension requests" : "Rental extension request"} data-testid="rental-extension-panel" data-renter-compact={!admin && showTrigger && eligible && !recent ? "true" : undefined} data-open={open ? "true" : "false"} className="scroll-mt-24 border-b border-sky-300/15 bg-sky-300/[0.035] px-5 py-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div className="flex items-center gap-2"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 text-sky-200" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="5" width="18" height="16" rx="4"/><path d="M7 3v4m10-4v4M3 10h18m-9 3v5m-2.5-2.5h5"/></svg><span className="text-sm font-medium text-white/85">{admin ? "Extension requests" : "Extend rental"}</span></div>
       {!admin && showTrigger && eligible && !current && <button type="button" data-testid="request-extension-open" disabled={state.locked || busy} onClick={() => { setOpen(!open); setError(""); setNotice(""); setSelected(null); key.current = null; }} className="min-h-11 rounded-full border border-sky-200/25 bg-sky-200/10 px-3 py-2 text-xs text-sky-100 shadow-[inset_0_1px_0_#ffffff0a] transition hover:border-sky-100/40 hover:bg-sky-100/[0.13] disabled:opacity-40 lg:min-h-0">{open ? "Close" : "Request extension"}</button>}
     </div>
     {recent && <div className="mt-3 rounded-2xl border border-white/[0.08] bg-black/15 p-3" data-testid="extension-request-status">
       <div className="flex flex-wrap justify-between gap-2"><span className={`text-xs font-medium ${recent.status === "applied" ? "text-emerald-200" : "text-sky-200"}`}>{labels[recent.status] ?? recent.status}</span>{recent.amount !== null && <span className="text-sm font-semibold text-white">{formatGbp(recent.amount)}</span>}</div>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">{recent.items.map(item => {
+      <div className={admin ? "mt-3 grid grid-cols-1 gap-2" : "mt-3 grid gap-2 sm:grid-cols-2"}>{recent.items.map(item => {
         const detail = state.items.find(row => row.index === item.lineIndex);
         return <div key={item.lineIndex} className="flex min-w-0 items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.025] p-2.5">
           {detail && <SmartImage src={detail.imageSources?.[0]} fallbackSources={detail.imageSources?.slice(1)} alt={item.title} className="h-12 w-12 shrink-0 rounded-lg" />}
