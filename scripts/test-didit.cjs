@@ -163,18 +163,23 @@ function signed(event) {
   assert.match(reviewNotices.at(-1)?.body, /camera capture integrity/);
   const rejectedPaidBooking={_id:'booking-declined',status:'pending_verification',lineItems:[],verificationProvider:'didit',diditSessionId:'declined-session-1',idVerifyStatus:'manual_review',guestEmail:'renter@example.invalid',checkoutPaidAt:now*1000,checkoutPaymentAmountPence:10000,checkoutPaymentCurrency:'GBP',checkoutPaymentStatus:'paid',checkoutExpectedAmountPence:10000,stripeCheckoutSessionId:'cs_declined-1',stripePaymentIntentId:'pi_declined-1',currency:'GBP'};
   const rejectionJobs=[];
+  const declinedHold={_id:'reservation-declined',status:'hold'};let declinedReservationReads=0;
   const queryChain={first:async()=>null,collect:async()=>[],take:async()=>[],unique:async()=>null,order:()=>queryChain};
-  const rejectionDb={get:async()=>rejectedPaidBooking,patch:async(_id,value)=>Object.assign(rejectedPaidBooking,value),insert:async()=> 'synthetic-id',query:()=>({withIndex:()=>queryChain,first:async()=>null})};
+  const rejectionDb={get:async()=>rejectedPaidBooking,patch:async(_id,value)=>Object.assign(rejectedPaidBooking,value),insert:async()=> 'synthetic-id',query:(table)=>({withIndex:()=>({...queryChain,collect:async()=>{if(table==='reservations'){declinedReservationReads++;return [declinedHold]}return []}}),first:async()=>null})};
   await setDiditResult.handler({db:rejectionDb,scheduler:{runAfter:async(delay,reference,args)=>rejectionJobs.push({delay,reference,args})}},
     {bookingId:'booking-declined',sessionId:'declined-session-1',eventId:'declined-event-1',eventAt:now*1000,status:'rejected',providerStatus:'Declined',note:'Didit declined this verification.',poaPostcodes:[]});
-  assert(rejectionJobs.some(job=>job.reference==='checkout:cancelRejectedDiditAfterResult'&&job.args.bookingId==='booking-declined'&&job.args.sessionId==='declined-session-1'&&job.args.eventId==='declined-event-1'),
-    'a final paid Didit rejection schedules settlement for that exact session and event');
+  assert.equal(rejectionJobs.some(job=>job.reference==='checkout:cancelRejectedDiditAfterResult'),false,
+    'a final paid Didit rejection remains pending for a team decision instead of starting settlement');
+  assert.equal(rejectedPaidBooking.status,'pending_verification','Didit rejection does not confirm or cancel the paid booking');
+  assert.equal(rejectedPaidBooking.idVerifyStatus,'rejected','the provider result remains visible for resolution');
+  assert.equal(declinedHold.status,'hold','a Didit rejection preserves the paid rental allocation until a decision');
+  assert.equal(declinedReservationReads,0,'a Didit rejection does not delete local stock holds');
   const noReceiptJobs=[];
   const noReceiptBooking={...rejectedPaidBooking,_id:'booking-no-receipt',diditSessionId:'unpaid-session',checkoutPaymentStatus:undefined};
   const noReceiptDb={...rejectionDb,get:async()=>noReceiptBooking,patch:async(_id,value)=>Object.assign(noReceiptBooking,value)};
   await setDiditResult.handler({db:noReceiptDb,scheduler:{runAfter:async(delay,reference,args)=>noReceiptJobs.push({delay,reference,args})}},
     {bookingId:'booking-no-receipt',sessionId:'unpaid-session',eventId:'unpaid-declined-event',eventAt:now*1000,status:'rejected',providerStatus:'Declined',note:'Didit declined this verification.',poaPostcodes:[]});
-  assert.equal(noReceiptJobs.some(job=>job.reference==='checkout:cancelRejectedDiditAfterResult'),false,'a booking without a verified paid checkout receipt is never auto-refunded');
+  assert.equal(noReceiptJobs.some(job=>job.reference==='checkout:cancelRejectedDiditAfterResult'),false,'a booking without a verified paid checkout receipt never starts settlement');
   const manuallyApproved = {status:'confirmed',verificationProvider:'didit',diditSessionId:'session-1',
     billingAddress:'10 Downing Street SW1A 1AA',idVerifyStatus:'verified',idVerificationSource:'manual'};
   let manualPatch;

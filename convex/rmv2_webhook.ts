@@ -77,9 +77,10 @@ export const push = internalAction({
       const receiptMatchesPush = receipt?.ok === true && receipt.version === 1 && receipt.bookingId === bookingId && receipt.receivedRevision === revision;
       const deferredStock = receiptMatchesPush && !stock && receipt.outcome === "deferred_stock_claim" && Number.isSafeInteger(receipt.appliedRevision);
       const verification = booking.verification;
+      // Every paid, unconfirmed Didit result remains a stock claim until an
+      // explicit cancellation or return closes the booking.
       const paidPendingVerification = booking.status === "pending_verification" && verification?.provider === "didit" &&
-        typeof booking.checkoutPaidAt === "number" && booking.checkoutPaidAt > 0 &&
-        !["rejected", "expired"].includes(verification.status ?? "");
+        typeof booking.checkoutPaidAt === "number" && booking.checkoutPaidAt > 0;
       // A deferred manager mirror is acceptable only when this same delivery
       // can create the paid booking claim below. Never acknowledge it and wait
       // for a later retry: that would leave paid stock unclaimed in Rental
@@ -88,8 +89,6 @@ export const push = internalAction({
       if(stock&&(!applied||!ack||ack.managerRequestId!==stock.managerRequestId||ack.fingerprint!==stock.fingerprint||ack.executionKey!==stock.executionKey||ack.bookingRevision!==stock.bookingRevision))return result(false,"invalid_stock_acknowledgement");
 
       const releaseReason = booking.status === "returned" ? "booking_returned" as const
-        : verification?.status === "rejected" ? "verification_declined" as const
-        : verification?.status === "expired" ? "verification_expired" as const
         : booking.status === "cancelled" ? "booking_cancelled" as const : null;
       if (releaseReason) {
         const released = await ctx.runAction(internal.sharedStockBridge.send, { request: { operation: "releaseBooking", args: {

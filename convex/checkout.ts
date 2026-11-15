@@ -2053,26 +2053,6 @@ async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReas
  finally{await ctx.runMutation(internal.cancellationRecovery.finishAttempt,{id:job._id,generation:job.generation,complete,review});}
 }
 
-/** Settle a paid direct rental after Didit definitively rejects its exact
- * session event. Scheduled only by setDiditResult after reconciling the
- * provider decision; normal terms, idempotency, and Stripe review still apply. */
-export const cancelRejectedDiditAfterResult = internalAction({
- args:{bookingId:v.id("bookings"),sessionId:v.string(),eventId:v.string()},
- handler:async(ctx,{bookingId,sessionId,eventId}):Promise<{status:"stale"|"settled"|"pending";refundAmount?:number;creditAmount?:number}>=>{
-  const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
-  if(!b?.siteOnly||b.verificationProvider!=="didit"||b.diditSessionId!==sessionId||b.diditEventId!==eventId||!isRejectedPendingDiditBooking(b))
-    return {status:"stale"};
-  try{
-   const result=await cancelRental(ctx,bookingId,b,b.accountId??undefined,"Didit verification was declined");
-   return {status:"settled",refundAmount:result.refundAmount,creditAmount:result.creditAmount};
-  }catch(error:any){
-   if(error?.data?.code==="CANCELLATION_PENDING"||error?.data?.code==="CANCELLATION_REVIEW")
-    return {status:"pending"};
-   throw error;
-  }
- }
-});
-
 /** Retry only durable, already-requested cancellations; never initiate a new cancellation. */
 /** Read-only source balance for a prepared operator cancellation. */
 export const operatorCancellationBalance=internalAction({args:{offerId:v.id("operator_cancellation_offers")},handler:async(ctx,a):Promise<any>=>{

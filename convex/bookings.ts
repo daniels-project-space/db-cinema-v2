@@ -2250,8 +2250,7 @@ export const setDiditResult = internalMutation({
       providerStatus === "Approved" && status === "manual_review";
     const changesConfirmedStockState = b.status === "confirmed" && status !== "verified" &&
       !preservingVerifiedManualDecision && !(b.idVerifyStatus === "verified" && status === "processing");
-    const releasesPendingCheckoutHolds = status === "rejected" && b.status === "pending_verification";
-    if (changesConfirmedStockState || releasesPendingCheckoutHolds) {
+    if (changesConfirmedStockState) {
       // Didit can revoke a rental's verification, but that event cannot
       // rewrite or release stock still claimed by an unacknowledged swap.
       await assertSwapStockReconciled(ctx, bookingId);
@@ -2333,13 +2332,6 @@ export const setDiditResult = internalMutation({
           previousNotice.title === "Booking identity or allocation notice" && previousNotice.body === unavailableKeyNotice && !previousNotice.read)
         await ctx.db.patch(previousNotice._id, { read: true });
     }
-    // A final Didit rejection releases only the pending checkout allocation.
-    // Confirmed/active rentals remain booked for the team's cancellation flow.
-    if (status === "rejected" && b.status === "pending_verification") {
-      const reservations = await ctx.db.query("reservations").withIndex("by_booking", (q: any) => q.eq("bookingId", bookingId)).collect();
-      for (const reservation of reservations) if (reservation.status === "hold" && !reservation.externalRef)
-        await ctx.db.patch(reservation._id, { status: "cancelled", holdExpiresAt: undefined });
-    }
     if (status === "verified") {
       // The alert above already tells the team when Didit approved a rental
       // but the provider-attested identity could not be attached. A retry job
@@ -2367,12 +2359,10 @@ export const setDiditResult = internalMutation({
       if (["confirmed", "active"].includes(b.status)) await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
       else if (b.status === "pending_verification") await ctx.scheduler.runAfter(0, internal.checkout.confirmAfterVerification, { bookingId });
     }
-    else if (["rejected", "requires_input", "manual_review"].includes(status)) await revokeReuse(ctx, bookingId);
-    // A final Didit rejection means this paid, unconfirmed direct booking cannot
-    // proceed. Start its normal accepted-terms settlement automatically; the
-    // action rechecks this exact provider event before touching Stripe.
-    if (status === "rejected" && isRejectedPendingDiditBooking({ ...b, idVerifyStatus: status })) {
-      await ctx.scheduler.runAfter(0, internal.checkout.cancelRejectedDiditAfterResult, { bookingId, sessionId, eventId });
+    else if (["rejected", "requires_input", "manual_review"].includes(status)) {
+      await revokeReuse(ctx, bookingId);
+      // A paid, unconfirmed rental stays pending for an explicit team decision.
+      // A provider result alone must not release its stock or settle its payment.
     }
     await verificationUpdateMessage(ctx, bookingId, previous, status);
     if (verificationBookingOpen(b.status) && previous !== status && ["manual_review", "requires_input", "rejected"].includes(status))
