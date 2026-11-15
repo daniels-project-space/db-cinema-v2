@@ -59,7 +59,7 @@ const { ConvexHttpClient } = require("convex/browser"),
   { api } = require("../convex/_generated/api.js");
 const { resolveConvexTestTarget } = require("./lib/convexTestTarget.cjs");
 const { marketingRedirect } = require("./lib/rentalTestHarness.cjs").load("convex/lib/marketingInventory.ts");
-const {ASSESSMENT_SECURITY_POLICY_VERSION,CARD_HOLD_SECURITY_POLICY_VERSION,REFUNDABLE_DEPOSIT_POLICY_VERSION,SECURITY_POLICY_VERSION,SETUP_INTENT_SECURITY_POLICY_VERSION,assessmentDepositFor,cardHoldFor,setupIntentSecurityLimit}=require("./lib/rentalTestHarness.cjs").load("shared/rentalSecurity.ts");
+const {ASSESSMENT_SECURITY_POLICY_VERSION,CARD_HOLD_SECURITY_POLICY_VERSION,REFUNDABLE_DEPOSIT_POLICY_VERSION,SECURITY_POLICY_VERSION,assessmentDepositFor,cardHoldFor,isSetupIntentSecurityPolicy,setupIntentSecurityLimit}=require("./lib/rentalTestHarness.cjs").load("shared/rentalSecurity.ts");
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
   const root = process.env.DBC_BROWSER_ROOT || "http://127.0.0.1:41795",
@@ -402,7 +402,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   if(paid.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION){
     assert.equal(paid.depositAmount,paid.securityWaiverReason?0:assessmentDepositFor(paid.replacementValue),'Exact current deposit or attested subscription waiver');
     assert.equal(paid.depositHoldAmount,0);assert.equal(paid.savedCardLimit,0,'Current assessments do not advertise a fixed future-payment ceiling');
-  }else if(paid.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION){
+  }else if(isSetupIntentSecurityPolicy(paid.securityPolicyVersion)){
     assert.equal(paid.depositAmount,0,'SetupIntent security does not charge a deposit');
     assert.equal(paid.depositHoldAmount,0,'SetupIntent security does not reserve card funds');
     assert.equal(paid.savedCardLimit,setupIntentSecurityLimit(paid.replacementValue),'The saved-card claim ceiling follows the agreed value tier');
@@ -495,13 +495,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(`document.querySelector('[data-testid="checkout-due"]')?.textContent===${JSON.stringify(new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(paid.combinedTotalDue))}`);
   assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="checkout-rental-after-credits"]')`),false,'Checkout shows a single final total');
   const summary=await c.evaluate(`(()=>{const s=document.querySelector('[data-testid="checkout-summary"]'),secondary=s.querySelector('[data-testid="checkout-secondary-charges"]'),credit=[...s.querySelectorAll('div')].find(e=>e.children.length===2&&e.firstElementChild.textContent==='Subscription credit applied');return {secondaryRows:[...secondary.querySelectorAll('[data-secondary-charge]')].map(e=>({text:e.innerText,fontSize:getComputedStyle(e).fontSize})),subscriptionCredit:credit?{text:credit.innerText,green:credit.classList.contains('text-emerald-300')}:null,hasCardLimit:secondary.innerText.includes('Later card limit')};})()`);
-  const expectedSmallRows=paid.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?1:[CARD_HOLD_SECURITY_POLICY_VERSION,SETUP_INTENT_SECURITY_POLICY_VERSION,SECURITY_POLICY_VERSION,REFUNDABLE_DEPOSIT_POLICY_VERSION].includes(paid.securityPolicyVersion)?2:3;
+  const expectedSmallRows=paid.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?1:([CARD_HOLD_SECURITY_POLICY_VERSION,SECURITY_POLICY_VERSION,REFUNDABLE_DEPOSIT_POLICY_VERSION].includes(paid.securityPolicyVersion)||isSetupIntentSecurityPolicy(paid.securityPolicyVersion))?2:3;
   assert.equal(summary.secondaryRows.length,expectedSmallRows,'Small rows match the accepted security policy');
   assert(summary.secondaryRows.every(e=>e.fontSize==='11px'),'Secondary subscription/security figures remain compact');
   assert.equal(summary.subscriptionCredit!==null,paid.membershipCreditApplied>0,'Subscription credit appears only when the authoritative quote actually applies it');
   if(paid.membershipCreditApplied>0)assert.equal(summary.subscriptionCredit.green,true,'Applied subscription credit is green');
   if(paid.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION)assert.equal(summary.hasCardLimit,false,'Current assessments never show a fixed future-payment ceiling');
-  if(paid.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION){const row=summary.secondaryRows.find(e=>e.text.includes('Future-claim limit'));assert(row,'SetupIntent checkout shows the concise future-claim limit');assert(row.text.includes(new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format(paid.savedCardLimit)));}
+  if(isSetupIntentSecurityPolicy(paid.securityPolicyVersion)){const row=summary.secondaryRows.find(e=>e.text.includes('Future-claim limit'));assert(row,'SetupIntent checkout shows the concise future-claim limit');assert(row.text.includes(new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format(paid.savedCardLimit)));}
   await c.evaluate(`document.querySelector('[data-testid="checkout-summary"]').scrollIntoView({block:'center'})`);
   await shot("checkout-summary-mobile");
   await shot("selected-checkout-mobile");
@@ -719,7 +719,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     assert(fixture,`Need a real catalog item in the ${band} value band`);
     const bandArgs={...args,items:[{...args.items[0],listingId:fixture._id,title:fixture.title,start:weekdayStart,end:weekdayStart}]};
     const bandQuote=await cv.action(api.checkout.priceQuote,bandArgs);
-    const version=bandQuote.securityPolicyVersion,assessmentPolicy=version===ASSESSMENT_SECURITY_POLICY_VERSION,refundablePolicy=version===REFUNDABLE_DEPOSIT_POLICY_VERSION,cardHoldPolicy=version===CARD_HOLD_SECURITY_POLICY_VERSION,setupIntentPolicy=version===SETUP_INTENT_SECURITY_POLICY_VERSION,legacySecurityPolicy=version===SECURITY_POLICY_VERSION,currentSecurityPolicy=assessmentPolicy||refundablePolicy||cardHoldPolicy||setupIntentPolicy||legacySecurityPolicy,value=bandQuote.replacementValue;
+    const version=bandQuote.securityPolicyVersion,assessmentPolicy=version===ASSESSMENT_SECURITY_POLICY_VERSION,refundablePolicy=version===REFUNDABLE_DEPOSIT_POLICY_VERSION,cardHoldPolicy=version===CARD_HOLD_SECURITY_POLICY_VERSION,setupIntentPolicy=isSetupIntentSecurityPolicy(version),legacySecurityPolicy=version===SECURITY_POLICY_VERSION,currentSecurityPolicy=assessmentPolicy||refundablePolicy||cardHoldPolicy||setupIntentPolicy||legacySecurityPolicy,value=bandQuote.replacementValue;
     const expectedDeposit=(()=>{
       if(assessmentPolicy)return bandQuote.securityWaiverReason?0:assessmentDepositFor(value);
       if(refundablePolicy)return value<1000?0:value<4000?50:100;
