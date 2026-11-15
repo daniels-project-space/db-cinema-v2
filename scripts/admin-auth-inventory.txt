@@ -849,7 +849,6 @@ export convex/checkout.ts:assertRentalBasketTrialAllowed
 export convex/checkout.ts:billingPortal
 export convex/checkout.ts:cancelByAdmin
 export convex/checkout.ts:cancelByCustomer
-export convex/checkout.ts:cancelRejectedDiditAfterResult
 export convex/checkout.ts:cancelUnpaidByCustomer
 export convex/checkout.ts:checkoutPaymentIntent
 export convex/checkout.ts:checkoutSavedCard
