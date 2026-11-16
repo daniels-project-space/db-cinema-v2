@@ -260,7 +260,9 @@ export function VerificationProgress({
     address: "A recent bill, bank statement or official address document.",
   };
   const stage =
-    booking.status === "pending_verification" && booking.verificationConfirmationIssue
+    booking.status === "pending_verification" && booking.rentalManagerSyncPending
+      ? "Rental reservation syncing"
+      : booking.status === "pending_verification" && booking.verificationConfirmationIssue
       ? booking.verificationConfirmationIssue === "inventory_unavailable" ? "Booking availability needs review" : "Booking confirmation needs review"
       : approvalUnknown && !journey.closed
       ? "Verification needs review"
@@ -303,7 +305,9 @@ export function VerificationProgress({
                     ? "Return being settled"
                     : "Rental closed"
                 : booking.status === "pending_verification"
-                  ? booking.verificationConfirmationIssue
+                  ? booking.rentalManagerSyncPending
+                    ? "Payment received — reservation syncing"
+                    : booking.verificationConfirmationIssue
                     ? "Payment received — booking not confirmed"
                     : booking.idVerifyStatus === "verified"
                     ? "Didit approved — booking finalizing"
@@ -321,7 +325,11 @@ export function VerificationProgress({
               {journey.closed
                 ? "This rental no longer accepts document uploads."
                 : booking.status === "pending_verification"
-                  ? booking.verificationConfirmationIssue === "inventory_unavailable"
+                  ? booking.rentalManagerSyncPending
+                    ? booking.idVerifyStatus === "verified"
+                      ? "Didit approved your verification. We’re still syncing the paid reservation with our equipment system. This rental is not confirmed yet; please do not pay again."
+                      : "Your payment is recorded. We’re syncing the paid reservation with our equipment system. This rental is not confirmed yet; continue verification below and please do not pay again."
+                    : booking.verificationConfirmationIssue === "inventory_unavailable"
                     ? "Didit approved your verification, but equipment availability needs a team check. This rental is not confirmed yet. We will update you here; please do not pay again."
                     : booking.verificationConfirmationIssue
                       ? "Didit approved your verification, but the booking could not be finalized automatically. The team has been alerted. This rental is not confirmed yet; please do not pay again."

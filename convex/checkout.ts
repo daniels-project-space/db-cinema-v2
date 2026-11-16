@@ -1572,6 +1572,21 @@ export const finalize = action({
         );
       } catch (error) {
         await ctx.scheduler.runAfter(60_000, internal.checkout.reconcilePendingPayments, {});
+        const errorCode = error instanceof ConvexError && typeof error.data === "object" && error.data !== null
+          ? (error.data as { code?: unknown }).code
+          : undefined;
+        if (errorCode === "STOCK_SYNC_UNAVAILABLE" || errorCode === "STOCK_CHECK_UNAVAILABLE") {
+          try {
+            const pending = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: bookingId as any });
+            if (pending?.status === "pending_verification" && pending.verificationProvider === "didit" &&
+                pending.stripeCheckoutSessionId === sessionId && typeof pending.checkoutPaidAt === "number" &&
+                Number.isSafeInteger(pending.checkoutPaidAt) && pending.checkoutPaidAt > 0)
+              return { bookingId, paid, verificationPending: true };
+          } catch {
+            // Preserve the original provider error if the paid booking cannot be
+            // re-read safely; the automatic reconciliation still runs.
+          }
+        }
         throw error;
       }
       if (confirmation.closed) {if(confirmation.duplicatePayment)await refundDuplicateCheckout(session);return { bookingId, paid, closed: true };}

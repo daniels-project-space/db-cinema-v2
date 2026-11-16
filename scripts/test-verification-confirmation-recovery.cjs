@@ -20,8 +20,9 @@ let confirmations = 0;
 let trackedPurchases = 0;
 let stockRefreshes = 0;
 let managerPushSucceeds = true;
+let stockRefreshFails = false;
 const deliveryOrder = [];
-const booking = { _id: 'bookings-fixture', status: 'pending_verification', verificationProvider: 'didit', idVerifyStatus: 'verified', stripeCheckoutSessionId: 'cs_confirmation_fixture',total:100,currency:'GBP' };
+const booking = { _id: 'bookings-fixture', status: 'pending_verification', verificationProvider: 'didit', idVerifyStatus: 'verified', stripeCheckoutSessionId: 'cs_confirmation_fixture',checkoutPaidAt:Date.now(),total:100,currency:'GBP' };
 const ctx = {
   scheduler: { runAfter: async (delay, ref, args) => scheduled.push({ delay, ref, args }) },
   runAction: async (ref, args) => {
@@ -29,6 +30,7 @@ const ctx = {
     assert.equal(ref, 'sync.syncHyggloReservations');
     assert.equal(args.force, true, 'paid confirmation must read current Rental Manager stock');
     deliveryOrder.push('live-stock');stockRefreshes++;
+    if(stockRefreshFails)throw new Error('temporary live stock refresh outage');
     return { checkedAt: Date.now() };
   },
   runQuery: async (ref, args) => {
@@ -76,6 +78,21 @@ async function quietExpectedError(run) {
   assert.equal(scheduled.at(-1).args.attempt,1,'Failed Manager delivery gets a bounded retry; payment remains recorded');
   managerPushSucceeds=true;await checkout.confirmAfterVerification.handler(ctx,{bookingId:booking._id,attempt:1});
   assert.equal(confirmations,beforeGate.confirmations+1);assert.equal(trackedPurchases,2);
+
+  managerPushSucceeds=false;
+  const confirmationsBeforeSuccessPage=confirmations,stockBeforeSuccessPage=stockRefreshes;
+  const paidPending=await checkout.finalize.handler(ctx,{sessionId:'cs_confirmation_fixture'});
+  assert.deepEqual(paidPending,{bookingId:booking._id,paid:true,verificationPending:true},'a paid booking with an unacknowledged manager sync returns its safe pending-verification destination');
+  assert.equal(confirmations,confirmationsBeforeSuccessPage,'the renter-facing fallback never confirms a booking before Rental Manager acknowledges stock');
+  assert.equal(stockRefreshes,stockBeforeSuccessPage,'the renter-facing fallback never skips past the manager acknowledgement to a stock-confirmation attempt');
+  managerPushSucceeds=true;
+
+  stockRefreshFails=true;
+  const confirmationsBeforeStockFailure=confirmations;
+  const paidStockPending=await checkout.finalize.handler(ctx,{sessionId:'cs_confirmation_fixture'});
+  assert.deepEqual(paidStockPending,{bookingId:booking._id,paid:true,verificationPending:true},'a paid booking with a failed live stock refresh still routes to its pending rental instead of a generic payment error');
+  assert.equal(confirmations,confirmationsBeforeStockFailure,'live stock refresh failure never confirms the paid rental');
+  stockRefreshFails=false;
 
   retrievalFailures = 1;
   await quietExpectedError(() => checkout.confirmAfterVerification.handler(ctx, { bookingId: booking._id, attempt: 3 }));

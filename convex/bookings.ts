@@ -2049,6 +2049,8 @@ export const verificationAccess = internalQuery({
       verificationChecks: b.verificationChecks ?? null,
       verificationNote: b.verificationNote ?? null,
       verificationConfirmationIssue: b.verificationConfirmationIssue ?? null,
+      checkoutPaidAt: b.checkoutPaidAt ?? null,
+      checkoutPaymentStatus: b.checkoutPaymentStatus ?? null,
       identityRiskNotice: b.identityRiskNotice ?? null,
       documentExpiresAt: b.documentExpiresAt ?? null,
       verificationExpiresAt: verificationValidUntil(b),
@@ -2887,6 +2889,7 @@ export const verificationProgress = query({
     for (const line of b.lineItems) if (!images.has(String(line.listingId))) images.set(String(line.listingId), listingRentalImages(await ctx.db.get(line.listingId)));
     return { _id: b._id, status: b.status, idVerifyStatus: b.idVerifyStatus ?? "required",
       verificationAvailable: verificationCanStart(b),
+      rentalManagerSyncPending: b.status === "pending_verification" && b.rmv2SyncStatus !== "delivered",
       cancellationPending: !!b.cancellationDecision && b.status !== "cancelled",
       returnPending: !!b.returnDecision && b.status !== "returned",
       idVerificationSource: b.idVerificationSource ?? null,
