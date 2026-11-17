@@ -119,7 +119,7 @@ export const recordProviderStatus=internalMutation({args:{deliveryId:v.id("renta
   const booking=await ctx.db.get(row.bookingId),account=await accountForRental(ctx,booking);
   const failureDetail:Record<string,string>={bounced:"The recipient's mail server rejected the email.",suppressed:"The email provider blocked delivery because of an earlier problem with this address.",failed:"The email provider could not send the message.",complained:"The recipient marked the email as spam."};
   await queueOwnerNotification(ctx,{eventKey:`rental-email-provider:${row._id}:${failed?"failure":delivered?"delivered":"unconfirmed"}`,kind:failed||(expired&&!delivered)?"email_failure":"email_sent",...(account?{accountId:account._id}:{}),bookingId:row.bookingId,
-   title:failed?"Booking email could not be delivered":expired&&!delivered?"Booking email delivery needs checking":"Booking email delivered",
+   title:a.status==="complained"?"Booking email marked as spam":failed?"Booking email could not be delivered":expired&&!delivered?"Booking email delivery needs checking":"Booking email delivered",
    body:failed?`${failureDetail[a.status]} Open this rental and contact the renter another way.`:expired&&!delivered?"The provider accepted the email, but delivery could not be confirmed. Check before relying on it.":"The recipient's mail server accepted the booking email. This does not confirm it was read."});
  }
  return true;
