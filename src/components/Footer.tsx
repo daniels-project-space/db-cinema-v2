@@ -86,6 +86,7 @@ export async function Footer() {
             ["/legal/rental-terms", "Rental terms"],
             ["/legal/cancellation", "Cancellation"],
             ["/legal/terms", "Terms & conditions"],
+            ["/legal/website-use", "Website use & AI"],
             ["/legal/privacy", "Privacy policy"],
           ]}
         />
@@ -93,7 +94,7 @@ export async function Footer() {
 
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 border-t border-white/5 px-6 py-6">
         <span className="font-mono text-[11px] text-white/25">
-          © 2026 Db Cinema Rentals · cinema camera &amp; film equipment hire, London
+          © {new Date().getFullYear()} DB Cinema Rentals. All rights reserved. Website content, imagery, branding and original design may not be copied or used to train AI or recreate this website without prior written permission. <Link href="/legal/website-use" className="underline hover:text-white/50">Website use &amp; AI</Link>
         </span>
         <span className="flex items-center gap-4 font-mono text-[11px] text-white/20">
           <span className="hidden sm:inline">51.5072°N 0.1276°W</span>
