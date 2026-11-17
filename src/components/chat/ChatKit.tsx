@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { BotAvatarBadge, type BotMood } from "./BotAvatar";
+import { CONTACT_EMAIL } from "@/lib/site";
 
 /** Inline **bold** segments → styled spans. */
 function bold(text: string, keyPrefix: string): ReactNode[] {
@@ -16,23 +17,47 @@ function bold(text: string, keyPrefix: string): ReactNode[] {
   );
 }
 
-/** Markdown links `[label](https://…)` → real anchors, so Gaffer can hand a customer
- * off (the FORM / SEVEN studio, the free sample) with something they can actually click.
- * http(s) only — an unrecognised scheme stays inert text rather than becoming a link. */
-const LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g;
+/** Markdown links become safe anchors. Contact routes and the approved email render
+ * as clear actions; other web links remain standard external links. */
+const LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g;
+function chatLink(raw: string): { href: string; kind: "contact" | "email" | "external" } | null {
+  if (raw.toLowerCase().startsWith("mailto:")) {
+    const address = raw.slice("mailto:".length).split("?")[0].toLowerCase();
+    if (address !== CONTACT_EMAIL.toLowerCase()) return null;
+    return { href: `mailto:${CONTACT_EMAIL}`, kind: "email" };
+  }
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (url.hostname.toLowerCase() === "dbcinemarentals.com" && url.pathname.replace(/\/$/, "") === "/contact") {
+      return { href: "/contact", kind: "contact" };
+    }
+    return { href: raw, kind: "external" };
+  } catch {
+    return null;
+  }
+}
 function inline(text: string): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
   for (const m of text.matchAll(LINK_RE)) {
     const at = m.index ?? 0;
     if (at > last) out.push(...bold(text.slice(last, at), `t${at}`));
+    const link = chatLink(m[2]);
+    if (!link) {
+      out.push(...bold(m[1], `t${at}`));
+      last = at + m[0].length;
+      continue;
+    }
+    const action = link.kind !== "external";
     out.push(
       <a
         key={`l${at}`}
-        href={m[2]}
-        target="_blank"
-        rel="noreferrer"
-        className="font-medium text-accent-300 underline decoration-accent-400/40 underline-offset-2 transition-colors hover:text-accent-200 hover:decoration-accent-300"
+        href={link.href}
+        {...(link.kind === "external" ? { target: "_blank", rel: "noreferrer" } : {})}
+        className={action
+          ? "my-1 inline-flex min-h-9 items-center rounded-xl border border-accent-200/30 bg-gradient-to-br from-accent-300/20 to-accent-500/10 px-3 py-1.5 font-semibold text-accent-100 no-underline shadow-[0_6px_20px_-12px_rgba(224,170,104,0.7)] transition hover:border-accent-200/55 hover:from-accent-300/30 hover:to-accent-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-200/70"
+          : "font-medium text-accent-300 underline decoration-accent-400/40 underline-offset-2 transition-colors hover:text-accent-200 hover:decoration-accent-300"}
       >
         {m[1]}
       </a>,

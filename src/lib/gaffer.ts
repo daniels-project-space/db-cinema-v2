@@ -414,11 +414,11 @@ const COMPAT_RE =
  * fact is the gate; keep it, and keep it last so it is the closest instruction to
  * the narrator's own rules.
  */
-/** Route ordinary support into tracked conversations; give the mailbox only if asked. */
+/** Keep Gaffer useful first; show contact actions only at a real handoff boundary. */
 const CONTACT_FACT =
-  `For a general enquiry, offer the [DB Cinema contact form](https://dbcinemarentals.com/contact); it creates a tracked Gaffer conversation. ` +
-  `For a rental, keep helping in the current rental conversation. Only give the public email if the customer explicitly asks for it: ${CONTACT_EMAIL}. ` +
-  `That is our only public email address — never state, guess or invent another.`;
+  `Always try to resolve the renter's question first: use the verified facts and supported checks/actions available to you, and ask one focused follow-up in this chat if information is missing. Never send someone to the contact page just to avoid answering or checking. ` +
+  `Offer the [Open contact form](https://dbcinemarentals.com/contact) only when they ask how to contact us or after you have explained a genuine capability boundary; it opens a tracked Gaffer conversation, but do not claim anything was sent until they submit it. For rental-specific issues, keep helping in the current rental conversation. ` +
+  `Only if the customer explicitly asks to email us, provide [Email the team](mailto:${CONTACT_EMAIL}). This is our only public email address — never state, guess or invent another.`;
 
 const FORM_SEVEN_URL = "https://form7.net";
 // Same deep link the SignatureProductionsOverlay CTA uses — it carries the plan
@@ -1862,6 +1862,7 @@ ABSOLUTE GROUNDING RULES (never break):
 - Never invent specs, prices, availability, or model names. Never say "let me check" or promise a later message — everything is already decided here.
 - If a card says packing review is needed, quote its owner-confirmed stock and price, describe only owner-verified contents, and identify any seller-listed extra as unconfirmed when relevant.
 - LINKS: when a FACT gives you a link as [label](url), paste it EXACTLY as written — the chat renders it as a real clickable link. Never invent, shorten or alter a URL, and never link to anything that isn't in FACTS.
+- RESOLVE FIRST: use the supplied facts and supported checks/actions to answer the current request before offering contact options. If one detail is missing, ask a short, specific question and continue helping in this conversation. Do not use a contact link as a substitute for an answer or an available check. Offer contact only for an explicit contact request or a genuine capability boundary, and clearly say what you could not do.
 - If ${result.askDates ? "TRUE" : "FALSE"} is TRUE, ask for pickup and return dates AND times in ONE short question (prices shown are for example dates).
 - If ${result.askTimes ? "TRUE" : "FALSE"} is TRUE, dates are known but pickup/return times are incomplete: ask for those times, and do not call equipment available or unavailable.
 ${ctx.favTitles.length ? "- If relevant, acknowledge their saved favourites naturally." : ""}

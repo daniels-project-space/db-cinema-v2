@@ -18,6 +18,7 @@ import {
 } from "@/components/icons";
 import { useAccount } from "@/components/account/AccountProvider";
 import { useCart } from "@/components/cart/CartProvider";
+import { CONTACT_EMAIL } from "@/lib/site";
 import { BotAvatar, BotAvatarBadge } from "@/components/chat/BotAvatar";
 import { ChatBubble, TypingIndicator, Chips } from "@/components/chat/ChatKit";
 import { GlowSlider } from "@/components/GlowSlider";
@@ -102,6 +103,7 @@ export function BotBubble() {
   });
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLInputElement>(null);
   const account = useAccount();
   const cart = useCart();
   const accountThread = useQuery(api.chat.myThread, account.token ? { token: account.token } : "skip");
@@ -600,6 +602,17 @@ export function BotBubble() {
                   }
                   mood={talkingIdx === mi ? "talking" : "idle"}
                 />
+                {m.role === "assistant" && (m.content.includes("dbcinemarentals.com/contact") || m.content.toLowerCase().includes(`mailto:${CONTACT_EMAIL.toLowerCase()}`)) && (
+                  <div className="ml-10 -mt-1">
+                    <button
+                      type="button"
+                      onClick={() => composerRef.current?.focus()}
+                      className="inline-flex min-h-9 items-center rounded-xl border border-white/12 bg-white/[0.045] px-3 py-1.5 text-xs font-medium text-white/70 transition hover:border-white/25 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-200/70"
+                    >
+                      Keep chatting with Gaffer
+                    </button>
+                  </div>
+                )}
                 {account.token && account.me?._id && !notificationOfferDismissed && m.id === String(firstAccountReply?._id) && <div className="ml-10 flex gap-3 rounded-2xl border border-white/15 bg-white/[0.07] p-3 text-xs text-white/80 shadow-[0_12px_32px_#0005] backdrop-blur-2xl" aria-label="Chat notifications"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-amber-100/20 bg-amber-100/[0.08] text-amber-100" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-4 w-4"><path d="M18 8a6 6 0 00-12 0v5l-2 3v1h16v-1l-2-3V8ZM9 20h6"/><path d="M18.5 3v3m-1.5-1.5h3"/></svg></span><div className="min-w-0 flex-1"><strong className="text-white">Stay in the loop</strong><p className="mt-1 leading-relaxed">Get an alert when the team replies. Tap to enable; iPhone and iPad setup includes the Home Screen steps.</p><div className="mt-3 flex items-center gap-4"><Link href="/account#chat" className="rounded-full border border-amber-100/30 bg-amber-100/[0.08] px-3 py-2 text-amber-100 transition hover:bg-amber-100/[0.14]" onClick={() => { try { sessionStorage.setItem("dbc_open_chat_notification_settings", "1"); } catch {} }}>Turn on notifications</Link><button type="button" className="text-white/50 transition hover:text-white/80" onClick={() => { try { localStorage.setItem("dbc_chat_notification_offer:" + account.me!._id, "dismissed"); } catch {} setNotificationOfferDismissed(true); }}>Later</button></div></div></div>}
                 {account.token && m.role === "assistant" && m.id && m.meta?.offerHuman && m.id === latestAccountMessageId && <HumanHandoffOffer key={`support-${m.id}`} onRequest={async () => { await requestAccountHuman({ token: account.token!, offerMessageId: m.id as any }); }} />}
                 {m.cards &&
@@ -696,6 +709,7 @@ export function BotBubble() {
           <div className="relative z-10 border-t border-white/[0.07] p-3">
             <div className="flex gap-2">
               <input
+                ref={composerRef}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && send()}
