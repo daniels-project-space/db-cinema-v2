@@ -41,7 +41,7 @@ assert.match(inboundRoute, /api\.followUp\.resolveInbound/);
 assert.match(inboundRoute, /priorMessage:[\s\S]{0,180}gaffer-follow-up/);
 const automaticReply = emailInbox.split("export const sendAssistantReply = action({")[1]?.split("export const sendOwnerReply = action({")[0] ?? "";
 assert.match(automaticReply, /gafferReplyAddress\(thread\.replyKey\)/);
-assert.match(automaticReply, /args\.humanRequested && thread\.email !== OWNER_EMAIL[\s\S]{0,80}cc: \[OWNER_EMAIL\]/, "only human handoffs CC the owner on Gaffer's customer reply");
+assert.match(automaticReply, /thread\.email !== OWNER_EMAIL[\s\S]{0,80}cc: \[OWNER_EMAIL\]/, "Gaffer replies CC the business inbox");
 assert.match(emailMailer, /sendMail, supportEmailFrom/);
 assert.match(emailMailer, /sendMail\(\{[\s\S]{0,120}from: supportEmailFrom\(\)/, "Gaffer email uses the shared booking mail transport and support sender");
 assert.doesNotMatch(automaticReply, /replyTo:\s*OWNER_EMAIL/);

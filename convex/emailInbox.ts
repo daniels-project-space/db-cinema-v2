@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { queueOwnerNotification } from "./lib/adminPush";
 import { cartLine } from "./checkoutCartData";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -292,6 +293,7 @@ async function markEmailHumanRequested(ctx: any, thread: any, message: any, inbo
     humanNotifiedAt: now,
     humanNotifiedMessageId: inboundId,
   });
+  await queueOwnerNotification(ctx, { eventKey: `email-human-request:${inboundId}`, kind: "human_request", emailThreadId: thread._id, title: "A customer needs your help by email", body: "Open the email conversation to read their message and reply." });
   await ctx.scheduler.runAfter(0, internal.notify.emailHumanRequestAlert, {
     email: thread.email,
     subject: thread.subject,
@@ -504,7 +506,7 @@ export const sendAssistantReply = action({
       subject: replySubject(thread.subject),
       html: safeHtml(text),
       replyTo: [...new Set([replyTo,OWNER_EMAIL])],
-      ...(args.humanRequested && thread.email !== OWNER_EMAIL ? { cc: [OWNER_EMAIL] } : {}),
+      ...(thread.email !== OWNER_EMAIL ? { cc: [OWNER_EMAIL] } : {}),
       deliveryKey,
       inReplyTo: inbound.messageId,
       references,
