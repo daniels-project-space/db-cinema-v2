@@ -39,7 +39,7 @@ export default defineSchema({
     emailDeliveryId:v.optional(v.id("rental_email_deliveries")),lastError:v.optional(v.string()),
   }).index("by_booking",["bookingId"]).index("by_due",["dueAt"]),
   rental_email_deliveries: defineTable({
-    bookingId: v.id("bookings"), kind: v.union(v.literal("payment"),v.literal("receipt"),v.literal("verification"),v.literal("cancellation"),v.literal("review"),v.literal("cancellation_choice"),v.literal("time_change")),
+    bookingId: v.id("bookings"), kind: v.union(v.literal("payment"),v.literal("paid_verification"),v.literal("verification_reminder"),v.literal("receipt"),v.literal("verification"),v.literal("cancellation"),v.literal("review"),v.literal("cancellation_choice"),v.literal("time_change")),
     key: v.string(), sequence: v.number(), verificationStatus: v.optional(v.string()), verificationSchedule:v.optional(v.string()),
     mode: v.optional(v.string()), refundAmount: v.optional(v.number()), creditAmount: v.optional(v.number()),
     changeDetail:v.optional(v.string()), changeSchedule:v.optional(v.string()), changeKind:v.optional(v.union(v.literal("pickup"),v.literal("return"))),

@@ -16,6 +16,7 @@ async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliv
   const account=await accountForRental(ctx,b);
   const recipient=account?.email ?? (b.accountId ? null : b.guestEmail);
   if(!recipient || (row.recipientEmail && row.recipientEmail!==recipient)) return false;
+  if(row.kind==="paid_verification"||row.kind==="verification_reminder")return b.status==="pending_verification"&&!!b.checkoutPaidAt&&b.idVerifyStatus!=="verified"&&!b.cancellationDecision&&!b.returnDecision&&account?.blockedAt==null;
   if(row.kind === "cancellation_choice"){
     const offer=b.cancellationDecision?.operatorOfferId?await ctx.db.get(b.cancellationDecision.operatorOfferId):null;
     return !!offer&&offer.emailDeliveryId===row._id&&offer.state==="email_pending"&&account?.blockedAt==null&&offer.recipientEmail===recipient&&Date.now()<(offer.choiceDeadline??0);
@@ -33,7 +34,8 @@ async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliv
   }
   if(row.kind === "verification") {
     const latest=(await ctx.db.query("rental_email_deliveries").withIndex("by_booking_kind",q=>q.eq("bookingId",b._id).eq("kind","verification")).order("desc").take(1))[0];
-    return latest?._id===row._id && b.idVerifyStatus === row.verificationStatus && ["confirmed","active"].includes(b.status) && (!row.verificationSchedule || row.verificationSchedule===pickupScheduleFingerprint(b));
+    const pendingResolution=b.status==="pending_verification"&&!!b.checkoutPaidAt&&row.verificationStatus!=="verified";
+    return latest?._id===row._id && b.idVerifyStatus === row.verificationStatus && (["confirmed","active"].includes(b.status)||pendingResolution) && (!row.verificationSchedule || row.verificationSchedule===pickupScheduleFingerprint(b));
   }
   if(row.kind === "payment")return ["confirmed","active"].includes(b.status);
   // A payment receipt remains useful after a paid rental is returned/cancelled.
@@ -45,7 +47,7 @@ async function markReviewState(ctx:MutationCtx,bookingId:Id<"bookings">,patch:an
 }
 async function flagFailure(ctx:MutationCtx,row:Doc<"rental_email_deliveries">) {
  const booking=await ctx.db.get(row.bookingId),account=await accountForRental(ctx,booking);
- if(account)await queueOwnerNotification(ctx,{eventKey:`rental-email-failed:${row._id}`,kind:"email_failure",accountId:account._id,bookingId:row.bookingId,
+ await queueOwnerNotification(ctx,{eventKey:`rental-email-failed:${row._id}`,kind:"email_failure",...(account?{accountId:account._id}:{}),bookingId:row.bookingId,
   title:"Booking email needs attention",body:`The ${row.kind} notice could not be sent after ${row.attempts} attempts. Open this rental to follow up with the renter.`});
 }
 async function dispatch(ctx:MutationCtx,id:Id<"rental_email_deliveries">) {
@@ -82,7 +84,7 @@ export const finish=internalMutation({args:{deliveryId:v.id("rental_email_delive
     reviewFollowUpReason:a.result==="retry"?(failed?"email_failed":"email_retry"):a.result==="skipped"?"notice_no_longer_applicable":undefined});
   if(a.result === "sent") {
     const booking = await ctx.db.get(row.bookingId), account = await accountForRental(ctx, booking);
-    if(account) await queueOwnerNotification(ctx, {eventKey:`rental-email-sent:${row._id}`,kind:"email_sent",accountId:account._id,bookingId:row.bookingId,title:"Booking email sent",body:`The ${row.kind} email was accepted for delivery. This does not confirm that it was read.`});
+    await queueOwnerNotification(ctx, {eventKey:`rental-email-sent:${row._id}`,kind:"email_sent",...(account?{accountId:account._id}:{}),bookingId:row.bookingId,title:"Booking email sent",body:`The ${row.kind} email was accepted for delivery. This does not confirm that it was read.`});
   }
   if(failed)await flagFailure(ctx,row);
   return true;

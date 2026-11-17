@@ -1300,6 +1300,7 @@ export convex/membershipRefundJobs.ts:enqueue
 export convex/membershipRefundJobs.ts:finish
 export convex/membershipRefundJobs.ts:flagUnallocated
 export convex/notify.ts:bookingAlert
+export convex/notify.ts:paidVerificationEmail
 export convex/notify.ts:bookingOwnerAlert
 export convex/notify.ts:cancellationEmail
 export convex/notify.ts:changeEmail

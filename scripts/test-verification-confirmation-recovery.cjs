@@ -70,6 +70,13 @@ async function quietExpectedError(run) {
   assert.deepEqual(deliveryOrder,['manager','live-stock','manager','live-stock'],'Rental Manager records the paid pending Didit window before the live stock check and booking confirmation');
 
   const beforeGate={confirmations,stockRefreshes};managerPushSucceeds=false;
+  booking.checkoutPaidAt=Date.now();
+  const pendingPage=await checkout.finalize.handler(ctx,{sessionId:'cs_confirmation_fixture'});
+  assert.equal(pendingPage.verificationPending,true,'a paid rental reaches verification while manager sync is delayed');
+  assert.equal(confirmations,beforeGate.confirmations,'showing verification does not confirm the rental');
+  booking.checkoutPaidAt=undefined;
+  await assert.rejects(checkout.finalize.handler(ctx,{sessionId:'cs_confirmation_fixture'}),/Rental Manager has not confirmed/,'an unattested payment cannot bypass the stock gate');
+  booking.checkoutPaidAt=Date.now();
   await quietExpectedError(() => checkout.confirmAfterVerification.handler(ctx,{bookingId:booking._id,attempt:0}));
   assert.equal(confirmations,beforeGate.confirmations);assert.equal(stockRefreshes,beforeGate.stockRefreshes,'Booking confirmation waits for Manager to record the paid pending reservation');
   assert.equal(scheduled.at(-1).args.attempt,1,'Failed Manager delivery gets a bounded retry; payment remains recorded');

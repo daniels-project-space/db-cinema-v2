@@ -1424,6 +1424,14 @@ export const finalize = action({
         );
       } catch (error) {
         await ctx.scheduler.runAfter(60_000, internal.checkout.reconcilePendingPayments, {});
+        const code=error instanceof ConvexError&&typeof error.data==='object'&&error.data!==null?(error.data as {code?:unknown}).code:undefined;
+        if(code==='STOCK_SYNC_UNAVAILABLE'||code==='STOCK_CHECK_UNAVAILABLE'){
+          try{
+            const pending=await ctx.runQuery(internal.bookings.verificationAccess,{bookingId:bookingId as any});
+            if(pending?.status==='pending_verification'&&pending.verificationProvider==='didit'&&pending.stripeCheckoutSessionId===sessionId&&Number.isSafeInteger(pending.checkoutPaidAt)&&pending.checkoutPaidAt!>0&&!pending.cancellationDecision&&!pending.returnDecision)
+              return {bookingId,paid,verificationPending:true};
+          }catch{/* Preserve the original error if the receipt cannot be verified. */}
+        }
         throw error;
       }
       if (confirmation.closed) {if(confirmation.duplicatePayment)await refundDuplicateCheckout(session);return { bookingId, paid, closed: true };}

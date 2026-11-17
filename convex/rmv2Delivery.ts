@@ -79,7 +79,7 @@ export const record = internalMutation({ args: { bookingId: v.id("bookings"), re
   }
   if (attempts === 3 || attempts >= 12) {
     const account = await accountForRental(ctx, booking);
-    await queueOwnerNotification(ctx, { eventKey: `rental-manager-sync:${booking._id}:${args.revision}:${attempts >= 12 ? "attention" : "retrying"}`, kind: "checkout_failure", ...(account ? { accountId: account._id } : {}), bookingId: booking._id, title: attempts >= 12 ? "Rental Manager sync needs attention" : "Rental Manager sync delayed", body: attempts >= 12 ? "The rental update could not be confirmed by Rental Manager. Check the rental and inventory before handover or further changes." : "Rental Manager has not confirmed this rental update yet. We are retrying; check inventory before handover." });
+    await queueOwnerNotification(ctx, { eventKey: `rental-manager-sync:${booking._id}:${args.revision}:${attempts >= 12 ? "attention" : "retrying"}`, kind: "checkout_failure", ...(account ? { accountId: account._id } : {}), bookingId: booking._id, title: attempts >= 12 ? "Rental has not synced to Rental Manager" : "Rental Manager sync is delayed", body: attempts >= 12 ? "This rental has not synced. Check the rental and shared availability before handover or further changes." : "The rental update is still syncing. We are retrying; check shared availability before handover." });
   }
 } });
 export const status = query({ args: { token: v.string(), bookingId: v.id("bookings") }, handler: async (ctx, args) => {

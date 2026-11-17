@@ -63,6 +63,19 @@ export const bookingOwnerAlert = internalAction({
   },
 });
 
+export const paidVerificationEmail = internalAction({
+  args:{prepareOnly:v.optional(v.boolean()),deliveryKey:v.optional(v.string()),bookingId:v.id("bookings"),reminder:v.boolean()},
+  handler:async(ctx,{bookingId,deliveryKey,prepareOnly,reminder})=>{
+    const b:any=await ctx.runQuery(internal.bookings.get,{bookingId});
+    if(!b?.guestEmail||b.status!=="pending_verification"||!b.checkoutPaidAt||b.idVerifyStatus==="verified")return null;
+    const app=process.env.APP_URL??"https://dbcinemarentals.com",url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
+    const reviewPending=["manual_review","processing"].includes(b.idVerifyStatus);
+    const title=reminder?(reviewPending?"Your rental verification is still being checked":"Reminder: complete your rental checks"):"Payment received — complete your rental checks";
+    const rows:Array<[string,string]>=b.lineItems.map((li:any)=>[`${li.title} · ${day(li.start)} to ${day(li.end)}`,emailMoney(li.lineTotal)]);rows.push(["Payment received",emailMoney(b.total)]);
+    return email(b.guestEmail,title,rentalEmail({title,preview:"Your rental still needs verification and approval.",url,button:reviewPending?"Check verification progress":"Complete verification",body:`<p>We have received your payment. Your rental still needs identity verification and approval before handover.</p>${emailRows(rows)}${reviewPending?"<p>Your verification is being processed or reviewed; open your rental for its latest status.</p>":""}<p>If prompted, sign in or create an account using the email address used for this booking. Need help? Reply to this email.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
+  },
+});
+
 export const bookingAlert = internalAction({
   args: { prepareOnly:v.optional(v.boolean()), deliveryKey:v.optional(v.string()), bookingId: v.id("bookings") },
   handler: async (ctx, { prepareOnly, deliveryKey, bookingId }) => {
@@ -92,7 +105,8 @@ export const verificationEmail = internalAction({
   args: { prepareOnly:v.optional(v.boolean()), deliveryKey:v.optional(v.string()), bookingId: v.id("bookings"), status: v.string() },
   handler: async (ctx, { prepareOnly, deliveryKey, bookingId, status }):Promise<any> => {
     const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
-    if (!b || !b.guestEmail || b.idVerifyStatus!==status || !["confirmed","active"].includes(b.status) || status === "verified" && verificationExpired(b)) return null;
+    const pendingResolution=b?.status==="pending_verification"&&!!b.checkoutPaidAt&&status!=="verified";
+    if (!b || !b.guestEmail || b.idVerifyStatus!==status || (!["confirmed","active"].includes(b.status)&&!pendingResolution) || status === "verified" && verificationExpired(b)) return null;
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
     const messages:Record<string,{title:string;body:string;button:string}>={

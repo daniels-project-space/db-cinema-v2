@@ -305,7 +305,7 @@ export function VerificationProgress({
                     ? "Payment received — booking not confirmed"
                     : booking.idVerifyStatus === "verified"
                     ? "Didit approved — booking finalizing"
-                    : "Payment received — booking not confirmed"
+                    : "Payment received — complete verification"
                 : approvalUnknown
                   ? "Verification needs a team check"
                   : approved
