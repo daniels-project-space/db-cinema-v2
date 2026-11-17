@@ -188,7 +188,8 @@ const voice = load("convex/voice.ts");
   assert.match(site, /CONTACT_EMAIL\s*=\s*BUSINESS_CONTACT_EMAIL/, "public contact pages inherit the canonical business email");
   assert.match(emailLink, /CONTACT_EMAIL/, "public email links use the canonical address");
   assert.match(gafferSource, /tracked Gaffer conversation/, "Gaffer routes ordinary support into the tracked contact conversation");
-  assert.doesNotMatch(gafferSource, /mailto:\$\{CONTACT_EMAIL\}/, "Gaffer does not bypass conversation tracking with a direct mail link");
+  assert.match(gafferSource, /Only if the customer explicitly asks to email us, provide \[Email the team\]\(mailto:\$\{CONTACT_EMAIL\}\)/, "Gaffer offers the centralized email only when the renter requests email");
+  assert.match(gafferSource, /Always try to resolve the renter's question first/, "Gaffer attempts the answer before a contact handoff");
   assert.match(invoiceDocument, /CONTACT_EMAIL/, "rental invoices use the same canonical business contact address");
   assert.match(swapAdjustmentDocument, /CONTACT_EMAIL/, "adjustment invoices use the same canonical business contact address");
 
