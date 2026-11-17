@@ -596,6 +596,8 @@ export const recordPaidCheckoutReceipt = internalMutation({
       await ctx.db.patch(hold._id, { holdExpiresAt: undefined });
     if (changed || holds.some((hold: any) => hold.status === "hold" && hold.holdExpiresAt !== undefined))
       await queueRmv2Sync(ctx, bookingId);
+    if(awaitingDidit && isSavedCardRental(booking) && booking.savedCardStatus!=="saved")
+      await ctx.scheduler.runAfter(0,internal.checkout.recoverPendingSavedCard,{bookingId,attempt:1});
     if (awaitingDidit && booking.idVerifyStatus === "verified")
       await ctx.scheduler.runAfter(15 * 60000, internal.checkout.confirmAfterVerification, { bookingId, attempt: 1 });
     return { recorded: true, checkoutPaidAt, awaitingVerification: awaitingDidit };

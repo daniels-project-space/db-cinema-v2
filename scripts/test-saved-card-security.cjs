@@ -118,6 +118,15 @@ const actionCtx={runQuery:async(ref,args)=>{
  assert.equal(await cards.save.handler(ctx,{bookingId:waiting._id,sessionId:'cs_foreign',customerId:'cus_owned',paymentMethodId:'pm_owned'}),false);
  assert.equal(await cards.save.handler(ctx,{bookingId:waiting._id,sessionId:'cs_owned',customerId:'cus_owned',paymentMethodId:'pm_owned'}),true);
  await assert.rejects(cards.save.handler(ctx,{bookingId:waiting._id,sessionId:'cs_owned',customerId:'cus_other',paymentMethodId:'pm_other'}),/replay/);
+ const guest=rental({status:'pending_verification',accountId:undefined,guestEmail:'guest@example.invalid',returnDecision:undefined,actualReturnedAt:undefined,stripeCheckoutSessionId:'cs_guest',savedCardStatus:'awaiting_payment',savedCardCustomerId:undefined,savedCardPaymentMethodId:undefined});
+ assert.equal(await cards.save.handler(ctx,{bookingId:guest._id,sessionId:'cs_guest',customerId:'cus_guest',paymentMethodId:'pm_guest'}),false,'unpaid pending rentals cannot save');
+ guest.checkoutPaidAt=Date.now();
+ assert.equal(await cards.save.handler(ctx,{bookingId:guest._id,sessionId:'cs_wrong',customerId:'cus_guest',paymentMethodId:'pm_guest'}),false);
+ const originalConsent=guest.savedCardConsentText;guest.savedCardConsentText='tampered';
+ await assert.rejects(cards.save.handler(ctx,{bookingId:guest._id,sessionId:'cs_guest',customerId:'cus_guest',paymentMethodId:'pm_guest'}),/consent/);
+ guest.savedCardConsentText=originalConsent;
+ assert.equal(await cards.save.handler(ctx,{bookingId:guest._id,sessionId:'cs_guest',customerId:'cus_guest',paymentMethodId:'pm_guest'}),true,'paid guest receipt is bound to this rental');
+ assert.equal(guest.status,'pending_verification','saving a card never confirms verification or booking');
  const closed=rental();await db.patch(closed._id,{returnDecision:{...closed.returnDecision,actualReturnedAt:closed.actualReturnedAt}});await cards.markReturn.handler(ctx,{bookingId:closed._id});assert.equal(closed.returnedAt,closed.actualReturnedAt,'The physical return starts the account document-retention clock');assert.equal(closed.depositRefundAmount,0);assert.equal(closed.depositHoldCapturedForDamage,0);
  const awaitingQuote=rental({returnDecision:{damageKept:0,inspection:[{condition:'issue',details:'Repair quote pending'}]}});await prepare(awaitingQuote,'damage',20,'first-repair-quote');assert.equal(awaitingQuote.savedCardDamageAssessed,20);await assert.rejects(prepare(awaitingQuote,'damage',20,'duplicate-repair-quote'),/remaining recorded/);
  const returnAt=Date.now(),goodInspection={key:'canonical-1',title:'Canonical camera',condition:'good',details:'',openCase:false};

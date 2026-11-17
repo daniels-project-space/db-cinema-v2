@@ -33,7 +33,7 @@
     "test:return-review": "node scripts/test-return-preview.cjs && node scripts/test-return-preview-pdf.cjs && node scripts/test-return-inspection.cjs",
     "test:invoice-ownership": "node scripts/test-invoice-ownership.cjs",
     "test:checkout-draft-browser": "node scripts/test-checkout-draft-browser.cjs",
-    "test:saved-card-security": "node scripts/test-saved-card-security.cjs",
+    "test:saved-card-security": "node scripts/test-saved-card-security.cjs && node scripts/test-paid-pending-card.cjs",
     "submit:indexnow": "node scripts/submit-indexnow.cjs",
     "test:invoice-snapshot": "node scripts/test-invoice-snapshot.cjs"
   },
