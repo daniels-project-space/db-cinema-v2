@@ -17,10 +17,14 @@ function bold(text: string, keyPrefix: string): ReactNode[] {
   );
 }
 
-/** Markdown links become safe anchors. Contact routes and the approved email render
- * as clear actions; other web links remain standard external links. */
-const LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g;
+/** Contact details become clear actions even when the model accidentally emits a
+ * bare URL or address instead of Markdown. Other web links must be Markdown links. */
+const LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)|(https?:\/\/[^\s<>()]+|mailto:[^\s<>()]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/gi;
+const CONTACT_ACTION_RE = /(?:https?:\/\/(?:www\.)?dbcinemarentals\.com\/contact\/?(?:[?#][^\s<>()]*)?|mailto:bookings@dbcinemarentals\.com|bookings@dbcinemarentals\.com)/i;
 function chatLink(raw: string): { href: string; kind: "contact" | "email" | "external" } | null {
+  if (raw.toLowerCase() === CONTACT_EMAIL.toLowerCase()) {
+    return { href: `mailto:${CONTACT_EMAIL}`, kind: "email" };
+  }
   if (raw.toLowerCase().startsWith("mailto:")) {
     const address = raw.slice("mailto:".length).split("?")[0].toLowerCase();
     if (address !== CONTACT_EMAIL.toLowerCase()) return null;
@@ -29,7 +33,7 @@ function chatLink(raw: string): { href: string; kind: "contact" | "email" | "ext
   try {
     const url = new URL(raw);
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    if (url.hostname.toLowerCase() === "dbcinemarentals.com" && url.pathname.replace(/\/$/, "") === "/contact") {
+    if (["dbcinemarentals.com", "www.dbcinemarentals.com"].includes(url.hostname.toLowerCase()) && url.pathname.replace(/\/$/, "") === "/contact") {
       return { href: "/contact", kind: "contact" };
     }
     return { href: raw, kind: "external" };
@@ -37,15 +41,30 @@ function chatLink(raw: string): { href: string; kind: "contact" | "email" | "ext
     return null;
   }
 }
+
+export function hasChatContactAction(text: string): boolean {
+  return CONTACT_ACTION_RE.test(text);
+}
+
 function inline(text: string): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
   for (const m of text.matchAll(LINK_RE)) {
     const at = m.index ?? 0;
     if (at > last) out.push(...bold(text.slice(last, at), `t${at}`));
-    const link = chatLink(m[2]);
+    const isMarkdown = m[1] !== undefined;
+    const matchedRaw = m[2] ?? m[3];
+    const raw = isMarkdown ? matchedRaw : matchedRaw.replace(/[.,!;:]+$/, "");
+    const trailing = isMarkdown ? "" : matchedRaw.slice(raw.length);
+    const label = m[1] ?? (raw.toLowerCase().includes("@") ? "Email the team" : "Open contact form");
+    const link = chatLink(raw);
     if (!link) {
-      out.push(...bold(m[1], `t${at}`));
+      out.push(...bold(isMarkdown ? label : matchedRaw, `t${at}`));
+      last = at + m[0].length;
+      continue;
+    }
+    if (!isMarkdown && link.kind === "external") {
+      out.push(matchedRaw);
       last = at + m[0].length;
       continue;
     }
@@ -59,9 +78,10 @@ function inline(text: string): ReactNode[] {
           ? "my-1 inline-flex min-h-9 items-center rounded-xl border border-accent-200/30 bg-gradient-to-br from-accent-300/20 to-accent-500/10 px-3 py-1.5 font-semibold text-accent-100 no-underline shadow-[0_6px_20px_-12px_rgba(224,170,104,0.7)] transition hover:border-accent-200/55 hover:from-accent-300/30 hover:to-accent-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-200/70"
           : "font-medium text-accent-300 underline decoration-accent-400/40 underline-offset-2 transition-colors hover:text-accent-200 hover:decoration-accent-300"}
       >
-        {m[1]}
+        {label}
       </a>,
     );
+    if (trailing) out.push(...bold(trailing, `t${at}tail`));
     last = at + m[0].length;
   }
   if (last < text.length) out.push(...bold(text.slice(last), `t${last}`));

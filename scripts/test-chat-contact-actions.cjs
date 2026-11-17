@@ -33,15 +33,28 @@ function anchors(node, result = []) {
   return result;
 }
 
-const { ChatBubble } = mod.exports;
+const { ChatBubble, hasChatContactAction } = mod.exports;
 const contact = anchors(ChatBubble({ role: "assistant", text: "Need us? [Open contact form](https://dbcinemarentals.com/contact)" }))[0];
 assert.equal(contact.props.href, "/contact", "the contact CTA uses the site route");
 assert.match(contact.props.className, /inline-flex/, "the contact route is visibly button-like");
 assert.equal(contact.props.target, undefined, "the internal contact form opens in the current tab");
 
+const pastedContact = anchors(ChatBubble({ role: "assistant", text: "You can also reach us at https://dbcinemarentals.com/contact." }))[0];
+assert.equal(pastedContact.props.href, "/contact", "a pasted contact URL becomes an internal action");
+assert.equal(pastedContact.props.children, "Open contact form", "the pasted URL is replaced with a clear action label");
+const wwwContact = anchors(ChatBubble({ role: "assistant", text: "https://www.dbcinemarentals.com/contact/" }))[0];
+assert.equal(wwwContact.props.href, "/contact", "the www contact URL also stays inside the site");
+
 const email = anchors(ChatBubble({ role: "assistant", text: "[Email the team](mailto:bookings@dbcinemarentals.com)" }))[0];
 assert.equal(email.props.href, "mailto:bookings@dbcinemarentals.com");
 assert.match(email.props.className, /inline-flex/, "the approved email action is visibly button-like");
+
+const pastedEmail = anchors(ChatBubble({ role: "assistant", text: "Email bookings@dbcinemarentals.com" }))[0];
+assert.equal(pastedEmail.props.href, "mailto:bookings@dbcinemarentals.com", "a pasted approved email becomes an email action");
+assert.equal(pastedEmail.props.children, "Email the team");
+assert.equal(hasChatContactAction("Need help? https://dbcinemarentals.com/contact"), true);
+assert.equal(hasChatContactAction("You can also email bookings@dbcinemarentals.com"), true);
+assert.equal(hasChatContactAction("A normal rental answer with no contact handoff"), false);
 
 assert.equal(anchors(ChatBubble({ role: "assistant", text: "[Email](mailto:someone-else@example.com)" })).length, 0,
   "unapproved mailboxes never become clickable chat actions");

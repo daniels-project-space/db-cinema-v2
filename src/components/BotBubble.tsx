@@ -18,9 +18,8 @@ import {
 } from "@/components/icons";
 import { useAccount } from "@/components/account/AccountProvider";
 import { useCart } from "@/components/cart/CartProvider";
-import { CONTACT_EMAIL } from "@/lib/site";
 import { BotAvatar, BotAvatarBadge } from "@/components/chat/BotAvatar";
-import { ChatBubble, TypingIndicator, Chips } from "@/components/chat/ChatKit";
+import { ChatBubble, TypingIndicator, Chips, hasChatContactAction } from "@/components/chat/ChatKit";
 import { GlowSlider } from "@/components/GlowSlider";
 import { GafferCall } from "@/components/GafferCall";
 import { useGafferSession } from "@/components/gaffer/GafferSession";
@@ -602,7 +601,7 @@ export function BotBubble() {
                   }
                   mood={talkingIdx === mi ? "talking" : "idle"}
                 />
-                {m.role === "assistant" && (m.content.includes("dbcinemarentals.com/contact") || m.content.toLowerCase().includes(`mailto:${CONTACT_EMAIL.toLowerCase()}`)) && (
+                {m.role === "assistant" && hasChatContactAction(m.content) && (
                   <div className="ml-10 -mt-1">
                     <button
                       type="button"
