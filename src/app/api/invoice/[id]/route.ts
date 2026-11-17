@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { createElement } from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { AssessmentStatementDocument, InvoiceDocument, ReturnStatementDocument } from "@/lib/invoice/InvoiceDocument";
+import { SwapAdjustmentDocument } from "@/lib/invoice/SwapAdjustmentDocument";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +16,44 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   const convex = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!convex) return new Response("not configured", { status: 500 });
+
+  if (sp.get("phase") === "swap-adjustment") {
+    const internalKey = req.headers.get("x-invoice-key");
+    const receiptId = sp.get("receiptId");
+    if (!internalKey || !receiptId) return new Response("Not found or unauthorized", { status: 403 });
+    let adjustment: any = null;
+    try {
+      const r = await fetch(`${convex}/api/query`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          path: "invoiceAdjustments:swapAdjustmentInvoiceData",
+          args: { receiptId, bookingId: id, key: internalKey },
+          format: "json",
+        }),
+        cache: "no-store",
+      });
+      const j = await r.json();
+      adjustment = j?.status === "success" ? j.value : null;
+    } catch {
+      return new Response("upstream error", { status: 502 });
+    }
+    if (!adjustment) return new Response("Not found or unauthorized", { status: 403 });
+    try {
+      const document = createElement(SwapAdjustmentDocument, { data: adjustment });
+      const buf = await renderToBuffer(document as Parameters<typeof renderToBuffer>[0]);
+      const safeNumber = String(adjustment.documentNumber).replace(/[^a-z0-9_-]/gi, "");
+      return new Response(new Uint8Array(buf), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${safeNumber}.pdf"`,
+          "Cache-Control": "private, no-store",
+        },
+      });
+    } catch {
+      return new Response("PDF rendering failed", { status: 502 });
+    }
+  }
 
   let data: any = null;
   try {

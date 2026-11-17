@@ -66,23 +66,25 @@ function useVerificationClock(booking?: VerificationBooking | null) {
 export function VerificationBar({
   booking,
   now: providedNow,
+  compact = false,
 }: {
   booking: VerificationBooking;
   now?: number;
+  compact?: boolean;
 }) {
   const clock = useVerificationClock(booking);
   const { steps, current } = verificationJourney(booking, providedNow ?? clock);
   return (
     <ol
       aria-label="Verification progress"
-      className={styles.steps}
-      style={{ gridTemplateColumns: `repeat(${steps.length},minmax(0,1fr))` }}
+      className={`${styles.steps} ${compact ? styles.stepsCompact : ""}`}
+      style={compact ? undefined : { gridTemplateColumns: `repeat(${steps.length},minmax(0,1fr))` }}
     >
       {steps.map((step, i) => (
         <li
           key={step.label}
           aria-current={i === current ? "step" : undefined}
-          className={`${styles.step} ${step.done ? styles.stepDone : i === current ? styles.stepCurrent : ""}`}
+          className={`${styles.step} ${compact ? styles.stepCompact : ""} ${step.done ? styles.stepDone : i === current ? styles.stepCurrent : ""}`}
         >
           <span aria-hidden className={styles.circle}>
             {step.done ? <IconCheck className="h-4 w-4" /> : i + 1}
@@ -257,8 +259,13 @@ export function VerificationProgress({
     selfie: "A quick selfie to match your photo ID.",
     address: "A recent bill, bank statement or official address document.",
   };
+  const managerCapacityConflict = booking.verificationConfirmationIssue === "manager_capacity_conflict";
   const stage =
-    booking.status === "pending_verification" && booking.verificationConfirmationIssue
+    booking.status === "pending_verification" && managerCapacityConflict
+      ? "Equipment reservation needs review"
+      : booking.status === "pending_verification" && booking.rentalManagerSyncPending
+      ? "Rental reservation syncing"
+      : booking.status === "pending_verification" && booking.verificationConfirmationIssue
       ? booking.verificationConfirmationIssue === "inventory_unavailable" ? "Booking availability needs review" : "Booking confirmation needs review"
       : approvalUnknown && !journey.closed
       ? "Verification needs review"
@@ -301,7 +308,11 @@ export function VerificationProgress({
                     ? "Return being settled"
                     : "Rental closed"
                 : booking.status === "pending_verification"
-                  ? booking.verificationConfirmationIssue
+                  ? managerCapacityConflict
+                    ? "Payment received — stock reservation needs review"
+                    : booking.rentalManagerSyncPending
+                    ? "Payment received — reservation syncing"
+                    : booking.verificationConfirmationIssue
                     ? "Payment received — booking not confirmed"
                     : booking.idVerifyStatus === "verified"
                     ? "Didit approved — booking finalizing"
@@ -319,7 +330,13 @@ export function VerificationProgress({
               {journey.closed
                 ? "This rental no longer accepts document uploads."
                 : booking.status === "pending_verification"
-                  ? booking.verificationConfirmationIssue === "inventory_unavailable"
+                  ? managerCapacityConflict
+                    ? "Rental Manager could not reserve the selected equipment after payment. This rental is not confirmed; our team is checking stock and payment. Please do not pay again."
+                    : booking.rentalManagerSyncPending
+                    ? booking.idVerifyStatus === "verified"
+                      ? "Didit approved your verification. We’re still syncing the paid reservation with our equipment system. This rental is not confirmed yet; please do not pay again."
+                      : "Your payment is recorded. We’re syncing the paid reservation with our equipment system. This rental is not confirmed yet; continue verification below and please do not pay again."
+                    : booking.verificationConfirmationIssue === "inventory_unavailable"
                     ? "Didit approved your verification, but equipment availability needs a team check. This rental is not confirmed yet. We will update you here; please do not pay again."
                     : booking.verificationConfirmationIssue
                       ? "Didit approved your verification, but the booking could not be finalized automatically. The team has been alerted. This rental is not confirmed yet; please do not pay again."

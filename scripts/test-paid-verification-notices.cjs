@@ -15,9 +15,16 @@ async function run(id){await delivery.dispatchOne.handler(ctx,{deliveryId:id});a
  await run(payment);assert.equal(get(payment).state,'sent');assert.match(sent[0].subject,/Payment received/);assert.match(sent[0].html,/verification/i);
  await delivery.dispatchOne.handler(ctx,{deliveryId:reminder});assert.equal(get(reminder).state,'pending');
  now+=12*3600000;await run(reminder);assert.equal(get(reminder).state,'sent');assert.match(sent[1].subject,/Reminder/);
+ const pendingReview=h.put('bookings',{...booking,_id:'bookings-review-pending',idVerifyStatus:'manual_review'});
+ const reviewMail=await queue.queueRentalEmail(ctx,pendingReview._id,'paid_verification');await run(reviewMail);assert.equal(get(reviewMail).state,'sent');assert.match(sent.at(-1).subject,/verification in progress/i);assert.match(sent.at(-1).html,/No further action is needed/i);assert.match(sent.at(-1).html,/Check verification progress/);
+ const declined=h.put('bookings',{...booking,_id:'bookings-declined',idVerifyStatus:'required'});
+ const declinedPayment=await queue.queueRentalEmail(ctx,declined._id,'paid_verification');const declinedReminder=await queue.queueRentalEmail(ctx,declined._id,'verification_reminder',{dueAt:now+3600000});declined.idVerifyStatus='rejected';
+ await run(declinedPayment);assert.equal(get(declinedPayment).state,'skipped','A delayed payment email is suppressed after Didit rejects the renter');
+ now+=3600000;await run(declinedReminder);assert.equal(get(declinedReminder).state,'skipped','A scheduled reminder is suppressed after Didit rejects the renter');
+ assert.equal(await notify.paidVerificationEmail.handler(ctx,{bookingId:declined._id,reminder:true}),null,'The email action refuses to send a rejected renter a verification-completion reminder');
  const second=h.put('bookings',{...booking,_id:'bookings-verified',idVerifyStatus:'required'});
  const cancelled=await queue.queueRentalEmail(ctx,second._id,'verification_reminder',{dueAt:now+12*3600000});second.idVerifyStatus='verified';now+=12*3600000;
- await delivery.dispatchOne.handler(ctx,{deliveryId:cancelled});assert.equal(get(cancelled).state,'skipped');assert.equal(sent.length,2);
+ const sentBeforeSuppression=sent.length;await delivery.dispatchOne.handler(ctx,{deliveryId:cancelled});assert.equal(get(cancelled).state,'skipped');assert.equal(sent.length,sentBeforeSuppression);
  const manual=h.put('bookings',{...booking,_id:'bookings-manual',checkoutPaidAt:now-1000,idVerifyStatus:'required'});
  assert.equal(await bookings.scheduleManualVerificationReminder.handler(ctx,{bookingId:manual._id,initialSentAt:now-500}),true);
  const manualRow=(h.tables.get('rental_email_deliveries')||[]).find(r=>r.bookingId===manual._id);

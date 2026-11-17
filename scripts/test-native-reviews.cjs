@@ -8,7 +8,7 @@ const account=put('accounts',{email:'review@test.invalid',name:'Reviewer',avatar
 put('sessions',{token:'owner',accountId:account._id,expiresAt:Date.now()+100000});
 put('sessions',{token:'expired',accountId:account._id,expiresAt:Date.now()-1});
 const foreign=put('accounts',{email:'other@test.invalid'});put('sessions',{token:'foreign',accountId:foreign._id,expiresAt:Date.now()+100000});
-const booking=put('bookings',{status:'returned',guestEmail:account.email,total:120,depositAmount:20,depositRefundAmount:20,depositRefunded:true,stripePaymentIntentId:'pi_card',stripeDepositIntentId:'pi_hold',depositHoldAmount:40,depositHoldStatus:'released',lineItems:[{title:'Camera',listingId:'gear',start:0,end:0}]});
+const booking=put('bookings',{status:'returned',guestEmail:account.email,total:120,depositAmount:20,depositRefundAmount:20,depositRefunded:true,stripePaymentIntentId:'pi_card',stripeDepositIntentId:'pi_hold',depositHoldAmount:40,depositHoldStatus:'released',reviewFollowUpDueAt:Date.now()-1,lineItems:[{title:'Camera',listingId:'gear',start:0,end:0}]});
 const ctx={db,storage:{getUrl:async id=>'https://storage.test/'+id},runQuery:async(ref,args)=>invitations.ownedContext.handler(ctx,args),runMutation:async(ref,args)=>invitations.recordEligibility.handler(ctx,args)};
 const args={token:'owner',bookingId:booking._id,rating:5,text:'Excellent camera rental and helpful team.'};
 const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process.env.STRIPE_SECRET_KEY='fixture';process.env.ADMIN_TOKEN='review-admin-test';
@@ -44,23 +44,26 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  const pending=put('rental_additions',{bookingId:booking._id,status:'withdrawn',paymentIntentId:'pi_unapplied',securityCharge:10});
  await assert.rejects(reviews.submitNative.handler(ctx,args),/fully settled/,'changed payment sources invalidate prior receipt');await db.delete(pending._id);await actions.checkEligibility.handler(ctx,args);
  await reviews.submitNative.handler(ctx,args);await assert.rejects(reviews.submitNative.handler(ctx,args),/already/);
- const carousel=await reviews.listPublished.handler(ctx,{});assert.equal(carousel[0].authorImage,'https://storage.test/avatar');assert.equal(carousel[0].rating,5);
- const nativeCarousel=await reviews.listNativePublished.handler(ctx,{limit:50});assert.equal(nativeCarousel.length,1);assert.equal(nativeCarousel[0]._id,carousel[0]._id);assert.equal(nativeCarousel[0].source,'native','The live renter carousel selects newly submitted native reviews');
+ let carousel=await reviews.listPublished.handler(ctx,{});assert.equal(carousel[0].authorImage,null,'A profile photo stays private unless the renter opts in');assert.equal(carousel[0].rating,5);
+ const nativeCarousel=await reviews.listNativePublished.handler(ctx,{limit:50});assert.equal(nativeCarousel.length,1);assert.equal(nativeCarousel[0]._id,carousel[0]._id);assert.equal(nativeCarousel[0].source,'native','The live renter carousel selects newly submitted native reviews');assert.equal(nativeCarousel[0].authorImage,null);
+ const submittedReview=tables.get('reviews').find(row=>row.verifiedBookingId===booking._id);assert.equal(submittedReview.authorImagePublic,false,'Public photo consent defaults off');
+ await db.patch(submittedReview._id,{authorImagePublic:true});assert.equal((await reviews.listNativePublished.handler(ctx,{limit:50}))[0].authorImage,'https://storage.test/avatar','An opted-in review follows the current profile photo');
+ carousel=await reviews.listPublished.handler(ctx,{});assert.equal(carousel[0].authorImage,'https://storage.test/avatar');
  await db.patch(account._id,{avatarOwnedStorageId:undefined});
- assert.equal((await reviews.listNativePublished.handler(ctx,{limit:50}))[0].authorImage,null,'Untrusted legacy avatar and stored native review snapshot are hidden');
+ assert.equal((await reviews.listNativePublished.handler(ctx,{limit:50}))[0].authorImage,null,'Removing an avatar removes it from public reviews');
  await db.patch(account._id,{avatarOwnedStorageId:'avatar'});
  assert.equal((await reviews.stats.handler(ctx,{})).average,5);
  // Import dates must not crowd verified website reviews out of the homepage.
  for(let i=0;i<100;i++)put('reviews',{source:'hygglo',published:true,sourceRatingVerified:true,sourceRating:5,sourcePhotoVerified:true,author:'Imported '+i,authorImage:'https://hygglo.imgix.net/profile-'+i+'.jpg',rating:5,text:'A genuine imported rental review.',date:Date.now()+i+10000});
  put('reviews',{source:'hygglo',published:true,author:'Unverified imported review',authorImage:'https://hygglo.imgix.net/profile-unverified.jpg',rating:5,text:'This source rating was never confirmed.',date:Date.now()+50000});
- put('reviews',{source:'native',published:true,author:'Second website reviewer',authorAccountId:foreign._id,rating:2,text:'A verified rental with useful critical feedback.',date:1});
+ put('reviews',{source:'native',published:true,author:'Second website reviewer',authorAccountId:foreign._id,authorImagePublic:true,rating:2,text:'A verified rental with useful critical feedback.',date:1});
  await db.patch(foreign._id,{googleAvatarUrl:'https://profiles.test/second.jpg'});
  put('reviews',{source:'native',published:false,author:'Unpublished',rating:5,text:'This review must not appear.',date:Date.now()+999999});
- const mixed=await reviews.listPublished.handler(ctx,{limit:18});assert.equal(mixed.length,18);assert.equal(mixed[0].source,'native');assert.equal(mixed[1].source,'hygglo');assert.equal(mixed[2].source,'hygglo');assert.equal(mixed[3].source,'native');assert.equal(mixed[3].rating,2,'critical website feedback uses the same selection');assert.equal(mixed[3].authorImage,'https://profiles.test/second.jpg');assert(!mixed.some(r=>r.author==='Unpublished'));assert(!('authorAccountId' in mixed[0])&&!('verifiedBookingId' in mixed[0]),'public cards contain no private identifiers');
+ const mixed=await reviews.listPublished.handler(ctx,{limit:18});assert.equal(mixed.length,18);assert.equal(mixed[0].source,'native');assert.equal(mixed[1].source,'hygglo');assert.equal(mixed[2].source,'hygglo');assert.equal(mixed[3].source,'native');assert.equal(mixed[3].rating,2,'critical website feedback uses the same selection');assert.equal(mixed[3].authorImage,'https://profiles.test/second.jpg','An opted-in Google profile photo can appear in a public review');assert(!mixed.some(r=>r.author==='Unpublished'));assert(!('authorAccountId' in mixed[0])&&!('verifiedBookingId' in mixed[0]),'public cards contain no private identifiers');
  const highlights=await reviews.listVerifiedHyggloHighlights.handler(ctx,{limit:100});assert.equal(highlights.length,100);assert(highlights.every(r=>r.rating===5&&r.authorImage.startsWith('https://hygglo.imgix.net/')&&r.text.length>8));assert(!highlights.some(r=>r.author==='Unverified imported review'));
  assert.equal((await reviews.listVerifiedHyggloHighlights.handler(ctx,{limit:101})).length,100,'the homepage caps the showcase at 100 verified source reviews');
  const aggregate=await reviews.stats.handler(ctx,{});assert.equal(aggregate.count,102,'the aggregate includes every published verified import and native review');assert.equal(aggregate.average,4.97,'the score averages all published verified imports and native reviews');
- await db.patch(account._id,{avatarStorageId:'updated-avatar',avatarOwnedStorageId:'updated-avatar'});assert.equal((await reviews.listPublished.handler(ctx,{limit:1}))[0].authorImage,'https://storage.test/updated-avatar','profile changes flow into live cards');
+ await db.patch(account._id,{avatarStorageId:'updated-avatar',avatarOwnedStorageId:'updated-avatar'});assert.equal((await reviews.listPublished.handler(ctx,{limit:1}))[0].authorImage,'https://storage.test/updated-avatar','Opted-in profile changes flow into live cards');
  const importItem={hyggloReviewId:123,author:'Film Crew',authorImage:sourceReview.author.profileImage.fullSizeUrl,rating:5,sourceRating:5,sourcePhotoVerified:true,text:'Accurate source review.',product:'Cinema Camera',listingSlug:'camera-kit',date:Date.parse(sourceReview.createdAt)};
  assert.equal((await reviews.insertChunk.handler(ctx,{token:'review-admin-test',items:[importItem]})).upserted,1);
  let stored= tables.get('reviews').filter(r=>r.source==='hygglo'&&r.hyggloReviewId===123);
@@ -82,7 +85,8 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  assert(closingStyles.includes('pointer-events: none')&&closingStyles.includes('prefers-reduced-motion: reduce'),'Keep the closing lights decorative and respect reduced motion');
  assert(home.includes('<HowItWorksSteps />'),'Use the enlarged animated four-step feature cards');
  assert.match(home,/<HyggloReviewRows reviews=\{hyggloReviews\} \/>[\s\S]*<ReviewCarousel \/>[\s\S]*<HomeStats ratingValue=\{rating\.ratingValue\} reviewCount=\{rating\.reviewCount\} itemCount=\{itemCount\} \/>/,'Place the three animated trust figures below both review carousels');
- assert.match(home,/\{hyggloReviews\.length > 0 && <HyggloReviewRows reviews=\{hyggloReviews\} \/>\}/,'Imported rows render independently of the native carousel');
+ assert.match(home,/\{hyggloReviews\.length > 0 && <HyggloReviewRows reviews=\{hyggloReviews\} \/>\}/,'Show available imported rows independently of the native carousel');
+
  assert(carouselUi.includes('api.reviews.listNativePublished'),'The live website-review carousel reads its native-only reactive feed');
  assert(carouselUi.includes('Reviews from our renters'),'Label the website-submitted review carousel clearly');
  assert(stepsStyles.includes('.copy { padding-bottom: 4rem; }'),'Keep mobile step copy clear of the floating contact button');
@@ -94,7 +98,8 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  assert(fs.readFileSync('src/components/DeliveryProtectionTile.tsx','utf8').includes('}, 5000);'),'Rotate delivery and protection headlines every five seconds');
  assert.match(reviewsRoute,/redirect\("\/#reviews"\)/,'Make the direct /reviews path land on the homepage review section');
  assert.match(home,/ratingValue: 4\.73, reviewCount: 1300, reviewCountLabel: "1,300\+"/,'Use the full profile-wide rating and review-count floor');
- assert(!hero.includes('reviewCountLabel')&&!hero.includes('renter reviews'),'Keep the full review count out of the hero');
+ assert(!hero.includes('reviewCountLabel')&&!hero.includes('renter reviews'),'Keep rating and review totals in the dedicated figures below the review carousels, not duplicated in the hero');
+
  assert(homeStats.includes('profile rating')&&homeStats.includes('renter reviews')&&homeStats.includes('items for hire'),'Show rating, review and available-item totals beneath the review carousels');
  assert(homeStats.includes('<CountUp value={stat.value}'),'Animate the trust figures into their final values');
  assert(countUp.includes('new Intl.NumberFormat("en-GB"')&&countUp.includes('className="sr-only"'),'Keep final metric values accessible and render thousands separators');
@@ -103,10 +108,11 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  assert(showcase.includes('Trust that is earned')&&!showcase.includes('5-star'),'Use the requested trust tile wording without a five-star text badge');
  assert(showcase.includes('hygglo-trust-review-panel')&&styles.includes('backdrop-filter: blur(20px) saturate(125%)'),'Give the featured review copy its own blurred glass card');
  assert(showcase.includes('aria-roledescription="review carousel"'),'Expose the review rows as carousels');
- assert.match(styles,/\.hygglo-review-track\s*\{[^}]*animation: hygglo-marquee-x var\(--review-speed, 56s\) linear infinite !important/s,'Keep the review rail moving continuously');
- assert.match(styles,/\.hygglo-review-track\s*\{[^}]*animation-play-state: running !important/s,'Never pause the review rail on hover or focus');
- assert.match(styles,/\.hygglo-review-marquee\s*\{[^}]*overflow: hidden/s,'Keep the moving review rail clipped to its viewport');
- assert.match(styles,/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.hygglo-review-track \{[\s\S]*?animation-duration: var\(--review-speed, 64s\) !important;[\s\S]*?animation-play-state: running !important;/,'Preserve a slow continuous review crawl for reduced-motion users');
+ assert.match(styles,/@media \(max-width: 640px\) \{\s*\.hygglo-review-marquee \{\s*overflow: hidden;/,'Keep the mobile review marquee moving inside its viewport');
+ assert.match(styles,/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.hygglo-review-track \{[\s\S]*?animation-duration: var\(--review-speed, 64s\) !important;[\s\S]*?animation-iteration-count: infinite !important;[\s\S]*?animation-play-state: running !important;/,'Keep reviews moving continuously at the measured duration when reduced-motion is enabled');
+ assert.match(styles,/\.hygglo-review-marquee\s*\{[^}]*overflow: hidden/s,'Keep the animated review track clipped inside its marquee');
+ assert(!/\.hygglo-review-track\s*\{[^}]*animation:\s*none/s.test(styles),'Keep review movement available under reduced-motion preferences');
+
  assert(!styles.includes('.hygglo-review-marquee:hover .hygglo-review-track'),'Keep the lower review carousel moving while hovered');
  for(let index=0;index<105;index++)put('reviews',{source:'native',published:true,author:`Renter ${index}`,rating:index%5+1,text:'A genuine first-party rental review.',date:Date.now()+index});
  put('reviews',{source:'native',published:false,author:'Private review',rating:5,text:'This review must not be public.',date:Date.now()+1000});

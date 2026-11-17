@@ -17,7 +17,7 @@ const args = job => ({ id: job._id, eventId: job.eventId, generation: job.genera
  await jobs.queueRestrictedIdentityCheck(ctx, booking._id, "session", "event-1");
  assert.equal(tables.get("restricted_identity_alert_jobs").length, 1);
  assert(!JSON.stringify(job).includes(key), "Queue must not retain the provider-derived identity key");
- const conflicted=put('bookings',{...booking,_id:'conflicted-source',identityRiskNotice:'The verified person could not be linked to the rental identity record.'});
+ const conflicted=put('bookings',{...booking,_id:'conflicted-source',diditEventId:'conflict',identityRiskNotice:'The verified person could not be linked to the rental identity record.'});
  await jobs.queueRestrictedIdentityCheck(ctx,conflicted._id,'session','conflict');const conflictedJob=tables.get('restricted_identity_alert_jobs').find(row=>row.bookingId===conflicted._id);
  await assert.rejects(jobs.processOne.handler(ctx,args(conflictedJob)),/identity signal unavailable/,'An old identity key cannot resolve a failed new identity link');
  conflicted.identityRiskNotice='Didit approved the identity, but cross-account identity matching is unavailable.';

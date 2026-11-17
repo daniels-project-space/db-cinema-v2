@@ -196,15 +196,15 @@ export function RentalWorkspace({
               href="https://business.didit.me"
               target="_blank"
               rel="noreferrer"
-              className="mt-4 inline-block text-xs text-accent-300"
+              aria-label="Open Didit Business Console"
+              className="mt-4 inline-flex max-w-full flex-col gap-1 rounded-xl border border-white/10 bg-white/[.025] px-3 py-2 text-xs text-accent-300 transition hover:border-white/20 hover:bg-white/[.045]"
             >
-              Review case in Didit ↗
-              <span className="mt-1 block break-all font-mono text-white/35">
-                {b.diditSessionId}
-              </span>
+              <span>Open Didit console ↗</span>
+              <span className="text-[11px] text-white/45">Identity verification → User verifications · search this ID</span>
+              <span className="break-all font-mono text-white/70">Session ID · {b.diditSessionId}</span>
             </a>
           )}
-          {b.verificationProvider === "didit" && b.diditSessionId && b.idVerifyStatus !== "verified" && <div className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-sm text-amber-100"><p>Review this case and make any decision or resubmission request in Didit Business Console, then refresh verification here. The website cannot change a Didit decision.</p><button type="button" disabled={busy} onClick={()=>void execute(()=>refreshVerification({bookingId:b._id,accountToken:token,admin:true}))} className="mt-3 rounded-full border border-amber-300/30 px-4 py-2 text-xs disabled:opacity-30">Refresh verification</button></div>}
+          {b.verificationProvider === "didit" && b.diditSessionId && b.idVerifyStatus !== "verified" && <div className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-sm text-amber-100"><p>Use the review controls above to approve, request resubmission, or decline and update the rental. Open the Didit session for the provider report.</p><button type="button" disabled={busy} onClick={()=>void execute(()=>refreshVerification({bookingId:b._id,accountToken:token,admin:true}))} className="mt-3 rounded-full border border-amber-300/30 px-4 py-2 text-xs disabled:opacity-30">Refresh verification</button></div>}
           {b.diditSessionId && <div className="mt-4 rounded-xl border border-white/10 p-3">
             <label className="block text-xs text-white/50">Reason to stop using this verification<textarea value={reuseReason} onChange={event=>setReuseReason(event.target.value)} rows={2} className="input mt-2 w-full" /></label>
             <button disabled={busy || reuseReason.trim().length<10} onClick={()=>void execute(()=>suspendReuse({token,bookingId:b._id,reason:reuseReason}))} className="mt-3 rounded-full border border-amber-300/20 px-4 py-2 text-xs text-amber-200 disabled:opacity-30">Suspend verification reuse</button>

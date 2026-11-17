@@ -1,9 +1,10 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { CURRENT_PRIVACY_NOTICE_VERSION } from "../shared/legalVersioning";
 
 export const seed = mutation({ args: {}, handler: async ctx => {
   const now = Date.now(), verifiedAt = now - 10000;
-  const accountId = await ctx.db.insert("accounts", { email: "portrait-runtime@example.invalid", name: "Fixture Person", address: "1 Example Road", createdAt: now - 2 * 86400000, privateVerificationPortraitNoticeVersion: "2026-11-06", privateVerificationPortraitNotifiedAt: verifiedAt, privateVerificationPortraitConsentVersion: "2026-11-06", privateVerificationPortraitConsentedAt: verifiedAt });
+  const accountId = await ctx.db.insert("accounts", { email: "portrait-runtime@example.invalid", name: "Fixture Person", address: "1 Example Road", createdAt: now - 2 * 86400000, privateVerificationPortraitNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION, privateVerificationPortraitNotifiedAt: verifiedAt, privateVerificationPortraitConsentVersion: CURRENT_PRIVACY_NOTICE_VERSION, privateVerificationPortraitConsentedAt: verifiedAt });
   await ctx.db.insert("sessions", { accountId, token: "synthetic-portrait-owner", expiresAt: now + 3600000 });
   const otherId = await ctx.db.insert("accounts", { email: "portrait-other@example.invalid", createdAt: now - 2 * 86400000 });
   await ctx.db.insert("sessions", { accountId: otherId, token: "synthetic-portrait-other", expiresAt: now + 3600000 });

@@ -16,9 +16,10 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   let client;
   try {
     const booking = {
-      _id: "booking-fixture", status: "active", securityPolicyVersion: "security-hold-v2",
+      _id: "booking-fixture", status: "active", securityPolicyVersion: "2026-11-immediate-claim-v2",
       guestEmail: "fixture@example.invalid", fulfilment: "pickup", total: 100, depositAmount: 0,
-      depositHoldAmount: 50, returnTime: "20:00", returnDecision: null,
+      depositHoldAmount: 0, savedCardLimit: 50, replacementValues: [{ listingId: "lens", unitPence: 100000 }],
+      returnTime: "20:00", returnDecision: null,
       lineItems: [{ listingId: "lens", title: "Fixture lens", qty: 1, start: Date.now() - 86400000, end: Date.now() - 86400000, lineTotal: 100, dailyRate: 100 }],
     };
     const moduleStyles = [];
@@ -43,7 +44,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
             let contents;
             if (args.path.endsWith("_generated/api")) contents = `const refs=new Proxy({},{get:(_,group)=>new Proxy({},{get:(_,method)=>String(group)+'.'+String(method)})});export const api=refs;`;
             else if (args.path === "convex/react") contents = `export const useQuery=ref=>ref==='returnInspections.schedule'?${JSON.stringify(schedule)}:null;export const useAction=()=>async()=>({});`;
-            else if (args.path.includes("ReturnSettlementReview")) contents = `import React from 'react';export const ReturnSettlementReview=({enabled,onReview})=><button type="button" disabled={!enabled} onClick={onReview}>Review return</button>;`;
+            else if (args.path.includes("ReturnSettlementReview")) contents = `import React from 'react';export const ReturnSettlementReview=({enabled,onReview,paymentSummary})=><section>{paymentSummary}<button type="button" disabled={!enabled} onClick={onReview}>Review return</button></section>;`;
             else if (args.path.includes("SmartImage")) contents = `import React from 'react';export const SmartImage=({alt})=><span role="img" aria-label={alt}/>;`;
             else if (args.path.includes("pricing")) contents = `export const formatGbp=value=>'£'+Number(value).toFixed(2);`;
             else if (args.path.includes("lateFee")) contents = `export const lateFeeQuote=()=>({amount:100,breakdown:[{title:'Fixture lens',days:1,dailyRate:100,amount:100}]});`;
@@ -71,6 +72,8 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const initial = await client.evaluate(`(()=>{const late=[...document.querySelectorAll('label')].find(x=>x.textContent.includes('I am claiming this late amount'));const input=late?.querySelector('input[type=checkbox]');return {checked:input?.checked,text:document.body.innerText,overflow:document.documentElement.scrollWidth>innerWidth}})()`);
       assert.equal(initial.checked, false, "late claim must be opt-in");
       assert.match(initial.text, /No late fee will be claimed/);
+      assert.match(initial.text, /No claim means no card charge\./, "The renter-facing no-claim summary reflects the saved-card flow");
+      assert.doesNotMatch(initial.text, /active card hold is released|remaining authorisations are released/, "SetupIntent rentals must not be described as holding funds");
       assert.doesNotMatch(initial.text, /Reason for waiving late time/);
       assert.equal(initial.overflow, false, `${width}px layout should not overflow`);
       const defaultScreenshot = await client.cmd("Page.captureScreenshot", { format: "png" });
@@ -79,8 +82,35 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const claim = await client.evaluate(`(()=>({reason:!![...document.querySelectorAll('label')].find(x=>x.textContent.includes('Reason for your claim')),button:[...document.querySelectorAll('button')].find(x=>x.textContent.includes('Review return'))?.disabled}))()`);
       assert.equal(claim.reason, true, "a reason field must appear only after an explicit claim");
       assert.equal(claim.button, true, "a claim without its reason must not proceed");
+      assert.equal(await client.evaluate(`!!document.querySelector('[aria-label="Owner return claim code"]')`), true, "a money claim must expose the owner-only code field");
       const screenshot = await client.cmd("Page.captureScreenshot", { format: "png" });
       fs.writeFileSync(`/tmp/dbc-return-claim-${width}.png`, Buffer.from(screenshot.data, "base64"));
+      if (width === 390) {
+        const reason = await client.evaluate(`(()=>{const label=[...document.querySelectorAll('label')].find(x=>x.textContent.includes('Reason for your claim'));const input=label?.querySelector('input');input?.focus();input?.select();return !!input})()`);
+        assert.equal(reason, true, "the owner must be able to enter a reason before review");
+        await client.cmd("Input.insertText", { text: "Documented late return claim for the browser fixture." });
+        await client.evaluate(`(()=>[...document.querySelectorAll('button')].find(x=>x.textContent.includes('Review return'))?.click())()`);
+        await wait(100);
+        assert.equal(await client.evaluate(`!![...document.querySelectorAll('button')].find(x=>x.textContent.includes('Confirm return'))?.disabled`), true, "a reason and return preview still cannot authorize a money claim without the owner code");
+        const ownerInput = await client.evaluate(`(()=>{const input=document.querySelector('[aria-label="Owner return claim code"]');input?.focus();return !!input})()`);
+        assert.equal(ownerInput, true);
+        await client.cmd("Input.insertText", { text: "a".repeat(64) });
+        assert.equal(await client.evaluate(`![...document.querySelectorAll('button')].find(x=>x.textContent.includes('Confirm return'))?.disabled`), true, "after a current preview, explicit owner authorization enables the return");
+      }
+      await client.evaluate(`(()=>{const input=document.querySelector('.paymentSummary input[type="number"]');input?.focus();input?.select()})()`);
+      await client.cmd("Input.insertText", { text: "10" });
+      await wait(50);
+      const optIn = await client.evaluate(`(()=>{const label=[...document.querySelectorAll('label')].find(x=>x.textContent.includes('I am claiming this amount'));return {visible:!!label,checked:label?.querySelector('input')?.checked,basis:!![...document.querySelectorAll('select')].find(el=>[...el.options].some(o=>o.value==='severe_cosmetic_damage'))}})()`);
+      assert.equal(optIn.visible, true, "entering a damage amount must expose an explicit claim opt-in");
+      assert.equal(optIn.checked, false, "an entered amount must not be claimed by default");
+      assert.equal(optIn.basis, false, "claim-only details stay hidden until the owner opts in");
+      await client.evaluate(`(()=>{const label=[...document.querySelectorAll('label')].find(x=>x.textContent.includes('I am claiming this amount'));label?.querySelector('input').click()})()`);
+      const basis = await client.evaluate(`(()=>{const select=[...document.querySelectorAll('select')].find(el=>[...el.options].some(o=>o.value==='severe_cosmetic_damage'));return {visible:!!select,options:select?[...select.options].map(o=>o.textContent):[]}})()`);
+      assert.equal(basis.visible, true, "new saved-card terms require a specific loss or permanent-damage basis");
+      assert.deepEqual(basis.options.slice(1), ["Severe permanent cosmetic damage", "Lost / unreturned item"]);
+      await client.evaluate(`document.querySelector('select')?.scrollIntoView({block:'center'})`);
+      const basisScreenshot = await client.cmd("Page.captureScreenshot", { format: "png" });
+      fs.writeFileSync(`/tmp/dbc-return-damage-basis-${width}.png`, Buffer.from(basisScreenshot.data, "base64"));
     }
     console.log("PASS return claim UI: late fee unchecked by default; claim reason required; no mobile/desktop overflow.");
   } finally {

@@ -7,6 +7,7 @@ const {gafferReply,ownerDrafts} = load('convex/gaffer.ts');
 const {verificationRecovery} = load('convex/lib/gafferVerificationGuidance.ts');
 const {bookingRecovery,paymentRecovery} = load('convex/lib/gafferBookingGuidance.ts');
 const {explicitlyRequestsHuman} = load('convex/lib/gafferHumanIntent.ts');
+const {isGafferHumanHandoffOffer} = load('shared/gafferHumanHandoff.ts');
 const previousKey=process.env.OPENROUTER_API_KEY;
 process.env.OPENROUTER_API_KEY='test-key';
 const facts={escalated:false,latestRenterId:'message',gafferGeneration:0,messages:[{sender:'renter',text:'Why can I not upload proof of address?'}],booking:{status:'confirmed',summary:'Camera',dates:'today',fulfilment:'pickup',verification:{status:'processing',checks:{identity:'approved',selfie:'approved',address:'waiting'},expired:false}},accountCredit:{},checkoutUi:{},hours:'09:00–22:00',location:null};
@@ -97,7 +98,7 @@ const facts={escalated:false,latestRenterId:'message',gafferGeneration:0,message
  assert.equal(calls.find(call=>call.ref==='chat._postBot').args.answerComplete,true,'a general follow-up does not erase an answered enquiry');
  calls=[];modelResult={reply:'Would you like help from the team?',handoff:false,offerCredit:false,resolved:false,offerHuman:true};
  await gafferReply.handler(ctx,{accountId:'owner',bookingId:'booking',messageId:'message'});
- assert.equal(calls.find(call=>call.ref==='chat._postBot').args.offerHuman,true);assert(!calls.find(call=>call.ref==='chat._postBot').args.answerComplete);
+ const offeredReply=calls.find(call=>call.ref==='chat._postBot').args;assert(isGafferHumanHandoffOffer(offeredReply.text),'clear team offers are recognized from the reply itself');assert(!offeredReply.answerComplete);
  calls=[];delete process.env.OPENROUTER_API_KEY;
  await gafferReply.handler(ctx,{accountId:'owner',bookingId:'booking',messageId:'message'});
  assert.match(calls.find(call=>call.ref==='chat._postBot').args.text,/ask me again.*keep helping here/i,'an ordinary provider failure asks the renter to retry in chat');

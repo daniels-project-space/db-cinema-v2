@@ -62,6 +62,8 @@ const {rentalProgress}=load('shared/rentalProgress.ts');
   provider.id_verifications=[{status:'Approved'}];booking.identityRiskNotice='Didit approved the identity, but cross-account identity matching is unavailable.';booking.renterPersonKey=undefined;mutations=[];
   assert.equal((await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'})).status,'unchanged');assert(!mutations.some(([ref])=>ref==='bookings.setDiditResult'),'An unchanged missing-key advisory does not repeatedly write');
   provider.id_verifications=[{status:'Approved',full_name:'Test Rental Customer',date_of_birth:'1990-01-01'}];mutations=[];assert.equal((await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'})).status,'updated');assert(mutations.some(([ref])=>ref==='bookings.setDiditResult'),'A newly available key re-evaluates and can clear the advisory');
+  booking.identityRiskNotice='Didit approved the identity, but cross-account identity matching is unavailable.';booking.renterPersonKey=approvedResult.personKey;provider.id_verifications=[{status:'Approved'}];mutations=[];
+  assert.equal((await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'})).status,'updated');assert(mutations.some(([ref])=>ref==='bookings.setDiditResult'),'An approved refresh clears a stale missing-key advisory when this booking already has its trusted identity key');
  }finally{global.fetch=previousFetch;}
  const owner=put('accounts',{email:'alert-owner@example.invalid'});
  const alertBooking=put('bookings',{accountId:owner._id,status:'confirmed',verificationProvider:'didit',diditSessionId:'alert-session',guestEmail:owner.email});

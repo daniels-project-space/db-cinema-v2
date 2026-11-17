@@ -13,7 +13,7 @@ export function adminPushPresentation(notification: { kind: string; title: strin
   const reference = notification.bookingId ? `DBC-${String(notification.bookingId).slice(-8).toUpperCase()} · ` : "";
   const body = notification.kind === "verification_update" ? "Didit approved verification. Document archiving may still be in progress."
     : notification.kind !== "verification_failure" ? notification.body
-    : notification.title === "Verification needs review" ? "Check the provider status and required checks. Open the rental for details."
+    : notification.title === "Verification needs review" || notification.title === "Didit review needed" ? "Didit paused this verification. Open the rental. Check the provider status and required checks."
       : notification.title === "Booking identity or allocation notice" ? "A booking needs an identity or stock check. Open the rental for details."
         : notification.title === "Didit verification not approved" ? "Didit did not approve verification. Open the rental for details."
           : notification.title === "Didit resubmission reported" ? "Didit reports a resubmission; verification is not complete."

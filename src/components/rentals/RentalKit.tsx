@@ -7,7 +7,7 @@ import { formatGbp } from "@/lib/pricing";
 import { groupRentalKit, uniqueKitPhotos, type RentalKitItem } from "@/lib/rentalKit";
 
 /** Full image frames; quantity represents repeated items, never repeated pictures. */
-export function RentalKit({ items, compact = false, prices = false, showcase = false, expanded = false, allPhotos = false }: { items: RentalKitItem[]; compact?: boolean; prices?: boolean; showcase?: boolean; expanded?: boolean; allPhotos?: boolean }) {
+export function RentalKit({ items, compact = false, prices = false, showcase = false, expanded = false, allPhotos = false, hideHeroTitle = false }: { items: RentalKitItem[]; compact?: boolean; prices?: boolean; showcase?: boolean; expanded?: boolean; allPhotos?: boolean; hideHeroTitle?: boolean }) {
   const grouped = groupRentalKit(items);
   const units = grouped.reduce((n, item) => n + (item.qty ?? 1), 0);
   const photos = uniqueKitPhotos(grouped);
@@ -18,7 +18,7 @@ export function RentalKit({ items, compact = false, prices = false, showcase = f
         <SmartImage fit="contain" src={item.heroImage} fallbackSources={item.imageSources} alt={item.title} className={compact || allPhotos ? "h-full w-full" : visible.length === 1 ? "aspect-[16/10] w-full" : "aspect-[4/5] w-full"} />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
         {(item.qty ?? 1) > 1 && <span className="absolute right-2 top-2 rounded-full bg-black/75 px-2 py-1 text-[10px] font-semibold text-white">×{item.qty}</span>}
-        {!compact && <p title={item.title} className="absolute bottom-3 left-3 right-3 line-clamp-2 text-xs font-medium leading-5 text-white">{rentalTitle(item.title)}</p>}
+        {!compact && !hideHeroTitle && <p title={item.title} className="absolute bottom-3 left-3 right-3 line-clamp-2 text-xs font-medium leading-5 text-white">{rentalTitle(item.title)}</p>}
       </div>)}
       {compact && !allPhotos && <div className="min-w-0"><p className="text-sm font-medium leading-6 text-white/85">{rentalTitle(grouped[0]?.title ?? "Rental kit")}</p><p className="mt-1 text-xs text-white/40">{grouped.length > 1 ? `+${grouped.length - 1} more listings` : `${units} ${units === 1 ? "unit" : "units"}`}</p></div>}
     </div>

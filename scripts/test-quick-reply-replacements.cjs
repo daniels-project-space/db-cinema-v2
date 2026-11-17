@@ -89,67 +89,33 @@ const args = {
   assert.equal(opts.options.length, 1);
   assert.equal(opts.options[0].id, next._id);
   assert(!opts.options.some(option => option.id === cheaper._id), "A free replacement cannot silently change the agreed rental charge");
-  await assert.rejects(replacements.accept.handler(ctx, { ...args, newListingId: cheaper._id }), /changes the agreed rental price/);
-  for (const field of ["activeDeliveryQuoteId", "activePriceAdjustmentId"]) {
-    await db.patch(b._id, { [field]: "open-change" });
-    const lockedOptions = await replacements.options.handler(ctx, { token, bookingId: b._id, lineIndex: 0 });
-    assert.equal(lockedOptions.options[0].can_apply, false);
-    await assert.rejects(replacements.accept.handler(ctx, args), /Finish the open operation/);
-    assert.equal(b.lineItems[0].listingId, old._id);
-    await db.patch(b._id, { [field]: undefined });
-  }
-  await assert.rejects(
-    replacements.accept.handler(ctx, { ...args, qty: 2 }),
-    /changed/,
-  );
-  assert.equal(b.lineItems[0].listingId, old._id);
-  const race = put("reservations", {
-    inventoryUnitId: newUnit._id,
-    start,
-    end,
-    qty: 1,
-    source: "site",
-    status: "confirmed",
+  // Admin authorization intentionally appends an audit row; compare all
+  // business state while leaving that security record intact.
+  const snapshot = () => JSON.stringify([...tables].filter(([name]) => name !== "admin_audit_log").map(([name, rows]) => [name, [...rows.values()]]));
+  const beforeLegacyAttempt = snapshot();
+  await assert.rejects(replacements.accept.handler(ctx, args), /legacy replacement is closed.*renter-approved equipment-change proposal/i);
+  assert.equal(snapshot(), beforeLegacyAttempt, "A new direct replacement cannot change the booking, ledger, payment record, or receipt");
+
+  // A retry for a replacement applied before this endpoint was retired remains
+  // idempotent, but it must not repeat any booking or stock writes.
+  await db.patch(b._id, {
+    lineItems: [{ listingId: next._id, title: next.title, start, end, qty: 1, lineTotal: 80 }],
+    kitReplacements: [{ requestId: args.requestId, lineIndex: 0, oldListingId: old._id, newListingId: next._id, qty: 1, start, end, appliedAt: Date.now() }],
   });
-  await assert.rejects(
-    replacements.accept.handler(ctx, args),
-    /already reserved/,
-  );
-  assert.equal(b.lineItems[0].listingId, old._id);
-  await db.patch(race._id, { status: "cancelled" });
-  const refund = put("rental_refunds", { bookingId: b._id, status: "pending" });
-  await assert.rejects(replacements.accept.handler(ctx, args), /refund/);
-  await db.patch(refund._id, { status: "succeeded" });
-  await db.patch(b._id, { status: "active" });
-  await assert.rejects(replacements.accept.handler(ctx, args), /upcoming/);
-  await db.patch(b._id, { status: "confirmed" });
-  assert.equal((await replacements.accept.handler(ctx, args)).ok, true);
-  assert.equal(b.lineItems[0].listingId, next._id);
-  assert.equal(b.total, 80);
-  assert.equal(b.depositAmount, 20);
-  const current = (tables.get("reservations") ?? []).filter(
-    (r) => r.bookingId === b._id && r.status === "confirmed",
-  );
-  assert.equal(current.length, 1);
-  assert.equal(current[0].inventoryUnitId, newUnit._id);
-  assert.equal((await replacements.accept.handler(ctx, args)).replayed, true);
-  assert.equal(
-    (tables.get("reservations") ?? []).filter(
-      (r) => r.bookingId === b._id && r.status === "confirmed",
-    ).length,
-    1,
-  );
-  await assert.rejects(
-    replacements.accept.handler(ctx, { ...args, newListingId: old._id }),
-    /changed/,
-  );
+  await db.patch([...tables.get("reservations").values()][0]._id, { status: "cancelled" });
+  put("reservations", { bookingId: b._id, listingId: next._id, inventoryUnitId: newUnit._id, start, end, qty: 1, source: "site", status: "confirmed" });
+  const beforeReplay = snapshot();
+  assert.deepEqual(await replacements.accept.handler(ctx, args), { ok: true, replayed: true });
+  assert.equal(snapshot(), beforeReplay, "Legacy replay is read-only");
+  await assert.rejects(replacements.accept.handler(ctx, { ...args, newListingId: old._id }), /changed/);
+  assert.equal(snapshot(), beforeReplay, "A mismatched legacy replay cannot write");
   assert.equal(
     (tables.get("chat_messages") ?? []).length,
     0,
     "Acceptance never sends a message",
   );
   assert.equal(b.kitReplacements.length, 1);
-  assert.equal(b.rmv2Revision, 1);
+  assert.equal(b.rmv2Revision, undefined, "A replay does not enqueue a second Rental Manager sync");
   const helper = load("convex/lib/quickReplyReplacement.ts");
   assert(!helper.replacementCompatible(old, { ...next, depositAmount: 2000 }));
   assert(
@@ -157,7 +123,7 @@ const args = {
   );
   assert(!helper.replacementCompatible(old, { ...next, marketingOnly: true }));
   console.log(
-    "Quick Reply replacement handlers: auth, full-basket stock race, stale snapshot, open refund, active rental, atomic swap, idempotency, unchanged money and no sends PASS",
+    "Legacy replacement endpoint: new direct writes blocked, exact old receipt replay preserved, mismatched replay rejected; replacement suggestions remain read-only",
   );
 })().catch((e) => {
   console.error(e);

@@ -6,11 +6,13 @@ import { rentalSecurityEmailRows, rentalSecurityEmailNote } from "../shared/rent
 import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
-import { OWNER_EMAIL, sendMail } from "./lib/mailer";
+import { sendMail } from "./lib/mailer";
 import { CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 import { bookingStockLines } from "../shared/rentalWindow";
-import { pickupMapAvailable, WATERSTONES_MAP_URL } from "../shared/pickupLocation";
-import { verificationExpired } from "../shared/verificationProgress";
+import { pickupMapAvailable } from "../shared/pickupLocation";
+import { WATERSTONES_MAP_URL } from "./lib/pickupMap";
+import { verificationExpired, verificationValidUntil } from "../shared/verificationProgress";
+import { renterRentalActionReady } from "./lib/renterRentalActionGate";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -29,9 +31,8 @@ async function telegram(text: string) {
   }
 }
 
-/** Thin shim over the shared transport (convex/lib/mailer.ts), which picks
- * Gmail SMTP or Resend and logs its own failures. Signature kept so the
- * thirteen call sites below read exactly as they did. */
+/** Thin shim over the shared Resend transport (convex/lib/mailer.ts), which
+ * records delivery failures. The signature stays stable for existing callers. */
 async function email(
   to: string,
   subject: string,
@@ -64,15 +65,22 @@ export const bookingOwnerAlert = internalAction({
 });
 
 export const paidVerificationEmail = internalAction({
-  args:{prepareOnly:v.optional(v.boolean()),deliveryKey:v.optional(v.string()),bookingId:v.id("bookings"),reminder:v.boolean()},
-  handler:async(ctx,{bookingId,deliveryKey,prepareOnly,reminder})=>{
+  args: { prepareOnly:v.optional(v.boolean()), deliveryKey:v.optional(v.string()), bookingId:v.id("bookings"), reminder:v.boolean() },
+  handler: async (ctx,{bookingId,deliveryKey,prepareOnly,reminder}) => {
     const b:any=await ctx.runQuery(internal.bookings.get,{bookingId});
-    if(!b?.guestEmail||b.status!=="pending_verification"||!b.checkoutPaidAt||b.idVerifyStatus==="verified")return null;
-    const app=process.env.APP_URL??"https://dbcinemarentals.com",url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
+    if(!b?.guestEmail || b.status!=="pending_verification" || !b.checkoutPaidAt || ["verified","rejected"].includes(b.idVerifyStatus) || b.cancellationDecision || b.returnDecision)return null;
+    const app=process.env.APP_URL??"https://dbcinemarentals.com";
+    const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
     const reviewPending=["manual_review","processing"].includes(b.idVerifyStatus);
-    const title=reminder?(reviewPending?"Your rental verification is still being checked":"Reminder: complete your rental checks"):"Payment received — complete your rental checks";
-    const rows:Array<[string,string]>=b.lineItems.map((li:any)=>[`${li.title} · ${day(li.start)} to ${day(li.end)}`,emailMoney(li.lineTotal)]);rows.push(["Payment received",emailMoney(b.total)]);
-    return email(b.guestEmail,title,rentalEmail({title,preview:"Your rental still needs verification and approval.",url,button:reviewPending?"Check verification progress":"Complete verification",body:`<p>We have received your payment. Your rental still needs identity verification and approval before handover.</p>${emailRows(rows)}${reviewPending?"<p>Your verification is being processed or reviewed; open your rental for its latest status.</p>":""}<p>If prompted, sign in or create an account using the email address used for this booking. Need help? Reply to this email.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
+    const title=reviewPending
+      ? reminder?"Your rental verification is still being checked":"Payment received — verification in progress"
+      : reminder?"Reminder: complete your rental checks":"Payment received — complete your rental checks";
+    const rows:Array<[string,string]>=b.lineItems.map((li:any)=>[`${li.title} · ${day(li.start)} to ${day(li.end)}`,emailMoney(li.lineTotal)]);
+    rows.push(["Payment received",emailMoney(b.total)]);
+    const body=reviewPending
+      ? "We have received your payment. Didit is still processing or reviewing your identity checks. No further action is needed unless we contact you."
+      : "We have received your payment. Your rental still needs identity verification and approval before handover.";
+    return email(b.guestEmail,title,rentalEmail({title,preview:reviewPending?"Your verification is still in progress.":"Your rental still needs verification and approval.",url,button:reviewPending?"Check verification progress":"Complete verification",body:`<p>${body}</p>${emailRows(rows)}<p>If prompted, sign in or create an account using the email address used for this booking. Need help? Reply to this email.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
   },
 });
 
@@ -80,12 +88,14 @@ export const bookingAlert = internalAction({
   args: { prepareOnly:v.optional(v.boolean()), deliveryKey:v.optional(v.string()), bookingId: v.id("bookings") },
   handler: async (ctx, { prepareOnly, deliveryKey, bookingId }) => {
     const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
-    if (!b||!b.guestEmail||!["confirmed","active"].includes(b.status)) return null;
+    // Kept for old internal callers. Never email from a paid-but-unverified,
+    // stale or expired approval; live confirmation notices use verificationEmail.
+    if (!b||!b.guestEmail||!renterRentalActionReady(b)||b.idVerifyStatus!=="verified"||verificationExpired(b)) return null;
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
-    const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
+    const url=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
     const rows:Array<[string,string]>=b.lineItems.map((li:any)=>[`${li.title} · ${day(li.start)} to ${day(li.end)}`,emailMoney(li.lineTotal)]);
     rows.push(["Payment received",emailMoney(b.total)],...rentalSecurityEmailRows(b));
-    return email(b.guestEmail,"Payment received — complete your rental checks",rentalEmail({title:"Payment received",preview:"Your rental request is awaiting verification and approval.",url,button:"Complete verification",body:`<p>Thanks for renting with DB Cinema. Your rental request is awaiting verification and approval.</p>${emailRows(rows)}${rentalSecurityEmailNote(b)?`<p>${rentalSecurityEmailNote(b)}</p>`:""}<p>Open your rental to complete the required checks and follow their progress. Equipment handover requires completed checks and approval.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
+    return email(b.guestEmail,"Your rental is confirmed",rentalEmail({title:"Your rental is confirmed",preview:"Payment and verification are complete. Your invoice and pickup details are in the approval email.",url,button:"Open your rental",body:`<p>Thanks for renting with DB Cinema. Your payment and verification are complete, and this rental is confirmed.</p>${emailRows(rows)}${rentalSecurityEmailNote(b)?`<p>${rentalSecurityEmailNote(b)}</p>`:""}<p>Your invoice and any pickup details are in the verification approval email.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
   },
 });
 
@@ -107,10 +117,15 @@ export const verificationEmail = internalAction({
     const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
     const pendingResolution=b?.status==="pending_verification"&&!!b.checkoutPaidAt&&status!=="verified";
     if (!b || !b.guestEmail || b.idVerifyStatus!==status || (!["confirmed","active"].includes(b.status)&&!pendingResolution) || status === "verified" && verificationExpired(b)) return null;
+    if (status === "verified" && !renterRentalActionReady(b)) return null;
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
+    const verificationExpiry = status === "verified" ? verificationValidUntil(b) : null;
+    const verificationExpiryLabel = verificationExpiry != null
+      ? new Intl.DateTimeFormat("en-GB", { dateStyle: "long", timeZone: "Europe/London" }).format(new Date(verificationExpiry))
+      : null;
     const messages:Record<string,{title:string;body:string;button:string}>={
-      verified:{title:"Your identity check passed",body:"Your identity and address verification is approved for this rental.",button:"Follow your rental"},
+      verified:{title:"Your rental is confirmed · verification valid for 90 days",body:`Your payment and verification are complete, and this rental is confirmed. Your identity, selfie and address checks passed. Eligible bookings made with the same account can reuse this approval for 90 days from approval${verificationExpiryLabel ? `, until ${verificationExpiryLabel}` : ""}, without repeating those checks while it is active.`,button:"Open your rental"},
       manual_review:{title:"Your verification is being reviewed",body:"Your documents have been referred for a human review. We will contact you if anything else is needed.",button:"View verification progress"},
       rejected:{title:"Your verification needs support",body:"The automated check could not approve your documents. Reply to this email so we can review the result before handover.",button:"View your rental"},
       processing:{title:"Your verification is processing",body:"Your checks are still processing. You can follow their progress in your rental.",button:"View verification progress"},
@@ -141,7 +156,7 @@ export const verificationReviewAlert = internalAction({
   handler: async (ctx, { bookingId }) => {
     const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
     if (!b) return;
-    await sendMail({ to: OWNER_EMAIL(), subject: "Db Cinema verification needs human review",
+    await sendMail({ to: CONTACT_EMAIL, subject: "Db Cinema verification needs human review",
       html: `<p>Booking ${bookingId} for ${String(b.guestEmail ?? "unknown").replace(/[&<>]/g, "")} is awaiting a human verification review.</p><p>${emailEscape(b.verificationNote ?? "Didit referred this verification for review.")}</p><p>Open the admin bookings panel to review it; do not hand over equipment until approved.</p>` });
   },
 });
@@ -193,17 +208,14 @@ export const timeChangeEmail = internalAction({
 });
 
 /**
- * A contact-form submission.
- *
- * This used to fire Telegram ONLY — the message landed in the database and a
- * chat, and never reached the company inbox at all. It now emails the owner
- * too, with reply_to set to the SENDER, so hitting reply answers the customer
- * directly rather than looping back to our own address.
+ * A team notification for a contact-form submission. The customer message and
+ * all replies live in Admin → Messages → Emails so the conversation stays
+ * tracked; replying to this notification is not a customer-reply path.
  */
 export const contactAlert = internalAction({
   args: { name: v.string(), email: v.string(), message: v.string() },
   handler: async (ctx, a) => {
-    const owner = process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com";
+    const owner = CONTACT_EMAIL;
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     await email(
       owner,
@@ -211,9 +223,8 @@ export const contactAlert = internalAction({
       `<h2>New message from the contact form</h2>
        <p><b>${esc(a.name)}</b> &lt;${esc(a.email)}&gt;</p>
        <pre style="white-space:pre-wrap;font-family:inherit;font-size:14px;border-left:3px solid #e0992f;padding:2px 0 2px 14px;margin:16px 0">${esc(a.message)}</pre>
-       <p style="color:#888">Reply to this email to answer ${esc(a.name)} directly. Also saved in <a href="${app}/admin">the admin inbox</a>.</p>`,
+       <p style="color:#888">This message is in <a href="${app}/admin">Admin → Messages → Emails</a>. Open the tracked conversation there to reply.</p>`,
       undefined,
-      a.email,
     );
     await telegram(
       `✉️ <b>New contact message</b>\nFrom: ${a.name} (${a.email})\n\n${a.message}`,
@@ -236,7 +247,10 @@ export const contactAutoReply = internalAction({
           body: JSON.stringify({ source: "contact-form", contactId: a.contactId, name: a.name, email: a.email, message: a.message }),
         });
         const result: any = await response.json().catch(() => null);
-        if (response.ok && (result?.replied === true || result?.duplicate === true)) return { ok: true, replied: result.replied === true };
+        if (response.ok && (result?.replied === true || result?.duplicate === true)) {
+          await ctx.runMutation(internal.contact.markAutoHandled, { id: a.contactId });
+          return { ok: true, replied: result.replied === true };
+        }
         retryable = response.status === 408 || response.status === 429 || response.status >= 500;
         console.error("[contact] Gaffer delivery incomplete", response.status, "attempt", attempt + 1);
       } catch { console.error("[contact] Gaffer request failed, attempt", attempt + 1); }
@@ -246,7 +260,7 @@ export const contactAutoReply = internalAction({
       return { ok: false, retrying: true };
     }
     await telegram(`🚨 <b>Contact enquiry needs attention</b>\nGaffer could not deliver an answer after ${attempt + 1} attempt(s). Contact ID: ${a.contactId}`);
-    await email(process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com", "URGENT: Gaffer contact reply failed", `<p>Gaffer could not answer a contact enquiry. Review the admin contact inbox.</p><p>Contact ID: ${esc(a.contactId)}</p>`, undefined, undefined, `contact-failed:${a.contactId}`);
+    await email(CONTACT_EMAIL, "URGENT: Gaffer contact reply failed", `<p>Gaffer could not answer a contact enquiry. Review the admin email inbox.</p><p>Contact ID: ${esc(a.contactId)}</p>`, undefined, undefined, `contact-failed:${a.contactId}`);
     return { ok: false, escalated: true };
   },
 });
@@ -254,45 +268,11 @@ export const contactAutoReply = internalAction({
 const esc = (s: string) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
-/**
- * What Gaffer promised on the call, in writing.
- *
- * reply_to carries the thread key, so when the customer hits reply the answer
- * comes back to /api/email/inbound already knowing which conversation it belongs
- * to. This fails closed unless the Gaffer reply domain is configured, so the
- * message is never sent with a reply address that bypasses Gaffer.
- */
-export const followUpEmail = internalAction({
-  args: {
-    to: v.string(),
-    name: v.string(),
-    subject: v.string(),
-    summary: v.string(),
-    replyKey: v.string(),
-  },
-  handler: async (ctx, a) => {
-    const domain = process.env.INBOUND_EMAIL_DOMAIN?.trim().toLowerCase();
-    if (!domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) {
-      throw new Error("Gaffer inbound email domain is not configured");
-    }
-    const replyTo = `gaffer+${a.replyKey}@${domain}`;
-    const hello = a.name ? `Hi ${esc(a.name)},` : "Hi,";
-    const body = esc(a.summary).replace(/\n/g, "<br/>");
-
-    const sent = await email(
-      a.to,
-      a.subject,
-      `<div style="font-family:system-ui,sans-serif;line-height:1.55;color:#111">
-         <p>${hello}</p>
-         <p>Following up on your call with Gaffer at Db Cinema Rentals:</p>
-         <div style="border-left:3px solid #e0992f;padding:2px 0 2px 14px;margin:16px 0">${body}</div>
-         <p>Just reply to this email if you need anything else — it comes straight back to us.</p>
-       </div>`,
-      undefined,
-      replyTo,
-    );
-    if (!sent) throw new Error("Gaffer follow-up email could not be sent");
-    await telegram(`📨 <b>Gaffer follow-up sent</b>\nTo: ${a.to}\n\n${a.summary.slice(0, 500)}`);
+/** Team heads-up only; the durable email and its reply route live in emailInbox. */
+export const gafferFollowUpSentAlert = internalAction({
+  args: { to: v.string(), summary: v.string() },
+  handler: async (_ctx, a) => {
+    await telegram(`📨 <b>Gaffer follow-up sent</b>\nTo: ${esc(a.to)}\n\n${esc(a.summary.slice(0, 500))}`);
   },
 });
 
@@ -318,7 +298,7 @@ export const emailHumanRequestAlert = internalAction({
     const html = `<p><b>A customer requested a human reply.</b></p><p>From: ${esc(a.email)}<br/>Subject: ${esc(a.subject)}</p><blockquote>${esc(a.body).replace(/\n/g, "<br/>")}</blockquote>`;
     let delivered = false;
     try {
-      delivered = await email("dbcinemarentals@gmail.com", subject, html, undefined, undefined, `human-request:${a.inboundId}`) === true;
+      delivered = await email(CONTACT_EMAIL, subject, html, undefined, undefined, `human-request:${a.inboundId}`) === true;
     } catch (error) {
       console.error("[email/human-alert] delivery attempt failed", String((error as any)?.message ?? error));
     }
@@ -355,7 +335,7 @@ export const ownerLead = internalAction({
     message: v.string(),
   },
   handler: async (_ctx, a) => {
-    const owner = process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com";
+    const owner = CONTACT_EMAIL;
     const who = `${a.name}${a.phone ? ` · ${a.phone}` : ""}${a.email ? ` · ${a.email}` : ""}`;
     await email(
       owner,

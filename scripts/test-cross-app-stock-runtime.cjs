@@ -10,7 +10,19 @@ const { makeFunctionReference } = require('convex/server');
 const { payTestCheckout } = require('./lib/stripeTestCheckout.cjs');
 
 const website = path.resolve(__dirname, '..');
-const manager = process.env.SYNTHETIC_MANAGER_REPO || '/root/rental-manager-current-main';
+const managerCandidates = process.env.SYNTHETIC_MANAGER_REPO
+  ? [path.resolve(process.env.SYNTHETIC_MANAGER_REPO)]
+  : ['/tmp/rm-db-cinema-shared-stock-release-20261108', '/home/ubuntu/rental-manager-v2', '/root/rental-manager-current-main'];
+const manager = managerCandidates.find(candidate => {
+  const handler = path.join(candidate, 'convex', 'dbcinema_shared_stock.ts');
+  const swaps = path.join(candidate, 'convex', 'dbcinema_shared_stock_swaps.ts');
+  const schema = path.join(candidate, 'convex', 'schema.ts');
+  const releaseSource = [handler, swaps].filter(file => fs.existsSync(file)).map(file => fs.readFileSync(file, 'utf8')).join('\n');
+  return fs.existsSync(handler) && fs.existsSync(schema) &&
+    releaseSource.includes('renter_declined_before_execution') &&
+    fs.readFileSync(schema, 'utf8').includes('dbcinema_shared_stock_claims: defineTable');
+});
+if (!manager) throw Error(`SYNTHETIC_MANAGER_REPO must point to a Rental Manager checkout with the decline-release contract and dbcinema_shared_stock_claims table. Candidates checked: ${managerCandidates.join(', ')}`);
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'dbc-cross-stock-'));
 const children = [];
 let syntheticProvider;
@@ -51,11 +63,23 @@ async function launch(name, source, fixture) {
     const source = fs.readFileSync(payments, 'utf8');
     if (!source.includes('import Stripe from "stripe";')) throw Error('The synthetic payment adapter no longer matches the real payment handler.');
     fs.writeFileSync(payments, source.replace('import Stripe from "stripe";', 'import Stripe from "./cross_stock_stripe";'));
+    const syncQueue = path.join(dir, 'convex', 'lib', 'rmv2SyncQueue.ts');
+    const syncSource = fs.readFileSync(syncQueue, 'utf8');
+    const scheduledPush = 'await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });';
+    if (!syncSource.includes(scheduledPush)) throw Error('The synthetic runtime fixture could not isolate automatic RMV2 scheduling.');
+    // This integration test drives every delivery explicitly so its lost-response and race assertions are deterministic.
+    fs.writeFileSync(syncQueue, syncSource.replace(scheduledPush, '// Manual delivery is controlled by the synthetic test transport.'));
     fs.writeFileSync(path.join(dir, 'convex', 'lib', 'rentalSwapAuthority.ts'), 'export function swapAuthorityAvailable() { return true; }\nexport function assertSwapAuthorityAvailable() {}\n');
   }
   fs.rmSync(path.join(dir, 'convex', 'crons.ts'), { force: true });
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, CONVEX_AGENT_MODE: 'anonymous', XDG_CONFIG_HOME: path.join(dir, 'config') };
-  const cli = path.join(source, 'node_modules/.bin/convex');
+  // A manager checkout can pin an older CLI that still requires interactive
+  // account setup for local deployments. Permit this isolated test to use the
+  // website's already-installed CLI without changing either source checkout.
+  const cli = process.env.SYNTHETIC_CONVEX_CLI
+    ? path.resolve(process.env.SYNTHETIC_CONVEX_CLI)
+    : path.join(source, 'node_modules/.bin/convex');
+  if (!fs.existsSync(cli)) throw Error(`Synthetic Convex CLI not found: ${cli}`);
   const child = spawn(cli, ['dev', '--typecheck', 'disable', '--codegen', 'disable', '--tail-logs', 'disable'], { cwd: dir, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(child);
   let output = '';
@@ -69,7 +93,7 @@ async function launch(name, source, fixture) {
 
 async function main() {
   const managerBackend = await launch('manager', manager, 'cross-stock-manager.ts.fixture');
-  for (const [key, value] of [['SHARED_STOCK_AUTHORITY_EXPERIMENTAL', 'true'], ['SHARED_STOCK_RECEIPT_CONVERSION_EXPERIMENTAL', 'true'], ['DBCINEMA_SHARED_STOCK_SECRET', secret], ['SHARED_STOCK_WEBSITE_SECRET', secret], ['DBCINEMA_WEBHOOK_SECRET', 'synthetic-sync-secret'], ['BETTER_AUTH_SECRET', 'synthetic-auth-secret-12345678901234567890']]) await run(managerBackend.cli, ['env', 'set', key, value], { cwd: managerBackend.dir, env: managerBackend.env });
+  for (const [key, value] of [['DBCINEMA_SHARED_STOCK_ENABLED', 'true'], ['SHARED_STOCK_AUTHORITY_EXPERIMENTAL', 'true'], ['SHARED_STOCK_RECEIPT_CONVERSION_EXPERIMENTAL', 'true'], ['DBCINEMA_SHARED_STOCK_SECRET', secret], ['SHARED_STOCK_WEBSITE_SECRET', secret], ['DBCINEMA_WEBHOOK_SECRET', 'synthetic-sync-secret'], ['BETTER_AUTH_SECRET', 'synthetic-auth-secret-12345678901234567890']]) await run(managerBackend.cli, ['env', 'set', key, value], { cwd: managerBackend.dir, env: managerBackend.env });
   const siteBackend = await launch('website', website, 'cross-stock-website.ts.fixture');
   for (const [key, value] of [['ADMIN_TOKEN', 'synthetic-test-admin-only'], ['RENTAL_ITEM_SWAP_ENABLED', 'true'], ['SHARED_STOCK_BRIDGE_EXPERIMENTAL', 'true'], ['RMV2_OUTBOUND_ENABLED', 'false'], ['SYNTHETIC_STOCK_SITE', managerBackend.site]]) await run(siteBackend.cli, ['env', 'set', key, value], { cwd: siteBackend.dir, env: siteBackend.env });
   const testKey = process.env.STRIPE_TEST_SECRET_KEY;
@@ -93,6 +117,7 @@ async function main() {
   assert.equal(retried.status, 'confirmed'); assert.equal(retried.result.replayed, true);
   const competing = await call(request('cross-app-swap-00000001'));
   assert.equal(competing.status, 'capacity_conflict');
+
   const execution = { operation: 'beginExecution', args: { id: retried.result.requestId, fingerprint: retried.result.fingerprint, executionKey: 'booking-execution-000001' } };
   const external = await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:addExternal'), { itemId });
   assert.equal((await call(execution)).status, 'capacity_conflict');
@@ -110,10 +135,24 @@ async function main() {
   assert.equal(race.filter(result => result.status === 'capacity_conflict').length, 1);
   const afterRace = await managerBackend.client.query(inspect, {});
   assert.equal(afterRace.claims.length, 2);
+
+  const declinedItemId = await managerBackend.client.mutation(seed, {});
+  const declinedSwap = { operation: 'acquire', args: { requestId: 'cross-app-declined-swap-0001', items: [{ itemId: declinedItemId, start, returnAt, quantity: 1 }] } };
+  const declinedClaim = await call(declinedSwap);
+  assert.equal(declinedClaim.status, 'confirmed');
+  const declinedRelease = { operation: 'releasePrepared', args: { id: declinedClaim.result.requestId, fingerprint: declinedClaim.result.fingerprint, reason: 'renter_declined_before_execution' } };
+  const releasedDeclinedClaim = await call(declinedRelease);
+  assert.equal(releasedDeclinedClaim.status, 'confirmed');
+  assert.equal(releasedDeclinedClaim.result.state, 'released');
+  const replayedDeclineRelease = await call(declinedRelease);
+  assert.equal(replayedDeclineRelease.status, 'confirmed');
+  assert.equal(replayedDeclineRelease.result.replayed, true);
+  assert.equal((await call({ operation: 'acquire', args: { requestId: 'cross-app-declined-retry-0001', items: [{ itemId: declinedItemId, start, returnAt, quantity: 1 }] } })).status, 'confirmed');
+
   const releaseOld = await managerBackend.client.mutation(seed, {}), releaseNew = await managerBackend.client.mutation(seed, {});
   const releaseSwapId = 'syntheticcompensated123', releaseBookingId = 'synthetic-original-booking';
   await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:seedOriginal'), { itemId: releaseOld, bookingId: releaseBookingId, start, returnAt });
-  const releaseClaim = await call({ operation: 'acquire', args: { requestId: `swap_${releaseSwapId}`, items: [{ itemId: releaseNew, start, returnAt, quantity: 1 }] } });
+  const releaseClaim = await call({ operation: 'acquire', args: { requestId: `swap_${releaseSwapId}`, bookingId: releaseBookingId, items: [{ itemId: releaseNew, start, returnAt, quantity: 1 }] } });
   assert.equal(releaseClaim.status, 'confirmed');
   const releaseExecution = { id: releaseClaim.result.requestId, fingerprint: releaseClaim.result.fingerprint, executionKey: `swap_execution_${releaseSwapId}` };
   assert.equal((await call({ operation: 'beginExecution', args: releaseExecution })).status, 'confirmed');
@@ -143,12 +182,14 @@ async function main() {
   const preview = makeFunctionReference('rentalSwapState:preview'), propose = makeFunctionReference('rentalSwapState:propose'), accept = makeFunctionReference('rentalSwapPayments:accept');
   const swap = await createSwap({ oldManagerId, newManagerId });
   const proposalArgs = { token: 'synthetic-test-admin-only', bookingId: swap.bookingId, lineIndex: 0, newListingId: swap.newId };
+  await assert.rejects(siteBackend.client.query(preview, proposalArgs), /temporarily unavailable/, 'A live item-change quote must fail closed while Rental Manager sync is paused.');
+  await run(siteBackend.cli, ['env', 'set', 'RMV2_OUTBOUND_ENABLED', 'true'], { cwd: siteBackend.dir, env: siteBackend.env });
   const quote = await siteBackend.client.query(preview, proposalArgs); assert.equal(quote.quote.deltaPence, 0);
   const swapId = await siteBackend.client.mutation(propose, { ...proposalArgs, requestId: 'synthetic-swap-request-000001', quoteSnapshot: quote.quoteSnapshot, confirmed: true });
-  await assert.rejects(siteBackend.client.action(accept, { token: 'wrong-renter', id: swapId, expectedDeltaPence: 0 }));
-  await assert.rejects(siteBackend.client.action(accept, { token: 'synthetic-renter-token', id: swapId, expectedDeltaPence: 1 }));
+  await assert.rejects(siteBackend.client.action(accept, { token: 'wrong-renter', id: swapId, expectedDeltaPence: 0, confirmed: true }));
+  await assert.rejects(siteBackend.client.action(accept, { token: 'synthetic-renter-token', id: swapId, expectedDeltaPence: 1, confirmed: true }));
   let zeroSwapResult;
-  try { zeroSwapResult = await siteBackend.client.action(accept, { token: 'synthetic-renter-token', id: swapId, expectedDeltaPence: 0 }); }
+  try { zeroSwapResult = await siteBackend.client.action(accept, { token: 'synthetic-renter-token', id: swapId, expectedDeltaPence: 0, confirmed: true }); }
   catch (error) {
     const siteState=await siteBackend.client.query(inspectSwap,{bookingId:swap.bookingId,swapId});
     const managerState=await managerBackend.client.query(inspect,{});
@@ -158,7 +199,7 @@ async function main() {
     throw error;
   }
   assert.equal(zeroSwapResult.applied,true);
-  assert.equal((await siteBackend.client.action(accept, { token: 'synthetic-renter-token', id: swapId, expectedDeltaPence: 0 })).applied, true);
+  assert.equal((await siteBackend.client.action(accept, { token: 'synthetic-renter-token', id: swapId, expectedDeltaPence: 0, confirmed: true })).applied, true);
   const settled = await siteBackend.client.query(inspectSwap, { bookingId: swap.bookingId, swapId });
   assert.equal(settled.booking.lineItems[0].listingId, swap.newId); assert.equal(settled.swap.status, 'applied'); assert.ok(settled.receipt);
   assert.equal(settled.booking.activeItemSwapId,swapId);assert.ok(!settled.messages.some(message=>message.text.startsWith('Your equipment change is confirmed:')));
@@ -191,7 +232,7 @@ async function main() {
     const downArgs = { token: 'synthetic-test-admin-only', bookingId: down.bookingId, lineIndex: 0, newListingId: down.newId };
     const downQuote = await siteBackend.client.query(preview, downArgs); assert.equal(downQuote.quote.deltaPence, -400);
     const downId = await siteBackend.client.mutation(propose, { ...downArgs, requestId: 'synthetic-downgrade-request-0001', quoteSnapshot: downQuote.quoteSnapshot, confirmed: true });
-    const downAcceptance = { token: 'synthetic-downgrade-token', id: downId, expectedDeltaPence: -400 };
+    const downAcceptance = { token: 'synthetic-downgrade-token', id: downId, expectedDeltaPence: -400, confirmed: true };
     assert.equal((await siteBackend.client.action(accept, downAcceptance)).applied, true);
     assert.equal((await siteBackend.client.action(accept, downAcceptance)).applied, true);
     const refunds = await stripe.refunds.list({ payment_intent: payment.id });
@@ -231,7 +272,7 @@ async function main() {
   const upArgs = { token: 'synthetic-test-admin-only', bookingId: up.bookingId, lineIndex: 0, newListingId: up.newId };
   const upQuote = await siteBackend.client.query(preview, upArgs); assert.equal(upQuote.quote.deltaPence, 500);
   const upId = await siteBackend.client.mutation(propose, { ...upArgs, requestId: 'synthetic-upgrade-request-00001', quoteSnapshot: upQuote.quoteSnapshot, confirmed: true });
-  const upAcceptance = { token: 'synthetic-upgrade-token', id: upId, expectedDeltaPence: 500 };
+  const upAcceptance = { token: 'synthetic-upgrade-token', id: upId, expectedDeltaPence: 500, confirmed: true };
   assert.ok((await siteBackend.client.action(accept, upAcceptance)).url);
   assert.ok((await siteBackend.client.action(accept, upAcceptance)).url);
   if(!testKey)assert.equal(sessions.size, 1);
@@ -269,6 +310,20 @@ async function main() {
   await new Promise(resolve => syncProxy.listen(0, '127.0.0.1', resolve));
   for (const [key, value] of [['RMV2_WEBHOOK_URL', `http://127.0.0.1:${syncProxy.address().port}/dbcinema/booking-sync`], ['RMV2_WEBHOOK_SECRET', 'synthetic-sync-secret'], ['RMV2_OUTBOUND_ENABLED', 'true']]) await run(siteBackend.cli, ['env', 'set', key, value], { cwd: siteBackend.dir, env: siteBackend.env });
   const deliver = makeFunctionReference('cross_stock_fixture:deliver'), expedite = makeFunctionReference('cross_stock_fixture:expedite');
+  const waitForSyncFailure = async (bookingId, swapId, reason, upstreamStatus) => {
+    for (let attempt = 0; attempt < 120; attempt++) {
+      const state = await siteBackend.client.query(inspectSwap, { bookingId, swapId });
+      if (state.booking?.rmv2SyncError === reason && lastSyncResponse?.status === upstreamStatus) return state;
+      if (state.booking?.rmv2SyncStatus === 'pending' && (state.booking.rmv2SyncLeaseUntil ?? 0) <= Date.now()) {
+        await siteBackend.client.mutation(expedite, { bookingId });
+        try { await siteBackend.client.action(deliver, { bookingId }); }
+        catch (error) { if (!String(error.message).includes('not_due_or_claimed')) throw error; }
+      }
+      await sleep(100);
+    }
+    const state = await siteBackend.client.query(inspectSwap, { bookingId, swapId });
+    throw Error(`Synthetic Rental Manager delivery did not record ${reason}: ${JSON.stringify({ status:state.booking?.rmv2SyncStatus, error:state.booking?.rmv2SyncError, upstream:lastSyncResponse?.status })}`);
+  };
   const deliverLatest=async(bookingId,swapId)=>{
     for(let attempt=0;attempt<80;attempt++){
       const state=await siteBackend.client.query(inspectSwap,{bookingId,swapId}),booking=state.booking;
@@ -283,7 +338,7 @@ async function main() {
   };
   dropNextResponse = false;
   const lateExternal = await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:addExternal'), { itemId: upNew, date: '2031-01-02' });
-  assert.equal((await siteBackend.client.action(deliver, { bookingId: up.bookingId })).reason, 'http_500');
+  await waitForSyncFailure(up.bookingId, upId, 'http_500', 500);
   const conflictState = await managerBackend.client.query(inspect, {});
   assert.equal(conflictState.requests.find(row => row._id === upReceipt.managerRequestId).state, 'execution_started');
   assert.ok(conflictState.claims.some(row => row.requestId === upReceipt.managerRequestId));
@@ -293,9 +348,8 @@ async function main() {
   assert.ok(await siteBackend.client.query(makeFunctionReference('cross_stock_fixture:inspectRisk'), { bookingId: up.bookingId, revision: upState.booking.rmv2Revision }));
   console.log('PASS post-payment external conflict: manager rejects conversion, retains claim, and website alerts the team before retry.');
   await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:removeExternal'), { reservationId: lateExternal });
-  await siteBackend.client.mutation(expedite, { bookingId: up.bookingId });
   dropNextResponse = true;
-  assert.equal((await siteBackend.client.action(deliver, { bookingId: up.bookingId })).reason, 'fetch_error');
+  await waitForSyncFailure(up.bookingId, upId, 'fetch_error', 200);
   assert.equal((await managerBackend.client.query(inspect, {})).requests.find(row => row._id === upReceipt.managerRequestId).state, 'converted');
   const lostAck = await siteBackend.client.query(inspectSwap, { bookingId: up.bookingId, swapId: upId });
   assert.equal(lostAck.receipt.deliveryState, 'pending');
@@ -308,7 +362,7 @@ async function main() {
   assert.ok(advanced.booking.rmv2Revision > upReceipt.bookingRevision);
   await run(siteBackend.cli, ['env', 'set', 'RMV2_OUTBOUND_ENABLED', 'true'], { cwd: siteBackend.dir, env: siteBackend.env });
   await siteBackend.client.mutation(expedite, { bookingId: up.bookingId });
-  assert.equal((await siteBackend.client.action(deliver, { bookingId: up.bookingId })).ok, true);
+  const recoveredDelivery=await siteBackend.client.action(deliver,{bookingId:up.bookingId});assert.equal(recoveredDelivery.ok,true,JSON.stringify(recoveredDelivery));
   const deliveredState = await siteBackend.client.query(inspectSwap, { bookingId: up.bookingId, swapId: upId });
   assert.equal(deliveredState.receipt.deliveryState, 'acknowledged');
   assert.equal(deliveredState.booking.activeItemSwapId,undefined);assert.equal(deliveredState.messages.filter(message=>message.text.startsWith('Your equipment change is confirmed:')).length,1);
@@ -316,8 +370,7 @@ async function main() {
   const remaining = [{ bookingId: swap.bookingId, swapId, receipt, managerItemId: newManagerId }, ...(downgradeCase ? [downgradeCase] : [])];
   for (const entry of remaining) {
     dropNextResponse = true;
-    const firstDelivery = await siteBackend.client.action(deliver, { bookingId: entry.bookingId });
-    assert.equal(firstDelivery.reason, 'fetch_error');
+    await waitForSyncFailure(entry.bookingId, entry.swapId, 'fetch_error', 200);
     const afterLoss = await managerBackend.client.query(inspect, {});
     assert.equal(afterLoss.requests.find(row => row._id === entry.receipt.managerRequestId).state, 'converted');
     assert.equal(afterLoss.reservations.find(row => row.hygglo_order_id === entry.bookingId).site_item_windows[0].item_id, entry.managerItemId);
@@ -371,9 +424,13 @@ async function main() {
   for(const raceKind of ['owner-changed','stock-risk']){
     const raceOld=await managerBackend.client.mutation(seed,{}),raceNew=await managerBackend.client.mutation(seed,{}),raceToken=`synthetic-ack-${raceKind}`;
     const raceBooking=await createSwap({oldManagerId:raceOld,newManagerId:raceNew,renterToken:raceToken});
-    const raceArgs={token:'synthetic-test-admin-only',bookingId:raceBooking.bookingId,lineIndex:0,newListingId:raceBooking.newId},raceQuote=await siteBackend.client.query(preview,raceArgs);
+    const raceArgs={token:'synthetic-test-admin-only',bookingId:raceBooking.bookingId,lineIndex:0,newListingId:raceBooking.newId};
+    await assert.rejects(siteBackend.client.query(preview,raceArgs),/temporarily unavailable/,'New proposals must stop while Rental Manager sync is paused.');
+    await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
+    const raceQuote=await siteBackend.client.query(preview,raceArgs);
     const raceId=await siteBackend.client.mutation(propose,{...raceArgs,requestId:`synthetic-ack-${raceKind}-request`,quoteSnapshot:raceQuote.quoteSnapshot,confirmed:true});
-    assert.equal((await siteBackend.client.action(accept,{token:raceToken,id:raceId,expectedDeltaPence:0})).applied,true);
+    assert.equal((await siteBackend.client.action(accept,{token:raceToken,id:raceId,expectedDeltaPence:0,confirmed:true})).applied,true);
+    await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','false'],{cwd:siteBackend.dir,env:siteBackend.env});
     if(raceKind==='owner-changed')await siteBackend.client.mutation(makeFunctionReference('cross_stock_fixture:changeSyntheticOwner'),{bookingId:raceBooking.bookingId});
     else await siteBackend.client.mutation(makeFunctionReference('cross_stock_fixture:markSyntheticReceiptRisk'),{swapId:raceId});
     await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
@@ -388,9 +445,12 @@ async function main() {
   const revokeOld=await managerBackend.client.mutation(seed,{}),revokeNew=await managerBackend.client.mutation(seed,{});
   const revoke=await createSwap({oldManagerId:revokeOld,newManagerId:revokeNew,renterToken:'synthetic-ack-revoke-token'});
   const revokeArgs={token:'synthetic-test-admin-only',bookingId:revoke.bookingId,lineIndex:0,newListingId:revoke.newId};
+  await assert.rejects(siteBackend.client.query(preview,revokeArgs),/temporarily unavailable/,'New proposals must remain unavailable while RM sync is paused.');
+  await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
   const revokeQuote=await siteBackend.client.query(preview,revokeArgs);
   const revokeId=await siteBackend.client.mutation(propose,{...revokeArgs,requestId:'synthetic-ack-revoke-request',quoteSnapshot:revokeQuote.quoteSnapshot,confirmed:true});
-  assert.equal((await siteBackend.client.action(accept,{token:'synthetic-ack-revoke-token',id:revokeId,expectedDeltaPence:0})).applied,true);
+  assert.equal((await siteBackend.client.action(accept,{token:'synthetic-ack-revoke-token',id:revokeId,expectedDeltaPence:0,confirmed:true})).applied,true);
+  await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','false'],{cwd:siteBackend.dir,env:siteBackend.env});
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
   await siteBackend.client.mutation(expedite,{bookingId:revoke.bookingId});dropNextResponse=true;
   assert.equal((await siteBackend.client.action(deliver,{bookingId:revoke.bookingId})).reason,'fetch_error');
@@ -420,7 +480,7 @@ async function main() {
   assert.equal(verifiedOutcome.booking.activeItemSwapId,undefined);assert.equal(verifiedOutcome.receipt.deliveryState,'acknowledged');
   assert.equal(verifiedOutcome.messages.filter(message=>message.text.startsWith('Your equipment change is confirmed:')).length,1);
   console.log('PASS restored verification: external conflict blocks replay until stock is genuinely clear.');
-  for (const [key, value] of [['STRIPE_SECRET_KEY', 'sk_test_synthetic_fixture'], ['SYNTHETIC_PAYMENT_SITE', providerUrl], ['RMV2_OUTBOUND_ENABLED', 'false']]) await run(siteBackend.cli, ['env', 'set', key, value], { cwd: siteBackend.dir, env: siteBackend.env });
+  for (const [key, value] of [['STRIPE_SECRET_KEY', 'sk_test_synthetic_fixture'], ['SYNTHETIC_PAYMENT_SITE', providerUrl], ['RMV2_OUTBOUND_ENABLED', 'true']]) await run(siteBackend.cli, ['env', 'set', key, value], { cwd: siteBackend.dir, env: siteBackend.env });
   const pendingPaymentId='pi_synthetic_pending';
   payments.set(pendingPaymentId,{id:pendingPaymentId,status:'succeeded',currency:'gbp',amount_received:1000,metadata:{}});
   const pendingOld=await managerBackend.client.mutation(seed, {}),pendingNew=await managerBackend.client.mutation(seed, {});
@@ -428,7 +488,7 @@ async function main() {
   const pendingArgs={token:'synthetic-test-admin-only',bookingId:pending.bookingId,lineIndex:0,newListingId:pending.newId};
   const pendingQuote=await siteBackend.client.query(preview,pendingArgs);
   const pendingId=await siteBackend.client.mutation(propose,{...pendingArgs,requestId:'synthetic-pending-refund-request',quoteSnapshot:pendingQuote.quoteSnapshot,confirmed:true});
-  const pendingAccept={token:'synthetic-pending-refund-token',id:pendingId,expectedDeltaPence:-400};
+  const pendingAccept={token:'synthetic-pending-refund-token',id:pendingId,expectedDeltaPence:-400,confirmed:true};
   assert.equal((await siteBackend.client.action(accept,pendingAccept)).status,'pending');
   const waitingRefund=await siteBackend.client.query(inspectSwap,{bookingId:pending.bookingId,swapId:pendingId});
   assert.equal(waitingRefund.swap.stockAppliedAt,undefined,'A pending refund cannot apply the cheaper equipment or price change early');
@@ -499,9 +559,11 @@ async function main() {
   payments.set(refundRevokePayment,{id:refundRevokePayment,status:'succeeded',currency:'gbp',amount_received:1000,metadata:{}});
   const refundRevoke=await createSwap({oldManagerId:refundRevokeOld,newManagerId:refundRevokeNew,newPrice:6,paymentIntentId:refundRevokePayment,renterToken:'synthetic-refund-revoke-token'});
   const refundRevokeArgs={token:'synthetic-test-admin-only',bookingId:refundRevoke.bookingId,lineIndex:0,newListingId:refundRevoke.newId};
+  await assert.rejects(siteBackend.client.query(preview,refundRevokeArgs),/temporarily unavailable/,'A refund change cannot be quoted while RM sync is paused.');
+  await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
   const refundRevokeQuote=await siteBackend.client.query(preview,refundRevokeArgs);
   const refundRevokeId=await siteBackend.client.mutation(propose,{...refundRevokeArgs,requestId:'synthetic-refund-revoke-request',quoteSnapshot:refundRevokeQuote.quoteSnapshot,confirmed:true});
-  const refundRevokeAccept={token:'synthetic-refund-revoke-token',id:refundRevokeId,expectedDeltaPence:-400};
+  const refundRevokeAccept={token:'synthetic-refund-revoke-token',id:refundRevokeId,expectedDeltaPence:-400,confirmed:true};
   assert.equal((await siteBackend.client.action(accept,refundRevokeAccept)).status,'pending');
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
   await siteBackend.client.mutation(expedite,{bookingId:refundRevoke.bookingId});const refundRevokeDelivery=await siteBackend.client.action(deliver,{bookingId:refundRevoke.bookingId});assert.equal(refundRevokeDelivery.ok,true,`refund-revoke booking delivery failed: ${JSON.stringify(refundRevokeDelivery)}; manager: ${JSON.stringify(lastSyncResponse)}`);
@@ -519,7 +581,13 @@ async function main() {
   await siteBackend.client.mutation(makeFunctionReference('cross_stock_fixture:restoreVerification'),{bookingId:refundRevoke.bookingId});
   await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
   const restoredConflict=await managerBackend.client.mutation(makeFunctionReference('cross_stock_fixture:addExternal'),{itemId:refundRevokeNew,date:'2031-01-02'});
-  await deliverLatest(refundRevoke.bookingId,refundRevokeId);
+  await siteBackend.client.mutation(expedite,{bookingId:refundRevoke.bookingId});
+  await siteBackend.client.action(deliver,{bookingId:refundRevoke.bookingId});
+  assert.equal(lastSyncResponse.status,200);
+  assert.equal(JSON.parse(lastSyncResponse.response).outcome,'applied','A metadata-only sync of the still-booked original kit may proceed while the proposed replacement remains uncommitted');
+  const deferredConflict=await siteBackend.client.query(inspectSwap,{bookingId:refundRevoke.bookingId,swapId:refundRevokeId});
+  assert.equal(deferredConflict.booking.rmv2SyncStatus,'delivered');assert.equal(deferredConflict.booking.rmv2DeliveredRevision,deferredConflict.booking.rmv2Revision);
+  assert.notEqual(deferredConflict.booking.lineItems[0].listingId,refundRevoke.newId);
   await assert.rejects(siteBackend.client.action(accept,refundRevokeAccept));
   const conflictPending=await siteBackend.client.query(inspectSwap,{bookingId:refundRevoke.bookingId,swapId:refundRevokeId});
   assert.equal(conflictPending.booking.activeItemSwapId,refundRevokeId);assert.notEqual(conflictPending.booking.lineItems[0].listingId,refundRevoke.newId);assert.equal([...syntheticRefunds.values()].filter(row=>row.payment_intent===refundRevokePayment).length,1);
@@ -550,9 +618,11 @@ async function main() {
   const compOld=await managerBackend.client.mutation(seed,{}),compNew=await managerBackend.client.mutation(seed,{});
   const comp=await createSwap({oldManagerId:compOld,newManagerId:compNew,newPrice:15,renterToken:'synthetic-compensation-token'});
   const compArgs={token:'synthetic-test-admin-only',bookingId:comp.bookingId,lineIndex:0,newListingId:comp.newId};
+  await assert.rejects(siteBackend.client.query(preview,compArgs),/temporarily unavailable/,'Compensating changes cannot start while RM sync is paused.');
+  await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
   const compQuote=await siteBackend.client.query(preview,compArgs);
   const compId=await siteBackend.client.mutation(propose,{...compArgs,requestId:'synthetic-compensation-request-001',quoteSnapshot:compQuote.quoteSnapshot,confirmed:true});
-  await siteBackend.client.action(accept,{token:'synthetic-compensation-token',id:compId,expectedDeltaPence:500});
+  await siteBackend.client.action(accept,{token:'synthetic-compensation-token',id:compId,expectedDeltaPence:500,confirmed:true});
   const compBefore=await siteBackend.client.query(inspectSwap,{bookingId:comp.bookingId,swapId:compId}),compSession=sessions.get(compBefore.swap.sessionId),compPaymentId='pi_compensation1';
   payments.set(compPaymentId,{id:compPaymentId,status:'succeeded',currency:'gbp',amount_received:500,metadata:{itemSwapId:compId}});
   Object.assign(compSession,{status:'complete',payment_status:'paid',payment_intent:compPaymentId});
@@ -572,7 +642,9 @@ async function main() {
   await siteBackend.client.mutation(expedite,{bookingId:comp.bookingId});
   assert.equal((await siteBackend.client.action(deliver,{bookingId:comp.bookingId})).ok,true);
   await run(siteBackend.cli,['env','set','SYNTHETIC_LOSE_COMPENSATED_RESPONSE','true'],{cwd:siteBackend.dir,env:siteBackend.env});
-  assert.equal((await siteBackend.client.action(recoverRelease,{id:releaseJob._id})).status,'unknown');
+  const lostReleaseResponse=await siteBackend.client.action(recoverRelease,{id:releaseJob._id});
+  if(lostReleaseResponse.status!=='unknown')console.error('Compensated release recovery detail',JSON.stringify(await siteBackend.client.query(inspectRelease,{swapId:compId})));
+  assert.equal(lostReleaseResponse.status,'unknown');
   const frozenJob=await siteBackend.client.query(inspectRelease,{swapId:compId});
   assert.equal((await managerBackend.client.query(inspect,{})).requests.find(row=>row._id===frozenJob.request.args.id).state,'compensated_released');
   assert.equal((await siteBackend.client.query(inspectSwap,{bookingId:comp.bookingId,swapId:compId})).booking.activeItemSwapId,compId);
@@ -592,9 +664,11 @@ async function main() {
   const raceOld=await managerBackend.client.mutation(seed,{}),raceNew=await managerBackend.client.mutation(seed,{});
   const revoked=await createSwap({oldManagerId:raceOld,newManagerId:raceNew,newPrice:15,renterToken:'synthetic-revocation-token'});
   const revokedArgs={token:'synthetic-test-admin-only',bookingId:revoked.bookingId,lineIndex:0,newListingId:revoked.newId};
+  await assert.rejects(siteBackend.client.query(preview,revokedArgs),/temporarily unavailable/,'A payment-backed change cannot be proposed while RM sync is paused.');
+  await run(siteBackend.cli,['env','set','RMV2_OUTBOUND_ENABLED','true'],{cwd:siteBackend.dir,env:siteBackend.env});
   const revokedQuote=await siteBackend.client.query(preview,revokedArgs);
   const revokedId=await siteBackend.client.mutation(propose,{...revokedArgs,requestId:'synthetic-revocation-request-001',quoteSnapshot:revokedQuote.quoteSnapshot,confirmed:true});
-  await siteBackend.client.action(accept,{token:'synthetic-revocation-token',id:revokedId,expectedDeltaPence:500});
+  await siteBackend.client.action(accept,{token:'synthetic-revocation-token',id:revokedId,expectedDeltaPence:500,confirmed:true});
   const revokedBefore=await siteBackend.client.query(inspectSwap,{bookingId:revoked.bookingId,swapId:revokedId}),revokedSession=sessions.get(revokedBefore.swap.sessionId),revokedPayment='pi_revocation1';
   payments.set(revokedPayment,{id:revokedPayment,status:'succeeded',currency:'gbp',amount_received:500,metadata:{itemSwapId:revokedId}});
   Object.assign(revokedSession,{status:'complete',payment_status:'paid',payment_intent:revokedPayment});

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -15,14 +15,18 @@ import { NotificationSettings } from "@/components/admin/NotificationSettings";
 import { OwnerNotificationBell } from "@/components/admin/OwnerNotificationBell";
 import { AccountAdmin } from "@/components/admin/AccountAdmin";
 import { MarketingListingsAdmin } from "@/components/admin/MarketingListingsAdmin";
-import { SmartImage } from "@/components/SmartImage";
-import { formatGbp } from "@/lib/pricing";
 import { parseOwnerConversationUrl } from "../../../shared/ownerConversationRoute";
 import { ManagementShell } from "@/components/management/ManagementShell";
 import { AdminInvoiceLibrary } from "@/components/management/AdminInvoiceLibrary";
 import { AdminRentalCalendar } from "@/components/management/AdminRentalCalendar";
 import { AdminInsights } from "@/components/admin/AdminInsights";
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
+
+function canReplyToOtherRequest(email: string, routedTo?: string | null) {
+  const normalized = email.trim().toLowerCase();
+  if (routedTo?.startsWith("voice-") && normalized === "voice@dbcinemarentals.com") return false;
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalized);
+}
 
 export default function AdminPage() {
   const [documentsOpen, setDocumentsOpen] = useState<string | null>(null);
@@ -31,13 +35,14 @@ export default function AdminPage() {
   const [tab, setTab] = useState<
     "overview" | "bookings" | "insights" | "inbox" | "settings" | "promotions" | "accounts"
   >("overview");
-  const [inboxSection, setInboxSection] = useState<"conversations" | "enquiries">("conversations");
   const [promotionSection, setPromotionSection] = useState<"campaigns" | "fund" | "stories" | "vouchers">("campaigns");
   const [customerSection, setCustomerSection] = useState<"customers" | "invoices">("customers");
   const [calendarExpanded, setCalendarExpanded] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [supportAccountId, setSupportAccountId] = useState<string | null>(null);
   const [conversationNavigation, setConversationNavigation] = useState(0);
+  const [focusEmailAddress, setFocusEmailAddress] = useState<string | null>(null);
+  const [emailNavigation, setEmailNavigation] = useState(0);
   const [rentalAction,setRentalAction]=useState<"change"|"dates"|"discount"|"refund"|undefined>(undefined);
   const [detailId, setDetailId] = useState<string | null>(null);
 
@@ -57,9 +62,9 @@ export default function AdminPage() {
       setSupportAccountId(route.accountId);
       setConversationNavigation(value => value + 1);
       setDetailId(null);
-      setInboxSection("conversations");setTab("inbox");
+      setTab("inbox");
     };
-    const fromLocation = () => { if (["#marketing", "#settings"].includes(window.location.hash)) setTab("settings"); else if (window.location.hash === "#invoices") {setCustomerSection("invoices");setTab("accounts");} else if (["#fund", "#stories", "#promotions"].includes(window.location.hash)) {setPromotionSection(window.location.hash === "#fund" ? "fund" : window.location.hash === "#stories" ? "stories" : "campaigns");setTab("promotions");} else if(window.location.hash === "#calendar") {setCalendarExpanded(true);setTab("overview");} else if(window.location.hash === "#reports") setTab("overview"); else if(window.location.hash === "#enquiries") {setInboxSection("enquiries");setTab("inbox");} else open(window.location.href); };
+    const fromLocation = () => { if (["#marketing", "#settings"].includes(window.location.hash)) setTab("settings"); else if (window.location.hash === "#invoices") {setCustomerSection("invoices");setTab("accounts");} else if (["#fund", "#stories", "#promotions"].includes(window.location.hash)) {setPromotionSection(window.location.hash === "#fund" ? "fund" : window.location.hash === "#stories" ? "stories" : "campaigns");setTab("promotions");} else if(window.location.hash === "#calendar") {setCalendarExpanded(true);setTab("overview");} else if(window.location.hash === "#reports") setTab("overview"); else if(window.location.hash === "#enquiries") {setFocusEmailAddress(null);setEmailNavigation(value => value + 1);setTab("inbox");} else open(window.location.href); };
     const fromPush = (event: MessageEvent) => {
       if (event.data?.type !== "dbc:open-owner-conversation" || typeof event.data.url !== "string") return;
       const route = parseOwnerConversationUrl(event.data.url, window.location.origin);
@@ -85,8 +90,47 @@ export default function AdminPage() {
       token && authed === true ? { token, admin: true } : "skip",
     ) ?? 0;
   const contacts = useQuery(api.contact.adminList, token && authed === true ? { token } : "skip");
+  const adminEmailThreads = useQuery(api.emailInbox.adminInbox, token && authed === true ? { token, limit: 100 } : "skip");
+  const emailUnread = adminEmailThreads?.authorized
+    ? adminEmailThreads.items.reduce((total, thread) => total + (thread.unreadOwner ?? 0), 0)
+    : 0;
   const attention = useQuery(api.adminNotifications.latest, token && authed === true ? { token } : "skip") ?? [];
-  const markHandled = useMutation(api.contact.adminMarkHandled);
+  const openLegacyEnquiry = useMutation(api.contact.openCentralThread);
+  const attemptedLegacyEnquiries = useRef(new Set<string>());
+  const legacyMigrationRunning = useRef(false);
+  const [legacyMigrationPass, setLegacyMigrationPass] = useState(0);
+  const [legacyMigrationFailed, setLegacyMigrationFailed] = useState(false);
+  const [otherRequestError, setOtherRequestError] = useState("");
+  useEffect(() => {
+    if (authed !== true || !token || !contacts?.items.length || legacyMigrationRunning.current) return;
+    const adminToken = token;
+    // Only untagged historical contact emails (plus orphaned rows already
+    // marked as central-email) should be auto-imported. Crew, collective and
+    // voice submissions have their own workflows and must remain there until
+    // an admin chooses to open an email conversation for them.
+    const pending = contacts.items.filter(row =>
+      (row.routedTo == null || row.routedTo === "central-email") &&
+      !attemptedLegacyEnquiries.current.has(String(row._id)),
+    );
+    if (!pending.length) return;
+    legacyMigrationRunning.current = true;
+    void (async () => {
+      try {
+        for (const row of pending) {
+          const id = String(row._id);
+          attemptedLegacyEnquiries.current.add(id);
+          try { await openLegacyEnquiry({ token: adminToken, id: row._id }); }
+          catch (error) {
+            console.error("[admin-email] legacy enquiry migration failed", id, error);
+            setLegacyMigrationFailed(true);
+          }
+        }
+      } finally {
+        legacyMigrationRunning.current = false;
+        setLegacyMigrationPass(value => value + 1);
+      }
+    })();
+  }, [authed, contacts, legacyMigrationPass, openLegacyEnquiry, token]);
 
 
   function save() {
@@ -97,6 +141,25 @@ export default function AdminPage() {
     localStorage.removeItem("dbc_admin");
     setToken(null);
     setInput("");
+  }
+
+  async function openOtherRequestInEmail(row: NonNullable<typeof contacts>["items"][number]) {
+    setOtherRequestError("");
+    if (!canReplyToOtherRequest(row.email, row.routedTo)) {
+      setOtherRequestError("This request has no renter email address to reply to.");
+      return;
+    }
+    try {
+      await openLegacyEnquiry({ token: token!, id: row._id });
+      setConversationId(null);
+      setSupportAccountId(null);
+      setFocusEmailAddress(row.email);
+      setEmailNavigation(value => value + 1);
+      window.history.replaceState(null, "", `${window.location.pathname}#messages`);
+    } catch (error) {
+      console.error("[admin-email] request conversation migration failed", String(row._id), error);
+      setOtherRequestError("Could not open this as an email conversation. Check the reply address and try again.");
+    }
   }
 
   if (!token || authed === false) {
@@ -137,13 +200,17 @@ export default function AdminPage() {
     return <main role="status" className="mx-auto max-w-sm px-6 py-24 text-sm text-white/60">Checking admin access…</main>;
   }
 
+  const otherRequests = (contacts?.items ?? []).filter(row =>
+    row.routedTo != null && row.routedTo !== "central-email" && row.routedTo !== "contact-form",
+  );
+
   return (
-    <ManagementShell screenOverride={tab === "accounts" && documentsOpen ? "documents" : undefined} breadcrumb={tab === "accounts" && documentsOpen ? <><button type="button" onClick={() => setDocumentsOpen(null)}>Customers</button><i aria-hidden="true">/</i><strong aria-current="page">{documentsOpen}</strong></> : undefined} role="admin" name="DB Cinema team" title={tab === "accounts" && documentsOpen ? "Documents & verification" : { overview: "Dashboard", bookings: "Rentals", insights: "Insights & Demand", inbox: "Messages & enquiries", accounts: "Customers & members", promotions: "Promotional actions", settings: "Settings" }[tab]} subtitle={tab === "accounts" && documentsOpen ? "Securely saved documents linked to this customer and their rentals." : "Manage rentals, accounts and equipment operations."}
+    <ManagementShell screenOverride={tab === "accounts" && documentsOpen ? "documents" : undefined} breadcrumb={tab === "accounts" && documentsOpen ? <><button type="button" onClick={() => setDocumentsOpen(null)}>Customers</button><i aria-hidden="true">/</i><strong aria-current="page">{documentsOpen}</strong></> : undefined} role="admin" name="DB Cinema team" title={tab === "accounts" && documentsOpen ? "Documents & verification" : { overview: "Dashboard", bookings: "Rentals", insights: "Insights & Demand", inbox: "Messages", accounts: "Customers & members", promotions: "Promotional actions", settings: "Settings" }[tab]} subtitle={tab === "accounts" && documentsOpen ? "Securely saved documents linked to this customer and their rentals." : "Manage rentals, accounts and equipment operations."}
       active={tab} nav={[
         { key: "overview", label: "Dashboard", icon: "dashboard" },
         { key: "bookings", label: "Rentals", icon: "rentals" },
         { key: "accounts", label: "Customers & members", icon: "people" },
-        { key: "inbox", label: "Messages & enquiries", icon: "messages", badge: rentalUnread + (contacts?.items.filter(m => !m.handled).length ?? 0) },
+        { key: "inbox", label: "Messages", icon: "messages", badge: rentalUnread + emailUnread },
         { key: "insights", label: "Insights", icon: "reports" },
         { key: "promotions", label: "Promotional actions", icon: "people" },
         { key: "settings", label: "Settings", icon: "settings" },
@@ -161,8 +228,29 @@ export default function AdminPage() {
           </div>
         )}
 
-        {tab === "inbox" && <div className="admin-section-tabs" role="group" aria-label="Messages sections"><button aria-pressed={inboxSection === "conversations"} onClick={() => setInboxSection("conversations")}>Conversations {rentalUnread > 0 ? `(${rentalUnread})` : ""}</button><button aria-pressed={inboxSection === "enquiries"} onClick={() => setInboxSection("enquiries")}>Enquiries ({contacts?.items.filter(m => !m.handled).length ?? 0} pending)</button></div>}
-        {tab === "inbox" && inboxSection === "conversations" && <RentalInbox token={token} focusBookingId={conversationId} focusAccountId={supportAccountId} focusRevision={conversationNavigation} />}
+        {tab === "inbox" && <>
+          {legacyMigrationFailed && <div role="status" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200/15 bg-amber-200/[.04] px-3 py-2 text-xs text-amber-100/75"><span>An older email could not be moved into Messages.</span><button type="button" onClick={() => { attemptedLegacyEnquiries.current.clear(); setLegacyMigrationFailed(false); setLegacyMigrationPass(value => value + 1); }} className="rounded-lg border border-amber-100/20 px-2.5 py-1.5 text-[10px] text-amber-50 hover:bg-amber-100/[.06]">Retry import</button></div>}
+          {otherRequests.length > 0 && <details className="mt-3 rounded-2xl border border-white/[.08] bg-white/[.02] p-3" data-testid="admin-other-requests">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium text-white/70"><span>Other requests</span><span className="rounded-full bg-white/[.07] px-2 py-0.5 text-[10px] text-white/45">{otherRequests.length}</span></summary>
+              <div className="mt-3 space-y-2">
+                {otherRequests.map(row => {
+                  const canReply = canReplyToOtherRequest(row.email, row.routedTo);
+                  return <article key={row._id} className="rounded-xl border border-white/[.07] bg-black/15 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-white/80">{row.name || row.email}</p>
+                      <p className="mt-1 truncate text-[10px] text-white/40">{row.routedTo === "crew" ? "Crew application" : row.routedTo === "collective" ? "Community request" : row.routedTo?.startsWith("voice-") ? "Voice follow-up" : "Other request"} · {canReply ? row.email : "No renter email supplied"}</p>
+                    </div>
+                    {canReply ? <button type="button" onClick={() => { void openOtherRequestInEmail(row); }} className="shrink-0 rounded-lg border border-sky-200/20 px-2.5 py-1.5 text-[10px] text-sky-100/80 hover:bg-sky-200/[.06]">Open conversation</button> : <span className="shrink-0 rounded-lg border border-white/[.07] px-2.5 py-1.5 text-[10px] text-white/35">No email to reply to</span>}
+                  </div>
+                  <p className="mt-2 line-clamp-2 break-words text-[11px] leading-5 text-white/50">{row.message}</p>
+                </article>;
+                })}
+              </div>
+              {otherRequestError && <p role="status" className="mt-2 text-[10px] leading-4 text-amber-100/70">{otherRequestError}</p>}
+            </details>}
+          <RentalInbox token={token} focusBookingId={conversationId} focusAccountId={supportAccountId} focusRevision={conversationNavigation} focusEmail={focusEmailAddress} focusEmailRevision={emailNavigation} />
+        </>}
         {tab === "insights" && <AdminInsights token={token} onInventory={() => setTab("settings")} />}
 
 
@@ -173,7 +261,7 @@ export default function AdminPage() {
             onChat={(id) => {
               setConversationId(id);
               setSupportAccountId(null);
-              setInboxSection("conversations");setTab("inbox");
+              setTab("inbox");
             }}
             onDetails={setDetailId}
           />
@@ -188,43 +276,11 @@ export default function AdminPage() {
             onChat={() => {
               setConversationId(detailId);
               setSupportAccountId(null);
-              setInboxSection("conversations");setTab("inbox");
+              setTab("inbox");
             }}
           />
         )}
 
-        {tab === "inbox" && inboxSection === "enquiries" && (
-          <div className="mt-6 grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
-            {contacts?.items.map((m: any) => (
-              <div
-                key={m._id}
-                className={`rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-xs ${m.handled ? "opacity-45" : ""}`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-[13px] text-white/80">
-                    {m.name} <span className="text-white/35">· {m.email}</span>
-                  </span>
-                  {!m.handled && (
-                    <button
-                      onClick={() => markHandled({ token, id: m._id })}
-                      className="shrink-0 text-[11px] text-accent-400 hover:underline"
-                    >
-                      handled
-                    </button>
-                  )}
-                </div>
-                <details className="mt-3">
-                  <summary className="cursor-pointer list-none text-xs leading-6 text-white/60"><span className="line-clamp-2">{m.message}</span><span className="mt-2 block text-[10px] text-accent-300">Open enquiry ↗</span></summary>
-                  <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-white/75">{m.message}</p>
-                  <a href={`mailto:${m.email}`} className="mt-3 inline-block rounded-full bg-white/[0.06] px-4 py-2 text-xs text-white/75">Reply by email ↗</a>
-                </details>
-              </div>
-            ))}
-            {contacts && contacts.items.length === 0 && (
-              <div className="text-sm text-white/30">No messages.</div>
-            )}
-          </div>
-        )}
 
         {tab === "promotions" && <div className="admin-section-tabs" role="group" aria-label="Promotional actions"><button aria-pressed={promotionSection === "campaigns"} onClick={() => setPromotionSection("campaigns")}>Campaigns & referrals</button><button aria-pressed={promotionSection === "vouchers"} onClick={() => setPromotionSection("vouchers")}>Discounts voucher</button><button aria-pressed={promotionSection === "fund"} onClick={() => setPromotionSection("fund")}>Film Fund</button><button aria-pressed={promotionSection === "stories"} onClick={() => setPromotionSection("stories")}>Story Prize</button></div>}
         {tab === "promotions" && promotionSection === "fund" && <FilmFundAdmin token={token}/>}
@@ -232,7 +288,7 @@ export default function AdminPage() {
         {tab === "promotions" && promotionSection === "campaigns" && <div className="admin-tool-panel"><ReferralCampaignAdmin token={token}/></div>}
         {tab === "accounts" && !documentsOpen && <div className="admin-section-tabs" role="group" aria-label="Customer pages"><button aria-pressed={customerSection === "customers"} onClick={() => setCustomerSection("customers")}>Customers & members</button><button aria-pressed={customerSection === "invoices"} onClick={() => setCustomerSection("invoices")}>Invoices & PDFs</button></div>}
         {tab === "accounts" && customerSection === "invoices" && <AdminInvoiceLibrary token={token}/>}
-        {tab === "accounts" && customerSection === "customers" && <AccountAdmin token={token} onDocumentsChange={setDocumentsOpen} onRental={id => { setDetailId(id); setTab("bookings"); }} onConversation={(accountId, bookingId) => { setConversationId(bookingId); setSupportAccountId(bookingId ? null : accountId); setConversationNavigation(v => v + 1); setInboxSection("conversations");setTab("inbox"); }} />}
+        {tab === "accounts" && customerSection === "customers" && <AccountAdmin token={token} onDocumentsChange={setDocumentsOpen} onRental={id => { setDetailId(id); setTab("bookings"); }} onEmail={email => { setFocusEmailAddress(email); setEmailNavigation(value => value + 1); setConversationId(null); setSupportAccountId(null); setTab("inbox"); window.history.replaceState(null, "", `${window.location.pathname}#messages`); }} onConversation={(accountId, bookingId) => { setConversationId(bookingId); setSupportAccountId(bookingId ? null : accountId); setConversationNavigation(v => v + 1);setTab("inbox"); }} />}
 
         {tab === "promotions" && promotionSection === "stories" && <StoryPrizeAdmin token={token}/>}
 

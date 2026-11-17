@@ -9,7 +9,7 @@ import {
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { verificationValidUntil } from "../shared/verificationProgress";
+import { renterRentalActionReady } from "./lib/renterRentalActionGate";
 import { paginationOptsValidator } from "convex/server";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { listingRentalImages } from "./lib/catalogImages";
@@ -51,12 +51,9 @@ async function bookingView(
   account: any,
   options: { includeAvailability?: boolean; thread?: any; availabilityCache?: AvailabilityReadCache } = {},
 ) {
-  const verificationExpiresAt = verificationValidUntil(b);
-  const handoverReady =
-    ["confirmed", "active"].includes(b.status) &&
-    !!b.paidConfirmedAt &&
-    b.idVerifyStatus === "verified" &&
-    (verificationExpiresAt ?? 0) > Date.now();
+  // This Didit result is recorded on this booking. The account-level
+  // 90-day reuse badge only controls later bookings, not this rental.
+  const handoverReady = renterRentalActionReady(b);
   let verificationArchiveReady = false;
   if (b.idVerifyStatus === "verified") {
     try {
@@ -129,7 +126,6 @@ async function bookingView(
     idVerificationSource: b.idVerificationSource ?? null,
     verificationChecks: b.verificationChecks ?? null,
     verificationArchiveReady,
-    verificationExpiresAt,
     handoverDetails: handoverReady ? {
       phone: LEO_SUPPORT_PHONE,
       pickupAddress: b.fulfilment === "delivery" ? (typeof b.address === "string" ? b.address : null) : TRAFALGAR_PICKUP_ADDRESS,
@@ -316,7 +312,9 @@ export const sendOwner = mutation({
     });
     const t = await rentalThread(ctx, a._id, bookingId);
     if (t && !t.escalated) {
-      await ctx.db.patch(t._id, { escalated: true, gafferGeneration: (t.gafferGeneration ?? 0) + 1 });
+      const message = await ctx.db.get(messageId as Id<"messages">);
+      const handoffAt = message?.at ?? Date.now();
+      await ctx.db.patch(t._id, { escalated: true, escalatedAt:handoffAt,lastHumanActivityAt:handoffAt, gafferGeneration: (t.gafferGeneration ?? 0) + 1 });
       await scheduleGafferAutoResume(ctx, a._id, bookingId);
     }
     const message = await ctx.db.get(messageId as Id<"messages">);
@@ -389,13 +387,15 @@ export const setHandler = mutation({
     const a = await ownerAccount(ctx, bookingId, accountId);
     if (!a) throw Error("No renter account yet");
     const t = await rentalThread(ctx, a._id, bookingId);
+    const now=Date.now();
     if (t)
-      await ctx.db.patch(t._id, { escalated: !gaffer, gafferGeneration: (t.gafferGeneration ?? 0) + 1, updatedAt: Math.max(Date.now(), (t.updatedAt ?? 0) + 1) });
+      await ctx.db.patch(t._id, { escalated: !gaffer, escalatedAt:!gaffer?now:undefined,lastHumanActivityAt:undefined, gafferGeneration: (t.gafferGeneration ?? 0) + 1, updatedAt: Math.max(now, (t.updatedAt ?? 0) + 1) });
     else
       await ctx.db.insert("chat_threads", {
         accountId: a._id,
         bookingId,
         escalated: !gaffer,
+        ...(!gaffer?{escalatedAt:now}:{}),
         gafferGeneration: 1,
         updatedAt: Date.now(),
       });
@@ -407,6 +407,7 @@ export const setHandler = mutation({
         ? "Gaffer is here to help with this rental."
         : "The team is handling this conversation.",
     });
+    if(!gaffer)await scheduleGafferAutoResume(ctx,a._id,bookingId);
     const message = await ctx.db.get(messageId as Id<"messages">);
     if (message) await acknowledgeOwnerNotifications(ctx, a._id, bookingId, message.at, { at: message.at, creationTime: message._creationTime });
   },

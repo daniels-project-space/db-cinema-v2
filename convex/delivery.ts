@@ -2,7 +2,8 @@ import { action, internalQuery } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 
-// Origin: 23 Whitcomb Street WC2H 7ER (Trafalgar Square) — v1 delivery base.
+// Delivery-zone pricing starts from the agreed Trafalgar Square collection area.
+// These coordinates are a pricing origin, not a promise of a precise meeting pin.
 const ORIGIN = { lat: 51.5095, lng: -0.1281 };
 const MAX_KM = 30;
 

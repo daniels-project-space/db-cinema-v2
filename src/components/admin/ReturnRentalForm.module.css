@@ -41,6 +41,8 @@
 .summary small { display: block; color: #94978b; margin-top: 14px; font-size: 10px; }
 .confirm { margin-top: 20px; width: 100%; background: #a97756; color: #fff6ef; border-radius: 5px; padding: 14px; font-weight: 500; font-size: 13px; }
 .confirm:not(:disabled):hover { background: #ba8764; }
+.secondary { margin-top: 12px; width: 100%; border: 1px solid #ffffff20; border-radius: 8px; padding: 11px 14px; color: #ded6ca; background: #ffffff05; font-size: 12px; }
+.secondary:not(:disabled):hover { border-color: #c29b7666; background: #c29b760d; }
 .drawer :is(button, input, textarea, a, summary):focus-visible { outline: 2px solid #dbb899; outline-offset: 3px; }
 .drawer :is(input, textarea):disabled { opacity: .55; }
 .drawer button:disabled { opacity: .4; }
@@ -56,6 +58,8 @@
 .paymentSummary dl > div, .reviewAmounts > div {display:flex;align-items:start;justify-content:space-between;gap:16px;margin-top:12px;}
 .paymentSummary dd {margin:0;font-size:13px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums;}
 .paymentSummary label {display:block;font-size:12px;color:#c7c1b7;margin-top:16px;}
+.paymentSummary label.damageClaim {display:flex;align-items:center;gap:10px;min-height:42px;padding:9px 11px;border:1px solid #ffffff18;border-radius:8px;background:#ffffff04;color:#e7dfd4;}
+.paymentSummary label.damageClaim input {flex:0 0 auto;width:17px;height:17px;margin:0;accent-color:#bd8d6c;}
 .paymentSummary :is(input,textarea) {display:block;width:100%;border:1px solid #ffffff26;background:#111312;border-radius:5px;padding:10px;color:#eeeae4;margin-top:8px;font:inherit;}
 .paymentSummary textarea {resize:vertical;}
 .emailRecipient {overflow-wrap:anywhere;}
@@ -101,3 +105,6 @@
 .reviewAmounts > div { margin-top:9px; }
 .previewCards h4 { font-size:13px; }
 .previewCards > section { min-height:119px; }
+.emailDelivery { margin:8px 0; padding:7px 9px; border:1px solid #ffffff18; border-radius:5px; color:#c7c5bd; font-size:10px; line-height:1.5; }
+.emailDelivery[data-state="sent"] { border-color:#8ec9aa36; color:#b8e5cc; }
+.emailDelivery[data-state="failed"],.emailDelivery[data-state="ambiguous"],.emailDelivery[data-state="delivery_unknown"] { border-color:#dfb26b40; color:#f1d7a2; }

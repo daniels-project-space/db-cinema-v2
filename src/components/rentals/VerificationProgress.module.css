@@ -39,11 +39,27 @@
   padding: 24px 0 27px;
   margin: 0;
 }
+.stepsCompact {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  padding: 8px 0 2px;
+}
 .step {
   min-width: 0;
   text-align: center;
   position: relative;
   font-size: 13px;
+}
+.stepCompact {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px 9px;
+  min-height: 39px;
+  padding: 3px 0;
+  text-align: left;
+  font-size: 12px;
 }
 .step:not(:last-child)::after {
   content: "";
@@ -53,6 +69,14 @@
   top: 20px;
   height: 2px;
   background: #545654;
+}
+.stepCompact:not(:last-child)::after {
+  left: 12px;
+  right: auto;
+  top: 31px;
+  bottom: -5px;
+  width: 2px;
+  height: auto;
 }
 .stepDone:not(:last-child)::after {
   background: #519e72;
@@ -70,6 +94,16 @@
   color: #babbb8;
   font-size: 15px;
 }
+.stepCompact .circle {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  position: relative;
+  z-index: 1;
+  width: 25px;
+  height: 25px;
+  margin: 0;
+  font-size: 11px;
+}
 .stepDone .circle {
   border-color: #53ae7d;
   background: #204431;
@@ -84,11 +118,23 @@
   display: block;
   font-weight: 500;
 }
+.stepCompact strong {
+  grid-column: 2;
+  grid-row: 1;
+  line-height: 1.2;
+}
 .step small {
   display: block;
   font-size: 11px;
   margin-top: 4px;
   color: var(--muted);
+}
+.stepCompact small {
+  grid-column: 2;
+  grid-row: 2;
+  margin-top: 1px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 .panel {
   background: #191b1a;
@@ -370,8 +416,18 @@
     gap: 5px;
     padding: 22px 0;
   }
+  .stepsCompact {
+    gap: 2px;
+    padding: 8px 0 2px;
+  }
   .step {
     font-size: 10px;
+  }
+  .stepCompact {
+    grid-template-columns: 26px minmax(0, 1fr);
+    min-height: 39px;
+    text-align: left;
+    font-size: 12px;
   }
   .step small {
     font-size: 9px;
@@ -386,6 +442,19 @@
     top: 16px;
     left: calc(50% + 19px);
     right: calc(-50% + 19px);
+  }
+  .stepCompact:not(:last-child)::after {
+    top: 31px;
+    left: 12px;
+    right: auto;
+    bottom: -5px;
+    width: 2px;
+    height: auto;
+  }
+  .stepCompact .circle {
+    width: 25px;
+    height: 25px;
+    margin: 0;
   }
   .checks {
     grid-template-columns: minmax(0, 1fr);

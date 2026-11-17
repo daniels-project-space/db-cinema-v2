@@ -11,6 +11,7 @@ import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { accountForRental } from "./lib/rentalAccount";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { listingImages, listingRentalImages } from "./lib/catalogImages";
+import { renterRentalActionReady } from "./lib/renterRentalActionGate";
 import {
   requiresDroneLicence,
   droneLicenceStatusForRental,
@@ -38,8 +39,17 @@ import {
 import {
   approvedRequest,
   finishRequest,
+  handoverRequestKey,
   rescheduleRequestKey,
 } from "./lib/rentalRequestExecution";
+import { RENTAL_REQUEST_HISTORY_LIMIT, summarizeRentalRequests } from "./lib/rentalRequestStatus";
+
+async function assertNoOpenRentalRequests(ctx: any, bookingId: any, ignoreId?: any) {
+  const rows = await ctx.db.query("rental_change_requests").withIndex("by_booking", (q: any) => q.eq("bookingId", bookingId)).order("desc").take(RENTAL_REQUEST_HISTORY_LIMIT + 1);
+  const summary = summarizeRentalRequests(rows, ignoreId);
+  if (!summary.ready) throw Error("This rental has a long request history. Review earlier requests before changing it.");
+  if (summary.any) throw Error("A renter request is still awaiting a decision or completion. Review it before changing this rental.");
+}
 
 /** Minimal server-only address lookup: a linked rental never falls back to a reused mailbox. */
 export const changeRecipient = internalQuery({
@@ -255,6 +265,7 @@ export const renterReschedulePreview = query({
     const account = await accountForToken(ctx, token, true);
     if (!account) throw Error("Please sign in to check this rental.");
     const booking = await ownedBooking(ctx, account, bookingId);
+    if (!renterRentalActionReady(booking)) return { ok: false, reason: "Rental changes are available after payment and Didit verification are complete." };
     try {
       const proposal = await qualifyReschedule(ctx, booking, { start, reason });
       return {
@@ -272,6 +283,63 @@ export const renterReschedulePreview = query({
   },
 });
 
+/** Live, renter-owned availability check for a pickup or return-time request. */
+export const renterHandoverPreview = query({
+  args: {
+    token: v.string(),
+    bookingId: v.id("bookings"),
+    lineIndexes: v.array(v.number()),
+    kind: v.union(v.literal("pickup"), v.literal("return")),
+    time: v.string(),
+    reason: v.string(),
+  },
+  handler: async (ctx, { token, bookingId, lineIndexes, kind, time, reason }) => {
+    const account = await accountForToken(ctx, token, true);
+    if (!account) throw Error("Please sign in to check this rental.");
+    const booking = await ownedBooking(ctx, account, bookingId);
+    if (!renterRentalActionReady(booking)) return { ok: false, reason: "Rental changes are available after payment and Didit verification are complete." };
+    const indexes = [...lineIndexes].sort((left, right) => left - right);
+    try {
+      const proposal = await qualifyReschedule(ctx, booking, {
+        start: Math.min(...booking.lineItems.map((line: any) => line.start)),
+        reason,
+        handoverChange: { lineIndexes: indexes, kind, time },
+      });
+      return { ok: true, controlsSnapshot: proposal.controlsSnapshot, lineIndexes: indexes, kind, time };
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : "That handover time could not be checked." };
+    }
+  },
+});
+
+/** Admin-side approval recheck; it intentionally does not accept renter sessions. */
+export const previewHandoverTimes = query({
+  args: {
+    token: v.string(),
+    bookingId: v.id("bookings"),
+    lineIndexes: v.array(v.number()),
+    kind: v.union(v.literal("pickup"), v.literal("return")),
+    time: v.string(),
+    reason: v.string(),
+  },
+  handler: async (ctx, { token, bookingId, lineIndexes, kind, time, reason }) => {
+    if (!checkAdminToken(token)) throw Error("Unauthorized");
+    const booking = await ctx.db.get(bookingId);
+    if (!booking) return { ok: false, reason: "Rental not found." };
+    const indexes = [...lineIndexes].sort((left, right) => left - right);
+    try {
+      const proposal = await qualifyReschedule(ctx, booking, {
+        start: Math.min(...booking.lineItems.map((line: any) => line.start)),
+        reason,
+        handoverChange: { lineIndexes: indexes, kind, time },
+      });
+      return { ok: true, controlsSnapshot: proposal.controlsSnapshot, lineIndexes: indexes, kind, time };
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : "That handover time could not be checked." };
+    }
+  },
+});
+
 export const changePickupTime = mutation({
   args:{token:v.string(),bookingId:v.id("bookings"),requestId:v.string(),lineIndex:v.number(),pickupTime:v.string(),expectedSnapshot:v.string(),reason:v.string()},
   handler:async(ctx,args)=>{
@@ -281,6 +349,7 @@ export const changePickupTime = mutation({
     const fingerprint=JSON.stringify([args.lineIndex,args.pickupTime,args.expectedSnapshot,args.reason.trim()]);
     const prior=await ctx.db.query("rental_time_changes").withIndex("by_request",q=>q.eq("bookingId",args.bookingId).eq("requestId",args.requestId)).unique();
     if(prior){if(prior.fingerprint!==fingerprint)throw Error("This request was already used for a different change.");return {ok:true,detail:prior.detail};}
+    await assertNoOpenRentalRequests(ctx,args.bookingId);
     const booking=await ctx.db.get(args.bookingId);
     if(!booking||!booking.lineItems.length)throw Error("Rental not found.");
     const oldLines=bookingStockLines(booking),oldLine=oldLines[args.lineIndex];
@@ -312,17 +381,26 @@ export const changePickupTime = mutation({
 });
 
 export const changeHandoverTimes = mutation({
-  args:{token:v.string(),bookingId:v.id("bookings"),requestId:v.string(),lineIndexes:v.array(v.number()),kind:v.union(v.literal("pickup"),v.literal("return")),time:v.string(),expectedSnapshot:v.string(),reason:v.string()},
+  args:{token:v.string(),bookingId:v.id("bookings"),requestId:v.string(),changeRequestId:v.optional(v.id("rental_change_requests")),lineIndexes:v.array(v.number()),kind:v.union(v.literal("pickup"),v.literal("return")),time:v.string(),expectedSnapshot:v.string(),reason:v.string()},
   handler:async(ctx,args)=>{
     await assertAdmin(ctx,args.token,"rentalOperations.changeHandoverTimes");
     if(!/^[a-zA-Z0-9-]{16,80}$/.test(args.requestId))throw Error("Invalid change request.");
     if(!args.expectedSnapshot.trim())throw Error("The rental changed. Refresh and review the time.");
     const lineIndexes=[...args.lineIndexes].sort((left,right)=>left-right);
     const fingerprint=JSON.stringify([lineIndexes,args.kind,args.time,args.expectedSnapshot,args.reason.trim()]);
-    const prior=await ctx.db.query("rental_time_changes").withIndex("by_request",q=>q.eq("bookingId",args.bookingId).eq("requestId",args.requestId)).unique();
-    if(prior){if(prior.fingerprint!==fingerprint)throw Error("This request was already used for a different change.");return {ok:true,detail:prior.detail};}
     const booking=await ctx.db.get(args.bookingId);
     if(!booking?.lineItems.length)throw Error("Rental not found.");
+    const operationKey=handoverRequestKey(lineIndexes,args.kind,args.time,args.expectedSnapshot);
+    const approved=await approvedRequest(ctx,booking,args.changeRequestId,"handover",operationKey);
+    if(approved){
+      if(approved.requestId!==args.requestId)throw Error("Use the approved time-change request for this rental.");
+      const proposal=approved.requestedHandover;
+      if(!proposal||approved.requestedSnapshot!==args.expectedSnapshot||proposal.kind!==args.kind||proposal.time!==args.time||JSON.stringify([...proposal.lineIndexes].sort((left,right)=>left-right))!==JSON.stringify(lineIndexes))throw Error("Use the exact pickup or return time the renter requested.");
+      if(approved.execution?.status==="applied")return {ok:true,detail:approved.execution.detail};
+    }
+    const prior=await ctx.db.query("rental_time_changes").withIndex("by_request",q=>q.eq("bookingId",args.bookingId).eq("requestId",args.requestId)).unique();
+    if(prior){if(prior.fingerprint!==fingerprint)throw Error("This request was already used for a different change.");return {ok:true,detail:prior.detail};}
+    await assertNoOpenRentalRequests(ctx,args.bookingId,approved?approved._id:undefined);
     const oldLines=bookingStockLines(booking);
     if(lineIndexes.every(index=>oldLines[index]&&(args.kind==="pickup"?oldLines[index].pickupTime:oldLines[index].returnTime)===args.time))throw Error("Choose a different time for at least one selected item.");
     const start=Math.min(...oldLines.map(line=>line.start));
@@ -357,6 +435,7 @@ export const changeHandoverTimes = mutation({
     await queueRentalEmail(ctx,args.bookingId,"time_change",{changeDetail:detail,changeSchedule:handoverScheduleFingerprint(updated),changeKind:args.kind});
     await queueRmv2Sync(ctx,args.bookingId);
     await ctx.db.insert("rental_time_changes",{bookingId:args.bookingId,requestId:args.requestId,fingerprint,detail,createdAt:Date.now()});
+    if(approved)await finishRequest(ctx,booking,args.changeRequestId,"handover",operationKey,detail);
     return {ok:true,detail};
   },
 });
@@ -401,6 +480,11 @@ export const reschedule = mutation({
       operationKey,
     );
     if (request?.execution?.status === "applied") return { ok: true };
+    await assertNoOpenRentalRequests(ctx, bookingId, request?._id);
+    if (request?.requestedStart !== undefined) {
+      if (start !== request.requestedStart || end !== undefined || !request.requestedSnapshot || expectedSnapshot !== request.requestedSnapshot || request.requestedEnd === undefined)
+        throw Error("Use the exact dates the renter requested. Ask them to send a new request to change them.");
+    }
     const { lines, reservations, allocationMode, endShift } =
       await qualifyReschedule(ctx, b, {
         start,
@@ -409,6 +493,8 @@ export const reschedule = mutation({
         reason,
         expectedSnapshot,
       });
+    if (request?.requestedStart !== undefined && Math.max(...lines.map((line) => line.end)) !== request.requestedEnd)
+      throw Error("The rental dates changed after the request. Ask the renter to send a fresh date request.");
     await ctx.db.patch(bookingId, {
       lineItems: lines,
       cancellationPolicyStart: start,
@@ -465,8 +551,7 @@ export const reschedule = mutation({
   },
 });
 
-/** Amend fulfilment, preserving captured charges and a permanent invoice audit trail.
- * Refunds use the existing provider-backed refund control; security settles separately. */
+/** @deprecated Use the renter-approved equipment-change flow for any item removal. */
 export const removeItem = mutation({
   args: {
     expectedSnapshot:v.optional(v.string()),
@@ -482,119 +567,7 @@ export const removeItem = mutation({
   },
   handler: async (ctx, args) => {
     await assertAdmin(ctx, args.token, "rentalOperations.removeItem");
-    const b = await ctx.db.get(args.bookingId);
-    if (!b) throw Error("Rental unavailable.");
-    const prior = b.removedItems?.find((l) => l.requestId === args.requestId);
-    if (prior) {
-      if (
-        prior.listingId !== args.listingId ||
-        prior.qty !== args.expectedQty ||
-        prior.start !== args.expectedStart ||
-        prior.end !== args.expectedEnd ||
-        prior.reason !== args.reason.trim()
-      )
-        throw Error("Removal request has changed.");
-      return { ok: true };
-    }
-    if (b.status !== "confirmed")
-      throw Error("Only an unstarted confirmed rental can have kit removed.");
-    await assertSwapStockReconciled(ctx, b._id);
-    if (
-      b.cancellationDecision ||
-      b.activeAdditionId ||
-      b.activeDeliveryQuoteId ||
-      b.activeItemSwapId ||
-      b.activeExtensionId ||
-      b.activePriceAdjustmentId ||
-      b.returnDecision
-    )
-      throw Error("Finish the open rental operation first.");
-    const refunds = await ctx.db
-      .query("rental_refunds")
-      .withIndex("by_booking", (q) => q.eq("bookingId", b._id))
-      .collect();
-    if(args.expectedSnapshot && args.expectedSnapshot!==rentalControlsSnapshot(b,refunds))
-      throw new ConvexError({code:"EQUIPMENT_REVIEW_STALE",message:"The rental changed. Review the removal again."});
-    if (refunds.some((r) => ["prepared", "pending"].includes(r.status)))
-      throw Error("Wait for the open refund to settle first.");
-    if (
-      !/^[a-zA-Z0-9-]{16,80}$/.test(args.requestId) ||
-      args.reason.trim().length < 5 ||
-      args.reason.trim().length > 400
-    )
-      throw Error("Record a valid removal request and reason.");
-    if (!Number.isSafeInteger(args.lineIndex) || args.lineIndex < 0)
-      throw Error("Invalid item.");
-    const line = b.lineItems[args.lineIndex];
-    if (
-      !line ||
-      line.listingId !== args.listingId ||
-      line.qty !== args.expectedQty ||
-      line.start !== args.expectedStart ||
-      line.end !== args.expectedEnd
-    )
-      throw Error("The kit changed. Refresh and choose the item again.");
-    if (b.lineItems.length < 2)
-      throw Error("Use Cancel rental to remove the last item.");
-    const reservations = await ctx.db
-      .query("reservations")
-      .withIndex("by_booking", (q) => q.eq("bookingId", b._id))
-      .collect();
-    if (reservations.some((r) => r.source !== "site" || r.status === "active"))
-      throw Error(
-        "Manage external or already collected kit through its original rental flow.",
-      );
-    if (reservations.some((r) => r.status === "hold"))
-      throw Error("Resolve the open stock hold before changing this rental.");
-    await assertRentalAllocation(ctx, b, reservations);
-    const lines = bookingStockLines(b).filter((_, i) => i !== args.lineIndex);
-    await assertRentalInventory(ctx, lines, b._id);
-    for (const r of reservations)
-      if (["hold", "confirmed"].includes(r.status))
-        await ctx.db.patch(r._id, { status: "cancelled" });
-    for (const remaining of lines) {
-      const listing = await ctx.db.get(remaining.listingId);
-      for (const component of listing!.components)
-        await ctx.db.insert("reservations", {
-          bookingId: b._id,
-          listingId: remaining.listingId,
-          inventoryUnitId: component.inventoryUnitId,
-          ...stockWindow(remaining, true),
-          qty: component.qty * remaining.qty,
-          source: "site",
-          status: "confirmed",
-        });
-    }
-    const { dailyRate: _, ...removed } = line;
-    await ctx.db.patch(b._id, {
-      lineItems: lines,
-      cancellationPolicyStart: rentalCancellationStart(b),
-      removedItems: [
-        ...(b.removedItems ?? []),
-        {
-          ...removed,
-          removedAt: Date.now(),
-          reason: args.reason.trim(),
-          requestId: args.requestId,
-        },
-      ],
-    });
-    const account = await accountForRental(ctx, b);
-    const detail = `${line.qty}× ${line.title} removed from your kit. Agreed charges and security are unchanged; any eligible refund is recorded separately. ${args.reason.trim()}`;
-    if (account)
-      await postRentalMessage(ctx, {
-        accountId: account._id,
-        bookingId: b._id,
-        sender: "system",
-        text: detail,
-      });
-    await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
-      bookingId: b._id,
-      kind: "kit updated",
-      detail,
-    });
-    await queueRmv2Sync(ctx, b._id);
-    return { ok: true };
+    throw Error("Standalone item removal is disabled because it does not settle the rental price. Use the renter-approved equipment change flow.");
   },
 });
 
@@ -727,14 +700,20 @@ export const recordRefund = internalMutation({
         sender: "system",
         text: `Rental refund £${(r.amountPence / 100).toFixed(2)}: ${status === "succeeded" ? "confirmed by the payment provider" : status === "failed" ? "failed; the team is checking it" : "processing with the payment provider"}. ${r.reason}`,
       });
-    await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
-      bookingId: b._id,
-      ...(r.expectedAccountId ? { expectedAccountId:r.expectedAccountId } : {}),
-      ...(r.expectedRecipientEmail !== undefined ? { expectedRecipientEmail:r.expectedRecipientEmail } : {}),
-      ...(r.expectedAccountId || r.expectedRecipientEmail !== undefined ? { refundId:r._id } : {}),
-      kind: "rental refund",
-      detail: `£${(r.amountPence / 100).toFixed(2)} · ${status}. ${r.reason}`,
-    });
+    const bound=!!r.expectedAccountId||r.expectedRecipientEmail!==undefined;
+    const equipmentChange=typeof r.requestId==="string"&&r.requestId.startsWith("swap-");
+    if(status==="succeeded"&&bound&&!equipmentChange&&!r.refundAmbiguity){
+      await queueRentalEmail(ctx,b._id,"refund_invoice",{refundId:r._id});
+    }else if(status!=="succeeded"||!bound){
+      await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
+        bookingId: b._id,
+        ...(r.expectedAccountId ? { expectedAccountId:r.expectedAccountId } : {}),
+        ...(r.expectedRecipientEmail !== undefined ? { expectedRecipientEmail:r.expectedRecipientEmail } : {}),
+        ...(bound ? { refundId:r._id } : {}),
+        kind: "rental refund",
+        detail: `£${(r.amountPence / 100).toFixed(2)} · ${status}. ${r.reason}`,
+      });
+    }
   },
 });
 
@@ -826,6 +805,7 @@ export const recordRefundPart = internalMutation({
   handler: async (ctx, { id, paymentIntentId, stripeRefundId, status, attemptKey }) => {
     const r = await ctx.db.get(id);
     if (!r) return;
+    const previousRefundStatus = r.status;
     const allocation = r.allocations?.find(
       (p) => p.paymentIntentId === paymentIntentId,
     );
@@ -858,13 +838,23 @@ export const recordRefundPart = internalMutation({
     }
     if (existing && existing.attemptKey === attemptKey && existing.stripeRefundId !== stripeRefundId)
       throw Error("Refund identity mismatch");
-    if (existing && existing.attemptKey === attemptKey && existing.status === "succeeded" && status !== "failed") return;
+    const receiptForAttempt = receipts.find((row) => row.attemptKey === attemptKey && row.stripeRefundId === stripeRefundId);
+    // A successful receipt is authoritative even if an older webhook handler
+    // later reports the same attempt as failed. Conversely, never regress a
+    // terminal failure back to a pending snapshot.
+    const reconciledStatus = receiptForAttempt?.status === "succeeded"
+      ? "succeeded"
+      : receiptForAttempt?.status === "failed" && status === "pending"
+        ? "failed"
+        : status;
+    if (existing && existing.attemptKey === attemptKey && existing.stripeRefundId === stripeRefundId && existing.status === "succeeded" && reconciledStatus !== "succeeded") return { ignored: true, terminalStatus: true };
+    if (existing && existing.attemptKey === attemptKey && existing.stripeRefundId === stripeRefundId && existing.status === "failed" && reconciledStatus === "pending") return { ignored: true, terminalStatus: true };
     const parts = [
       ...(r.parts ?? []).filter((p) => p.paymentIntentId !== paymentIntentId),
       {
         paymentIntentId,
         stripeRefundId,
-        status,
+        status: reconciledStatus,
         amountPence: allocation.amountPence,
         ...(attemptKey ? { attemptKey } : {}),
       },
@@ -878,7 +868,7 @@ export const recordRefundPart = internalMutation({
             ? "pending"
             : "failed";
     await ctx.db.patch(id, { parts, status: aggregate, updatedAt: Date.now() });
-    if (aggregate !== "prepared" && aggregate !== r.status && !r.refundAmbiguity) {
+    if (aggregate !== "prepared" && aggregate !== previousRefundStatus && !r.refundAmbiguity) {
       const b = await ctx.db.get(r.bookingId);
       if (!b) return;
       const a = await accountForRental(ctx, b);
@@ -887,21 +877,43 @@ export const recordRefundPart = internalMutation({
         await queueOwnerNotification(ctx,{eventKey:`refund-owner-changed:${r._id}`,kind:"checkout_failure",bookingId:r.bookingId,title:"Refund contact needs review",body:"The rental account changed while a refund was settling. Check the payment and contact before notifying the renter."});
         return;
       }
-      if (a)
-        await postRentalMessage(ctx, {
-          accountId: a._id,
-          bookingId: b._id,
-          sender: "system",
-          text: `Rental refund £${(r.amountPence / 100).toFixed(2)}: ${aggregate}. ${r.reason}`,
-        });
-      await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
-        bookingId: b._id,
-        ...(r.expectedAccountId ? { expectedAccountId: r.expectedAccountId } : {}),
-        ...(r.expectedRecipientEmail !== undefined ? { expectedRecipientEmail: r.expectedRecipientEmail } : {}),
-        ...(r.expectedAccountId || r.expectedRecipientEmail !== undefined ? { refundId: r._id } : {}),
-        kind: "rental refund",
-        detail: `£${(r.amountPence / 100).toFixed(2)} · ${aggregate}. ${r.reason}`,
-      });
+      const equipmentChange = typeof r.requestId === "string" && r.requestId.startsWith("swap-");
+      if (equipmentChange) {
+        // The swap workflow owns renter-facing settlement updates: it must
+        // commit the new basket and shared-stock receipt before saying the
+        // change is complete. The generic refund notice could announce success
+        // while the old equipment was still on the rental, then duplicate the
+        // swap completion/reconciliation message. Only surface a pending state
+        // here; success and failure are reported by rentalSwapState.
+        if (aggregate === "pending" && a)
+          await postRentalMessage(ctx, {
+            accountId: a._id,
+            bookingId: b._id,
+            sender: "system",
+            text: `Your £${(r.amountPence / 100).toFixed(2)} equipment-change refund is processing. Your rental still shows the original equipment until the refund settles and the change is applied.`,
+          });
+      } else {
+        if (a)
+          await postRentalMessage(ctx, {
+            accountId: a._id,
+            bookingId: b._id,
+            sender: "system",
+            text: `Rental refund £${(r.amountPence / 100).toFixed(2)}: ${aggregate}. ${r.reason}`,
+          });
+        const bound=!!r.expectedAccountId||r.expectedRecipientEmail!==undefined;
+        if(aggregate==="succeeded"&&bound){
+          await queueRentalEmail(ctx,b._id,"refund_invoice",{refundId:r._id});
+        }else{
+          await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
+            bookingId: b._id,
+            ...(r.expectedAccountId ? { expectedAccountId: r.expectedAccountId } : {}),
+            ...(r.expectedRecipientEmail !== undefined ? { expectedRecipientEmail: r.expectedRecipientEmail } : {}),
+            ...(bound ? { refundId: r._id } : {}),
+            kind: "rental refund",
+            detail: `£${(r.amountPence / 100).toFixed(2)} · ${aggregate}. ${r.reason}`,
+          });
+        }
+      }
     }
     return { status: aggregate };
   },
@@ -933,6 +945,7 @@ export const recordRefundReceipt=internalMutation({args:{id:v.id("rental_refunds
   }else if(receipt.attemptedAt!==r.createdAt)throw Error("Original refund receipt identity cannot be replaced");
   const rows=r.refundReceipts??[],index=rows.findIndex(p=>p.paymentIntentId===receipt.paymentIntentId&&p.attemptKey===receipt.attemptKey),old=index>=0?rows[index]:undefined;
   if(old&&(old.attemptedAt!==receipt.attemptedAt||old.amountPence!==receipt.amountPence||(old.stripeRefundId&&old.stripeRefundId!==receipt.stripeRefundId)||(old.approvalRequestId&&old.approvalRequestId!==receipt.approvalRequestId)))throw Error("Refund attempt identity cannot be replaced");
+  if(old&&(old.status==="succeeded"&&receipt.status!=="succeeded"||old.status==="failed"&&receipt.status==="pending"))return {ignored:true,terminalStatus:true};
   const updated=old?{...old,...receipt,...(old.stripeRefundId&&!receipt.stripeRefundId?{stripeRefundId:old.stripeRefundId}:{}),...(old.approvalRequestId&&!receipt.approvalRequestId?{approvalRequestId:old.approvalRequestId}:{}),...(old.approvalUrl&&!receipt.approvalUrl?{approvalUrl:old.approvalUrl}:{})}:receipt;
   await ctx.db.patch(id,{refundReceipts:old?rows.map((row,i)=>i===index?updated:row):[...rows,updated]});
   if (updated.status === "succeeded" && updated.stripeRefundId) {

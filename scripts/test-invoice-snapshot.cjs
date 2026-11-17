@@ -28,10 +28,17 @@ ctx.runMutation=async(reference,args)=>bookings[reference.split(".").at(-1)].han
   assert.equal(downloaded.lineItems[0].title,"Sony FX3","The invoice PDF query keeps the originally issued equipment snapshot");
   assert.equal(downloaded.total,80,"Later booking edits do not rewrite the issued invoice total");
 
+  const refund=put("rental_refunds", { bookingId: booking._id, amountPence: 1500, reason: "Rental adjustment", status: "succeeded" });
+  const afterRefund=await bookings.invoiceData.handler(ctx,{bookingId:booking._id,key:process.env.INVOICE_SECRET});
+  assert.equal(afterRefund.rentalRefunded,15,"A later successful refund is visible beside the immutable original invoice");
+  assert.deepEqual(afterRefund.rentalRefunds,[{reference:`DBC-R-${String(refund._id).slice(-8).toUpperCase()}`,amount:15,status:"succeeded",reason:"Rental adjustment"}],"The refreshed invoice includes the settled refund line and stable reference");
+  assert.equal(afterRefund.lineItems[0].title,"Sony FX3","Refund reconciliation does not rewrite original invoice items");
+  assert.equal(afterRefund.total,80,"Refund reconciliation preserves the original paid invoice total");
+
   const altered={...booking.invoiceSnapshot,total:999,lineItems:[{...line,title:"Forged invoice line"}]};
   const replay=await bookings.saveInitialInvoiceSnapshot.handler(ctx,{bookingId:booking._id,snapshot:altered});
   assert.equal(replay.total,80,"A later snapshot request cannot overwrite the first issued invoice");
   assert.equal(booking.invoiceSnapshot.lineItems[0].title,"Sony FX3");
   delete process.env.INVOICE_SECRET;
-  console.log("PASS invoice first-issue snapshot: prepared before delivery, immutable replay and PDF query remains stable after booking edits; synthetic data only.");
+  console.log("PASS invoice first-issue snapshot: immutable original lines and total, live refund settlement overlay, immutable replay; synthetic data only.");
 })().catch(error=>{delete process.env.INVOICE_SECRET;console.error(error);process.exitCode=1;});

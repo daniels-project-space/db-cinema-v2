@@ -6,7 +6,8 @@ const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value)
 const now = Date.UTC(2026, 9, 8);
 const draft = { email: 'renter@example.invalid', name: 'Fixture Renter', phone: '07000000000',
   billingAddress: '123 Fixture Street, London', fulfilment: 'delivery', address: '123 Fixture Street, London',
-  postcode: 'SW1A 1AA', protection: 'deposit', agreed: true, deliveryAgreed: true };
+  postcode: 'SW1A 1AA', protection: 'deposit', agreed: true, deliveryAgreed: true,
+  securityConsentContext: '{"policy":"setup-intent","limit":100,"deposit":0,"hold":0,"cancellationProtection":true}' };
 saveCheckoutDraft(storage, 'guest', 'current-documents', { ...draft, signature: 'NEVER STORE ME', quote: 1,
   requestId: 'do-not-replay', accountToken: 'do-not-store', recovery: {} }, now);
 assert.deepEqual(readCheckoutDraft(storage, 'guest', 'current-documents', now + 100), draft);

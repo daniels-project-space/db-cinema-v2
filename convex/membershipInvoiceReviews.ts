@@ -3,6 +3,32 @@ import { v } from "convex/values";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
+import { paginationOptsValidator } from "convex/server";
+
+const RETRY_WINDOW_MS = 24 * 60 * 60 * 1000;
+const RETRY_COOLDOWN_MS = 60 * 1000;
+const MAX_RETRIES_PER_WINDOW = 5;
+const ADMIN_LIST_PAGE_SIZE = 30;
+
+type RetryAvailability = {
+  state: "not_retryable" | "feature_off" | "available" | "cooldown" | "daily_limit";
+  availableAt?: number;
+};
+
+function retryAvailability(row: any, now: number): RetryAvailability {
+  if (row.reason !== "processing_error") return { state: "not_retryable" };
+  if (process.env.MEMBERSHIP_HISTORICAL_INVOICE_CREDIT_V1 !== "enabled") return { state: "feature_off" };
+
+  const inRetryWindow = row.retryWindowAt != null && now - row.retryWindowAt < RETRY_WINDOW_MS;
+  const retryCount = inRetryWindow ? row.retryCount ?? 0 : 0;
+  if (retryCount >= MAX_RETRIES_PER_WINDOW) {
+    return { state: "daily_limit", availableAt: row.retryWindowAt + RETRY_WINDOW_MS };
+  }
+  if (row.retryAt != null && now - row.retryAt < RETRY_COOLDOWN_MS) {
+    return { state: "cooldown", availableAt: row.retryAt + RETRY_COOLDOWN_MS };
+  }
+  return { state: "available" };
+}
 
 export const recordCheckoutFailure = internalMutation({
   args: { bookingId: v.id("bookings"), sessionId: v.string() },
@@ -71,14 +97,26 @@ export const mayProcess = internalQuery({
 });
 
 export const adminList = query({
-  args: { token: v.string(), accountId: v.id("accounts") },
+  args: { token: v.string(), accountId: v.id("accounts"), paginationOpts: paginationOptsValidator },
   handler: async (ctx, args) => {
     if (process.env.ADMIN_SESSION_BILLING_PORTAL_V2 === "enabled") {
       if (!adminSessionMigrationReady()) throw Error("Admin session migration is not ready.");
-      await assertAdminScopeSession(ctx, args.token, "payments:write");
+      await assertAdminScopeSession(ctx, args.token, "payments:read");
     } else if (!await checkAdminToken(args.token)) throw Error("unauthorized");
-    const rows = await ctx.db.query("membership_invoice_reviews").withIndex("by_account_state", q => q.eq("accountId", args.accountId).eq("state", "review")).take(30);
-    return rows.map(row => ({ invoiceId: row.invoiceId, reason: row.reason, createdAt: row.createdAt, retryAt: row.retryAt ?? null }));
+    const page = await ctx.db.query("membership_invoice_reviews")
+      .withIndex("by_account_state", q => q.eq("accountId", args.accountId).eq("state", "review"))
+      .order("desc")
+      .paginate({ ...args.paginationOpts, numItems: Math.min(ADMIN_LIST_PAGE_SIZE, args.paginationOpts.numItems) });
+    const now = Date.now();
+    return {
+      ...page,
+      page: page.page.map(row => ({
+        invoiceId: row.invoiceId,
+        reason: row.reason,
+        createdAt: row.createdAt,
+        retry: retryAvailability(row, now),
+      })),
+    };
   },
 });
 
@@ -90,14 +128,18 @@ export const adminReserveRetry = mutation({
       await assertAdminScopeSession(ctx, args.token, "payments:write");
       await ctx.db.insert("admin_audit_log", { at: Date.now(), success: true, limited: false, fn: "membershipInvoiceReviews.adminReserveRetry" });
     } else await assertAdmin(ctx, args.token, "membershipInvoiceReviews.adminReserveRetry");
+    if (process.env.MEMBERSHIP_HISTORICAL_INVOICE_CREDIT_V1 !== "enabled") throw Error("Historical invoice recovery is not enabled.");
     const row = await ctx.db.query("membership_invoice_reviews").withIndex("by_invoice", q => q.eq("invoiceId", args.invoiceId)).unique();
     if (!row || row.state !== "review" || row.accountId !== args.accountId || row.subscriptionId !== args.subscriptionId) throw Error("This invoice review is unavailable.");
     const account = await ctx.db.get(args.accountId);
     if (!account || account.stripeSubscriptionId !== args.subscriptionId) throw Error("The billing link changed.");
     const now = Date.now();
-    const windowAt = row.retryWindowAt && now - row.retryWindowAt < 86400000 ? row.retryWindowAt : now;
+    const availability = retryAvailability(row, now);
+    if (availability.state === "daily_limit") throw Error("The retry limit was reached for this invoice. Try again after the retry window resets.");
+    if (availability.state === "cooldown") throw Error("Please wait before retrying this invoice.");
+    if (availability.state !== "available") throw Error("This invoice is not eligible for retry.");
+    const windowAt = row.retryWindowAt != null && now - row.retryWindowAt < RETRY_WINDOW_MS ? row.retryWindowAt : now;
     const count = windowAt === row.retryWindowAt ? row.retryCount ?? 0 : 0;
-    if (count >= 5 || row.retryAt && now - row.retryAt < 60000) throw Error("Please wait before retrying this invoice.");
     await ctx.db.patch(row._id, { retryWindowAt: windowAt, retryCount: count + 1, retryAt: now, updatedAt: now });
   },
 });

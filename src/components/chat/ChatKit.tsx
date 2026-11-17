@@ -169,18 +169,24 @@ export function Chips({
   opts,
   onPick,
   className = "",
+  compactMobile = false,
 }: {
   opts: string[];
   onPick: (v: string) => void;
   className?: string;
+  compactMobile?: boolean;
 }) {
   return (
-    <div className={`flex flex-wrap gap-1.5 ${className}`}>
+    <div
+      className={`flex flex-wrap gap-1.5 ${compactMobile ? "max-[640px]:flex-nowrap max-[640px]:overflow-x-auto max-[640px]:overscroll-x-contain max-[640px]:touch-pan-x max-[640px]:pb-1" : ""} ${className}`}
+      role={compactMobile ? "group" : undefined}
+      aria-label={compactMobile ? "Suggested replies. Swipe or scroll horizontally for more." : undefined}
+    >
       {opts.map((s, i) => (
         <button
           key={s}
           onClick={() => onPick(s)}
-          className="chip-in rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/70 transition-all hover:border-accent-400/50 hover:bg-accent-500/10 hover:text-white"
+          className={`chip-in inline-flex min-h-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/70 transition-all hover:border-accent-400/50 hover:bg-accent-500/10 hover:text-white sm:min-h-9 ${compactMobile ? "max-[640px]:shrink-0 max-[640px]:whitespace-nowrap" : ""}`}
           style={{ animationDelay: `${i * 55}ms` }}
         >
           {s}

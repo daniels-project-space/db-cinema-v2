@@ -13,11 +13,18 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     await client.cmd('Page.enable');
     await client.cmd('Runtime.enable');
     if (process.env.DBC_TEST_MOBILE === '1') await client.cmd('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:true});
-    client.on(event => { if (event.method === 'Runtime.consoleAPICalled' && event.params.type === 'error') errors.push(event.params.args.map(arg => arg.value ?? arg.description ?? '').join(' ')); });
+    client.on(event => {
+      if (event.method === 'Runtime.consoleAPICalled' && event.params.type === 'error') errors.push(event.params.args.map(arg => arg.value ?? arg.description ?? '').join(' '));
+      if (event.method === 'Runtime.exceptionThrown') errors.push(`${event.params.exceptionDetails.text}: ${event.params.exceptionDetails.exception?.description ?? ''}`);
+    });
     await client.cmd('Network.enable');
     await client.cmd('Network.setBlockedURLs', {urls:['*convex.cloud*', '*convex.site*', '*elevenlabs.io*', ...(process.env.DBC_TEST_WORKLET_FAILURE === '1' ? ['*/voice-worklets/*'] : [])]});
     await client.cmd('Browser.grantPermissions', {origin, permissions:['audioCapture']});
     await client.cmd('Page.addScriptToEvaluateOnNewDocument', {source:`(() => {
+      // Some headless Chrome builds omit mediaDevices entirely. The product
+      // asks for audio after a user gesture, so provide the same synthetic
+      // device surface before overriding getUserMedia below.
+      if (!navigator.mediaDevices) Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {} });
       if (${process.env.DBC_TEST_DOUBLE_CLICK === '1'}) {
         const query = navigator.permissions.query.bind(navigator.permissions);
         window.__permissionChecks = 0;
@@ -26,6 +33,19 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
         navigator.permissions.query = descriptor => descriptor.name === 'microphone' ? (window.__permissionChecks++, released ? Promise.resolve(status) : new Promise(resolve => { window.__resolvePermission = () => { released = true; resolve(status); }; })) : query(descriptor);
       }
       if (${process.env.DBC_TEST_GENERIC_FAILURE === '1'}) localStorage.removeItem('dbc_gaffer_overrides_blocked_at_v2');
+      if (${process.env.DBC_TEST_MIC_DENIED !== '1'}) {
+        const audio = new AudioContext();
+        const oscillator = audio.createOscillator();
+        const destination = audio.createMediaStreamDestination();
+        oscillator.frequency.value = 440;
+        oscillator.connect(destination);
+        oscillator.start();
+        window.__syntheticMicContext = audio;
+        navigator.mediaDevices.getUserMedia = async constraints => {
+          if (constraints?.video) throw new DOMException('No synthetic camera', 'NotFoundError');
+          return destination.stream;
+        };
+      }
       if (${process.env.DBC_TEST_MIC_DENIED === '1'}) navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Synthetic refusal', 'NotAllowedError'); };
       if (${process.env.DBC_TEST_WORKLET_FAILURE === '1'}) {
         const audio = new AudioContext();
@@ -55,7 +75,8 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     await client.cmd('Page.navigate', {url:origin});
     for (let attempt=0;attempt<100&&!(await client.evaluate('!!document.querySelector("button[aria-label=\\"Start a voice call with Gaffer\\"]")'));attempt++) await delay(100);
     for (let attempt=0;attempt<150&&!(await client.evaluate(`Object.keys([...document.querySelectorAll('button[aria-label="Start a voice call with Gaffer"]')].at(-1)??{}).some(key=>key.startsWith('__reactProps$'))`));attempt++) await delay(100);
-    assert(await client.evaluate(`Object.keys([...document.querySelectorAll('button[aria-label="Start a voice call with Gaffer"]')].at(-1)??{}).some(key=>key.startsWith('__reactProps$'))`),'The targeted voice button must hydrate before testing a call');
+    const hydrated = await client.evaluate(`Object.keys([...document.querySelectorAll('button[aria-label="Start a voice call with Gaffer"]')].at(-1)??{}).some(key=>key.startsWith('__reactProps$'))`);
+    assert(hydrated, `The targeted voice button must hydrate before testing a call. ${JSON.stringify({url:origin,errors,body:(await client.evaluate('document.body.innerText')).slice(0,700)})}`);
     await client.evaluate(`document.documentElement.style.scrollBehavior='auto';[...document.querySelectorAll('button[aria-label="Start a voice call with Gaffer"]')].at(-1).scrollIntoView({block:'center',behavior:'instant'})`);
     await delay(300);
     const position = await client.evaluate(`(() => {const button=[...document.querySelectorAll('button[aria-label="Start a voice call with Gaffer"]')].at(-1),rect=button.getBoundingClientRect();return {x:rect.left+rect.width/2,y:rect.top+rect.height/2}})()`);
@@ -69,6 +90,19 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       await client.cmd('Input.dispatchMouseEvent', {type:'mouseReleased',button:'left',clickCount:1,...position});
       assert.equal(await client.evaluate('window.__permissionChecks'),1,'Two rapid clicks start only one permission check');
       await client.evaluate('window.__resolvePermission()');
+    }
+    // Gaffer now explains microphone access in its own modal before opening
+    // Chrome's permission prompt. Browser-granted synthetic audio does not
+    // bypass that user gesture, so drive the same visible button a renter
+    // would use before asserting connection or failure behavior.
+    if (process.env.DBC_TEST_MIC_DENIED !== '1' && process.env.DBC_TEST_DOUBLE_CLICK !== '1') {
+      for (let attempt=0;attempt<80&&!(await client.evaluate(`!!(document.querySelector('#mic-ask-title') || document.querySelector('button[data-state=live]'))`));attempt++) await delay(100);
+      const micTitle = await client.evaluate(`document.querySelector('#mic-ask-title')?.textContent?.trim() ?? ''`);
+      if (micTitle === 'Gaffer needs your mic') {
+        const allowButton = await client.evaluate(`(() => { const button=[...document.querySelectorAll('[role=dialog] button')].find(item=>item.textContent.includes('Allow microphone')); if(!button)return false; button.click(); return true; })()`);
+        assert.notEqual(allowButton, false, 'The microphone explainer exposes its real allow action');
+        for (let attempt=0;attempt<100&&!(await client.evaluate(`!document.querySelector('#mic-ask-title') || document.body.innerText.includes('Audio couldn\\'t start on this device') || document.body.innerText.includes('Couldn\\'t start the call')`));attempt++) await delay(100);
+      }
     }
     if (process.env.DBC_TEST_WORKLET_FAILURE === '1') {
       for (let attempt=0;attempt<150&&!(await client.evaluate('document.body.innerText.includes("Audio couldn\u0027t start on this device")'));attempt++) await delay(100);

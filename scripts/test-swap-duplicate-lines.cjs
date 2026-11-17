@@ -39,7 +39,7 @@ put("reservations", { bookingId: booking._id, listingId: original._id, inventory
   assert.equal(preview.quote.nextFunding.accountCredit, 0);
   assert.deepEqual(preview.quote.nextAllCreditSources, [{ lineIndex: 0, creditId: credit._id, amount: 10, kind: "earned" }]);
   const id = await state.propose.handler(ctx, { ...args, requestId: "duplicate-unit-swap-123456", quoteSnapshot: preview.quoteSnapshot, confirmed: true });
-  await state.accept.handler(ctx, { token: "duplicate-renter", id, expectedDeltaPence: 0 });
+  await state.accept.handler(ctx, { token: "duplicate-renter", id, confirmed:true,expectedDeltaPence: 0 });
   require('./lib/rentalTestHarness.cjs').confirmSyntheticSwapStock(id);
   assert((await state.apply.handler(ctx, { id })).applied);
   assert.deepEqual(booking.lineItems.map(item => item.listingId), [original._id, replacement._id]);

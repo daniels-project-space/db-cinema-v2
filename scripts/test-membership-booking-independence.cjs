@@ -5,9 +5,10 @@ process.env.STRIPE_SECRET_KEY = 'sk_test_fixture';
 process.env.MEMBERSHIP_HISTORICAL_INVOICE_CREDIT_V1 = 'enabled';
 process.env.STRIPE_WEBHOOK_SECRET = 'fixture';
 let fail = true;
-const session = { id: 'cs_test_fixture', status: 'complete', payment_status:'paid', payment_intent:'pi_fixture', subscription: 'sub_fixture', metadata: { bookingId: 'bookings:fixture', membershipTier: 'plus' } };
+const session = { id: 'cs_test_fixture', status: 'complete', payment_status:'paid', payment_intent:'pi_fixture',amount_total:10000,currency:'gbp', subscription: 'sub_fixture', metadata: { bookingId: 'bookings:fixture', membershipTier: 'plus' } };
 setMock('stripe', { default: class { constructor() {
   this.checkout = { sessions: { retrieve: async () => session } };
+  this.paymentIntents = { retrieve: async id => ({id,status:'succeeded',amount_received:session.amount_total,currency:session.currency}) };
   this.subscriptions = { retrieve: async () => { if (fail) throw Error('synthetic provider failure'); return { id:'sub_fixture', customer:'cus_fixture', status:'trialing', created:1, cancel_at_period_end:false, metadata:{ membershipTier:'plus', accountEmail:'test@example.invalid' } }; } };
   this.webhooks = { constructEvent: () => ({ type:'checkout.session.completed', data:{ object:session } }) };
 } } });
@@ -30,7 +31,7 @@ const ctx = { scheduler: { runAfter: async (...args) => scheduled.push(args) }, 
   fail = true;
   let confirmed = false, funded = false;
   const webhookCtx = { scheduler:ctx.scheduler, runQuery:async () => null, runAction:async ref => { assert.equal(ref, 'sync.syncHyggloReservations'); return { checkedAt:Date.now() }; }, runMutation:async ref => {
-    if (ref === 'bookings.recordPaidCheckoutReceipt') return {};
+    if (ref === 'bookings.recordPaidCheckoutReceipt') return { requiresSavedCard:false };
     if (ref === 'bookings.confirm') { if (funded) throw Error('The paid first-month credit receipt has not settled yet.'); confirmed = true; return {}; }
     throw Error(`Unexpected mutation ${ref}`);
   } };

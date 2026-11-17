@@ -62,7 +62,7 @@ export function TimeSlotPicker({ id, label, value, onChange, disabled=false, all
         else if (event.key === "Tab") setOpen(false);
       }}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>
-      <span id={`${id}-value`}>{value || "Choose a time"}</span>
+      <span id={`${id}-value`}>{value || <><span className={styles.fullPrompt}>Choose a time</span><span className={styles.mobilePrompt}>Choose<span className="sr-only"> a time</span></span></>}</span>
       <svg className={styles.chevron} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m5 8 5 5 5-5"/></svg>
     </button>
     {open && createPortal(<div ref={menu} className={styles.menu} style={position}>

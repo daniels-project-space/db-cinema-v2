@@ -12,7 +12,10 @@ import { useGafferTools } from "@/components/gaffer/useGafferTools";
 import { createCallMemory } from "./callMemory";
 import { isSignOff, pageBrief } from "@/components/gaffer/callContext";
 import { createHintController } from "@/components/gaffer/hintTiming";
+import { createResponseTurnGate } from "@/components/gaffer/responseTurnGate";
 import { micState, requestMic } from "@/components/gaffer/micPermission";
+
+const VOICE_SESSION_START_TIMEOUT_MS = 15_000;
 
 /**
  * Owns the live Gaffer voice session, above the page tree.
@@ -156,8 +159,10 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const conv = useRef<any>(null);
   const starting = useRef(false);
+  const cancelStart = useRef<(() => void) | null>(null);
   const { clientTools, dynamicVariables, noteCustomerMessage, resetPriceRequest, noteAgentAlignment, noteAgentMessage, resetSpokenFocus } = useGafferTools();
   const memory = useRef(createCallMemory());
+  const responseTurn = useRef(createResponseTurnGate());
   const callGeneration = useRef(0);
   const variablesRef = useRef(dynamicVariables);
   variablesRef.current = dynamicVariables;
@@ -179,8 +184,12 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   const pendingContextEvents = useRef<string[]>([]);
   const contextUpdatesReady = useRef(false);
   const interruptionAwaitingCaller = useRef(false);
+  const callerInterruptedAgentResponse = useRef(false);
   const agentResponsePending = useRef(false);
-  const agentResponseSpeechFinished = useRef(false);
+  const agentResponseTextFinished = useRef(false);
+  const agentResponseComplete = useRef(false);
+  /** A complete set of client-tool results may open one continuation in that caller turn. */
+  const toolResponsePending = useRef(false);
   /**
    * How many client tools are mid-flight.
    *
@@ -249,6 +258,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     resetPriceRequest();
     resetSpokenFocus();
     generation.current++;
+    cancelStart.current?.();
+    cancelStart.current = null;
     hint.current.reset();
     setDockOpen(false);
     hasSpoken.current = false;
@@ -260,9 +271,13 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     pendingContextEvents.current = [];
     contextUpdatesReady.current = false;
     interruptionAwaitingCaller.current = false;
+    callerInterruptedAgentResponse.current = false;
     agentResponsePending.current = false;
-    agentResponseSpeechFinished.current = false;
+    agentResponseTextFinished.current = false;
+    agentResponseComplete.current = false;
+    responseTurn.current.reset();
     toolsInFlight.current = 0;
+    toolResponsePending.current = false;
     autoReconnectTried.current = false;
     try { await conv.current?.endSession?.(); } catch { /* already gone */ }
     conv.current = null;
@@ -287,7 +302,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
        * latency. Dead air is only dead air once Gaffer has had its say.
        */
       if (agentTalking.current || signingOff.current || toolsInFlight.current > 0 || awaitingAgent.current ||
-          (agentResponsePending.current && !agentResponseSpeechFinished.current)) {
+          (agentResponsePending.current && !agentResponseComplete.current)) {
         lastActivity.current = Date.now();
         return;
       }
@@ -345,8 +360,11 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     pendingContextEvents.current = [];
     contextUpdatesReady.current = false;
     interruptionAwaitingCaller.current = false;
+    callerInterruptedAgentResponse.current = false;
     agentResponsePending.current = false;
-    agentResponseSpeechFinished.current = false;
+    agentResponseTextFinished.current = false;
+    agentResponseComplete.current = false;
+    responseTurn.current.reset();
     resetPriceRequest();
     setSecs(0);
     setState("connecting");
@@ -355,6 +373,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     hasSpoken.current = false;
     awaitingAgent.current = false;
     toolsInFlight.current = 0;
+    toolResponsePending.current = false;
     autoReconnectTried.current = false;
     lastActivity.current = Date.now();
     const { intent, mode, brief, opening } = pageBrief(pathname ?? "/", topic);
@@ -366,8 +385,9 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       // just spoken, send the fresh page/basket state before the next answer
       // can be generated instead of waiting until that answer has finished.
       if ((!contextUpdatesReady.current && !beforeResponse) || agentTalking.current ||
+          toolsInFlight.current > 0 ||
           (!beforeResponse && (awaitingAgent.current ||
-            (agentResponsePending.current && !agentResponseSpeechFinished.current))) ||
+            (agentResponsePending.current && !agentResponseComplete.current))) ||
           interruptionAwaitingCaller.current || signingOff.current) return;
       const session = conv.current;
       if (!session?.sendContextualUpdate) return;
@@ -383,6 +403,13 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         pendingContextEvents.current = [];
         pendingContextSnapshot.current = null;
       } catch { return; /* retry on the next safe mode change */ }
+    };
+    const settleAgentResponse = () => {
+      if (!agentResponsePending.current || awaitingAgent.current || !agentResponseTextFinished.current || agentTalking.current ||
+          toolsInFlight.current > 0) return;
+      agentResponseComplete.current = true;
+      responseTurn.current.complete();
+      flushContextUpdates();
     };
     const queueContextUpdate = (update: string) => {
       pendingContextSnapshot.current = update;
@@ -437,6 +464,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       try { telemetryCallKey = globalThis.crypto?.randomUUID?.() ?? null; } catch { /* telemetry is optional */ }
       let telemetrySequence = 0;
       let telemetryConversationId: string | undefined;
+      let resolveConnected = () => {};
+      const connected = new Promise<void>(resolve => { resolveConnected = resolve; });
       const recordTelemetry = (
         kind: "connected" | "conversation_metadata" | "interruption" | "agent_correction" |
           "agent_response_start" | "agent_response_stop" | "agent_speaking_start" |
@@ -467,8 +496,12 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       agentTalking.current = false;
       contextUpdatesReady.current = false;
       interruptionAwaitingCaller.current = false;
+      callerInterruptedAgentResponse.current = false;
       agentResponsePending.current = false;
-      agentResponseSpeechFinished.current = false;
+      agentResponseTextFinished.current = false;
+      agentResponseComplete.current = false;
+      toolResponsePending.current = false;
+      responseTurn.current.reset();
       setSpeaking(false);
       endedDeliberately.current = false;
 
@@ -481,6 +514,10 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
             // full silence window from when the answer lands, not from before
             // they asked for it.
             if (!mine()) return "This connection is no longer active; no action taken.";
+            agentResponsePending.current = true;
+            agentResponseTextFinished.current = false;
+            agentResponseComplete.current = false;
+            toolResponsePending.current = false;
             toolsInFlight.current += 1;
             memory.current.add("tool", JSON.stringify({ name: k, args, status: "in progress; do not repeat until its outcome is known" }));
             lastActivity.current = Date.now();
@@ -497,7 +534,13 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
             } finally {
               if (myCall === callGeneration.current) {
                 toolsInFlight.current = Math.max(0, toolsInFlight.current - 1);
+                // A parallel lookup set is one logical answer. Do not let
+                // the first result start a spoken conclusion while its
+                // siblings are still returning.
+                toolResponsePending.current = toolsInFlight.current === 0;
                 lastActivity.current = Date.now();
+                if (toolsInFlight.current === 0 && awaitingAgent.current) flushContextUpdates(true);
+                else settleAgentResponse();
               }
             }
           },
@@ -517,14 +560,18 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           if (typeof id !== "string" || !/^[A-Za-z0-9_-]{4,180}$/.test(id)) return;
           recordTelemetry("conversation_metadata", undefined, id);
         },
-        onInterruption: (event: { event_id?: unknown }) => {
+        onInterruption: (event: { event_id?: unknown; response_id?: unknown }) => {
           if (!mine()) return;
           const agentWasSpeaking = agentTalking.current;
           recordTelemetry("interruption", event?.event_id, undefined, { agentWasSpeaking });
           // The caller transcript can race this callback. If that turn has
           // already arrived, do not wait for a second caller event before
           // releasing its queued context after speech stops.
-          if (agentWasSpeaking && !awaitingAgent.current) interruptionAwaitingCaller.current = true;
+          if (agentWasSpeaking) {
+            responseTurn.current.interrupt(event);
+            if (!awaitingAgent.current) interruptionAwaitingCaller.current = true;
+            callerInterruptedAgentResponse.current = true;
+          }
           resetSpokenFocus();
           if (signingOff.current) {
             signingOff.current = false;
@@ -538,13 +585,31 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
             correctedResponseChars: responseLength(event?.corrected_agent_response),
           });
         },
-        onAgentChatResponsePart: (event: { type?: unknown; event_id?: unknown }) => {
+        onAgentChatResponsePart: (event: { type?: unknown; event_id?: unknown; response_id?: unknown }) => {
           if (!mine()) return;
+          const allowNewResponse = !responseTurn.current.hasStartedResponse ||
+            (toolsInFlight.current === 0 &&
+              (responseTurn.current.hasUnansweredCallerTurn || toolResponsePending.current));
+          if (!responseTurn.current.acceptPart(event, allowNewResponse)) return;
           if (event?.type === "start") {
+            toolResponsePending.current = false;
             agentResponsePending.current = true;
-            agentResponseSpeechFinished.current = false;
+            agentResponseTextFinished.current = false;
+            agentResponseComplete.current = false;
             recordTelemetry("agent_response_start", event.event_id);
-          } else if (event?.type === "stop") recordTelemetry("agent_response_stop", event.event_id);
+          } else if (event?.type === "stop") {
+            agentResponseTextFinished.current = true;
+            if (responseTurn.current.isAmbiguous) {
+              // The SDK provides no response ID on text-part events. Once an
+              // overlapping start makes the current stream uncorrelatable,
+              // drop its transcript and let this stop release the caller turn.
+              awaitingAgent.current = false;
+              interruptionAwaitingCaller.current = false;
+              callerInterruptedAgentResponse.current = false;
+            }
+            recordTelemetry("agent_response_stop", event.event_id);
+            settleAgentResponse();
+          }
         },
         clientTools: tools,
         dynamicVariables: {
@@ -557,7 +622,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           opening_line: firstMessage,
         },
         onConnect: () => {
-          if (!mine()) return;
+          if (timedOut || !mine()) return;
+          resolveConnected();
           recordTelemetry("connected");
           setState("live");
           setError(null);
@@ -625,8 +691,12 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           pendingContextEvents.current = [];
           contextUpdatesReady.current = false;
           interruptionAwaitingCaller.current = false;
+          callerInterruptedAgentResponse.current = false;
           agentResponsePending.current = false;
-          agentResponseSpeechFinished.current = false;
+          agentResponseTextFinished.current = false;
+          agentResponseComplete.current = false;
+          toolResponsePending.current = false;
+          responseTurn.current.reset();
           toolsInFlight.current = 0;
           memory.current.clear();
           resetPriceRequest();
@@ -637,10 +707,18 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           setSpeaking(false);
           conv.current = null;
         },
-        onMessage: ({ message, source }: { message: string; source: "user" | "ai" }) => {
+        onMessage: ({ message, source, event_id, response_id }: { message: string; source: "user" | "ai"; event_id?: unknown; response_id?: unknown }) => {
           if (!mine()) return;
           const responseWasActive = agentTalking.current || awaitingAgent.current || interruptionAwaitingCaller.current ||
-            (agentResponsePending.current && !agentResponseSpeechFinished.current);
+            (agentResponsePending.current && !agentResponseComplete.current);
+          if (source === "user" && !responseTurn.current.noteCallerTurn({ event_id, response_id })) return;
+          if (source === "ai") {
+            const allowNewResponse = !responseTurn.current.hasStartedResponse ||
+              (toolsInFlight.current === 0 &&
+                (responseTurn.current.hasUnansweredCallerTurn || toolResponsePending.current));
+            if (!responseTurn.current.acceptMessage({ event_id, response_id, message }, allowNewResponse)) return;
+            toolResponsePending.current = false;
+          }
           memory.current.add(source, message);
           if (source === "user") {
             const currentPage = pageBrief(pathnameRef.current ?? "/", topic).brief;
@@ -657,9 +735,11 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
             noteAgentMessage(message);
             awaitingAgent.current = false;
             interruptionAwaitingCaller.current = false;
+            callerInterruptedAgentResponse.current = false;
             agentResponsePending.current = true;
+            agentResponseTextFinished.current = true;
             lastActivity.current = Date.now();
-            flushContextUpdates();
+            settleAgentResponse();
             return;
           }
           // Only the *caller* speaking counts as activity. Resetting on Gaffer's
@@ -670,7 +750,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           hasSpoken.current = true;
           interruptionAwaitingCaller.current = false;
           agentResponsePending.current = false;
-          agentResponseSpeechFinished.current = false;
+          agentResponseTextFinished.current = false;
+          agentResponseComplete.current = false;
           // They've asked for something; the clock is on Gaffer until it replies.
           awaitingAgent.current = true;
 
@@ -724,9 +805,6 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
             recordTelemetry(talking ? "agent_speaking_start" : "agent_speaking_stop");
           if (talking) {
             agentResponsePending.current = true;
-            agentResponseSpeechFinished.current = false;
-          } else if (agentResponsePending.current) {
-            agentResponseSpeechFinished.current = true;
           }
 
           // Signing off: hang up when the goodbye is actually finished, not on a
@@ -745,7 +823,19 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           hint.current.noteTalking(talking);
           agentTalking.current = talking;
           setSpeaking(talking);
-          if (!talking) flushContextUpdates(awaitingAgent.current);
+          if (!talking) {
+            // A listening edge alone is not a finished answer: the audio can
+            // pause between streamed parts while the provider still owns the
+            // turn. Wait for its completed response text before releasing the
+            // queued page/tool context.
+            if (awaitingAgent.current && callerInterruptedAgentResponse.current) {
+              flushContextUpdates(true);
+              callerInterruptedAgentResponse.current = false;
+            } else {
+              settleAgentResponse();
+              flushContextUpdates();
+            }
+          }
         },
       };
 
@@ -766,10 +856,37 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
        * aren't, ElevenLabs rejects the session — so fall back to a plain start
        * rather than handing the customer a dead button.
        */
+      let timedOut = false;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      let cancelAttempt: (() => void) | null = null;
+      const cancelled = new Promise<never>((_resolve, reject) => {
+        cancelAttempt = () => {
+          const cancelledError = new Error("Voice call startup was cancelled.");
+          cancelledError.name = "AbortError";
+          reject(cancelledError);
+        };
+      });
+      cancelStart.current = cancelAttempt;
+      const timeout = new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          const timeoutError = new Error("Voice call connection timed out.");
+          timeoutError.name = "TimeoutError";
+          reject(timeoutError);
+        }, VOICE_SESSION_START_TIMEOUT_MS);
+      });
       try {
-        const session = withOverrides
-          ? await Conversation.startSession({ ...cfg, overrides: { agent: { firstMessage } } })
-          : await Conversation.startSession(cfg);
+        const pendingSession: Promise<any> = Promise.resolve().then(() => withOverrides
+          ? Conversation.startSession({ ...cfg, overrides: { agent: { firstMessage } } })
+          : Conversation.startSession(cfg));
+
+        // The SDK can resolve late, after timeout or cancellation. Close that
+        // session instead of leaving its microphone and audio socket alive.
+        pendingSession.then((session: any) => {
+          if (timedOut || !mine()) void Promise.resolve(session.endSession?.()).catch(() => {});
+        }, () => {});
+
+        const session = await Promise.race([pendingSession, timeout, cancelled]);
 
         // Hung up while this was still connecting.
         //
@@ -782,6 +899,14 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           return;
         }
         conv.current = session;
+        // Some provider failures resolve startSession but never call onConnect.
+        // Keep the same deadline until the session is actually live.
+        await Promise.race([connected, timeout, cancelled]);
+        if (!mine()) {
+          if (conv.current === session) conv.current = null;
+          try { await session.endSession(); } catch { /* already gone */ }
+          return;
+        }
         if(!continuity)void trackUsage({type:"gaffer_connected",path:pathnameRef.current??"/",sessionId:getSessionId()}).catch(()=>{});
 
         // Send the page brief now, not in onConnect: that fires *inside*
@@ -801,9 +926,15 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         const failure = String(err?.message ?? err ?? "");
         const audioFailure = /worklet|audiocontext|audio.*(?:initializ|start|process)/i.test(failure);
         const microphoneFailure = err?.name === "NotAllowedError" || err?.name === "SecurityError";
+        const failedSession = conv.current;
+        conv.current = null;
+        generation.current++;
+        if (failedSession) {
+          try { await failedSession.endSession?.(); } catch { /* already gone */ }
+        }
         if (withOverrides && !audioFailure && !microphoneFailure) {
           console.warn("[Gaffer] Connection failed — retrying once without the greeting override.", err);
-          void start(false);
+          await start(false);
           return;
         }
         console.error("[Gaffer] failed to start session", err);
@@ -811,9 +942,13 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           ? "Audio couldn't start on this device. Check your microphone and audio settings, then try again."
           : microphoneFailure
             ? "Microphone blocked — allow mic access to talk to Gaffer."
-            : "Couldn't start the call — please try again.");
+            : err?.name === "TimeoutError"
+              ? "Gaffer couldn't connect in time. Check your connection and try again."
+              : "Couldn't start the call — please try again.");
         setState("idle");
-        conv.current = null;
+      } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        if (cancelStart.current === cancelAttempt) cancelStart.current = null;
       }
     };
 
@@ -830,6 +965,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   // Belt and braces: don't leave a session running if the whole app unmounts.
   useEffect(() => () => {
     generation.current++;
+    cancelStart.current?.();
+    cancelStart.current = null;
     if (farewell.current) clearTimeout(farewell.current);
     pendingContextSnapshot.current = null;
     pendingContextEvents.current = [];

@@ -50,7 +50,7 @@ export async function applySwapBasketStock(ctx: any, booking: any, oldLines: any
   const expected = positiveBasketDelta(previous, next).map(row => [String(row.inventoryUnitId), row.window.start, row.window.end, row.window.endExclusive, row.window.turnaroundBufferMinutes, String(row.listingId), row.qty]);
   const holds = reservations.filter((row: any) => row.status === "hold" && row.externalRef === `swap:${swapId}`);
   const actual = holds.map((row: any) => [String(row.inventoryUnitId), row.start, row.end, row.endExclusive, row.turnaroundBufferMinutes, String(row.listingId), row.qty]).sort((a: any[], b: any[]) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-  if (JSON.stringify(expected.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))) !== JSON.stringify(actual)) throw Error("The reserved replacement stock needs review.");
+  if (holds.length && JSON.stringify(expected.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))) !== JSON.stringify(actual)) throw Error("The reserved replacement stock needs review.");
   await assertRentalInventory(ctx, newLines, booking._id);
   for (const row of reservations) if (row.status === "confirmed" || row.status === "hold" && row.externalRef === `swap:${swapId}`) await ctx.db.patch(row._id, { status: "cancelled" });
   for (const line of newLines) {
@@ -85,7 +85,7 @@ export async function applySwapStock(ctx: any, booking: any, oldLine: any, newLi
   const validWindows = [stockWindow(newLine, true), stockWindow(newLine, false)];
   if (holds.some((row: any) => String(row.listingId) !== String(newLine.listingId) || !validWindows.some(window => row.start === window.start && row.end === window.end && row.endExclusive === window.endExclusive && row.turnaroundBufferMinutes === window.turnaroundBufferMinutes))) throw Error("The reserved replacement dates need review.");
   const actual = holds.map((row: any) => [String(row.inventoryUnitId), row.qty]).sort();
-  if (JSON.stringify(expected) !== JSON.stringify(actual)) throw Error("The reserved replacement stock needs review.");
+  if (holds.length && JSON.stringify(expected) !== JSON.stringify(actual)) throw Error("The reserved replacement stock needs review.");
   await assertRentalInventory(ctx, lines, booking._id);
   const precise = await stockTimePrecision(ctx);
   for (const row of reservations) if (row.status === "confirmed" || row.status === "hold" && row.externalRef === `swap:${swapId}`) await ctx.db.patch(row._id, { status: "cancelled" });

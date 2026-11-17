@@ -1,13 +1,13 @@
 import { belongsToRentalAccount } from "./rentalAccount";
 
-export type RequestOperation = "reschedule" | "cancellation";
+export type RequestOperation = "reschedule" | "cancellation" | "handover";
 
 /** Only the existing guarded operation may attach or complete this receipt. */
 export async function approvedRequest(ctx: any, booking: any, id: any, operation: RequestOperation, operationKey: string) {
   if (!id) return null;
   const request = await ctx.db.get(id);
   const account = request ? await ctx.db.get(request.accountId) : null;
-  const kind = operation === "reschedule" ? "dates" : "cancel";
+  const kind = operation === "reschedule" ? "dates" : operation === "cancellation" ? "cancel" : "handover";
   if (!request || request.bookingId !== booking?._id || request.kind !== kind || request.status !== "approved" || !belongsToRentalAccount(booking, account))
     throw Error("Choose an approved request for this rental and operation.");
   if (request.execution && (request.execution.operation !== operation || request.execution.operationKey !== operationKey))
@@ -33,4 +33,8 @@ export function rescheduleRequestKey(start: number, end: number | undefined, kee
 }
 export function cancellationRequestKey(bookingId: string, requestId: string) {
   return `cancellation:${bookingId}:${requestId}`;
+}
+
+export function handoverRequestKey(lineIndexes: number[], kind: "pickup" | "return", time: string, expectedSnapshot: string) {
+  return JSON.stringify(["handover", [...lineIndexes].sort((left, right) => left - right), kind, time, expectedSnapshot]);
 }

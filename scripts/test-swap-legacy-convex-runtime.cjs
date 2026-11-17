@@ -20,7 +20,9 @@ async function main() {
   fs.rmSync(path.join(workspace, 'convex/crons.ts'), { force: true });
   fs.copyFileSync(path.join(__dirname, 'fixtures/swap-legacy-runtime.ts.fixture'), path.join(workspace, 'convex/swap_legacy_qualify.ts'));
   const authority = path.join(workspace, 'convex/lib/rentalSwapAuthority.ts'), original = fs.readFileSync(authority, 'utf8');
-  assert.match(original, /return false;/); fs.writeFileSync(authority, original.replace('return false;', 'return true;'));
+  const authorityFunction = /export function swapAuthorityAvailable\(\): boolean \{[\s\S]*?\n\}/;
+  assert.match(original, authorityFunction, 'The isolated test must override only the shared-stock authority gate.');
+  fs.writeFileSync(authority, original.replace(authorityFunction, 'export function swapAuthorityAvailable(): boolean { return true; }'));
   const schema = path.join(workspace, 'convex/schema.ts'), schemaText = fs.readFileSync(schema, 'utf8');
   assert.match(schemaText, /\}\);\s*$/); fs.writeFileSync(schema, schemaText.replace(/\}\);\s*$/, '}, { schemaValidation: false });\n'));
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, CONVEX_AGENT_MODE: 'anonymous', XDG_CONFIG_HOME: path.join(workspace, 'config') }, cli = path.join(root, 'node_modules/.bin/convex');
@@ -33,7 +35,7 @@ async function main() {
   const client = new ConvexHttpClient(match[0]), ref = name => makeFunctionReference(name), fixture = await client.mutation(ref('swap_legacy_qualify:seed'), {});
   const args = { token: 'synthetic-admin', bookingId: fixture.booking, id: fixture.receipt, confirmed: true };
   const result = await Promise.allSettled([client.mutation(ref('swapStockAudit:retryLegacyDelivery'), args), client.mutation(ref('swapStockAudit:retryLegacyDelivery'), args)]);
-  assert.equal(result.filter(item => item.status === 'fulfilled').length, 1);
+  assert.equal(result.filter(item => item.status === 'fulfilled').length, 1, `Expected one concurrent legacy-receipt retry to win: ${JSON.stringify(result.map(item => item.status === 'rejected' ? String(item.reason) : item.value))}`);
   assert.equal(result.filter(item => item.status === 'rejected').length, 1);
   const state = await client.query(ref('swap_legacy_qualify:state'), { booking: fixture.booking, receipt: fixture.receipt });
   assert.equal(state.receipt.deliveryState, 'pending'); assert.equal(state.booking.activeItemSwapId, fixture.swap); assert.equal(state.booking.rmv2Revision, 3);

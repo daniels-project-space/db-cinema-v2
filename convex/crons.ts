@@ -21,6 +21,7 @@ crons.interval("reconcile-rental-additions",{minutes:5},internal.rentalAdditions
 crons.interval("reconcile-rental-delivery-quotes",{minutes:5},internal.rentalDelivery.reconcile,{});
 crons.interval("reconcile-rental-item-swaps",{minutes:5},internal.rentalSwapPayments.reconcile,{});
 crons.interval("reconcile-swap-stock-operations",{minutes:5},internal.swapStockOperations.reconcile,{});
+crons.interval("recover-safe-legacy-swap-receipts",{minutes:5},internal.swapStockAudit.recoverSafeLegacyReceipts,{});
 crons.interval("audit-converted-swap-stock",{minutes:5},internal.swapStockAudit.runDue,{});
 crons.interval("backfill-converted-swap-audits",{minutes:5},internal.swapStockAudit.backfill,{});
 crons.interval("retry-owner-phone-alerts", { minutes: 5 }, internal.adminPushDelivery.retryDue, {});
@@ -36,6 +37,7 @@ crons.interval("reconcile-memberships", { hours: 6 }, internal.checkout.reconcil
 
 // Expire old login sessions (enforces session TTL — queries can't read the clock).
 crons.interval("sweep-sessions", { hours: 1 }, internal.accounts.sweepExpiredSessions, {});
+crons.interval("purge-expired-account-verification-reuse", { hours: 24 }, internal.accounts.purgeExpiredRentalVerification, {});
 crons.interval("sweep-orphan-avatar-uploads", { hours: 1 }, internal.accounts.sweepAvatarUploads, {});
 
 // Pickup-tomorrow / return-today reminders (email + Telegram).

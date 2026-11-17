@@ -1822,6 +1822,18 @@ html[data-gaffer-nav="1"] .tile-in {
    Panel chrome, message entrances, typing dots, scanline backdrop,
    and the animated avatar's moving parts. Transform/opacity only. */
 
+/* Keep the mobile chat present without covering almost the whole page. The
+   flex message area remains the scroll container; safe-area insets protect
+   the close control and composer on notched phones. Desktop sizing is unchanged. */
+@media (max-width: 639px) {
+  .chat-panel.gaffer-chat-panel {
+    inset: auto 12px calc(12px + env(safe-area-inset-bottom, 0px)) 12px;
+    height: 88svh;
+    height: min(88dvh, 760px);
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px);
+  }
+}
+
 /* panel backdrop: dot grid + vignette, with a slow scanline sweep */
 .chat-bg {
   position: absolute;
@@ -1978,6 +1990,20 @@ html[data-gaffer-nav="1"] .tile-in {
   scrollbar-width: none;
 }
 .rail::-webkit-scrollbar { display: none; }
+@media (max-width: 639px) {
+  .gear-category-rail--more-right {
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 1.25rem), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 1.25rem), transparent 100%);
+  }
+  .gear-category-rail--more-left {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 1.25rem, #000 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 1.25rem, #000 100%);
+  }
+  .gear-category-rail--more-left.gear-category-rail--more-right {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 1.25rem, #000 calc(100% - 1.25rem), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 1.25rem, #000 calc(100% - 1.25rem), transparent 100%);
+  }
+}
 
 /* a11y: kill motion for reduced-motion users */
 @media (prefers-reduced-motion: reduce) {
@@ -3328,6 +3354,7 @@ body[data-aperture-transition="revealing"] #main-content { position: relative; z
 .member-love-heart { position:absolute; top:-10px; right:4%; height:42px; width:42px; color:#d59786; animation:fund-heart-sway 7s ease-in-out infinite; }
 .member-love-intro { font-size:19px; line-height:1.65; color:#ddd8c9; margin-top:28px; }
 .member-love-body { font-size:14px; line-height:1.9; color:#a5aa9b; margin-top:16px; max-width:400px; }
+.member-love-mobile-copy { display:none; }
 .member-love-anchor { display:inline-flex; align-items:center; gap:30px; border-bottom:1px solid #d3b59340; padding:10px 0; font-size:12px; color:#efc3a2; margin-top:20px; }
 .member-love-anchor span { transition:transform .3s; }
 .member-love-anchor:hover span { transform:translateY(4px); }
@@ -3359,8 +3386,75 @@ body[data-aperture-transition="revealing"] #main-content { position: relative; z
 .member-art-foot p span { font-size:10px; color:#9fa98e; }
 .member-art-fineprint { font-size:9px; color:#a6ab98; line-height:1.8; margin-top:14px; }
 @keyframes member-camera-breathe { 0%,100% { transform:translateY(0) rotate(-2deg); } 50% { transform:translateY(-5px) rotate(1deg); } }
-@media(max-width:767px) { .member-love-hero { grid-template-columns:1fr; gap:40px; padding:10px 0 30px; } .member-love-title { font-size:60px; } .member-love-heart { right:15%; } .member-credit-art { transform:rotate(1deg); padding:22px; margin:0 4px; } .member-credit-equation strong { font-size:44px; } .member-art-heading .fund-eyebrow { font-size:7px; } }
-@media(max-width:370px) { .member-love-title { font-size:52px; } .member-credit-equation strong { font-size:36px; } .member-credit-art { padding:17px; } }
+@media(max-width:767px) {
+  .membership-page { display:flex; flex-direction:column; gap:0; padding:14px 16px 40px; }
+  .membership-page > .member-love-hero { order:0; grid-template-columns:1fr; gap:14px; padding:0 0 12px; }
+  .membership-page > .membership-checkout-notice { order:1; width:100%; padding:0; }
+  .membership-page > .membership-welcome { order:1; width:100%; margin:4px 0 0; }
+  .membership-page > .membership-plans { order:2; width:100%; margin:14px 0 0; gap:12px; }
+  .membership-page > .membership-steps { order:3; width:100%; margin:20px 0 0 !important; padding:14px !important; }
+  .membership-page > .membership-error { order:4; }
+  .membership-page > .membership-benefits { order:5; margin-top:32px; }
+  .membership-page > .membership-film-fund { order:6; margin-top:28px; padding:20px; }
+  .membership-page > .membership-current { order:7; }
+  .membership-page > .membership-renewal-note { order:8; }
+
+  .member-love-copy { min-width:0; }
+  .member-love-title { max-width:11ch; margin-top:8px; font-size:clamp(38px,12.5vw,46px); line-height:.99; }
+  .member-love-heart { top:-14px; right:-1%; height:26px; width:26px; }
+  .member-love-intro { display:none; }
+  .member-love-body { display:none; }
+  .member-love-mobile-copy { display:block; margin-top:8px; color:#a5aa9b; font-size:12px; line-height:1.5; }
+  .member-love-mobile-copy>p { margin:0; }
+  .member-love-mobile-copy details { margin-top:1px; font-size:9px; line-height:1.4; }
+  .member-love-mobile-copy summary { min-height:22px; padding:4px 0; color:#ddb892; cursor:pointer; }
+  .member-love-mobile-copy details p { padding:0 0 3px; }
+  .member-love-anchor { gap:14px; margin-top:7px; padding:7px 0; }
+  .member-love-signature { display:none; }
+
+  .member-credit-art { display:grid; grid-template-columns:62px minmax(0,1fr); grid-template-rows:auto auto auto; align-items:center; gap:5px 10px; margin:0; padding:12px; transform:none; border-radius:12px 22px 12px 22px; box-shadow:0 10px 32px #0003; }
+  .member-credit-art::before { width:48px; height:18px; left:41%; top:-10px; }
+  .member-art-heading { grid-column:1 / -1; grid-row:1; align-items:center; gap:4px; }
+  .member-art-heading .fund-eyebrow { font-size:7px; }
+  .member-art-edition { font-size:11px; }
+  .member-camera-drawing { grid-column:1; grid-row:2 / span 2; width:62px; max-width:100%; margin:0 auto; }
+  .member-camera-heart { width:18px; height:18px; right:-5px; top:5px; }
+  .member-plan-picker { grid-column:2; grid-row:2; justify-content:flex-start; gap:4px; }
+  .member-plan-picker button { padding:5px 8px; font-size:9px; }
+  .member-credit-equation { grid-column:2; grid-row:3; justify-content:flex-start; gap:7px; margin-top:0; padding-top:5px; }
+  .member-credit-equation>div>span { font-size:8px; }
+  .member-credit-equation strong { font-size:25px; }
+  .member-credit-arrow { font-size:16px; }
+  .member-credit-arrow small { font-size:8px; }
+  .member-film-strip,.member-art-foot { display:none; }
+  .member-art-fineprint { display:none; }
+
+  .membership-welcome > p:first-child { margin-bottom:8px; font-size:11px; letter-spacing:.12em; text-transform:uppercase; }
+  .membership-welcome > .grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .membership-offer-choice { min-width:0; }
+  .membership-offer-choice > button { height:100%; padding:10px; border-radius:14px; }
+  .membership-offer-choice > button > span:first-child { font-size:12px; line-height:1.25; }
+  .membership-offer-long { display:none; }
+  .membership-offer-summary { margin-top:5px; font-size:10px; line-height:1.35; }
+  .membership-offer-details { margin:4px 3px 0; color:#aeb3ab; font-size:10px; line-height:1.45; }
+  .membership-offer-details summary { min-height:24px; padding:4px 0; color:#ddb892; cursor:pointer; }
+  .membership-offer-details p { padding:0 0 5px; }
+  .membership-welcome > label { justify-content:flex-start; margin-top:10px; font-size:11px; line-height:1.5; }
+}
+@media(min-width:768px) {
+  .membership-offer-summary,.membership-offer-details { display:none; }
+}
+@media(max-width:370px) {
+  .member-love-title { font-size:38px; }
+  .member-love-mobile-copy { font-size:11px; }
+  .member-credit-art { grid-template-columns:54px minmax(0,1fr); padding:10px; }
+  .member-camera-drawing { width:54px; }
+  .member-credit-equation strong { font-size:22px; }
+  .member-credit-equation { gap:5px; }
+  .membership-offer-choice > button { padding:9px; }
+  .membership-offer-choice > button > span:first-child { font-size:11px; }
+  .membership-offer-summary { font-size:9px; }
+}
 @media(prefers-reduced-motion:reduce) { .member-love-hero * { animation:none !important; transition:none !important; } }
 
 /* Account identity: opal light, fine ribbons and a quiet constellation. */
@@ -3459,8 +3553,74 @@ body[data-aperture-transition] .chat-panel { opacity:0; pointer-events:none; vis
   }
 }
 @media (max-width: 767px) {
-  .hero-mobile-category-nav { display: none !important; }
+  .hero-mobile-category-nav,
   .hero-gear-callouts { display: none !important; }
+}
+
+/* Keep the membership tiers readable at tablet widths, and make the mobile
+   comparison table's horizontal movement discoverable and keyboard reachable. */
+@media (min-width: 768px) and (max-width: 1279px) {
+  .membership-plans { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .membership-plans > .membership-plan-last {
+    grid-column: 1 / -1;
+    justify-self: center;
+    width: 100%;
+    max-width: 34rem;
+  }
+}
+@media (min-width: 1280px) {
+  .membership-plans { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .membership-plans > .membership-plan-last { grid-column: auto; max-width: none; }
+}
+.membership-benefit-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #8a7258 #ffffff0a;
+  overscroll-behavior-inline: contain;
+}
+.membership-benefit-scroll:focus-visible { outline: 2px solid #d8ae7d; outline-offset: 4px; border-radius: 8px; }
+.membership-benefit-hint { display: none; }
+@media (max-width: 575px) {
+  .membership-benefit-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    color: #d8ae7d;
+    font-size: 11px;
+    letter-spacing: .02em;
+  }
+  .membership-benefit-scroll { margin-inline: -4px; padding-inline: 4px; }
+  .membership-benefit-scroll table { table-layout: fixed; }
+  .membership-benefit-scroll table tr > :first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    width: clamp(7.5rem, 38vw, 10rem);
+    background: #080808;
+    box-shadow: 10px 0 12px -12px #d8ae7d;
+  }
+  .membership-benefit-scroll table thead tr > :first-child { z-index: 2; }
+}
+
+/* Keep the global Gaffer launcher and its popup clear of the fixed product
+   booking dock on phones and tablets. The page sets this body marker only
+   while the sticky date action is visible. */
+@media (max-width: 1023px) {
+  body[data-mobile-booking-dock="true"] .launcher:not([data-on-call="true"]) {
+    display: none !important;
+  }
+  body[data-mobile-booking-dock="true"] .chat-panel {
+    top: auto !important;
+    bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px)) !important;
+    height: auto !important;
+    max-height: min(52dvh, 420px) !important;
+  }
+  body[data-mobile-booking-dock="true"] .chat-panel > .relative.z-10.overflow-y-auto {
+    flex: 0 1 auto !important;
+    max-height: min(calc(52dvh - 9rem), 250px) !important;
+    min-height: 0 !important;
+
+  }
 }
 @media (max-width: 639px) {
   .gear-category-rail--more-right {
@@ -3474,5 +3634,6 @@ body[data-aperture-transition] .chat-panel { opacity:0; pointer-events:none; vis
   .gear-category-rail--more-left.gear-category-rail--more-right {
     -webkit-mask-image: linear-gradient(to right, transparent 0, #000 1.25rem, #000 calc(100% - 1.25rem), transparent 100%);
     mask-image: linear-gradient(to right, transparent 0, #000 1.25rem, #000 calc(100% - 1.25rem), transparent 100%);
+
   }
 }

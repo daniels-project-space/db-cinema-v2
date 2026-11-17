@@ -1,11 +1,13 @@
 import { ensureReferralCode } from "./lib/referrals";
 import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
+import { api } from "./_generated/api";
 import { v } from "convex/values";
 import { studioDeliveryAvailable } from "./lib/memberDelivery";
 import { monthlyCreditPence, tierByKey, MEMBERSHIP_TERMS_VERSION } from "../shared/membership";
 import { membershipSnapshot } from "./lib/membershipSnapshot";
 import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
 import { assertAdmin } from "./adminAuth";
+import { legalVersionForPolicy, CURRENT_PRIVACY_NOTICE_VERSION } from "../shared/legalVersioning";
 
 const intro = v.union(v.literal("trial"), v.literal("credit"), v.literal("none"));
 
@@ -180,12 +182,22 @@ export const deliveryAvailable = internalQuery({
 
 /** Unverified guest stub grants no session and no access to existing account balances. */
 export const bootstrapCheckoutAccount = internalMutation({
- args:{email:v.string(),name:v.string(),seedHash:v.string()},
+ args:{email:v.string(),name:v.string(),seedHash:v.string(),termsAndPrivacyAcknowledged:v.boolean(),accountTermsVersion:v.string(),privacyNoticeVersion:v.string()},
  handler:async(ctx,a)=>{
+  const policy=await ctx.runQuery(api.settings.get,{});
+  if(!a.termsAndPrivacyAcknowledged||a.accountTermsVersion!==legalVersionForPolicy(policy)||a.privacyNoticeVersion!==CURRENT_PRIVACY_NOTICE_VERSION)
+   throw Error("Accept the current account Terms and Privacy Notice before creating a membership account.");
   const email=a.email.trim().toLowerCase();
   const existing=await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",email)).unique();
-  if(existing){if(existing.checkoutSeedHash===a.seedHash&&!existing.hash&&!existing.googleId&&!existing.stripeSubscriptionId)return existing;throw Error("Sign in to your existing account before adding a membership.");}
-  const id=await ctx.db.insert("accounts",{email,name:a.name,checkoutSeedHash:a.seedHash,emailVerificationRequired:true,createdAt:Date.now()});await ensureReferralCode(ctx,id);return (await ctx.db.get(id))!;
+  const acceptedAt=Date.now();
+  if(existing){
+   if(existing.checkoutSeedHash===a.seedHash&&!existing.hash&&!existing.googleId&&!existing.stripeSubscriptionId){
+    await ctx.db.patch(existing._id,{accountTermsVersion:a.accountTermsVersion,accountTermsAcceptedAt:acceptedAt,privacyNoticeVersion:a.privacyNoticeVersion,privacyNoticeAcknowledgedAt:acceptedAt});
+    return (await ctx.db.get(existing._id))!;
+   }
+   throw Error("Sign in to your existing account before adding a membership.");
+  }
+  const id=await ctx.db.insert("accounts",{email,name:a.name,checkoutSeedHash:a.seedHash,emailVerificationRequired:true,accountTermsVersion:a.accountTermsVersion,accountTermsAcceptedAt:acceptedAt,privacyNoticeVersion:a.privacyNoticeVersion,privacyNoticeAcknowledgedAt:acceptedAt,createdAt:acceptedAt});await ensureReferralCode(ctx,id);return (await ctx.db.get(id))!;
  }
 });
 

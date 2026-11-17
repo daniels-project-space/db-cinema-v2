@@ -7,6 +7,7 @@ import { accountForToken, ownedBooking, postRentalMessage } from "./lib/rentalCh
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { DELIVERY_TERMS_VERSION } from "../shared/rentalAgreement";
 import { deliveryQuoteTermsVersion, rentalDeliveryBookingFingerprint } from "../shared/rentalDeliveryQuote";
+import { londonMonth, studioDeliveryAvailable } from "./lib/memberDelivery";
 
 const deliveryLegs = v.union(v.literal("one_way"), v.literal("round_trip"));
 
@@ -141,10 +142,16 @@ export const accept = internalMutation({
     const quote = await ctx.db.get(id);
     if (!quote || quote.accountId !== account._id) throw Error("This delivery quote is unavailable.");
     const booking = await ownedBooking(ctx, account, quote.bookingId);
+    // Acceptance can be retried after the free delivery has already been
+    // applied, when the booking no longer satisfies the pickup-only guard.
+    // Return the original result without attempting to consume the benefit a
+    // second time.
+    if (quote.acceptedAt && quote.status === "paid") return quote;
     assertQuoteStillCurrent(booking, quote);
     if (quote.termsVersion !== deliveryQuoteTermsVersion(DELIVERY_TERMS_VERSION) || !quote.termsText.trim()) throw Error("The delivery terms have changed. Ask the team to prepare a fresh quote.");
     if (quote.expiresAt <= Date.now() || !["awaiting_acceptance", "creating_checkout", "checkout_open"].includes(quote.status)) throw Error("This delivery quote has expired. Ask the team for a current quote.");
     if (quote.acceptedAt) return quote;
+    if (quote.status !== "awaiting_acceptance") throw Error("This delivery quote is already being prepared. Please continue with its payment link.");
     if (booking.activeDeliveryQuoteId) throw Error("Another delivery payment is already being prepared for this rental.");
     const now = Date.now();
     await ctx.db.patch(booking._id, { activeDeliveryQuoteId: id });
@@ -157,10 +164,35 @@ export const accept = internalMutation({
   },
 });
 
+export const decline = internalMutation({
+  args: { token: v.string(), id: v.id("rental_delivery_quotes") },
+  handler: async (ctx, { token, id }) => {
+    const account = await accountForToken(ctx, token);
+    const quote = await ctx.db.get(id);
+    if (!account || !quote || quote.accountId !== account._id) throw Error("This delivery quote is unavailable.");
+    if (quote.status === "declined") return quote;
+    if (quote.status !== "awaiting_acceptance" || quote.acceptedAt != null) throw Error("This quote can no longer be declined here. Message the rental team for help.");
+    const booking = await ownedBooking(ctx, account, quote.bookingId);
+    assertQuoteStillCurrent(booking, quote);
+    const now = Date.now();
+    await ctx.db.patch(id, { status: "declined", updatedAt: now });
+    await postRentalMessage(ctx, { accountId: account._id, bookingId: booking._id, sender: "system", text: "The delivery quote was declined. This rental remains collection-only; message the team if you would like another option.", meta: { kind: "delivery_quote_declined", deliveryQuoteId: id } });
+    return { ...quote, status: "declined", updatedAt: now };
+  },
+});
+
 async function applyDelivery(ctx: any, quote: any, booking: any, paymentIntentId?: string) {
   const current = await ctx.db.get(booking._id);
   if (!current || current.status !== "confirmed" || current.fulfilment !== "pickup" || current.deliveryLegs || current.activeDeliveryQuoteId !== quote._id || rentalDeliveryBookingFingerprint(current) !== quote.bookingFingerprint)
     throw Error("The rental changed before delivery could be confirmed. Contact the team; no delivery status was changed.");
+  if (quote.isStudioBenefit) {
+    const account = await ctx.db.get(quote.accountId);
+    if (quote.membershipTier !== "studio" || quote.amountPence !== 0 || quote.discountPence !== quote.baseAmountPence ||
+      !quote.benefitMonth || quote.benefitMonth !== londonMonth(Date.now()) ||
+      !await studioDeliveryAvailable(ctx, account, quote.benefitMonth)) {
+      throw Error("The monthly Studio delivery benefit is no longer available. Ask the team to prepare a fresh quote.");
+    }
+  }
   const amount = quote.amountPence / 100;
   const patch: any = {
     fulfilment: "delivery", deliveryLegs: quote.deliveryLegs, deliveryQuoteId: quote._id,

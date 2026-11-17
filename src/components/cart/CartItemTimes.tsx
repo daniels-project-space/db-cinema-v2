@@ -7,6 +7,7 @@ import { dayMs, daysInclusive } from "@/lib/dates";
 import { rentalPricingDays } from "../../../shared/rentalDuration";
 import { TimeSlotPicker } from "../checkout/TimeSlotPicker";
 import { useCart, type CartItem } from "./CartProvider";
+import { SmartImage } from "@/components/SmartImage";
 
 /** Checkout keeps each line's own clocks and collapses completed time controls. */
 export function CartItemTimes({ item, delivery = false, initiallyExpanded = false }: { item: CartItem; delivery?: boolean; initiallyExpanded?: boolean }) {
@@ -94,12 +95,19 @@ export function CartItemTimes({ item, delivery = false, initiallyExpanded = fals
       aria-controls={`${id}-controls`}
       onClick={() => setExpanded(value => !value)}
     >
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-medium text-white/85">{item.title}</span>
-        <span className="block text-[11px] text-white/45">{dateLabel(item.start)}{item.start !== item.end ? ` – ${dateLabel(item.end)}` : ""}</span>
+      <span className="flex min-w-0 flex-1 items-center gap-2.5">
+        <span data-testid="checkout-item-thumbnail" className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-white/10 shadow-sm shadow-black/25">
+          <SmartImage src={item.heroImage} fallbackSources={item.imageSources ?? []} alt="" className="h-full w-full" fit="cover" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span title={item.title} className="block text-xs font-medium leading-snug text-white/85 sm:text-sm" style={{ display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden" }}>{item.title}</span>
+          <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-[11px]">
+            <span className="text-white/45">{dateLabel(item.start)}{item.start !== item.end ? ` – ${dateLabel(item.end)}` : ""}</span>
+            <span className={`${pickupTime && returnTime && !invalidOrder ? "text-accent-200/80" : "text-amber-200/75"}`}>{status}</span>
+          </span>
+        </span>
       </span>
       <span className="flex shrink-0 items-center gap-2">
-        <span className={`text-xs ${pickupTime && returnTime && !invalidOrder ? "text-accent-200/80" : "text-amber-200/75"}`}>{status}</span>
         <svg className={`h-4 w-4 text-white/45 transition-transform ${expanded ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m5 7.5 5 5 5-5"/></svg>
       </span>
     </button>

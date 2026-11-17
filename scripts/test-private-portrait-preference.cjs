@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const { load, db, put } = require("./lib/rentalTestHarness.cjs");
 const portrait = load("convex/privateVerificationPortrait.ts");
+const { CURRENT_PRIVACY_NOTICE_VERSION } = load("shared/legalVersioning.ts");
 const now = Date.now();
 const owner = put("accounts", { email: "owner@example.invalid", createdAt: now - 90000000 });
 const other = put("accounts", { email: "other@example.invalid", createdAt: now - 90000000 });
@@ -13,7 +14,7 @@ put("sessions", { accountId: owner._id, token: "invalid-expiry", expiresAt: NaN 
 put("sessions", { accountId: other._id, token: "other", expiresAt: now + 100000 });
 put("sessions", { accountId: recent._id, token: "new", expiresAt: now + 100000 });
 const ctx = { db };
-const accept = { token: "owner", allowed: true, noticeVersion: "2026-11-06", expectedRevision: 0 };
+const accept = { token: "owner", allowed: true, noticeVersion: CURRENT_PRIVACY_NOTICE_VERSION, expectedRevision: 0 };
 
 (async () => {
   delete process.env.PRIVATE_VERIFICATION_PHOTO_NOTICE_ENABLED;
@@ -26,20 +27,20 @@ const accept = { token: "owner", allowed: true, noticeVersion: "2026-11-06", exp
   assert.equal(await portrait.preference.handler(ctx, { token: "invalid-expiry" }), null, "An invalid expiry is never treated as a valid session");
   await assert.rejects(portrait.setPreference.handler(ctx, { ...accept, token: "legacy" }), /sign in/);
   await assert.rejects(portrait.setPreference.handler(ctx, { ...accept, token: "invalid-expiry" }), /sign in/);
-  assert.deepEqual(await portrait.onboarding.handler(ctx, { token: "new" }), { noticeVersion: "2026-11-06", revision: 0 });
+  assert.deepEqual(await portrait.onboarding.handler(ctx, { token: "new" }), { noticeVersion: CURRENT_PRIVACY_NOTICE_VERSION, revision: 0 });
   assert.equal(await portrait.onboarding.handler(ctx, { token: "owner" }), null, "Existing accounts do not get the new-account prompt");
   recent.googleAvatarUrl = "https://example.invalid/avatar";
   assert.equal(await portrait.onboarding.handler(ctx, { token: "new" }), null, "A profile photo suppresses the prompt");
   recent.googleAvatarUrl = undefined;
-  await portrait.setPreference.handler(ctx, { token: "new", allowed: false, noticeVersion: "2026-11-06", expectedRevision: 0 });
+  await portrait.setPreference.handler(ctx, { token: "new", allowed: false, noticeVersion: CURRENT_PRIVACY_NOTICE_VERSION, expectedRevision: 0 });
   assert.equal(await portrait.onboarding.handler(ctx, { token: "new" }), null, "A declined choice does not repeat");
   assert.equal((await portrait.preference.handler(ctx, { token: "new" })).allowed, false, "Declining never grants permission");
   assert.equal(await portrait.preference.handler(ctx, { token: "expired" }), null);
   await assert.rejects(portrait.setPreference.handler(ctx, { ...accept, token: "expired" }), /sign in/);
   await assert.rejects(portrait.setPreference.handler(ctx, { ...accept, noticeVersion: "old" }), /review/);
-  assert.deepEqual(await portrait.preference.handler(ctx, { token: "owner" }), { allowed: false, previousConsent: false, canAllow: true, noticeVersion: "2026-11-06", revision: 0 });
+  assert.deepEqual(await portrait.preference.handler(ctx, { token: "owner" }), { allowed: false, previousConsent: false, canAllow: true, noticeVersion: CURRENT_PRIVACY_NOTICE_VERSION, revision: 0 });
   await portrait.setPreference.handler(ctx, accept);
-  assert.equal(owner.privateVerificationPortraitConsentVersion, "2026-11-06");
+  assert.equal(owner.privateVerificationPortraitConsentVersion, CURRENT_PRIVACY_NOTICE_VERSION);
   assert.equal(owner.privateVerificationPortraitNotifiedAt, owner.privateVerificationPortraitConsentedAt);
   assert.equal(other.privateVerificationPortraitConsentVersion, undefined);
   const acceptedAt = owner.privateVerificationPortraitConsentedAt;
@@ -48,7 +49,7 @@ const accept = { token: "owner", allowed: true, noticeVersion: "2026-11-06", exp
   delete process.env.PRIVATE_VERIFICATION_PHOTO_NOTICE_ENABLED;
   assert.equal((await portrait.preference.handler(ctx, { token: "owner" })).allowed, true, "Withdrawal remains available when rollout is disabled");
   owner.privateVerificationPortraitConsentVersion = "previous-notice";
-  assert.deepEqual(await portrait.preference.handler(ctx, { token: "owner" }), { allowed: false, previousConsent: true, canAllow: false, noticeVersion: "2026-11-06", revision: 1 }, "Older consent remains withdrawable without enabling new consent");
+  assert.deepEqual(await portrait.preference.handler(ctx, { token: "owner" }), { allowed: false, previousConsent: true, canAllow: false, noticeVersion: CURRENT_PRIVACY_NOTICE_VERSION, revision: 1 }, "Older consent remains withdrawable without enabling new consent");
   assert.equal((await portrait.preference.handler(ctx, { token: "legacy" })).previousConsent, true, "Legacy sessions retain the ability to withdraw previous consent");
   owner.blockedAt = now;
   assert.equal((await portrait.preference.handler(ctx, { token: "owner" })).previousConsent, true, "A restricted account with a valid session can withdraw consent");

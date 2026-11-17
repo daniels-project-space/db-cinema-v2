@@ -2,6 +2,9 @@ export type MembershipSelection = {
   tier: string;
   intro: "trial" | "none";
   termsAccepted: boolean;
+  /** Versions visible at the instant a guest accepts account creation terms. */
+  accountTermsAcceptedVersion?: string;
+  privacyNoticeAcceptedVersion?: string;
 };
 /** An offer preview can survive only a membership toggle. Changes to the kit,
  * dates, identity, benefits, delivery or promotion invalidate it immediately.

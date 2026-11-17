@@ -99,7 +99,7 @@ function SuccessSession({sessionId}: {sessionId: string | null}) {
   if (state === "cancelled")
     return <Msg title="This booking is closed" body="This checkout belongs to a cancelled booking. Please contact us if your bank shows a charge so we can confirm its refund." cta />;
   if (state === "error")
-    return <Msg title="We’re still confirming your payment" body="Your basket is still intact. Do not pay again — check the payment status once more in a moment. If it still cannot be confirmed, contact us with your payment reference." cta onRetry={() => { setState("working"); setAttempt((value) => value + 1); }} />;
+    return <Msg title="We’re still checking your payment" body="We couldn’t finish checking this checkout yet. Do not pay again. Retry the status check in a moment; if it still cannot be confirmed, contact us with your checkout reference." cta onRetry={() => { setState("working"); setAttempt((value) => value + 1); }} />;
 
   if(swapStatus)return <Msg title={swapStatus === "applied" ? "Equipment change confirmed" : swapStatus === "refunded" ? "Equipment change not completed" : "Equipment change being checked"} body={swapStatus === "applied" ? "Your rental conversation now shows the updated equipment." : swapStatus === "refunded" ? "Your original equipment is unchanged and the extra payment has been refunded. Check your rental conversation for details." : "Your payment was received, but the equipment change is not confirmed yet. Check your rental conversation for updates; please do not pay again."} accountRental={bookingId} />;
 

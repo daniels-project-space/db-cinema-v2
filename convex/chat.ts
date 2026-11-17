@@ -14,13 +14,10 @@ import { v } from "convex/values";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { explicitlyRequestsHuman } from "./lib/gafferHumanIntent";
 import { verifyGafferReplyProof } from "../shared/gafferCompletionProof";
+import { isGafferHumanHandoffOffer } from "../shared/gafferHumanHandoff";
 import type { Id } from "./_generated/dataModel";
 
 const ADDON_CUTOFF_MS = 60 * 60 * 1000; // no add-ons within 1h of rental start
-
-function offersHumanHelp(answer: string): boolean {
-  return (answer.match(/[^.!?]*\?/g)??[]).some(question=>/\b(?:would you like|want me|shall i|can i|may i)\b/i.test(question) && /\b(?:connect|speak|talk|contact|help)\b/i.test(question) && /\b(?:team|human|person|staff)\b/i.test(question));
-}
 
 async function scheduleGafferInquiry(ctx:any,accountId:any,bookingId:any,renterMessageId:any,botMessageId:any,generation:number){
   const dueAt=Date.now()+10*60*1000;
@@ -76,7 +73,9 @@ export const recordGafferUserMessage = mutation({
       return { messageId, handledByHuman: true };
     }
     if (explicitlyRequestsHuman(message) && thread) {
-      await ctx.db.patch(thread._id,{escalated:true,gafferGeneration:(thread.gafferGeneration??0)+1,updatedAt:Math.max(Date.now(),thread.updatedAt+1)});
+      const now=Date.now();
+      await ctx.db.patch(thread._id,{escalated:true,escalatedAt:now,lastHumanActivityAt:undefined,gafferGeneration:(thread.gafferGeneration??0)+1,updatedAt:Math.max(now,thread.updatedAt+1)});
+      await scheduleGafferAutoResume(ctx,account._id);
       const confirmationId=await postRentalMessage(ctx,{accountId:account._id,sender:"system",text:"Your request for the team is recorded. Your conversation stays here."});
       await queueOwnerNotification(ctx,{eventKey:`human-request:${confirmationId}`,kind:"human_request",accountId:account._id,title:"Renter requested a human",body:"A renter is waiting for your team in the support inbox."});
       await ctx.scheduler.runAfter(0,internal.chat._escalationAlert,{accountId:account._id});
@@ -108,8 +107,10 @@ export const recordGafferReply = mutation({
     const secret=process.env.GAFFER_COMPLETION_PROOF_SECRET??"";
     const proof=completionProof?await verifyGafferReplyProof(secret,completionProof,String(renterMessageId),answer,Date.now()):null;
     if(!proof)throw new Error("Gaffer's reply could not be verified. Please try again.");
-    const offerHuman = offersHumanHelp(answer);
-    const messageId = await postRentalMessage(ctx, { accountId: account._id, sender: "bot", text: answer, ...(offerHuman ? { meta: { offerHuman: true } } : {}) });
+    const offerHuman = isGafferHumanHandoffOffer(answer);
+    const messageId = await postRentalMessage(ctx, { accountId: account._id, sender: "bot", text: answer,
+      ...(offerHuman ? { meta: { offerHuman: true } } : {}),
+    });
     if(proof.resolved)await scheduleGafferInquiry(ctx,account._id,undefined,renterMessageId,messageId,thread?.gafferGeneration??0);
     return { saved: true, handledByHuman: false, messageId, offerHuman };
   },
@@ -253,20 +254,24 @@ export const _gafferVerificationAccess = internalQuery({
 });
 
 export const _postBot = internalMutation({
-  args:{accountId:v.id("accounts"),bookingId:v.optional(v.id("bookings")),replyTo:v.optional(v.id("messages")),generation:v.optional(v.number()),text:v.string(),offerHuman:v.optional(v.boolean()),answerComplete:v.optional(v.boolean()),handoff:v.optional(v.boolean()),meta:v.optional(v.any())},
-  handler:async(ctx,{accountId,bookingId,replyTo,generation,text,offerHuman,answerComplete,handoff,meta})=>{
+  args:{accountId:v.id("accounts"),bookingId:v.optional(v.id("bookings")),replyTo:v.optional(v.id("messages")),generation:v.optional(v.number()),text:v.string(),answerComplete:v.optional(v.boolean()),handoff:v.optional(v.boolean()),meta:v.optional(v.any())},
+  handler:async(ctx,{accountId,bookingId,replyTo,generation,text,answerComplete,handoff,meta})=>{
     const t=await rentalThread(ctx,accountId,bookingId);
     if(t?.escalated || (generation ?? 0) !== (t?.gafferGeneration ?? 0) || (replyTo && t?.gafferReplyTo===replyTo))return false;
     if(replyTo){
       const recent=await ctx.db.query("messages").withIndex("by_booking_account_at",q=>q.eq("bookingId",bookingId).eq("accountId",accountId)).order("desc").take(20);
       if(recent.find(m=>m.sender==="renter")?._id!==replyTo)return false;
     }
-    const botMeta={...(meta&&typeof meta==="object"?meta:{}),...(offerHuman?{offerHuman:true}:{})};
+    const botMeta=meta&&typeof meta==="object"?{...meta}:{};
+    const offerHuman=isGafferHumanHandoffOffer(text);
+    if(offerHuman)botMeta.offerHuman=true;
+    else delete botMeta.offerHuman;
     const botMessageId=await postRentalMessage(ctx,{accountId,bookingId,sender:"bot",text,...(Object.keys(botMeta).length?{meta:botMeta}:{})});
     const updated=await rentalThread(ctx,accountId,bookingId);
     if(updated && replyTo)await ctx.db.patch(updated._id,{gafferReplyTo:replyTo});
     if(handoff && updated){
-      await ctx.db.patch(updated._id,{escalated:true,gafferGeneration:(updated.gafferGeneration??0)+1,updatedAt:Math.max(Date.now(),updated.updatedAt+1)});
+      const now=Date.now();
+      await ctx.db.patch(updated._id,{escalated:true,escalatedAt:now,lastHumanActivityAt:undefined,gafferGeneration:(updated.gafferGeneration??0)+1,updatedAt:Math.max(now,updated.updatedAt+1)});
       await scheduleGafferAutoResume(ctx,accountId,bookingId);
       await queueOwnerNotification(ctx,{eventKey:`human-handoff:${botMessageId}`,kind:"human_request",accountId,bookingId,title:"Renter needs your team",body:"Gaffer passed a conversation to the team. Open the chat to help."});
       await ctx.scheduler.runAfter(0,internal.chat._escalationAlert,{accountId,bookingId});
@@ -287,7 +292,7 @@ export const delayedGafferInquiry = internalMutation({
     if(latest[0]?._id!==bot._id){await ctx.db.patch(id,{state:"skipped",checkAt:undefined,completedAt:Date.now()});return {notified:false};}
     const remaining=job.dueAt-Date.now();
     if(remaining>0){const scheduledId=await ctx.scheduler.runAfter(remaining,internal.chat.delayedGafferInquiry,{id});await ctx.db.patch(id,{scheduledId,checkAt:job.dueAt+60000});return {notified:false,rescheduled:true};}
-    await queueOwnerNotification(ctx,{eventKey:`renter-message:${renter._id}`,kind:"renter_message",accountId:job.accountId,bookingId:job.bookingId,title:"Gaffer answered a renter",body:"A renter enquiry was answered by Gaffer. Open the conversation for details."});
+    await postRentalMessage(ctx,{accountId:job.accountId,bookingId:job.bookingId,sender:"bot",text:"Did that answer help? Would you like our team to join the conversation?",meta:{offerHuman:true}});
     await ctx.db.patch(id,{state:"notified",checkAt:undefined,completedAt:Date.now()});
     return {notified:true};
   },
@@ -321,8 +326,9 @@ export const _setEscalated = internalMutation({
     const t = await rentalThread(ctx,accountId,bookingId);
     if(expectedGeneration !== undefined && expectedGeneration !== (t?.gafferGeneration ?? 0)) return false;
     const wasEscalated = !!t?.escalated;
-    if (t) await ctx.db.patch(t._id, { escalated, gafferGeneration: (t.gafferGeneration ?? 0) + 1, ...(tgMessageId != null ? { tgMessageId } : {}), updatedAt: Math.max(Date.now(), (t.updatedAt ?? 0) + 1) });
-    else await ctx.db.insert("chat_threads", { accountId, bookingId, escalated, gafferGeneration: 1, tgMessageId, updatedAt: Date.now() });
+    const now=Date.now();
+    if (t) await ctx.db.patch(t._id, { escalated, escalatedAt:escalated?now:undefined,lastHumanActivityAt:undefined, gafferGeneration: (t.gafferGeneration ?? 0) + 1, ...(tgMessageId != null ? { tgMessageId } : {}), updatedAt: Math.max(now, (t.updatedAt ?? 0) + 1) });
+    else await ctx.db.insert("chat_threads", { accountId, bookingId, escalated, ...(escalated?{escalatedAt:now}:{}), gafferGeneration: 1, tgMessageId, updatedAt: now });
     if (escalated) await scheduleGafferAutoResume(ctx, accountId, bookingId);
     if (escalated && !wasEscalated) await queueOwnerNotification(ctx, {
       eventKey: `human-handoff:${accountId}:${bookingId ?? "general"}:${Date.now()}`, kind: "human_request", accountId, bookingId,
@@ -343,8 +349,10 @@ export const requestHuman = mutation({
     const offer=await ctx.db.get(offerMessageId);
     const latestRows=await ctx.db.query("messages").withIndex("by_booking_account_at",(q:any)=>q.eq("bookingId",bookingId).eq("accountId",a._id)).order("desc").take(1);
     if(!offer||offer._id!==latestRows[0]?._id||offer.accountId!==a._id||offer.bookingId!==bookingId||offer.sender!=="bot"||offer.meta?.offerHuman!==true)throw new Error("Gaffer must offer a team handoff before it can be requested.");
-    if (t) await ctx.db.patch(t._id, { escalated: true, gafferGeneration: (t.gafferGeneration ?? 0) + 1, updatedAt: Math.max(Date.now(),t.updatedAt+1) });
-    else await ctx.db.insert("chat_threads", { accountId: a._id, bookingId, escalated: true, gafferGeneration: 1, updatedAt: Date.now() });
+    const now=Date.now();
+    if (t) await ctx.db.patch(t._id, { escalated: true, escalatedAt:now,lastHumanActivityAt:undefined, gafferGeneration: (t.gafferGeneration ?? 0) + 1, updatedAt: Math.max(now,t.updatedAt+1) });
+    else await ctx.db.insert("chat_threads", { accountId: a._id, bookingId, escalated: true, escalatedAt:now, gafferGeneration: 1, updatedAt: now });
+    await scheduleGafferAutoResume(ctx,a._id,bookingId);
     const messageId = await postRentalMessage(ctx,{accountId:a._id,bookingId,sender:"system",text:"Your request for the team is recorded. Your conversation stays here."});
     await queueOwnerNotification(ctx, { eventKey: `human-request:${messageId}`, kind: "human_request", accountId: a._id, bookingId,
       title: "Renter requested a human", body: "A renter is waiting for your team in the rental inbox." });
@@ -361,7 +369,7 @@ export const resumeGaffer = mutation({
     if (bookingId) await ownedBooking(ctx, account, bookingId);
     const thread = await rentalThread(ctx, account._id, bookingId);
     if (!thread?.escalated) return { ok: true };
-    await ctx.db.patch(thread._id, { escalated: false, gafferGeneration: (thread.gafferGeneration ?? 0) + 1, updatedAt: Math.max(Date.now(),thread.updatedAt+1) });
+    await ctx.db.patch(thread._id, { escalated: false, escalatedAt:undefined,lastHumanActivityAt:undefined, gafferGeneration: (thread.gafferGeneration ?? 0) + 1, updatedAt: Math.max(Date.now(),thread.updatedAt+1) });
     const id = await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system", text: "Gaffer is available again. Your conversation and team request history are kept here." });
     await queueOwnerNotification(ctx, { eventKey: `gaffer-resumed:${id}`, kind: "gaffer_resumed", accountId: account._id, bookingId,
       title: "Renter returned to Gaffer", body: "The renter resumed AI help in their existing conversation." });
@@ -374,19 +382,24 @@ export const autoResumeGaffer = internalMutation({
     accountId: v.id("accounts"),
     bookingId: v.optional(v.id("bookings")),
     expectedUpdatedAt: v.number(),
+    expectedActivityAt: v.optional(v.number()),
     expectedGeneration: v.number(),
   },
   handler: async (ctx, args) => {
     const thread = await rentalThread(ctx, args.accountId, args.bookingId);
-    if (!thread?.escalated || thread.updatedAt !== args.expectedUpdatedAt ||
+    const expectedActivityAt=args.expectedActivityAt??args.expectedUpdatedAt;
+    const currentActivityAt=thread?.lastHumanActivityAt??thread?.escalatedAt??expectedActivityAt;
+    if (!thread?.escalated || currentActivityAt !== expectedActivityAt ||
         (thread.gafferGeneration ?? 0) !== args.expectedGeneration) return { resumed: false };
-    const remaining = args.expectedUpdatedAt + GAFFER_AUTO_RESUME_MS - Date.now();
+    const remaining = expectedActivityAt + GAFFER_AUTO_RESUME_MS - Date.now();
     if (remaining > 0) {
       await ctx.scheduler.runAfter(remaining, internal.chat.autoResumeGaffer, args);
       return { resumed: false, rescheduled: true };
     }
     await ctx.db.patch(thread._id, {
       escalated: false,
+      escalatedAt:undefined,
+      lastHumanActivityAt:undefined,
       gafferGeneration: (thread.gafferGeneration ?? 0) + 1,
     });
     return { resumed: true };

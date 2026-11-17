@@ -22,10 +22,11 @@ type Props = {
   partial?:Set<string>;
   disabled?: boolean;
   allowUnavailable?: boolean;
+  touchFriendly?: boolean;
   onPick: (isoDate: string) => void;
 };
 
-export function Calendar({ month, onMonthChange, start, end, unavailable, onPick, disabled: checking=false,allowUnavailable=false,partial=new Set<string>() }: Props) {
+export function Calendar({ month, onMonthChange, start, end, unavailable, onPick, disabled: checking=false,allowUnavailable=false,touchFriendly=false,partial=new Set<string>() }: Props) {
   const y = month.getFullYear();
   const m = month.getMonth();
   const startWeekday = (new Date(y, m, 1).getDay() + 6) % 7; // Mon=0
@@ -43,8 +44,9 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
       <div className="mb-3 flex items-center justify-between">
         <button
           onClick={() => onMonthChange(new Date(y, m - 1, 1))}
-          className="flex h-8 w-8 items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/5 hover:text-white"
+          className={`flex ${touchFriendly ? "h-11 w-11 sm:h-8 sm:w-8" : "h-8 w-8"} items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/5 hover:text-white`}
           aria-label="Previous month"
+          data-testid={touchFriendly ? "calendar-previous-month" : undefined}
         >
           <IconChevronLeft className="h-4 w-4" />
         </button>
@@ -53,8 +55,9 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
         </div>
         <button
           onClick={() => onMonthChange(new Date(y, m + 1, 1))}
-          className="flex h-8 w-8 items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/5 hover:text-white"
+          className={`flex ${touchFriendly ? "h-11 w-11 sm:h-8 sm:w-8" : "h-8 w-8"} items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/5 hover:text-white`}
           aria-label="Next month"
+          data-testid={touchFriendly ? "calendar-next-month" : undefined}
         >
           <IconChevronRight className="h-4 w-4" />
         </button>
@@ -66,7 +69,7 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
         ))}
       </div>
 
-      <div className="mt-1 grid grid-cols-7 gap-1">
+      <div className={`mt-1 grid grid-cols-7 ${touchFriendly ? "-mx-7 gap-0 sm:mx-0 sm:gap-1" : "gap-1"}`}>
         {cells.map((d, i) => {
           if (d === null) return <div key={i} />;
           const dayIso = iso(y, m, d);
@@ -81,7 +84,7 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
           const disabled = isPast || (!allowUnavailable && (checking || isBlocked || crossesBlocked));
 
           let cls =
-            "relative h-9 rounded-lg text-sm transition-all duration-200 flex items-center justify-center tabular-nums ";
+            `relative ${touchFriendly ? "h-11 min-w-[44px] sm:h-9" : "h-9"} rounded-lg text-sm transition-all duration-200 flex items-center justify-center tabular-nums `;
           if (isStart || isEnd)
             cls += "accent-glow bg-accent-500 text-white font-semibold scale-[1.04] ";
           else if (rangeBlocked || (allowUnavailable && (isBlocked || crossesBlocked))) cls += "bg-rec-500/20 text-amber-200 hover:bg-rec-500/30 cursor-pointer ";
@@ -98,6 +101,7 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
               disabled={disabled}
               onClick={() => onPick(dayIso)}
               className={cls}
+              data-testid={touchFriendly ? "calendar-day" : undefined}
               title={allowUnavailable && (isBlocked || crossesBlocked) ? "Unavailable at the moment — select to add this as a request" : checking ? "Checking availability" : isBlocked ? "Unavailable" : crossesBlocked ? "This range includes an unavailable day" : partial.has(dayIso)?"Available at selected times only — choose pickup and return times":undefined}
             >
               {d}

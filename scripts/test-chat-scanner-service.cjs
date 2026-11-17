@@ -1,8 +1,12 @@
 const assert=require('node:assert/strict'),crypto=require('node:crypto'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),net=require('node:net');
-const {createScannerServer,versionInfo,clamdCommand}=require('../services/chat-scanner/scanner.cjs');
+const {createScannerServer,versionInfo,clamdCommand,scannerBindHost}=require('../services/chat-scanner/scanner.cjs');
 const {load}=require('./lib/rentalTestHarness.cjs'),client=load('convex/lib/chatAttachmentScanner.ts');
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'dbc-clamd-')),tmpDir=fs.mkdtempSync('/dev/shm/dbc-scanner-'),socketPath=path.join(dir,'clamd.sock'),now=Date.now(),token='fixture-secret-with-at-least-32-characters';let changed=false,stall=false,detects=true;
 const version=()=>`ClamAV 1.5.4/1234/${new Date(now+(changed?86400000:0)).toUTCString().replace(/ GMT$/,'')}`;
+assert.equal(scannerBindHost(undefined),'127.0.0.1','The local default remains loopback-only');
+assert.equal(scannerBindHost('0.0.0.0'),'0.0.0.0','A container can accept traffic from its private ingress');
+assert.equal(scannerBindHost('::1'),'::1','IPv6 loopback can be selected explicitly');
+assert.throws(()=>scannerBindHost('0.0.0.0;sh'),/IP address/,'The bind override accepts only literal IP addresses');
 const daemon=net.createServer(socket=>{let buffer=Buffer.alloc(0);socket.on('error',()=>{});socket.on('data',chunk=>{buffer=Buffer.concat([buffer,chunk]);if(buffer.subarray(0,9).toString()==='zTRICKLE\0'){const timer=setInterval(()=>socket.write('x'),20);socket.once('close',()=>clearInterval(timer));return;}if(buffer.subarray(0,9).toString()==='zVERSION\0'){socket.end(version()+'\0');return;}if(buffer.subarray(0,10).toString()!=='zINSTREAM\0')return;let pos=10,chunks=[];while(buffer.length>=pos+4){const length=buffer.readUInt32BE(pos);if(buffer.length<pos+4+length)return;pos+=4;if(!length){if(stall)return;const bytes=Buffer.concat(chunks);socket.end(detects&&bytes.includes('EICAR')?'stream: Eicar-Test-Signature FOUND\0':'stream: OK\0');return;}chunks.push(buffer.subarray(pos,pos+length));pos+=length;}})});
 assert.throws(()=>createScannerServer({token,socketPath,tmpDir:dir}),/temporary storage/);
 const service=createScannerServer({token,socketPath,tmpDir,bodyTimeoutMs:200});
@@ -12,7 +16,10 @@ const service=createScannerServer({token,socketPath,tmpDir,bodyTimeoutMs:200});
  const options={endpoint:'https://scanner.example.invalid/scan',token,fetcher:(_url,request)=>fetch(endpoint,request)};
  const trickleStart=Date.now();await assert.rejects(clamdCommand(socketPath,'TRICKLE',undefined,150),'A daemon cannot keep a scan alive by trickling bytes');assert(Date.now()-trickleStart<1000);
  await new Promise((resolve,reject)=>{const socket=net.connect(service.address().port,'127.0.0.1');let timer;const deadline=setTimeout(()=>{socket.destroy();reject(Error('Slow upload did not time out'));},2000);socket.on('connect',()=>{socket.write(`POST /scan HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ${token}\r\nContent-Type: application/octet-stream\r\nContent-Length: 1000\r\nX-Scan-Nonce: ${nonce}\r\nX-Content-Sha256: ${digest}\r\n\r\n`);timer=setInterval(()=>socket.write('x'),30);});socket.on('close',()=>{clearInterval(timer);clearTimeout(deadline);resolve();});socket.on('error',error=>{if(error.code!=='ECONNRESET')reject(error);});});
- const verdict=await client.scanChatAttachment(bytes,digest,nonce,options);assert.equal(verdict.engine,'ClamAV 1.5.4');assert.equal(verdict.signatureVersion,'1234');
+ const verdict=await client.scanChatAttachment(bytes,digest,nonce,options);assert.equal(verdict.engine,'ClamAV 1.5.4');assert.equal(verdict.signatureVersion,'1234');assert.equal(verdict.contentType,'image/png','The clean verdict binds the detected image type');
+ const text=Buffer.from('Return note: items are ready.\n','utf8'),textHash=crypto.createHash('sha256').update(text).digest('hex');
+ const textVerdict=await client.scanChatAttachment(text,textHash,nonce,options);assert.equal(textVerdict.contentType,'text/plain','Plain UTF-8 text passes the same healthy scanner');
+ for(const invalidText of [Buffer.from([0xff,0xfe,0x00]),Buffer.from('plain\u0000text'),Buffer.from('x'.repeat(1024*1024+1))]){const hash=crypto.createHash('sha256').update(invalidText).digest('hex');await assert.rejects(client.scanChatAttachment(invalidText,hash,nonce,options),'Malformed, control-bearing, or oversized text is rejected');}
  detects=false;await assert.rejects(client.scanChatAttachment(bytes,digest,nonce,options),'A scanner that misses its harmless test signature cannot approve even a clean file');detects=true;
  for(const format of ['jpeg','png','webp']){const valid=await require('sharp')({create:{width:2,height:2,channels:3,background:'#abcdef'}}).toFormat(format).toBuffer();const hash=value=>crypto.createHash('sha256').update(value).digest('hex');await client.scanChatAttachment(valid,hash(valid),nonce,options);const appended=Buffer.concat([valid,Buffer.from('unrecognized trailing payload')]);await assert.rejects(client.scanChatAttachment(appended,hash(appended),nonce,options),`${format} with trailing bytes must not receive a clean verdict`);}
  const progressive=await require('sharp')({create:{width:8,height:8,channels:3,background:'#abcdef'}}).jpeg({progressive:true}).toBuffer(),jfif=Buffer.concat([progressive.subarray(0,2),Buffer.from('ffe000104a46494600010100000100010000','hex'),progressive.subarray(2)]);await client.scanChatAttachment(jfif,crypto.createHash('sha256').update(jfif).digest('hex'),nonce,options);
@@ -23,7 +30,7 @@ const service=createScannerServer({token,socketPath,tmpDir,bodyTimeoutMs:200});
  changed=true;await assert.rejects(client.scanChatAttachment(bytes,digest,nonce,options),'Future signature timestamps fail closed');
  changed=false;stall=true;const started=Date.now();await assert.rejects(client.scanChatAttachment(bytes,digest,nonce,options),'A stalled engine never returns a clean result');assert(Date.now()-started<15000,'The scanner timeout is bounded');
  stall=false;const renderer=await import('@react-pdf/renderer'),React=require('react');const pdf=await renderer.renderToBuffer(React.createElement(renderer.Document,null,React.createElement(renderer.Page,null,React.createElement(renderer.Text,null,'Synthetic fixture')))),pdfHash=crypto.createHash('sha256').update(pdf).digest('hex');
- await assert.rejects(client.scanChatAttachment(pdf,pdfHash,nonce,options),'PDF validation fails closed');
+ await assert.rejects(client.scanChatAttachment(pdf,pdfHash,nonce,options),'PDF validation remains disabled pending licensing and active-content review');
  assert.equal(fs.readdirSync(tmpDir).length,0,'Rejected documents are not written to temporary storage');
  fs.writeFileSync(path.join(tmpDir,'leftover'), 'synthetic', {mode:0o600});
  assert.throws(()=>createScannerServer({token,socketPath,tmpDir}),/needs cleanup/,'A restart cannot silently ignore a leftover private file');

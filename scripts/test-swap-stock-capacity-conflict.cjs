@@ -59,6 +59,14 @@ const ctx = {
   },
   runMutation: async (ref, args) => {
     events.push(`mutation:${ref}`);
+    if (ref === 'rentalSwapState.bindSession') {
+      assert.equal(args.id, swapId);
+      assert.equal(args.sessionId, sessionId);
+      assert.equal(args.paymentIntentId, paymentId);
+      swap.sessionId = args.sessionId;
+      swap.paymentIntentId = args.paymentIntentId;
+      return;
+    }
     if (ref === 'swapStockOperations.prepareSwapClaim') return 'claim-operation-fixture';
     if (ref === 'swapStockOperations.prepare') return 'execution-operation-fixture';
     if (ref === 'rentalSwapState.beginCompensation') {

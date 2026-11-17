@@ -13,6 +13,9 @@ export function CartItemDates({ item }: { item: CartItem }) {
   const [open, setOpen] = useState(false), [start, setStart] = useState(item.start), [end, setEnd] = useState(item.end);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date());
+  const ukDate = (value: string) => value
+    ? new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" }).format(new Date(`${value}T00:00:00Z`))
+    : "Choose date";
   const valid = !!start && !!end && start >= today && end >= start;
   const prospective = cart.items.map(i => ({ listingId: i.listingId as any, start: dayMs(i.key === item.key ? start : i.start), end: dayMs(i.key === item.key ? end : i.end),pickupTime:i.key===item.key?undefined:i.pickupTime,returnTime:i.key===item.key?undefined:i.returnTime }));
   const fit = useQuery(api.availability.forCart, open && valid ? { items: prospective } : "skip");
@@ -40,9 +43,9 @@ export function CartItemDates({ item }: { item: CartItem }) {
       {open ? "Close date editor" : "Change dates"}
     </button>
     {open && <div id={id} className="mt-2 rounded-xl border border-white/10 bg-black/20 p-3">
-      <div className="grid grid-cols-2 gap-2">
-        <label className="min-w-0 text-[10px] text-white/50">Pickup<input aria-label={`Pickup date for ${item.title}`} type="date" min={today} value={start} disabled={busy} onChange={e => { setStart(e.target.value); if (e.target.value > end) setEnd(e.target.value); setError(null); }} className="input mt-1 w-full min-w-0 !px-2 !py-2 text-xs [color-scheme:dark]"/></label>
-        <label className="min-w-0 text-[10px] text-white/50">Return<input aria-label={`Return date for ${item.title}`} type="date" min={start || today} value={end} disabled={busy} onChange={e => { setEnd(e.target.value); setError(null); }} className="input mt-1 w-full min-w-0 !px-2 !py-2 text-xs [color-scheme:dark]"/></label>
+      <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-2">
+        <label className="min-w-0 text-[10px] text-white/50"><span className="mb-1 flex items-center justify-between gap-1"><span>Pickup</span><span className="font-medium text-white/75">{ukDate(start)}</span></span><input aria-label={`Pickup date for ${item.title}`} type="date" min={today} value={start} disabled={busy} onChange={e => { setStart(e.target.value); if (e.target.value > end) setEnd(e.target.value); setError(null); }} className="input w-full min-w-0 !px-2 !py-2 text-xs [color-scheme:dark]"/></label>
+        <label className="min-w-0 text-[10px] text-white/50"><span className="mb-1 flex items-center justify-between gap-1"><span>Return</span><span className="font-medium text-white/75">{ukDate(end)}</span></span><input aria-label={`Return date for ${item.title}`} type="date" min={start || today} value={end} disabled={busy} onChange={e => { setEnd(e.target.value); setError(null); }} className="input w-full min-w-0 !px-2 !py-2 text-xs [color-scheme:dark]"/></label>
       </div>
       <p className="mt-2 text-[10px] leading-4 text-white/45" aria-live="polite">{!valid ? "Choose a valid date range from today onwards." : fit === undefined ? "Checking availability for your kit…" : !available ? "Unavailable with your kit. Try different dates." : `${rentalPricingDays(dayMs(start), dayMs(end))} rental day${rentalPricingDays(dayMs(start), dayMs(end)) === 1 ? "" : "s"} · date availability checked. Choose exact times at checkout.`}</p>
       {error && <p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}

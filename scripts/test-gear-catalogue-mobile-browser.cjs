@@ -89,8 +89,9 @@ async function main() {
     assert(port,"Temporary Chromium starts");process.env.DBC_CDP_URL=`http://127.0.0.1:${port}`;browser=await connect("about:blank");await browser.cmd("Page.enable");await browser.cmd("Runtime.enable");
     browser.on(event=>{if(event.method==="Runtime.exceptionThrown")console.error("BROWSER",JSON.stringify(event.params).slice(0,700))});
     const out="/tmp/dbc-gear-catalogue-mobile";fs.mkdirSync(out,{recursive:true});
-    for(const width of [320,390,430,768,1440]){
-      await browser.cmd("Emulation.setDeviceMetricsOverride",{width,height:844,deviceScaleFactor:1,mobile:width<768});
+    for(const [width,height] of [[320,640],[390,844],[430,932],[768,900],[1440,900]]){
+      await browser.cmd("Emulation.setDeviceMetricsOverride",{width,height,deviceScaleFactor:1,mobile:width<768});
+
       await browser.cmd("Page.navigate",{url:`http://127.0.0.1:${server.address().port}/gear`});
       for(let attempt=0;attempt<100&&!await browser.evaluate(`!!document.querySelector('[data-gaffer-ready="true"]')`);attempt++)await wait(50);
       for(let attempt=0;attempt<40&&!await browser.evaluate(`(()=>{const v=document.querySelector('video');return v&&v.readyState>=2&&v.currentTime>.2&&!v.paused})()`);attempt++)await wait(50);
@@ -107,7 +108,8 @@ async function main() {
         assert(geometry.tabBoxes.every(box=>box.height>=44),`Every phone category keeps a 44px touch target at ${width}px`);
         assert(geometry.toolbar.height<170,`One category row reduces the phone filter area below 170px at ${width}px: ${geometry.toolbar.height}`);
         assert.equal(geometry.filtersDisplay,"none",`Secondary filters stay in the mobile Filters sheet until opened at ${width}px`);
-        const initialShot=await browser.cmd("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});fs.writeFileSync(path.join(out,`catalog-${width}-initial.png`),Buffer.from(initialShot.data,"base64"));
+        const initialShot=await browser.cmd("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});fs.writeFileSync(path.join(out,`catalog-${width}x${height}-initial.png`),Buffer.from(initialShot.data,"base64"));
+
         const categories=await browser.evaluate(`(()=>{const rail=document.querySelector('[role="group"][aria-label="Gear categories"]'),buttons=[...rail.querySelectorAll('button')],last=buttons.at(-1);rail.scrollLeft=rail.scrollWidth;const end=last.getBoundingClientRect();const box=rail.getBoundingClientRect();return{left:end.left,right:end.right,railLeft:box.left,railRight:box.right,scrollLeft:rail.scrollLeft,maxScroll:rail.scrollWidth-rail.clientWidth}})()`);
         assert(categories.left>=geometry.rail.left-1&&categories.right<=geometry.rail.right+1&&categories.scrollLeft>0,`A touch swipe can reach the final category without page overflow at ${width}px: ${JSON.stringify(categories)}`);
         for(let attempt=0;attempt<30&&!await browser.evaluate(`(()=>{const rail=document.querySelector('[role="group"][aria-label="Gear categories"]');return rail.classList.contains('gear-category-rail--more-left')&&!rail.classList.contains('gear-category-rail--more-right')})()`);attempt++)await wait(20);
@@ -132,7 +134,8 @@ async function main() {
         assert.equal(geometry.filtersDisplay,"flex",`Desktop secondary filters preserve their existing inline layout`);
         assert(geometry.railScroll.scrollWidth<=geometry.railScroll.clientWidth+1,`Desktop category tabs preserve their existing wrap/fit behavior`);
       }
-      if(width>=640){const shot=await browser.cmd("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});fs.writeFileSync(path.join(out,`catalog-${width}-initial.png`),Buffer.from(shot.data,"base64"));}
+      if(width>=640){const shot=await browser.cmd("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});fs.writeFileSync(path.join(out,`catalog-${width}x${height}-initial.png`),Buffer.from(shot.data,"base64"));}
+
       console.log(`PASS initial catalog ${width}px ${JSON.stringify({scrollWidth:geometry.scrollWidth,banner:geometry.banner,toolbar:geometry.toolbar,cardCount:geometry.cardCount,video:geometry.video})}`);
     }
     // Search/filter state interactions on a phone, with only a synthetic catalog in the isolated fixture.
@@ -170,7 +173,8 @@ async function main() {
     assert.notEqual(await browser.evaluate(`getComputedStyle(document.querySelector('#gear-refinements')).display`),"none","Filter controls become visible after opening");
     await browser.evaluate(`(()=>{const e=document.querySelector('[aria-label="Filter gear by brand"]');e.value='Sony';e.dispatchEvent(new Event('change',{bubbles:true}))})()`);
     for(let attempt=0;attempt<80&&!await browser.evaluate(`document.querySelector('.gear-card h3')?.textContent?.includes('Sony')`);attempt++)await wait(50);
-    const final=await browser.evaluate(`(()=>({count:document.querySelectorAll('.gear-card').length,hrefs:[...document.querySelectorAll('.gear-card')].map(e=>e.getAttribute('href')),text:document.querySelector('[role="status"]')?.textContent.trim(),tabWidth:document.querySelector('[aria-label="Gear categories"]')?.getBoundingClientRect().width,resetVisible:[...document.querySelectorAll('button')].some(b=>/Clear filters|Reset/.test(b.textContent)&&getComputedStyle(b).display!=='none')}))()`);
+    const final=await browser.evaluate(`(()=>({count:document.querySelectorAll('.gear-card').length,hrefs:[...document.querySelectorAll('.gear-card')].map(e=>e.querySelector('a[href]')?.getAttribute('href')??null),text:document.querySelector('[role="status"]')?.textContent.trim(),tabWidth:document.querySelector('[aria-label="Gear categories"]')?.getBoundingClientRect().width,resetVisible:[...document.querySelectorAll('button')].some(b=>/Clear filters|Reset/.test(b.textContent)&&getComputedStyle(b).display!=='none')}))()`);
+
     assert.equal(final.count,1,"Brand and category filters combine without stale results");
     assert.equal(final.hrefs[0],"/gear/sony-24-70-lens","A real GearCard keeps its product detail destination");
     console.log(`PASS category, search, mobile disclosure, brand filter and product navigation ${JSON.stringify(final)}`);

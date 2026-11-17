@@ -1,9 +1,10 @@
 "use node";
 import { createHash, randomBytes, randomInt, pbkdf2Sync } from "node:crypto";
 import { action } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { sendMail } from "./lib/mailer";
+import { legalVersionForPolicy, CURRENT_PRIVACY_NOTICE_VERSION } from "../shared/legalVersioning";
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
 export const request = action({args:{email:v.string(),name:v.optional(v.string()),phone:v.optional(v.string()),purpose:v.union(v.literal("setup"),v.literal("reset")),cartKey:v.optional(v.string())},handler:async(ctx,a):Promise<{challenge:string}>=>{
  if(a.purpose==="setup"&&(!a.name?.trim()||!a.phone?.trim()))throw Error("Enter your name and phone number.");
@@ -21,9 +22,17 @@ export const verify = action({args:{challenge:v.string(),code:v.string()},handle
  const result=await ctx.runMutation(internal.accountCodeClaims.verify,{challengeHash:hash(a.challenge),codeHash:hash(a.challenge+":"+a.code),setupHash:hash(setupToken)});
  if(!result.ok)throw Error("Invalid or expired code. Request a new code if needed.");return {setupToken};
 }});
-export const complete = action({args:{setupToken:v.string(),password:v.string()},handler:async(ctx,a):Promise<{token:string;cartKey?:string}>=>{
+export const complete = action({args:{setupToken:v.string(),password:v.string(),termsAndPrivacyAcknowledged:v.optional(v.boolean()),termsVersion:v.optional(v.string()),privacyNoticeVersion:v.optional(v.string())},handler:async(ctx,a):Promise<{token:string;cartKey?:string}>=>{
  if(!/^[A-Za-z0-9_-]{43}$/.test(a.setupToken))throw Error("Request a new code.");
  if(a.password.length<8||a.password.length>256)throw Error("Choose a password of 8 to 256 characters.");
+ // The internal claim row decides whether this is signup or password reset.
+ // Validate any submitted acceptance against live server policy before it can
+ // reach the mutation; finish() requires it for setup but leaves reset alone.
+ if(a.termsAndPrivacyAcknowledged||a.termsVersion||a.privacyNoticeVersion){
+  if(!a.termsAndPrivacyAcknowledged||!a.termsVersion||!a.privacyNoticeVersion)throw Error("Please accept the current Terms and Conditions and Privacy Notice.");
+  const policy=await ctx.runQuery(api.settings.get,{});
+  if(a.termsVersion!==legalVersionForPolicy(policy)||a.privacyNoticeVersion!==CURRENT_PRIVACY_NOTICE_VERSION)throw Error("The Terms or Privacy Notice changed. Review the current versions and try again.");
+ }
  const salt=randomBytes(16).toString("hex"),passwordHash=pbkdf2Sync(a.password,Buffer.from(salt,"hex"),100000,32,"sha256").toString("hex");
- return ctx.runMutation(internal.accountCodeClaims.finish,{setupHash:hash(a.setupToken),salt,hash:passwordHash,sessionToken:randomBytes(32).toString("hex")});
+ return ctx.runMutation(internal.accountCodeClaims.finish,{setupHash:hash(a.setupToken),salt,hash:passwordHash,sessionToken:randomBytes(32).toString("hex"),termsAndPrivacyAcknowledged:a.termsAndPrivacyAcknowledged,termsVersion:a.termsVersion,privacyNoticeVersion:a.privacyNoticeVersion});
 }});

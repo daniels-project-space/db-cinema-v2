@@ -4,14 +4,15 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { handleChat } from "@/lib/gaffer";
 import { CONTACT_EMAIL } from "@/lib/site";
-import { formatGafferEmailReply, hasSpecificModelQuoteMismatch, isHumanHandoffRequested, newTextOnly, plainBody, recipientCandidates, replyKeyFrom, senderFrom } from "@/lib/inboundEmail";
+import { formatGafferEmailReply, hasSpecificModelQuoteMismatch, isGmailForwardingConfirmation, isHumanHandoffRequested, newTextOnly, plainBody, recipientCandidates, replyKeyFrom, senderFrom } from "@/lib/inboundEmail";
 import { minimumRentalBasketLines } from "../../../../../shared/gafferEmailQuote";
+import type { ResendDeliveryStatus } from "../../../../../shared/emailDeliveryStatus";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
 export const dynamic = "force-dynamic";
 
-const OWNER_EMAIL = "dbcinemarentals@gmail.com";
+const OWNER_EMAIL = CONTACT_EMAIL;
 
 function verifyResendSignature(req: NextRequest, raw: string): boolean {
   const secret = process.env.RESEND_WEBHOOK_SECRET;
@@ -49,6 +50,7 @@ function headerValue(headers: any, key: string): string {
 function htmlToText(html: string): string {
   return String(html ?? "")
     .replace(/<\s*(script|style)[^>]*>[\s\S]*?<\/\s*\1\s*>/gi, " ")
+    .replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a\s*>/gi, "$2 ($1)")
     .replace(/<\s*br\s*\/?>|<\/(?:p|div|li|tr|h[1-6])\s*>/gi, "\n")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;|&#160;/gi, " ")
@@ -77,6 +79,13 @@ function addressList(value: unknown): string[] {
   }).filter((part) => part.includes("@"));
 }
 
+function inboundRecipient(value: unknown): string {
+  const received = addressList(value)[0];
+  if (received) return received;
+  const configured = process.env.INBOUND_REPLY_ADDRESS?.trim().toLowerCase();
+  return configured && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(configured) ? configured : OWNER_EMAIL;
+}
+
 function referencesFrom(headers: any, field: string): string[] {
   return headerValue(headers, field).match(/<[^>]+>|[^\s,]+/g)?.filter(Boolean).slice(-20) ?? [];
 }
@@ -92,6 +101,7 @@ type InboundEmail = {
   to: string;
   subject: string;
   text: string;
+  noAutoReply?: boolean;
   replyThreadId?: any;
   priorMessage?: PriorEmailMessage;
 };
@@ -122,6 +132,9 @@ async function processGafferInboundEmail(message: InboundEmail) {
       ...(message.replyThreadId ? { replyThreadId: message.replyThreadId } : {}),
       ...(message.priorMessage ? { priorMessage: message.priorMessage } : {}),
     });
+    if (message.noAutoReply) {
+      return NextResponse.json({ ok: true, stored: true, requiresAdminAction: true });
+    }
     explicitlyRequestedHuman = isHumanHandoffRequested(message.subject, message.text);
     const claim: any = await client.mutation(api.emailInbox.claimInbound, {
       secret,
@@ -204,7 +217,43 @@ async function processResendEmail(req: NextRequest, raw: string) {
   if (!verifyResendSignature(req, raw)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   let event: any;
   try { event = JSON.parse(raw); } catch { return NextResponse.json({ error: "bad payload" }, { status: 400 }); }
-  if (event?.type !== "email.received") return NextResponse.json({ ok: true, ignored: "event type" });
+  const eventName = String(event?.type ?? "");
+  const deliveryStatusByEvent: Record<string, ResendDeliveryStatus> = {
+    "email.delivered": "delivered",
+    "email.delivery_delayed": "delivery_delayed",
+    "email.bounced": "bounced",
+    "email.suppressed": "suppressed",
+    "email.failed": "failed",
+    "email.complained": "complained",
+  };
+  const deliveryStatus = deliveryStatusByEvent[eventName];
+  if (deliveryStatus) {
+    const resendEmailId = String(event?.data?.email_id ?? "").trim();
+    const webhookEventId = String(req.headers.get("svix-id") ?? "").trim();
+    if (!resendEmailId || !webhookEventId) return NextResponse.json({ error: "missing delivery event identity" }, { status: 400 });
+    const date = Date.parse(String(event?.data?.created_at ?? event?.created_at ?? ""));
+    const detail = event?.data?.bounce?.message ?? event?.data?.suppressed?.message ??
+      event?.data?.failed?.message ?? event?.data?.failed?.reason ?? event?.data?.reason;
+    const reason = typeof detail === "string" ? detail.replace(/[\r\n\t]+/g, " ").trim().slice(0, 500) : undefined;
+    const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL);
+    try {
+      const result: any = await client.mutation(api.emailInbox.recordResendDeliveryEvent, {
+        secret: process.env.INBOUND_EMAIL_SECRET,
+        webhookEventId,
+        resendEmailId,
+        eventType: deliveryStatus,
+        recipients: addressList(event?.data?.to).slice(0, 25),
+        from: String(event?.data?.from ?? ""),
+        occurredAt: Number.isFinite(date) ? date : Date.now(),
+        ...(reason ? { reason } : {}),
+      });
+      return NextResponse.json({ ok: true, ...result });
+    } catch (error) {
+      console.error("[email/inbound] could not record Resend delivery status", String((error as any)?.message ?? error));
+      return NextResponse.json({ error: "delivery status could not be recorded" }, { status: 503, headers: { "Retry-After": "120" } });
+    }
+  }
+  if (eventName !== "email.received") return NextResponse.json({ ok: true, ignored: "event type" });
   const emailId = String(event?.data?.email_id ?? "").trim();
   if (!emailId) return NextResponse.json({ error: "missing inbound email id" }, { status: 400 });
   const apiKey = process.env.RESEND_API_KEY;
@@ -224,21 +273,25 @@ async function processResendEmail(req: NextRequest, raw: string) {
   }
 
   const headers = received?.headers ?? {};
+  const rawFrom = received?.from ?? headerValue(headers, "from");
+  const from = senderFrom({ from: rawFrom, sender: rawFrom });
+  const subject = String(received?.subject ?? event?.data?.subject ?? "Customer rental enquiry").trim().slice(0, 500);
+  const forwardingConfirmation = isGmailForwardingConfirmation(from, subject);
   const automated = headerValue(headers, "auto-submitted").trim().toLowerCase();
-  if ((automated && automated !== "no") || /^(bulk|list|junk)$/i.test(headerValue(headers, "precedence").trim())) {
+  if (!forwardingConfirmation && ((automated && automated !== "no") || /^(bulk|list|junk)$/i.test(headerValue(headers, "precedence").trim()))) {
     return NextResponse.json({ ok: true, ignored: "automated mail" });
   }
-  const rawFrom = received?.from ?? headerValue(headers, "from");
   return processGafferInboundEmail({
     providerId: emailId,
     messageId: received?.message_id ?? (headerValue(headers, "message-id") || undefined),
     inReplyTo: headerValue(headers, "in-reply-to") || undefined,
     references: referencesFrom(headers, "references"),
-    from: senderFrom({ from: rawFrom, sender: rawFrom }),
+    from,
     name: nameFrom(rawFrom),
     to: addressList(received?.received_for ?? received?.to ?? event?.data?.to)[0] ?? OWNER_EMAIL,
-    subject: String(received?.subject ?? event?.data?.subject ?? "Customer rental enquiry").trim().slice(0, 500),
+    subject,
     text: newTextOnly(typeof received?.text === "string" && received.text.trim() ? received.text : htmlToText(received?.html ?? "")),
+    ...(forwardingConfirmation ? { noAutoReply: true } : {}),
   });
 }
 
@@ -265,7 +318,7 @@ async function processLegacyFollowUp(req: NextRequest, raw: string, secret: stri
   try {
     const resolved: any = await client.mutation(api.emailInbox.resolveReplyKey, { secret, replyKey, email });
     if (resolved.ok) {
-      const recipient = addressList(msg?.to ?? msg?.To ?? msg?.envelope?.to)[0] ?? `gaffer+${replyKey}@${process.env.INBOUND_EMAIL_DOMAIN ?? "dbcinemarentals.com"}`;
+      const recipient = inboundRecipient(msg?.to ?? msg?.To ?? msg?.envelope?.to);
       return processGafferInboundEmail({
         providerId,
         messageId: messageId || undefined,
@@ -282,7 +335,7 @@ async function processLegacyFollowUp(req: NextRequest, raw: string, secret: stri
 
     const followUp: any = await client.mutation(api.followUp.resolveInbound, { secret, replyKey, email });
     if (!followUp.ok) return NextResponse.json({ ok: true, ignored: "unknown reply address" });
-    const recipient = addressList(msg?.to ?? msg?.To ?? msg?.envelope?.to)[0] ?? `gaffer+${replyKey}@${process.env.INBOUND_EMAIL_DOMAIN ?? "dbcinemarentals.com"}`;
+    const recipient = inboundRecipient(msg?.to ?? msg?.To ?? msg?.envelope?.to);
     return processGafferInboundEmail({
       providerId,
       messageId: messageId || undefined,

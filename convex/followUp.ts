@@ -1,5 +1,5 @@
 import { accountForToken } from "./lib/rentalChat";
-import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { bump } from "./rateLimit";
@@ -31,25 +31,6 @@ function makeReplyKey(): string {
   crypto.getRandomValues(b);
   return Array.from(b, (n) => n.toString(16).padStart(2, "0")).join("");
 }
-
-export const _record = internalMutation({
-  args: {
-    email: v.string(),
-    name: v.optional(v.string()),
-    subject: v.string(),
-    body: v.string(),
-    replyKey: v.string(),
-    direction: v.string(),
-    accountId: v.optional(v.id("accounts")),
-  },
-  handler: async (ctx, a) => {
-    await ctx.db.insert("gaffer_follow_ups", {
-      at: Date.now(),
-      handled: a.direction === "out",
-      ...a,
-    });
-  },
-});
 
 /** Per-address cap, so one caller can't be used to mail-bomb someone. */
 export const _checkRate = internalMutation({
@@ -98,22 +79,17 @@ export const send = action({
     const replyKey = makeReplyKey();
     const subj = String(subject ?? "").trim() || "Following up on your call with Db Cinema Rentals";
 
-    await ctx.runAction(internal.notify.followUpEmail, {
-      to,
+    const delivered: any = await ctx.runAction(internal.emailInbox.sendGafferFollowUp, {
+      email: to,
       name: name ?? "",
       subject: subj,
-      summary: text,
+      text,
       replyKey,
     });
-
-    await ctx.runMutation(internal.followUp._record, {
-      email: to,
-      name,
-      subject: subj,
-      body: text,
-      replyKey,
-      direction: "out",
-    });
+    if (!delivered?.ok) return "The follow-up is already being sent. Give it a moment before trying again.";
+    try {
+      await ctx.runAction(internal.notify.gafferFollowUpSentAlert, { to, summary: text });
+    } catch { /* the durable email conversation is already saved */ }
 
     return `Sent it to ${to} — they can reply straight to that email and it comes back to us.`;
   },
@@ -161,17 +137,6 @@ export const resolveInbound = mutation({
         at: original.at,
       },
     };
-  },
-});
-
-/** Admin: the follow-up log, newest first. */
-export const adminList = query({
-  args: { token: v.string(), limit: v.optional(v.number()) },
-  handler: async (ctx, { token, limit }) => {
-    const { checkAdminToken } = await import("./adminAuth");
-    if (!checkAdminToken(token)) return { authorized: false as const, items: [] };
-    const items = await ctx.db.query("gaffer_follow_ups").withIndex("by_at").order("desc").take(limit ?? 100);
-    return { authorized: true as const, items };
   },
 });
 

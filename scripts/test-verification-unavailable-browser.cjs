@@ -28,14 +28,14 @@ const delay = milliseconds => new Promise(resolve => setTimeout(resolve, millise
   try{
     let port;for(let attempt=0;attempt<100;attempt++){try{port=fs.readFileSync(path.join(temp,'DevToolsActivePort'),'utf8').split('\n')[0];break}catch{await delay(100)}}assert(port);process.env.DBC_CDP_URL=`http://127.0.0.1:${port}`;
     client=await connect();await client.cmd('Page.enable');await client.cmd('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});for(let attempt=0;attempt<100&&!await client.evaluate('typeof setFixture === "function"');attempt++)await delay(100);
-    for(const width of [390,1440])for(const mode of ['embedded','page'])for(const status of ['confirmed','pending_payment']){
+    for(const width of [320,390,640,1440])for(const mode of ['embedded','page'])for(const status of ['confirmed','pending_payment']){
       await client.cmd('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});await client.evaluate(`setFixture(${JSON.stringify(status)},${JSON.stringify(mode)})`);await delay(150);
       const state=await client.evaluate(`({text:document.body.innerText,href:document.querySelector('a[href*="#chat"]')?.getAttribute('href'),overflow:document.documentElement.scrollWidth>innerWidth})`);
       assert.equal(state.overflow,false,`No horizontal overflow at ${width}px`);
       if(status==='confirmed'){assert(state.text.includes('Verification is unavailable right now.'));assert(!state.text.includes('Complete your rental payment'));assert.equal(state.href,'/account?rental=synthetic-booking#chat')}else assert(state.text.includes('Complete your rental payment before verification can begin.'));
       const image=await client.cmd('Page.captureScreenshot',{format:'png'});fs.writeFileSync(`/tmp/dbc-verification-unavailable-${width}-${mode}-${status}.png`,Buffer.from(image.data,'base64'));
     }
-    for(const width of [390,1440])for(const fulfilment of ['delivery','pickup']){
+    for(const width of [320,390,640,1440])for(const fulfilment of ['delivery','pickup']){
       await client.cmd('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});await client.evaluate(`setFixture('confirmed','page',${JSON.stringify(fulfilment)},true)`);await delay(150);
       const state=await client.evaluate(`({text:document.body.innerText,overflow:document.documentElement.scrollWidth>innerWidth})`);
       assert.equal(state.overflow,false);assert(state.text.includes(`Ready for ${fulfilment}`));assert(state.text.includes(`Complete verification to get ready for ${fulfilment}.`));assert(state.text.includes(`Card hold at ${fulfilment}`));
@@ -45,7 +45,7 @@ const delay = milliseconds => new Promise(resolve => setTimeout(resolve, millise
       await client.evaluate(`setFixture('confirmed','page',${JSON.stringify(fulfilment)},true,true,true)`);await delay(150);
       const savedCard=await client.evaluate('document.body.innerText');assert(savedCard.includes(`Your documents are approved. Check your ${fulfilment} and saved-card setup below.`));
     }
-    for(const width of [390,1440])for(const [status,headline,detail] of [['processing','Verification in progress','Open verification to continue, or return later for an update.'],['manual_review','Verification needs review','Review needed'],['requires_input','Documents needed','Please replace the requested document to continue.'],['rejected','Verification needs attention','Verification could not be completed. Message the team for help.']]){
+    for(const width of [320,390,640,1440])for(const [status,headline,detail] of [['processing','Verification in progress','Open verification to continue, or return later for an update.'],['manual_review','Verification needs review','Review needed'],['requires_input','Documents needed','Please replace the requested document to continue.'],['rejected','Verification needs attention','Verification could not be completed. Message the team for help.']]){
       await client.cmd('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});await client.evaluate(`setFixture('confirmed','page','pickup',true,false,false,${JSON.stringify(status)})`);await delay(150);
       const state=await client.evaluate(`({text:document.body.innerText,overflow:document.documentElement.scrollWidth>innerWidth})`);assert(!state.overflow);assert(state.text.includes(headline),status);assert(state.text.includes(detail),status);
       if(status==='processing'){assert(!state.text.includes('Required'),'Unknown feature states must not be displayed as missing documents');assert(state.text.includes('Continue verification'),'An opened but unfinished session can still be continued');assert(!state.text.includes('documents are being checked'))}
@@ -53,11 +53,11 @@ const delay = milliseconds => new Promise(resolve => setTimeout(resolve, millise
     }
     await client.evaluate(`setFixture('confirmed','page','pickup',true,false,false,'processing',{identity:'waiting',selfie:'approved',address:'waiting'})`);await delay(150);
     const knownChecks=await client.evaluate('document.body.innerText');assert(knownChecks.includes('Required'),'Provider-reported missing documents stay visible');assert(knownChecks.includes('Continue verification'));
-    for(const width of [390,1440]){
+    for(const width of [320,390,640,1440]){
       await client.cmd('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});await client.evaluate(`setFixture('confirmed','page','pickup',true,true,false,'required',null,false)`);await delay(150);
       const pending=await client.evaluate(`({text:document.body.innerText,overflow:document.documentElement.scrollWidth>innerWidth})`);assert(!pending.overflow);assert(pending.text.includes('Your verification is approved. Document storage is not yet confirmed.'));assert(pending.text.includes('Your identity and address verification is approved. Document storage has not yet been confirmed.'));assert(pending.text.includes('Identity and address verified'));assert(!pending.text.includes('Required'),'An approved provider result does not ask for documents again when storage is unconfirmed');assert(!pending.text.includes('Verification could not be completed'));assert(!pending.text.includes('All set'));
       const image=await client.cmd('Page.captureScreenshot',{format:'png'});fs.writeFileSync(`/tmp/dbc-verification-archive-pending-${width}.png`,Buffer.from(image.data,'base64'));
     }
-    console.log('PASS actual verification UI at 390px and 1440px: paid help link, unpaid wording and no overflow; synthetic data only.');
+    console.log('PASS verification UI at 320px, 390px, 640px and 1440px: help link, payment gate, status states, archive messaging and no overflow; synthetic data only.');
   }finally{if(client)client.close();if(chrome.exitCode===null){const exited=new Promise(resolve=>chrome.once('exit',resolve));chrome.kill();await exited}server.close();await delay(500);await fs.promises.rm(temp,{recursive:true,force:true,maxRetries:20,retryDelay:200})}
 })().catch(error=>{console.error(error);process.exitCode=1});

@@ -52,9 +52,9 @@ type AccountCtx = {
   token: string | null;
   me: Me;
   loading: boolean;
-  signUp: (email: string, password: string, name?: string, next?: "chat" | "review", bookingId?: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string | undefined, next: "chat" | "review" | undefined, bookingId: string | undefined, acceptance: AccountTermsAcceptance) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
-  signInWithGoogle: (credential: string) => Promise<void>;
+  signInWithGoogle: (credential: string, acceptance?: AccountTermsAcceptance) => Promise<void>;
   signOut: () => Promise<void>;
   acceptSession: (token: string) => void;
   updateProfile: (patch: {
@@ -65,6 +65,8 @@ type AccountCtx = {
   }) => Promise<void>;
   toggleFavorite: (listingId: string) => Promise<void>;
 };
+
+export type AccountTermsAcceptance = { termsVersion: string; privacyNoticeVersion: string };
 
 const Ctx = createContext<AccountCtx | null>(null);
 const KEY = "dbc_acct";
@@ -107,8 +109,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = useCallback(
-    async (email: string, password: string, name?: string, next?: "chat" | "review", bookingId?: string) => {
-      const { token } = await signUpA({ email, password, name, next, bookingId: bookingId as any });
+    async (email: string, password: string, name: string | undefined, next: "chat" | "review" | undefined, bookingId: string | undefined, acceptance: AccountTermsAcceptance) => {
+      const { token } = await signUpA({ email, password, name, next, bookingId: bookingId as any, termsAndPrivacyAcknowledged: true, ...acceptance });
       if(!token)return;
       persist(token);
       // Someone who took a Gaffer call, got an email follow-up and only then
@@ -130,8 +132,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     [signInA],
   );
   const signInWithGoogle = useCallback(
-    async (credential: string) => {
-      const { token } = await signInGoogleA({ credential });
+    async (credential: string, acceptance?: AccountTermsAcceptance) => {
+      const { token } = await signInGoogleA({ credential, ...(acceptance ? { termsAndPrivacyAcknowledged: true, ...acceptance } : {}) });
       persist(token);
     },
     [signInGoogleA],

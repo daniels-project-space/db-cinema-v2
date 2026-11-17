@@ -14,7 +14,7 @@ export const seed = mutation({ args: {}, handler: async ctx => {
   const executionKey = `swap_execution_${swap}`;
   const receipt = await ctx.db.insert("swap_stock_applied_receipts", { bookingId: booking, swapId: swap, bookingRevision: 1, appliedAt: 100, managerRequestId: "claim", fingerprint: "fingerprint", executionKey, windows: [{ reservationId: reservation, inventoryUnitId: unit, managerItemId: "synthetic-manager-item", ...window, quantity: 1 }] } as any);
   await ctx.db.insert("swap_stock_operations", { swapId: swap, operation: "acquire", state: "confirmed", receipt: { requestId: "claim", fingerprint: "fingerprint" } } as any);
-  await ctx.db.insert("swap_stock_operations", { swapId: swap, operation: "beginExecution", state: "confirmed", request: { args: { id: "claim", fingerprint: "fingerprint", executionKey } } } as any);
+  await ctx.db.insert("swap_stock_operations", { swapId: swap, operation: "beginExecution", state: "confirmed", receipt: { state: "execution_started" }, request: { args: { id: "claim", fingerprint: "fingerprint", executionKey } } } as any);
   return { booking, swap, receipt };
 } });
 export const state = query({ args: { booking: v.id("bookings"), receipt: v.id("swap_stock_applied_receipts") }, handler: async (ctx, args) => ({ booking: await ctx.db.get(args.booking), receipt: await ctx.db.get(args.receipt) }) });

@@ -7,6 +7,7 @@ const path = require('node:path');
 const sharp = require('sharp');
 
 const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_TEXT_BYTES = 1 * 1024 * 1024;
 const TIMEOUT_MS = 12000;
 const MAX_AGE_MS = 48 * 60 * 60 * 1000;
 
@@ -59,6 +60,12 @@ function checkedTmpDir(directory) {
   if(!directory||!path.isAbsolute(directory)||fs.realpathSync(directory)!==directory)throw Error('Private temporary storage unavailable');
   const stat=fs.statSync(directory);if(!stat.isDirectory()||(stat.mode&0o077)!==0||stat.uid!==process.getuid()||fs.statfsSync(directory).type!==0x01021994)throw Error('Private temporary storage unavailable');
   return directory;
+}
+
+function scannerBindHost(value = process.env.CHAT_SCANNER_BIND_HOST) {
+  const host = value?.trim() || '127.0.0.1';
+  if (!net.isIP(host)) throw Error('Scanner bind address must be an IP address');
+  return host;
 }
 
 function validatePngChunks(bytes) {
@@ -153,10 +160,17 @@ function validateWebpChunks(bytes) {
   if(offset!==bytes.length||!image)throw Error('Image structure is invalid');
 }
 
-async function validateStructure(bytes,tmpDir) {
-  if(bytes.subarray(0,5).toString()==='%PDF-'){
-    throw Error('PDF attachments require further security validation');
-  }
+function isPlainText(bytes) {
+  if (!bytes.length || bytes.length > MAX_TEXT_BYTES) return false;
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(text);
+  } catch { return false; }
+}
+
+async function validateStructure(bytes) {
+  if(bytes.subarray(0,5).toString()==='%PDF-')throw Error('PDF attachments require further security validation');
+  if(isPlainText(bytes))return 'text/plain';
   const image=sharp(bytes,{failOn:'error',limitInputPixels:20000000,animated:false});const metadata=await image.metadata();
   if(!['jpeg','png','webp'].includes(metadata.format)||!Number.isSafeInteger(metadata.width)||!Number.isSafeInteger(metadata.height)||metadata.width<1||metadata.height<1||metadata.width*metadata.height>20000000||metadata.pages&&metadata.pages!==1)throw Error('Image validation failed');
   if(metadata.format==='jpeg'&&(bytes.length<4||bytes[bytes.length-2]!==0xff||bytes[bytes.length-1]!==0xd9))throw Error('Image ending is invalid');
@@ -166,6 +180,7 @@ async function validateStructure(bytes,tmpDir) {
   if(metadata.format==='jpeg')validateJpegSegments(bytes);
   if(metadata.format==='webp')validateWebpChunks(bytes);
   await image.stats();
+  return `image/${metadata.format}`;
 }
 
 function createScannerServer({token,socketPath,tmpDir,bodyTimeoutMs=15000}) {
@@ -195,13 +210,13 @@ function createScannerServer({token,socketPath,tmpDir,bodyTimeoutMs=15000}) {
       const bodyTimer=setTimeout(()=>req.destroy(Error('Upload timed out')),bodyTimeoutMs);
       try{for await(const chunk of req){size+=chunk.length;if(size>MAX_BYTES)throw Error('Too large');chunks.push(chunk);}}finally{clearTimeout(bodyTimer);}
       const bytes=Buffer.concat(chunks,size);if(!size||crypto.createHash('sha256').update(bytes).digest('hex')!==digest)throw Error('Digest mismatch');
-      await validateStructure(bytes,tmpDir);
+      const contentType=await validateStructure(bytes,tmpDir);
       const version=await scanWithClamd(socketPath,bytes);
       if(cleanupFailed)throw Error('Private temporary storage needs cleanup');
-      res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({nonce,sha256:digest,size,verdict:'clean',complete:true,encrypted:false,truncated:false,limitExceeded:false,...version}));
+      res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({nonce,sha256:digest,size,contentType,verdict:'clean',complete:true,encrypted:false,truncated:false,limitExceeded:false,...version}));
     }catch(error){if(error?.code==='PRIVATE_CLEANUP_FAILED')cleanupFailed=true;reject(422);}finally{active--;}
   });
 }
 
-if(require.main===module){const server=createScannerServer({token:process.env.CHAT_SCANNER_TOKEN,socketPath:process.env.CLAMD_SOCKET,tmpDir:process.env.CHAT_SCANNER_TMPDIR});server.requestTimeout=15000;server.headersTimeout=10000;server.listen(Number(process.env.PORT??8787),'127.0.0.1');}
-module.exports={clamdCommand,versionInfo,scanWithClamd,createScannerServer,validateStructure};
+if(require.main===module){const server=createScannerServer({token:process.env.CHAT_SCANNER_TOKEN,socketPath:process.env.CLAMD_SOCKET,tmpDir:process.env.CHAT_SCANNER_TMPDIR});server.requestTimeout=15000;server.headersTimeout=10000;server.listen(Number(process.env.PORT??8787),scannerBindHost());}
+module.exports={clamdCommand,versionInfo,scanWithClamd,createScannerServer,validateStructure,scannerBindHost};

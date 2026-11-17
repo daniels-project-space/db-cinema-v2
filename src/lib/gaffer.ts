@@ -414,15 +414,11 @@ const COMPAT_RE =
  * fact is the gate; keep it, and keep it last so it is the closest instruction to
  * the narrator's own rules.
  */
-/**
- * How to reach a human. Stated as a link so the chat renders it clickable, and
- * as the one address the whole site now uses — if Gaffer improvises an old or
- * plausible-looking address, the customer's message goes nowhere.
- */
+/** Route ordinary support into tracked conversations; give the mailbox only if asked. */
 const CONTACT_FACT =
-  `TO REACH THE TEAM, give BOTH, exactly as written and never altered: email [${CONTACT_EMAIL}](mailto:${CONTACT_EMAIL}), ` +
-  `or the [contact form](https://dbcinemarentals.com/contact), which lands in the same inbox. ` +
-  `${CONTACT_EMAIL} is our ONLY email address — never state, guess or invent any other.`;
+  `For a general enquiry, offer the [DB Cinema contact form](https://dbcinemarentals.com/contact); it creates a tracked Gaffer conversation. ` +
+  `For a rental, keep helping in the current rental conversation. Only give the public email if the customer explicitly asks for it: ${CONTACT_EMAIL}. ` +
+  `That is our only public email address — never state, guess or invent another.`;
 
 const FORM_SEVEN_URL = "https://form7.net";
 // Same deep link the SignatureProductionsOverlay CTA uses — it carries the plan

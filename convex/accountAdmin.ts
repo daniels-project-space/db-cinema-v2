@@ -10,10 +10,10 @@ import { paginationOptsValidator } from "convex/server";
 import { accountVerificationReady } from "./lib/accountVerificationReady";
 import { verificationValidUntil } from "../shared/verificationProgress";
 import { customerAdminVisual, customerSubscriptionTier } from "../shared/customerAdminVisual";
-import { loyaltyProgressWithin } from "./lib/loyalty";
+import { earnedEncoreProgress } from "./lib/loyalty";
 import { approvedRestrictedIdentitySource, restrictedIdentityMatches } from "./lib/restrictedIdentityMatch";
 import { internal } from "./_generated/api";
-import { queueRestrictedAccountRecheck } from "./restrictedIdentityAlerts";
+import { cancelRestrictedAccountRecheck, queueRestrictedAccountRecheck } from "./restrictedIdentityAlerts";
 import { adminSessionMigrationReady, assertAdminScopeSession, assertCustomerReadSession, assertCustomerWriteSession } from "./adminAccountSessionV2";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -47,25 +47,98 @@ export const possibleRestrictedIdentityMatches = query({
     if (process.env.ADMIN_SESSION_IDENTITY_ALERTS_V2 === "enabled" || process.env.ADMIN_SESSION_CUSTOMER_READ_V2 === "enabled") {
       if (!adminSessionMigrationReady()) throw new Error("Admin session migration is not ready.");
       await assertAdminScopeSession(ctx, args.token, "verification:read");
-      if (process.env.ADMIN_SESSION_CUSTOMER_READ_V2 === "enabled") await assertCustomerReadSession(ctx, args.token);
+      await assertCustomerReadSession(ctx, args.token);
     } else if (!await customerReadAuthorized(ctx, args.token)) return { matches: [], more: false };
     const booking = await ctx.db.get(args.bookingId);
     if (!await approvedRestrictedIdentitySource(ctx,booking) || !booking?.renterPersonKey) return { matches: [], more: false };
     const result = await restrictedIdentityMatches(ctx, booking, booking.renterPersonKey);
-    return { matches: result.matches.map((account: any) => ({ id: account._id, name: account.name ?? "", email: account.email, blockedAt: account.blockedAt, blockedReason: account.blockedReason ?? "" })), more: result.more };
+    return { matches: result.matches.map((account: any) => ({ id: account._id, name: account.name ?? "", email: account.email, blockedAt: account.blockedAt, restrictionClass: account.restrictionClass ?? null, blockedReason: account.blockedReason ?? "" })), more: result.more };
+  },
+});
+
+const IDENTITY_ALERT_BOOKING_LIMIT = 25;
+const IDENTITY_ALERT_STATUSES = ["pending_verification", "confirmed", "active"] as const;
+type RestrictedIdentityAlertBooking = { id: string; title: string; status: string; start: number | null };
+type RestrictedIdentityAccountMatch = { id: string; name: string; email: string; blockedReason: string; bookings: RestrictedIdentityAlertBooking[] };
+
+/**
+ * One bounded account-level read for the customer profile rail. Only current
+ * DIDit-verified bookings with fully approved required checks are candidates;
+ * the returned identity data is limited to restricted account contact and
+ * rental context needed for an administrator to compare manually.
+ */
+export const possibleRestrictedIdentityMatchesForAccount = query({
+  args: { token: v.string(), accountId: v.id("accounts") },
+  handler: async (ctx, args) => {
+    if (process.env.ADMIN_SESSION_IDENTITY_ALERTS_V2 === "enabled" || process.env.ADMIN_SESSION_CUSTOMER_READ_V2 === "enabled") {
+      if (!adminSessionMigrationReady()) throw new Error("Admin session migration is not ready.");
+      await assertAdminScopeSession(ctx, args.token, "verification:read");
+      await assertCustomerReadSession(ctx, args.token);
+    } else if (!await customerReadAuthorized(ctx, args.token)) return { matches: [], more: false };
+
+    const account = await ctx.db.get(args.accountId);
+    if (!account) return { matches: [], more: false };
+
+    // The composite index bounds each state read. The extra row per state lets
+    // the response disclose when the newest-account scan reached its cap.
+    const candidatesByStatus = await Promise.all(IDENTITY_ALERT_STATUSES.map(status =>
+      ctx.db.query("bookings")
+        .withIndex("by_account_verification_review", q => q
+          .eq("accountId", account._id)
+          .eq("idVerifyStatus", "verified")
+          .eq("verificationProvider", "didit")
+          .eq("status", status))
+        .order("desc")
+        .take(IDENTITY_ALERT_BOOKING_LIMIT + 1),
+    ));
+    const candidates = candidatesByStatus.flat().sort((left, right) => right._creationTime - left._creationTime);
+    const hasMoreBookings = candidates.length > IDENTITY_ALERT_BOOKING_LIMIT;
+    const scanned = candidates.slice(0, IDENTITY_ALERT_BOOKING_LIMIT);
+    const grouped = new Map<string, RestrictedIdentityAccountMatch>();
+    let more = hasMoreBookings;
+
+    for (const booking of scanned) {
+      if (!await approvedRestrictedIdentitySource(ctx, booking) || !booking.renterPersonKey) continue;
+      const result = await restrictedIdentityMatches(ctx, booking, booking.renterPersonKey);
+      more ||= result.more;
+      const first = booking.lineItems?.[0];
+      const start = booking.lineItems?.length
+        ? Math.min(...booking.lineItems.map((line: any) => line.start))
+        : null;
+      for (const restricted of result.matches) {
+        const id = String(restricted._id);
+        const row: RestrictedIdentityAccountMatch = grouped.get(id) ?? {
+          id,
+          name: restricted.name ?? "",
+          email: restricted.email,
+          blockedReason: restricted.blockedReason ?? "",
+          bookings: [],
+        };
+        if (!row.bookings.some(item => String(item.id) === String(booking._id))) {
+          row.bookings.push({ id: booking._id, title: first?.title ?? "Rental request", status: booking.status, start });
+        }
+        grouped.set(id, row);
+      }
+    }
+
+    const matches = [...grouped.values()]
+      .sort((left, right) => left.name.localeCompare(right.name) || left.email.localeCompare(right.email))
+      .slice(0, 20);
+    if (grouped.size > matches.length) more = true;
+    return { matches, more };
   },
 });
 
 const directoryView = v.optional(v.union(v.literal("all"), v.literal("unread"), v.literal("starred")));
+const ENCORE_FILTER_SCAN_PAGE = 20;
 
 function effectiveAccessTier(account: any) {
   return membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard";
 }
 
 async function effectiveEncoreTier(ctx: any, account: any) {
-  if (account.adminEncoreLevel != null) return account.adminEncoreLevel;
-  const progress = await loyaltyProgressWithin(ctx, account, 100);
-  return progress?.completed ?? 0;
+  const progress = await earnedEncoreProgress(ctx, account);
+  return progress.completed;
 }
 
 function tierFilterMatches(filter: string, subscriptionTier: string | null) {
@@ -104,12 +177,15 @@ export const setStarred = mutation({
 });
 
 export const billingPortalTarget = internalMutation({
-  args: { token: v.string(), accountId: v.id("accounts"), purpose: v.optional(v.union(v.literal("portal"), v.literal("membership_refresh"))) },
+  args: { token: v.string(), accountId: v.id("accounts"), purpose: v.optional(v.union(v.literal("portal"), v.literal("membership_refresh"), v.literal("membership_read"))) },
   handler: async (ctx, { token, accountId, purpose }) => {
-    if ((purpose === "portal" && process.env.ADMIN_SESSION_BILLING_PORTAL_V2 === "enabled") || (purpose === "membership_refresh" && process.env.ADMIN_SESSION_MEMBERSHIP_REFRESH_V2 === "enabled")) {
+    const sessionScope = purpose === "membership_read" ? "payments:read" : "payments:write";
+    if ((purpose === "portal" && process.env.ADMIN_SESSION_BILLING_PORTAL_V2 === "enabled") ||
+      (purpose === "membership_refresh" && process.env.ADMIN_SESSION_MEMBERSHIP_REFRESH_V2 === "enabled") ||
+      (purpose === "membership_read" && process.env.ADMIN_SESSION_BILLING_PORTAL_V2 === "enabled")) {
       if (!adminSessionMigrationReady()) throw Error("Admin session migration is not ready.");
-      await assertAdminScopeSession(ctx, token, "payments:write");
-      await ctx.db.insert("admin_audit_log", { at: Date.now(), success: true, limited: false, fn: `accountAdmin.billingPortal:${accountId}` });
+      await assertAdminScopeSession(ctx, token, sessionScope);
+      if (sessionScope === "payments:write") await ctx.db.insert("admin_audit_log", { at: Date.now(), success: true, limited: false, fn: `accountAdmin.billingPortal:${accountId}` });
     } else await assertAdmin(ctx, token, `accountAdmin.billingPortal:${accountId}`);
     const account = await ctx.db.get(accountId);
     if (!account?.stripeCustomerId || !account.stripeSubscriptionId)
@@ -160,7 +236,11 @@ export const directory = query({
     if (args.search.length > 254) throw Error("Customer search is too long.");
     if (!Number.isInteger(args.paginationOpts.numItems) || args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > 100)
       throw Error("Invalid customer page size.");
-    const result = await ctx.db.query("accounts").order("desc").paginate(args.paginationOpts);
+    const encoreFilter = args.encore && ["1", "2", "3"].includes(args.encore);
+    const pageOpts = encoreFilter
+      ? { ...args.paginationOpts, numItems: Math.min(args.paginationOpts.numItems, ENCORE_FILTER_SCAN_PAGE) }
+      : args.paginationOpts;
+    const result = await ctx.db.query("accounts").order("desc").paginate(pageOpts);
     const search = args.search.trim().toLocaleLowerCase("en-GB");
     const checked=await Promise.all(result.page.map(async account=>({account,readiness:await accountVerificationReady(ctx,account),viewMatch:await matchesDirectoryView(ctx,account,args.view)})));
     const baseMatches = checked.filter(({account,viewMatch}) => {
@@ -178,7 +258,7 @@ export const directory = query({
     const filtered = matches.filter(({account,readiness,effectiveEncore,accessTier}) => {
       const verified = !!readiness;
       const encoreMatch = !args.encore || args.encore === "all" ||
-        (args.encore === "automatic" ? account.adminEncoreLevel == null : String(effectiveEncore) === args.encore);
+        (args.encore === "automatic" ? account.adminEncoreLevel == null : effectiveEncore !== null && String(effectiveEncore) === args.encore);
       return encoreMatch &&
         (!args.verification || args.verification === "all" || (args.verification === "verified" ? verified : !verified)) &&
         (args.filter === "all" || args.filter === "members" && accessTier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified);
@@ -186,7 +266,7 @@ export const directory = query({
     return { ...result, page: await Promise.all(filtered.map(async ({account,readiness,accessTier}) => ({
       id: account._id, email: account.email, name: account.name ?? "", createdAt: account.createdAt,
       tier: accessTier,
-      override: account.adminMembershipTier ?? "automatic", encoreOverride: account.adminEncoreLevel == null ? "automatic" : String(account.adminEncoreLevel), blocked: account.blockedAt != null,
+      override: account.adminMembershipTier ?? "automatic", encoreOverride: account.adminEncoreLevel == null ? "automatic" : String(account.adminEncoreLevel), blocked: account.blockedAt != null, restrictionClass: account.restrictionClass ?? null,
       blockedReason: account.blockedReason ?? "", blockedAt: account.blockedAt ?? null, restrictionRevision: account.restrictionRevision ?? 0, restrictionNoticeId: account.restrictionNoticeId ?? null, hasSubscription: !!account.stripeSubscriptionId, visualTier: customerAdminVisual(account), starred: account.adminStarred === true,
       subscriptionTier: customerSubscriptionTier(account),
       verified: !!readiness, verifiedUntil: readiness?.proofExpiresAt ?? null,
@@ -198,6 +278,7 @@ export const directory = query({
 export const searchMessages = query({
   args: {
     token: v.string(), search: v.string(),
+    paginationOpts: paginationOptsValidator,
     filter: v.union(v.literal("all"), v.literal("members"), v.literal("verified"), v.literal("pending")),
     tier: v.union(v.literal("all"), v.literal("standard"), v.literal("plus"), v.literal("pro"), v.literal("studio")),
     encore: v.optional(v.union(v.literal("all"), v.literal("automatic"), v.literal("1"), v.literal("2"), v.literal("3"))),
@@ -205,14 +286,22 @@ export const searchMessages = query({
     view: directoryView,
   },
   handler: async (ctx, args) => {
-    if (!await customerReadAuthorized(ctx, args.token)) return { items: [], truncated: false };
+    if (!await customerReadAuthorized(ctx, args.token)) return { page: [], isDone: true, continueCursor: "" };
     const search = args.search.trim();
     if (search.length > 254) throw Error("Customer search is too long.");
-    if (search.length < 2) return { items: [], truncated: false };
-    const messages = await ctx.db.query("messages").withSearchIndex("search_text", q => q.search("text", search)).take(101);
+    if (!Number.isInteger(args.paginationOpts.numItems) || args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > 100)
+      throw Error("Invalid customer message page size.");
+    if (search.length < 2) return { page: [], isDone: true, continueCursor: "" };
+    const encoreFilter = args.encore && ["1", "2", "3"].includes(args.encore);
+    const pageOpts = encoreFilter
+      ? { ...args.paginationOpts, numItems: Math.min(args.paginationOpts.numItems, ENCORE_FILTER_SCAN_PAGE) }
+      : args.paginationOpts;
+    const result = await ctx.db.query("messages")
+      .withSearchIndex("search_text", q => q.search("text", search))
+      .paginate(pageOpts);
     const seen = new Set<string>();
-    const items = [];
-    for (const message of messages.slice(0, 100)) {
+    const page = [];
+    for (const message of result.page) {
       const accountId = String(message.accountId);
       if (seen.has(accountId)) continue;
       const account = await ctx.db.get(message.accountId);
@@ -228,22 +317,21 @@ export const searchMessages = query({
         ? await effectiveEncoreTier(ctx, account)
         : account.adminEncoreLevel ?? 0;
       const encoreMatch = !args.encore || args.encore === "all" ||
-        (args.encore === "automatic" ? account.adminEncoreLevel == null : String(effectiveEncore) === args.encore);
+        (args.encore === "automatic" ? account.adminEncoreLevel == null : effectiveEncore !== null && String(effectiveEncore) === args.encore);
       if (!tierFilterMatches(args.tier, subscriptionTier)) continue;
       if (!encoreMatch) continue;
       if (args.verification && args.verification !== "all" && (args.verification === "verified" ? !verified : verified)) continue;
       if (!(args.filter === "all" || args.filter === "members" && tier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified)) continue;
-      items.push({
+      page.push({
         id: account._id, email: account.email, name: account.name ?? "", createdAt: account.createdAt,
         tier, override: account.adminMembershipTier ?? "automatic", encoreOverride: account.adminEncoreLevel == null ? "automatic" : String(account.adminEncoreLevel),
-        blocked: account.blockedAt != null, blockedReason: account.blockedReason ?? "", blockedAt: account.blockedAt ?? null, restrictionRevision: account.restrictionRevision ?? 0, restrictionNoticeId: account.restrictionNoticeId ?? null, hasSubscription: !!account.stripeSubscriptionId, visualTier: customerAdminVisual(account),
+        blocked: account.blockedAt != null, blockedReason: account.blockedReason ?? "", blockedAt: account.blockedAt ?? null, restrictionClass: account.restrictionClass ?? null, restrictionRevision: account.restrictionRevision ?? 0, restrictionNoticeId: account.restrictionNoticeId ?? null, hasSubscription: !!account.stripeSubscriptionId, visualTier: customerAdminVisual(account),
         subscriptionTier, verified, verifiedUntil: readiness?.proofExpiresAt ?? null, starred: account.adminStarred === true,
         avatarUrl: account.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
         matchedMessage: message.text.slice(0, 150),
       });
-      if (items.length >= 50) break;
     }
-    return { items, truncated: messages.length > 100 || items.length >= 50 };
+    return { ...result, page };
   },
 });
 
@@ -271,14 +359,15 @@ export const directoryMetrics = query({
         Promise.all(recentThreads.map(thread => belongsToCustomerConversation(ctx, account, thread))),
       ]);
       const latestThread = recentThreads.find((_, index) => validRecent[index]);
-      const progress = !account.adminEncoreLevel ? await loyaltyProgressWithin(ctx, account, 100) : null;
-      const earnedEncoreLevel = progress?.completed ?? 0;
+      const progress = await earnedEncoreProgress(ctx, account);
+      const earnedEncoreLevel = progress.completed;
       const count = owned.length + legacy.length;
       return { id, activeRentals: Math.min(count, 100), activeRentalsMore: count > 100,
         credit: credits.reduce((n: number, c: any) => n + c.availablePence, 0) / 100,
         unreadMessages: Math.min(100, unreadThreads.reduce((n, thread, index) => n + (validUnread[index] ? thread.unreadOwner ?? 0 : 0), 0)),
         lastMessage: typeof latestThread?.lastMessage === "string" ? latestThread.lastMessage.slice(0, 150) : null,
-        visualTier: customerAdminVisual(account, earnedEncoreLevel), encoreLevel: account.adminEncoreLevel ?? (progress ? earnedEncoreLevel : null) };
+        visualTier: customerAdminVisual(account, earnedEncoreLevel ?? undefined), earnedEncoreLevel,
+        encoreLevel: account.adminEncoreLevel ?? earnedEncoreLevel };
     }));
   },
 });
@@ -320,6 +409,7 @@ export const search = query({
           override: a.adminMembershipTier ?? "automatic",
           encoreOverride: a.adminEncoreLevel == null ? "automatic" : String(a.adminEncoreLevel),
           blocked: a.blockedAt != null,
+          restrictionClass: a.restrictionClass ?? null,
           blockedReason: a.blockedReason ?? "",
           hasSubscription: !!a.stripeSubscriptionId,
           subscriptionTier: a.membershipTier ?? null,
@@ -402,6 +492,60 @@ export const setEncoreLevel = mutation({
     });
   },
 });
+/** Update the two account-level rental entitlements together. Keeping this as
+ * one mutation means an operator can promote or correct a member without a
+ * partial tier change if one of the fields became stale in another session. */
+export const setRentalAccess = mutation({
+  args: {
+    token: v.string(),
+    accountId: v.id("accounts"),
+    level,
+    expectedLevel: level,
+    encoreLevel: v.union(v.literal("automatic"), v.literal(1), v.literal(2), v.literal(3)),
+    expectedEncoreLevel: v.union(v.literal("automatic"), v.literal(1), v.literal(2), v.literal(3)),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await authorizeCustomerWrite(ctx, args.token, "accountAdmin.setRentalAccess");
+    const account = await ctx.db.get(args.accountId);
+    if (!account) throw Error("Account no longer exists.");
+    const reason = args.reason.trim();
+    if (!reason || reason.length > 500) throw Error("Add a reason of up to 500 characters.");
+
+    const currentLevel = account.adminMembershipTier ?? "automatic";
+    const currentEncore = account.adminEncoreLevel == null ? "automatic" : account.adminEncoreLevel;
+    if (currentLevel !== args.expectedLevel || currentEncore !== args.expectedEncoreLevel)
+      throw Error("Membership access changed in another session. Review both current levels and try again.");
+
+    const nextEncore = args.encoreLevel === "automatic" ? undefined : args.encoreLevel;
+    const levelChanged = currentLevel !== args.level;
+    const encoreChanged = currentEncore !== args.encoreLevel;
+    if (!levelChanged && !encoreChanged) return { updated: false };
+
+    await ctx.db.patch(account._id, {
+      ...(levelChanged ? { adminMembershipTier: args.level === "automatic" ? undefined : args.level } : {}),
+      ...(encoreChanged ? { adminEncoreLevel: nextEncore } : {}),
+    });
+    const at = Date.now();
+    if (levelChanged) await ctx.db.insert("account_admin_changes", {
+      accountId: account._id,
+      at,
+      kind: "level",
+      before: currentLevel,
+      after: args.level,
+      reason,
+    });
+    if (encoreChanged) await ctx.db.insert("account_admin_changes", {
+      accountId: account._id,
+      at,
+      kind: "encore_level",
+      before: String(currentEncore),
+      after: String(args.encoreLevel),
+      reason,
+    });
+    return { updated: true, levelChanged, encoreChanged };
+  },
+});
 export const updateProfile = mutation({
   args: {
     token: v.string(),
@@ -467,8 +611,9 @@ export const setBlocked = mutation({
     token: v.string(),
     accountId: v.id("accounts"),
     blocked: v.boolean(),
+    restrictionClass: v.union(v.literal("access_only"), v.literal("identity_safety_blacklist")),
     reason: v.string(),
-    expected: v.object({ blockedAt: v.union(v.number(), v.null()), noticeId: v.union(v.id("account_restriction_notices"), v.null()), reason: v.string(), revision: v.number() }),
+    expected: v.object({ blockedAt: v.union(v.number(), v.null()), restrictionClass: v.union(v.literal("access_only"), v.literal("identity_safety_blacklist"), v.null()), noticeId: v.union(v.id("account_restriction_notices"), v.null()), reason: v.string(), revision: v.number() }),
   },
   handler: async (ctx, a) => {
     await authorizeCustomerWrite(ctx, a.token, "accountAdmin.setBlocked");
@@ -477,24 +622,40 @@ export const setBlocked = mutation({
     const reason = a.reason.trim();
     if (!reason || reason.length > 500)
       throw Error("Add a reason of up to 500 characters.");
-    if ((account.blockedAt ?? null) !== a.expected.blockedAt || (account.restrictionNoticeId ?? null) !== a.expected.noticeId || (account.blockedReason ?? "") !== a.expected.reason || (account.restrictionRevision ?? 0) !== a.expected.revision)
+    if ((account.blockedAt ?? null) !== a.expected.blockedAt || (account.restrictionClass ?? null) !== a.expected.restrictionClass || (account.restrictionNoticeId ?? null) !== a.expected.noticeId || (account.blockedReason ?? "") !== a.expected.reason || (account.restrictionRevision ?? 0) !== a.expected.revision)
       throw Error("Account restriction changed in another session. Review the current status and try again.");
-    if ((account.blockedAt != null) === a.blocked) return;
+    if (!['access_only','identity_safety_blacklist'].includes(a.restrictionClass)) throw Error("Choose an account restriction type.");
+    const wasBlocked = account.blockedAt != null;
+    const previousBlockedAt = account.blockedAt;
+    const restrictionChanged = (account.restrictionClass ?? null) !== a.restrictionClass;
+    const reclassifying = wasBlocked && a.blocked && restrictionChanged;
+    const identitySafetyHistory =
+      (a.blocked && a.restrictionClass === "identity_safety_blacklist") ||
+      (account.restrictionClass === "identity_safety_blacklist" && (account.blockedAt != null || account.lastRestrictedAt != null));
+    const needsIdentitySafetyRetentionMark = identitySafetyHistory && account.identitySafetyRetentionAt == null;
+    if (wasBlocked === a.blocked && !restrictionChanged && !needsIdentitySafetyRetentionMark) return;
+    if (!wasBlocked && !a.blocked && restrictionChanged)
+      throw Error("This account is already unrestricted. Restrict it before changing its type.");
+    if (!a.blocked && wasBlocked && restrictionChanged)
+      throw Error("Restore access using the current restriction type first. Any existing retention marker stays in place.");
     const lastRestrictedAt = Math.max(account.lastRestrictedAt ?? 0, account.blockedAt ?? 0);
     if (!Number.isSafeInteger(lastRestrictedAt) || lastRestrictedAt < 0 || lastRestrictedAt >= Number.MAX_SAFE_INTEGER) throw Error("Restriction history needs review.");
-    const blockedAt = a.blocked ? Math.max(Date.now(), lastRestrictedAt + 1) : undefined;
-    const noticeId = blockedAt == null ? undefined : await ctx.db.insert("account_restriction_notices", {
-      accountId: account._id, blockedAt, recipient: account.email,
+    const blockedAt = a.blocked ? account.blockedAt ?? Math.max(Date.now(), lastRestrictedAt + 1) : undefined;
+    const shouldSendNotice = a.blocked && !wasBlocked;
+    const noticeId = shouldSendNotice && blockedAt != null ? await ctx.db.insert("account_restriction_notices", {
+      accountId: account._id, blockedAt, recipient: account.email, reason,
       state: "pending", dueAt: blockedAt, createdAt: blockedAt, updatedAt: blockedAt,
-    });
+    }) : null;
     await ctx.db.patch(account._id, {
       blockedAt,
       lastRestrictedAt: blockedAt ?? (lastRestrictedAt || undefined),
+      ...(needsIdentitySafetyRetentionMark ? { identitySafetyRetentionAt: account.lastRestrictedAt ?? blockedAt ?? Date.now() } : {}),
+      restrictionClass: a.restrictionClass,
       restrictionRevision: (account.restrictionRevision ?? 0) + 1,
-      restrictionNoticeId: noticeId,
+      restrictionNoticeId: a.blocked ? (noticeId ?? account.restrictionNoticeId) : undefined,
       blockedReason: a.blocked ? reason : undefined,
     });
-    if (a.blocked) {
+    if (a.blocked && !wasBlocked) {
       for (const session of await ctx.db
         .query("sessions")
         .withIndex("by_account", (q) => q.eq("accountId", account._id))
@@ -509,15 +670,18 @@ export const setBlocked = mutation({
     await ctx.db.insert("account_admin_changes", {
       accountId: account._id,
       at: Date.now(),
-      kind: a.blocked ? "block" : "unblock",
-      before: account.blockedAt != null ? "blocked" : "active",
-      after: a.blocked ? "blocked" : "active",
+      kind: needsIdentitySafetyRetentionMark && wasBlocked === a.blocked && !restrictionChanged ? "identity_retention_hold" : reclassifying ? "restriction_reclassify" : a.blocked ? "block" : "unblock",
+      before: `${wasBlocked ? "blocked" : "active"} · ${account.restrictionClass ?? "legacy"}`,
+      after: `${a.blocked ? "blocked" : "active"} · ${a.restrictionClass}`,
       reason,
     });
     if (noticeId != null) {
       await ctx.scheduler.runAfter(0, internal.accountRestrictionNotice.dispatchOne, { noticeId });
-      await queueRestrictedAccountRecheck(ctx,account._id,blockedAt!);
     }
+    if (a.blocked && a.restrictionClass === "identity_safety_blacklist" && (!wasBlocked || reclassifying))
+      await queueRestrictedAccountRecheck(ctx,account._id,blockedAt!);
+    else if (wasBlocked && (!a.blocked || a.restrictionClass === "access_only"))
+      await cancelRestrictedAccountRecheck(ctx,account._id,previousBlockedAt!);
   },
 });
 export const history = query({

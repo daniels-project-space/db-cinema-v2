@@ -10,9 +10,14 @@ export async function approvedRestrictedIdentitySource(ctx:any, booking:any, ses
 
 export async function restrictedIdentityMatches(ctx: any, booking: any, personKey: string) {
   if (!/^[a-f0-9]{64}$/.test(personKey)) return { matches: [], more: false };
-  const rows = await ctx.db.query("accounts").withIndex("by_person_restricted", (q: any) => q.eq("renterPersonKey", personKey).gt("blockedAt", 0)).take(22);
-  const matches = rows.filter((account: any) => !booking.accountId || String(account._id) !== String(booking.accountId));
-  return { matches: matches.slice(0, 20), more: rows.length > 21 || matches.length > 20 };
+  const [blacklisted, legacy] = await Promise.all([
+    ctx.db.query("accounts").withIndex("by_person_restriction_class", (q: any) => q.eq("renterPersonKey", personKey).eq("restrictionClass", "identity_safety_blacklist").gt("blockedAt", 0)).take(22),
+    ctx.db.query("accounts").withIndex("by_person_restriction_class", (q: any) => q.eq("renterPersonKey", personKey).eq("restrictionClass", undefined).gt("blockedAt", 0)).take(22),
+  ]);
+  const matches = [...blacklisted, ...legacy].filter((account: any) =>
+    !booking.accountId || String(account._id) !== String(booking.accountId),
+  );
+  return { matches: matches.slice(0, 20), more: blacklisted.length > 21 || legacy.length > 21 || matches.length > 20 };
 }
 
 export async function notifyRestrictedIdentityMatch(ctx: any, booking: any, personKey: string) {

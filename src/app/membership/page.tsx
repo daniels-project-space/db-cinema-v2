@@ -51,35 +51,50 @@ export default function MembershipPage() {
   return (
     <>
       <SiteHeader />
-      <main className="section-window mx-auto max-w-5xl px-6 py-14">
+      <main className="section-window membership-page mx-auto max-w-5xl px-6 py-14">
         <MembershipHero />
-      {!checkout.enabled && <div className="mx-auto max-w-5xl px-6"><CheckoutPauseNotice loading={checkout.loading}/></div>}
-        <section className="mx-auto mt-6 max-w-2xl rounded-2xl border border-white/10 p-5" aria-label="How membership works">
+      {!checkout.enabled && <div className="membership-checkout-notice mx-auto max-w-5xl px-6"><CheckoutPauseNotice loading={checkout.loading}/></div>}
+        <section className="membership-steps mx-auto mt-6 max-w-2xl rounded-2xl border border-white/10 p-5" aria-label="How membership works">
           <h2 className="font-display text-lg text-white">Membership, in three steps</h2>
-          <ol className="mt-4 space-y-3 text-sm leading-6 text-white/65">
-            <li><strong className="text-white/90">1. Pay monthly, receive rental credit.</strong> Each paid month adds your plan’s credit, including its bonus. Unused credit stacks and expires one year after it is issued.</li>
-            <li><strong className="text-white/90">2. Choose your rental saving.</strong> Use membership credit or an eligible offer. Checkout shows the saving; these do not stack. A qualifying one-time joining credit is added separately.</li>
-            <li><strong className="text-white/90">3. See everything before you pay.</strong> Checkout lists the membership fee, rental saving, remaining credit and any applicable rental-security terms separately. Verification and the consent in your rental agreement still apply.</li>
+          <ol className="mt-4 grid gap-2.5 text-sm leading-5 text-white/65">
+            <li className="flex gap-3 rounded-xl border border-white/[.07] bg-white/[.02] p-3">
+              <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-accent-300/25 bg-accent-300/[.08] font-mono text-xs text-accent-200">1</span>
+              <span><strong className="text-white/90">Pay monthly.</strong> Paid months add plan credit; it stacks and lasts one year.</span>
+            </li>
+            <li className="flex gap-3 rounded-xl border border-white/[.07] bg-white/[.02] p-3">
+              <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-accent-300/25 bg-accent-300/[.08] font-mono text-xs text-accent-200">2</span>
+              <span><strong className="text-white/90">Choose your saving.</strong> Use credit or one eligible rental offer; joining credit is separate.</span>
+            </li>
+            <li className="flex gap-3 rounded-xl border border-white/[.07] bg-white/[.02] p-3">
+              <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-accent-300/25 bg-accent-300/[.08] font-mono text-xs text-accent-200">3</span>
+              <span><strong className="text-white/90">See the full price.</strong> Checkout shows security terms before payment; rental verification still applies.</span>
+            </li>
           </ol>
           <details className="mt-4 border-t border-white/10 pt-3 text-xs leading-6 text-white/55">
             <summary className="cursor-pointer text-white/80">Joining with a rental: thresholds and first-booking details</summary>
-            <p className="mt-2">Starter is available from £100 of rental and delivery charges before VAT; Pro from £200; Studio from £300. Security payments do not count towards these thresholds. A paid plan added in rental checkout includes a one-time joining credit: £5 for Starter or £10 for Pro and Studio.</p>
+            <p className="mt-2">Starter is available from £100 of rental and delivery charges before VAT; Pro from £200; Studio from £300. Any separately payable rental-security amount does not count towards these thresholds. A paid plan added in rental checkout includes a one-time joining credit: £5 for Starter or £10 for Pro and Studio.</p>
             <p className="mt-2">Refund credit is separate: it can pay remaining eligible rental and delivery charges after a saving. It cannot pay membership fees or any separately payable rental-security amount.</p>
             <p className="mt-2">Your first paid month’s credit can be used on that rental when it gives the better saving. Membership does not itself waive rental-security terms or authorise future rental claims; those are shown in the final quote and accepted rental agreement. Other member perks begin after that combined booking is confirmed. A separately purchased membership follows its activation status.</p>
           </details>
         </section>
-        {!current && <section className="mx-auto mt-8 max-w-2xl" aria-label="Choose your welcome offer">
+        {!current && <section className="membership-welcome mx-auto mt-8 max-w-2xl" aria-label="Choose your welcome offer">
           {!account.me?.membershipIntroUsed && <><p className="mb-3 text-center text-sm text-white/60">Choose your first chapter</p><div className="grid gap-3 sm:grid-cols-2">
-            {[{ key: "trial" as const, title: "Your first week, on us", detail: "£0 membership fee for 7 days, then your plan renews monthly. No paid monthly credit is issued during the free week. Rental verification and the security terms in each accepted rental agreement still apply." }, { key: "none" as const, title: "Start with your next shoot", detail: "Pay the first month today. Add it in your rental checkout to use the first month’s credit on that rental. Any unused credit stays on your account after payment." }].map(o => <button key={o.key} onClick={() => setIntro(o.key)} aria-pressed={intro === o.key} className={`rounded-2xl border p-4 text-left transition ${intro === o.key ? "border-accent-300/50 bg-accent-300/[.07] shadow-[0_0_35px_#acd17c0b]" : "border-white/10 bg-white/[.02]"}`}><span className="block text-sm font-medium text-white">{o.title}</span><span className="mt-2 block text-xs leading-relaxed text-white/45">{o.detail}</span></button>)}
-          </div></>}
+            {[{ key: "trial" as const, title: "Your first week, on us", summary: "7 days free, then monthly renewal.", detail: "£0 membership fee for 7 days, then your plan renews monthly. No paid monthly credit is issued during the free week. Rental verification and the security terms in each accepted rental agreement still apply." }, { key: "none" as const, title: "Start with your next shoot", summary: "Pay today; use the first month’s credit on a rental.", detail: "Pay the first month today. Add it in your rental checkout to use the first month’s credit on that rental. Any unused credit stays on your account after payment." }].map(o => <div className="membership-offer-choice" key={o.key}>
+              <button onClick={() => setIntro(o.key)} aria-pressed={intro === o.key} className={`w-full rounded-2xl border p-4 text-left transition ${intro === o.key ? "border-accent-300/50 bg-accent-300/[.07] shadow-[0_0_35px_#acd17c0b]" : "border-white/10 bg-white/[.02]"}`}>
+                <span className="block text-sm font-medium text-white">{o.title}</span>
+                <span className="membership-offer-summary mt-2 block text-xs leading-relaxed text-white/60">{o.summary}</span>
+                <span className="membership-offer-long mt-2 block text-xs leading-relaxed text-white/45">{o.detail}</span>
+              </button>
+            </div>)}
+          </div><details className="membership-offer-details"><summary>Full offer details</summary><p><strong>Your first week, on us.</strong> £0 membership fee for 7 days, then your plan renews monthly. No paid monthly credit is issued during the free week. Rental verification and the security terms in each accepted rental agreement still apply.</p><p><strong>Start with your next shoot.</strong> Pay the first month today. Add it in your rental checkout to use the first month’s credit on that rental. Any unused credit stays on your account after payment.</p></details></>}
           <label className="mt-5 flex items-start justify-center gap-2 text-xs text-white/55"><input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} className="mt-0.5 accent-[#acd17c]"/><span>I agree to the <Link href="/legal/membership" className="text-accent-300 underline">membership terms</Link>, monthly renewal and selected welcome offer. Cancel in account settings.</span></label>
         </section>}
-        <div id="membership-plans" className="mt-8 scroll-mt-28 grid gap-5 md:grid-cols-3">
+        <div id="membership-plans" className="membership-plans mt-8 scroll-mt-28 grid grid-cols-1 gap-5">
           {TIERS.map((t, i) => {
             const isCurrent = current === t.key;
             const featured = t.key === "pro";
             return (
-              <Reveal key={t.key} delay={i * 80}>
+              <Reveal key={t.key} delay={i * 80} className={i === 2 ? "membership-plan-last" : ""}>
                 <Tilt max={featured ? 5 : 4} className="h-full">
                   <MembershipPlanCard tier={t} onSelect={() => subscribe(t.key)} disabled={!checkout.enabled || !!current || busy !== null || !accepted} label={!checkout.enabled ? "Checkout temporarily paused" : isCurrent ? "Your subscription" : busy === t.key ? "…" : `Subscribe to ${t.name}`} />
                 </Tilt>
@@ -87,14 +102,16 @@ export default function MembershipPage() {
             );
           })}
         </div>
-        {err && <div className="mt-4 text-center text-sm text-red-300">{err}</div>}
+        {err && <div className="membership-error mt-4 text-center text-sm text-red-300">{err}</div>}
 
         {/* benefit comparison chart */}
-        <Reveal className="mt-16">
-          <div className="overflow-x-auto">
+        <Reveal className="membership-benefits mt-16">
+          <div className="membership-benefit-wrap">
             <h2 className="font-display text-2xl font-bold text-white">
               What&apos;s <span className="serif-accent gradient-text text-[1.06em]">included</span>
             </h2>
+            <p className="membership-benefit-hint" aria-hidden="true">↔ <span>Swipe to compare tiers</span></p>
+            <div className="membership-benefit-scroll overflow-x-auto" role="region" aria-label="Membership tier comparison" tabIndex={0}>
             <table className="mt-5 w-full min-w-[520px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-white/10">
@@ -129,13 +146,14 @@ export default function MembershipPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </Reveal>
 
-        <div className="mt-12 rounded-3xl border border-white/10 bg-white/[.02] p-6 text-center"><p className="font-mono text-[10px] uppercase tracking-[.2em] text-white/40">DB Cinema Film Fund · coming soon</p><h2 className="mt-2 font-display text-2xl text-white">Your story deserves a set.</h2><p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-white/50">Two judged rounds a year. Seven days of gear for the selected project, two for the runner-up. Pro and Studio include application entry; Starter entry is £15; nonmembers pay £30, once per project. No purchases or applications are open yet.</p><Link href="/film-fund" className="mt-4 inline-block text-sm text-accent-300">Meet the Film Fund →</Link></div>
-        {current && <p className="mt-6 text-center text-sm text-white/60">Your membership is active. <Link href="/account?tab=membership" className="text-accent-300 underline">Manage or cancel in account settings</Link>.</p>}
+        <div className="membership-film-fund mt-12 rounded-3xl border border-white/10 bg-white/[.02] p-6 text-center"><p className="font-mono text-[10px] uppercase tracking-[.2em] text-white/40">DB Cinema Film Fund · coming soon</p><h2 className="mt-2 font-display text-2xl text-white">Your story deserves a set.</h2><p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-white/50">Two judged rounds a year. Seven days of gear for the selected project, two for the runner-up. Pro and Studio include application entry; Starter entry is £15; nonmembers pay £30, once per project. No purchases or applications are open yet.</p><Link href="/film-fund" className="mt-4 inline-block text-sm text-accent-300">Meet the Film Fund →</Link></div>
+        {current && <p className="membership-current mt-6 text-center text-sm text-white/60">Your membership is active. <Link href="/account?tab=membership" className="text-accent-300 underline">Manage or cancel in account settings</Link>.</p>}
 
-        <p className="mt-8 text-center font-mono text-[11px] uppercase tracking-[0.15em] text-white/30">
+        <p className="membership-renewal-note mt-8 text-center font-mono text-[11px] uppercase tracking-[0.15em] text-white/30">
           Monthly renewal · cancel before renewal in account settings · credit is not cash
         </p>
       </main>

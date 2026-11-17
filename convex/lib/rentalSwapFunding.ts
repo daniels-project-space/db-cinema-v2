@@ -4,6 +4,20 @@ import { checkoutCreditSources, checkoutLineAllocation } from "../../shared/chec
 type Source = { creditId: any; amountPence: number; kind: "refund" | "earned"; membershipGrantId?: any; membershipInvoiceId?: string };
 type Restore = Source | { amountPence: number; kind: "membership"; membershipGrantId: any; membershipInvoiceId: string };
 
+/** A referral reward is a durable, account-bound offer record. Reprice it only
+ * while that exact reward is still linked to this booking and its stored
+ * percentage still reproduces the checkout discount. */
+async function referralRewardPercent(ctx: any, booking: any, subtotalPence: number, discountPence: number) {
+  const reward = booking.referralRewardId && await ctx.db.get(booking.referralRewardId);
+  const isLinked = reward && booking.accountId && String(reward.accountId) === String(booking.accountId) &&
+    (String(reward.usedBookingId ?? "") === String(booking._id) || String(reward.reservedBookingId ?? "") === String(booking._id));
+  const percent = reward?.percent;
+  if (!isLinked || !Number.isSafeInteger(percent) || percent < 1 || percent > 100 ||
+      !Number.isSafeInteger(subtotalPence * percent) || discountPence !== Math.round(subtotalPence * percent / 100))
+    throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
+  return percent;
+}
+
 function pence(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || !Number.isSafeInteger(Math.round(value * 100)) || Math.abs(value * 100 - Math.round(value * 100)) > 0.000001)
     throw Error("The original item funding is not a valid money amount.");
@@ -23,9 +37,15 @@ export async function quoteSwapFunding(ctx: any, booking: any, lineIndex: number
     throw Error("A replacement must retain the original item's dates and quantity.");
   const gross = pence(funding.gross), discount = pence(funding.discount), membership = pence(funding.membershipCredit), accountCredit = pence(funding.accountCredit), card = pence(funding.card), nextGross = pence(replacement.lineTotal);
   let nextDiscount = 0;
-  if (booking.benefitKind === "loyalty" || booking.benefitKind === "earned_credit" && booking.lineItems.length > 1) {
-    const earnedBenefit=booking.benefitKind === "earned_credit",rule = earnedBenefit ? {version:"encore-percent-v1",percent:0} : booking.swapBenefitRule;
-    if (rule?.version !== "encore-percent-v1" || !(earnedBenefit?[0]:[2,4,10]).includes(rule.percent) || pence(booking.membershipSignupOfferSaving ?? 0) !== 0)
+  if (booking.benefitKind === "loyalty" || booking.benefitKind === "earned_credit" && booking.lineItems.length > 1 || booking.benefitKind === "referral_reward") {
+    const earnedBenefit=booking.benefitKind === "earned_credit",referralBenefit=booking.benefitKind === "referral_reward";
+    const rule = earnedBenefit ? {version:"encore-percent-v1",percent:0} : referralBenefit
+      ? {version:"encore-percent-v1",percent:await referralRewardPercent(ctx,booking,pence(booking.subtotal),pence(booking.discount))}
+      : booking.swapBenefitRule;
+    const validPercent = earnedBenefit ? rule?.percent === 0 : referralBenefit
+      ? Number.isSafeInteger(rule?.percent) && rule.percent >= 1 && rule.percent <= 100
+      : [2,4,10].includes(rule?.percent);
+    if (rule?.version !== "encore-percent-v1" || !validPercent || pence(booking.membershipSignupOfferSaving ?? 0) !== 0)
       throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
     if (booking.lineItems.length > 1) {
       const memberCredit=pence(booking.membershipCreditApplied ?? 0),refundCredit=pence(booking.refundCreditApplied ?? 0),earnedCredit=pence(booking.earnedCreditApplied ?? 0),creditTotal=refundCredit+earnedCredit,delivery=pence(booking.deliveryFee ?? 0);
@@ -138,9 +158,9 @@ export async function quoteSwapFunding(ctx: any, booking: any, lineIndex: number
 }
 
 /** Quote all selected row replacements once against the original basket funding. */
-export async function quoteSwapBasketFunding(ctx: any, booking: any, changes: { lineIndex: number; oldLine: any; newLine: any }[]) {
+export async function quoteSwapBasketFunding(ctx: any, booking: any, changes: { lineIndex: number; action?: "replace" | "remove"; oldLine: any; newLine?: any | null }[]) {
   const rows = booking.lineItems, funding = booking.checkoutLineFunding;
-  if (!Array.isArray(rows) || !rows.length || rows.length > 100 || !Array.isArray(funding) || funding.length !== rows.length || !Array.isArray(changes) || changes.length < 2 || changes.length > 16)
+  if (!Array.isArray(rows) || !rows.length || rows.length > 100 || !Array.isArray(funding) || funding.length !== rows.length || !Array.isArray(changes) || changes.length < 1 || changes.length > 16)
     throw Error("The equipment change basket needs manual settlement review.");
   if (booking.pricingVersion !== SINGLE_BENEFIT_VERSION || pence(booking.membershipSignupOfferSaving ?? 0) !== 0)
     throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
@@ -150,11 +170,19 @@ export async function quoteSwapBasketFunding(ctx: any, booking: any, changes: { 
     if (!Number.isSafeInteger(change.lineIndex) || change.lineIndex < 0 || change.lineIndex >= rows.length || indices.has(change.lineIndex))
       throw Error("Choose each original rental item once.");
     indices.add(change.lineIndex);
+    const action = change.action ?? "replace";
     const original = rows[change.lineIndex], originalFunding = funding[change.lineIndex];
-    if (!original || !originalFunding || String(change.oldLine?.listingId) !== String(original.listingId) || String(change.newLine?.listingId) === String(original.listingId))
+    if (!original || !originalFunding || String(change.oldLine?.listingId) !== String(original.listingId))
       throw Error("The original equipment changed; refresh the quote.");
-    for (const field of ["start", "end", "pickupTime", "returnTime", "qty"] as const)
-      if ((change.newLine?.[field] ?? null) !== (original[field] ?? null)) throw Error("Each replacement must keep its original quantity and rental times.");
+    if (action === "remove") {
+      if (change.newLine !== null && change.newLine !== undefined) throw Error("A removed item cannot include a replacement line.");
+    } else if (action === "replace") {
+      if (!change.newLine || String(change.newLine.listingId) === String(original.listingId)) throw Error("Choose a different replacement for each selected item.");
+      for (const field of ["start", "end", "pickupTime", "returnTime", "qty"] as const)
+        if ((change.newLine[field] ?? null) !== (original[field] ?? null)) throw Error("Each replacement must keep its original quantity and rental times.");
+    } else {
+      throw Error("Choose a supported equipment change.");
+    }
   }
 
   const originalRows = rows.map((line: any, index: number) => {
@@ -177,6 +205,10 @@ export async function quoteSwapBasketFunding(ctx: any, booking: any, changes: { 
     if (rule?.version !== "encore-percent-v1" || ![2, 4, 10].includes(rule.percent) || membership !== 0 || earnedCredit !== 0 || originalDiscount !== Math.round(originalSubtotal * rule.percent / 100))
       throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
     percent = rule.percent;
+  } else if (booking.benefitKind === "referral_reward") {
+    if (membership !== 0 || earnedCredit !== 0)
+      throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
+    percent = await referralRewardPercent(ctx, booking, originalSubtotal, originalDiscount);
   } else if (!["none", "delivery", "earned_credit"].includes(booking.benefitKind) || originalDiscount !== 0) {
     throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
   }
@@ -222,7 +254,13 @@ export async function quoteSwapBasketFunding(ctx: any, booking: any, changes: { 
   if (normalizeSources(expectedSources) !== normalizeSources(booking.checkoutLineCreditSources))
     throw Error("The original basket credit sources cannot be verified.");
 
-  const nextLines = rows.map((line: any, index: number) => changes.find(change => change.lineIndex === index)?.newLine ?? line);
+  const changesByIndex = new Map(changes.map(change => [change.lineIndex, change]));
+  const nextLines = rows.flatMap((line: any, index: number) => {
+    const change = changesByIndex.get(index);
+    if (!change) return [line];
+    return (change.action ?? "replace") === "remove" ? [] : [change.newLine];
+  });
+  if (!nextLines.length) throw Error("Use Cancel rental to remove the last item.");
   const nextGross = nextLines.map((line: any) => pence(line.lineTotal));
   const nextSubtotal = nextGross.reduce((sum: number, amount: number) => sum + amount, 0);
   if (!Number.isSafeInteger(nextSubtotal) || !Number.isSafeInteger(nextSubtotal * percent)) throw Error("The replacement basket total is invalid.");
@@ -241,7 +279,7 @@ export async function quoteSwapBasketFunding(ctx: any, booking: any, changes: { 
     if (retained && source) retainedSources.push({ ...source, amountPence: retained });
   }
   if (remainingCredit !== 0) throw Error("The replacement credit allocation cannot be reconciled.");
-  const nextCreditSources = checkoutCreditSources(allocation, retainedSources.map(row => ({ creditId: String(row.creditId), amount: row.amountPence / 100, kind: row.kind }))).map(row => ({ ...row, lineIndex: row.lineIndex === rows.length ? -1 : row.lineIndex }));
+  const nextCreditSources = checkoutCreditSources(allocation, retainedSources.map(row => ({ creditId: String(row.creditId), amount: row.amountPence / 100, kind: row.kind }))).map(row => ({ ...row, lineIndex: row.lineIndex === nextLines.length ? -1 : row.lineIndex }));
   const nextSources = new Map<string, number>();
   for (const row of nextCreditSources) {
     const key = `${row.creditId}:${row.kind}`;

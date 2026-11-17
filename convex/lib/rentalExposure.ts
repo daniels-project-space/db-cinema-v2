@@ -50,9 +50,34 @@ export async function renterExposure(ctx: any, renter: any, lines = renter.lineI
     const intervals = await valueIntervals(ctx, b, proposed);
     if (b.activeItemSwapId) {
       const swap = await ctx.db.get(b.activeItemSwapId);
-      if (!swap || !swap.newLine || !Number.isSafeInteger(swap.lineIndex) || !proposed[swap.lineIndex]) throw Error("The pending equipment change needs review.");
-      const replacement = await valueIntervals(ctx, b, [swap.newLine]);
-      intervals[swap.lineIndex] = { ...intervals[swap.lineIndex], valuePence: Math.max(intervals[swap.lineIndex].valuePence, replacement[0].valuePence) };
+      if (!swap) throw Error("The pending equipment change needs review.");
+      if (Array.isArray(swap.changes) && swap.changes.length) {
+        const applied = swap.status === "applied";
+        for (const change of swap.changes) {
+          if (!change.oldLine || !Number.isSafeInteger(change.lineIndex) || !["replace", "remove"].includes(change.action ?? "replace"))
+            throw Error("The pending equipment change needs review.");
+          const oldValue = (await valueIntervals(ctx, b, [change.oldLine]))[0];
+          if ((change.action ?? "replace") === "remove") {
+            // Until Rental Manager acknowledges the stock conversion, keep
+            // removed equipment in the exposure total as well.
+            if (applied) intervals.push(oldValue);
+            continue;
+          }
+          if (!change.newLine) throw Error("The pending equipment change needs review.");
+          const nextValue = (await valueIntervals(ctx, b, [change.newLine]))[0];
+          const index = applied
+            ? proposed.findIndex((line: any) => String(line.listingId) === String(change.newLine.listingId) && line.start === change.newLine.start && line.end === change.newLine.end && line.qty === change.newLine.qty)
+            : change.lineIndex;
+          const line = proposed[index];
+          if (!line || !applied && String(line.listingId) !== String(change.oldLine.listingId))
+            throw Error("The pending equipment change needs review.");
+          intervals[index] = { ...intervals[index], valuePence: Math.max(intervals[index].valuePence, oldValue.valuePence, nextValue.valuePence) };
+        }
+      } else {
+        if (!swap.newLine || !Number.isSafeInteger(swap.lineIndex) || !proposed[swap.lineIndex]) throw Error("The pending equipment change needs review.");
+        const replacement = await valueIntervals(ctx, b, [swap.newLine]);
+        intervals[swap.lineIndex] = { ...intervals[swap.lineIndex], valuePence: Math.max(intervals[swap.lineIndex].valuePence, replacement[0].valuePence) };
+      }
     }
     return intervals;
   }));

@@ -5,7 +5,7 @@ const owner=put('accounts',{email:'new-owner@example.invalid',name:'Linked custo
 const foreign=put('accounts',{email:'old-owner@example.invalid',name:'Other customer'});
 for(const [token,accountId,expiresAt] of [['owner',owner._id,Date.now()+60000],['foreign',foreign._id,Date.now()+60000],['expired',owner._id,Date.now()-1],['missing-expiry',owner._id,undefined]])put('sessions',{token,accountId,expiresAt});
 const listing=put('listings',{title:'Camera',r2Images:['/gear-camera.webp'],sourceImages:['https://source.example.invalid/camera.jpg']});
-const booking=put('bookings',{accountId:owner._id,guestEmail:foreign.email,guestName:'Booking name',status:'returned',depositAmount:40.5,depositHoldAmount:81,depositHoldStatus:'released',depositRefunded:true,depositRefundAmount:40.5,subtotal:100,total:140.5,lineItems:[{listingId:listing._id,title:'Camera',qty:1,start:0,end:86400000,lineTotal:100}]});
+const booking=put('bookings',{accountId:owner._id,guestEmail:foreign.email,guestName:'Booking name',status:'returned',paidConfirmedAt:Date.now(),depositAmount:40.5,depositHoldAmount:81,depositHoldStatus:'released',depositRefunded:true,depositRefundAmount:40.5,subtotal:100,total:140.5,lineItems:[{listingId:listing._id,title:'Camera',qty:1,start:0,end:86400000,lineTotal:100}]});
 const legacy=put('bookings',{...booking,_id:'legacy-invoice',accountId:undefined,guestEmail:' NEW-OWNER@example.invalid '});
 put('rental_security_charges',{bookingId:booking._id,accountId:owner._id,state:'paid',kind:'damage',reason:'Documented damage',paidPence:2000,refundedPence:500,customerId:'private-provider-customer'});
 put('rental_security_charges',{bookingId:booking._id,accountId:foreign._id,state:'paid',kind:'damage',reason:'FOREIGN ASSESSMENT',paidPence:9000});

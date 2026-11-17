@@ -42,6 +42,7 @@ function IdVerifySession({ bookingId, status, note, compact, autoStart = false, 
   const [err, setErr] = useState<string | null>(null);
   const [reused, setReused] = useState(false);
   const [updated, setUpdated] = useState(false);
+  const [showFrameOptions, setShowFrameOptions] = useState(false);
   const mounted = useRef(false);
   const flight = useRef(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -112,14 +113,17 @@ function IdVerifySession({ bookingId, status, note, compact, autoStart = false, 
       {sessionUrl && status !== "rejected" && status !== "manual_review" && (
         <div className={styles.frameShell}>
           <div className={styles.mobileBar}>
-            <button type="button" onClick={() => { setSessionUrl(null); setFrameHeight(700); }} className={styles.backButton}>Back to rental</button>
-            <a href={getDiditStandaloneUrl(sessionUrl) ?? sessionUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className={styles.newTabButton}>Open in new tab</a>
+            <button type="button" onClick={() => setShowFrameOptions(value => !value)} className={styles.mobileOptionsButton} aria-label="Verification options" aria-expanded={showFrameOptions}>⋯</button>
+            {showFrameOptions && <div className={styles.mobileMenu}>
+              <button type="button" onClick={() => { setSessionUrl(null); setFrameHeight(700); setShowFrameOptions(false); }}>Back to rental</button>
+              <a href={getDiditStandaloneUrl(sessionUrl) ?? sessionUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={() => setShowFrameOptions(false)}>Open in new tab</a>
+            </div>}
           </div>
           <iframe
             ref={iframeRef}
             src={sessionUrl}
             title="Identity, selfie and address verification"
-            allow="camera; microphone; fullscreen; autoplay; encrypted-media"
+            allow="camera; microphone; geolocation; clipboard-write; fullscreen; autoplay; encrypted-media; digital-credentials-get"
             className={styles.frame}
             style={{ "--didit-content-height": `${frameHeight}px` } as CSSProperties}
           />
