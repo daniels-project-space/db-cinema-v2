@@ -1,5 +1,5 @@
 export type GuideVideo = { id: string; title: string; author: string };
-export type GuideSection = { h: string; p: string; video?: GuideVideo; tips?: string[]; links?: { href: string; label: string }[] };
+export type GuideSection = { h: string; p: string; id?: string; video?: GuideVideo; tips?: string[]; links?: { href: string; label: string }[] };
 export type Guide = {
   slug: string;
   title: string;
@@ -23,9 +23,9 @@ export const GUIDES: Guide[] = [
     intro:
       "Renting camera gear in London is the fastest way to shoot on professional kit without the five-figure outlay. This guide covers what it costs, how delivery works, and how to choose the right setup for your project.",
     takeaways: [
-      "Longer bookings drop the per-day price — 3-day and weekly rates apply automatically.",
+      "Compare the rates and total shown for your chosen rental dates.",
       "Your quote and accepted agreement show the security arrangement for that rental; existing bookings keep the terms they accepted.",
-      "Always add a variable ND for outdoor shoots — it's the cheapest day-saver.",
+      "For bright outdoor shoots, consider whether an ND filter suits your exposure and lens.",
     ],
     sections: [
       { h: "What does camera hire in London cost?", p: "Rates vary by camera and kit. Compare the listed daily rate and what is included, then select your pickup and return times to see the quote for your full rental. Longer-period rates and any eligible membership savings are shown in your quote.", tips: ["Compare the exact batteries, media and lenses in each kit.", "Check minimum rental periods and the final quote for your dates.", "Compare a complete kit with the individual items you need before booking."], links: [{ href: "/hire/camera-hire-london", label: "Compare camera hire and rental options" }, { href: "/hire/sony-fx3-hire-london", label: "Compare Sony FX3 kits" }] },
@@ -83,11 +83,11 @@ export const GUIDES: Guide[] = [
     description:
       "How focal length, aperture and prime-vs-zoom change your look — and which lenses to rent for your shoot. With video.",
     intro:
-      "The lens shapes your image more than the body does. Get focal length and aperture right and even a modest camera looks cinematic. Here's how to choose, with a clear beginner breakdown.",
+      "Focal length, aperture, sensor size and camera position all affect your image. Use this guide to compare lenses and plan a kit for your shoot.",
     takeaways: [
-      "Focal length = your perspective: wide for space, long for compression.",
-      "Fast primes (f/1.4-2.8) give the shallow, 'expensive' look in low light.",
-      "Rent a 2-3 lens set that covers wide / normal / short-tele.",
+      "Focal length changes framing; moving the camera changes perspective.",
+      "A wider aperture lets in more light and can reduce depth of field.",
+      "Check the lens mount, sensor coverage and included accessories before booking.",
     ],
     sections: [
       {
@@ -96,19 +96,22 @@ export const GUIDES: Guide[] = [
         video: { id: "T1-4n5AmGLQ", title: "Camera Lenses for Video — Understanding Lenses for Beginners", author: "Camber Film School" },
       },
       {
-        h: "Focal length is perspective",
-        p: "Wide lenses (16-35mm) exaggerate space and movement — great for establishing shots and tight rooms. Normal lenses (35-50mm) look natural. Longer lenses (85mm+) compress the background and flatter faces, which is why portraits and interviews love them.",
-        tips: ["Wide for energy and context; long for intimacy and compression.", "On a full-frame body: 24mm wide, 35/50mm normal, 85mm portraits.", "Moving the camera changes perspective; zooming only changes framing."],
+        id: "focal-length-is-perspective",
+        h: "Focal length, framing and perspective",
+        p: "On the same sensor, a shorter focal length gives a wider field of view and a longer one gives a narrower view. At a fixed camera position, zooming changes the framing, not the spatial relationship between objects. Moving closer or farther away changes that perspective; stepping back for a similar framing with a longer lens can make the background appear more compressed.",
+        tips: ["On full frame, 24mm is a useful wide starting point, 35–50mm covers many everyday shots, and 85mm is one option for portraits.", "Sensor size affects the field of view: check the camera and lens together.", "In a tight room, allow space for camera placement and your subject—not just the lens's field of view."],
+        links: [{ href: "/hire/lens-hire-london", label: "Compare lens hire options" }, { href: "/gear/sony-90mm-f2-8-macro-lens-966791", label: "See the Sony 90mm macro lens" }],
       },
       {
         h: "Aperture: light and depth of field",
-        p: "A fast aperture (low f-number) lets in more light and throws the background out of focus for that shallow, cinematic separation. A variable ND lets you keep that wide aperture in daylight without overexposing.",
-        tips: ["f/1.4-2.8 = shallow & low-light friendly; f/4-8 = sharper, more in focus.", "Cine zooms hold one aperture across the range; budget zooms don't.", "Pair fast glass with a variable ND for daytime shooting wide open."],
+        p: "A wider aperture (a lower f-number) lets in more light and, with other factors unchanged, gives shallower depth of field. Focus distance, focal length, sensor and framing also affect the result. An ND filter can reduce light when you want to use a wider aperture in bright conditions.",
+        tips: ["Use a smaller aperture when you need more of the scene in focus, and allow for the light it requires.", "Check the exact zoom: some maintain a maximum aperture across the range, while others vary.", "Check filter size, exposure and any variable-ND colour or cross-pattern effects before a shoot."],
       },
       {
         h: "Prime vs zoom — and what to rent",
-        p: "Primes are sharper, faster and lighter; zooms are flexible and faster to work with. A common rent is a fast prime set (e.g. 24/35/50/85) for the look, or one cine zoom for run-and-gun. Tell us your shoot and we'll spec a set that covers your range.",
-        tips: ["Run-and-gun / events: one fast zoom beats swapping primes.", "Narrative / music video: a prime set for the cleanest look.", "Match the lens mount to your body — we check compatibility for you."],
+        p: "A prime has one focal length; a zoom covers a range. A zoom can reduce lens changes during a fast-moving shoot, while a set of primes gives you individual focal-length choices. Aperture, weight, focus behaviour and image quality vary by model, so compare the exact lenses rather than assuming one type always wins.",
+        tips: ["For an event, consider a zoom range that covers your available shooting distances.", "For a planned shoot, choose focal lengths that fit your locations and intended framing.", "Match mount and sensor coverage, and check whether any required adapter is included."],
+        links: [{ href: "/gear/cannon-24-105-ef-f4-zoom-lens-960469", label: "See the Canon EF 24–105mm zoom" }, { href: "/hire/camera-hire-london", label: "Find a camera for your lens" }],
       },
     ],
   },
