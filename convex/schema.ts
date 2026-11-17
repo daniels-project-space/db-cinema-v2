@@ -813,7 +813,7 @@ export default defineSchema({
     enabled: v.boolean(), createdAt: v.number(), updatedAt: v.number(), lastError: v.optional(v.string()),
   }).index("by_device", ["deviceId"]).index("by_endpoint", ["endpoint"]).index("by_enabled", ["enabled"]),
   admin_notifications: defineTable({
-    eventKey: v.string(), kind: v.string(), accountId: v.optional(v.id("accounts")), bookingId: v.optional(v.id("bookings")),
+    eventKey: v.string(), kind: v.string(), accountId: v.optional(v.id("accounts")), bookingId: v.optional(v.id("bookings")), emailThreadId: v.optional(v.id("email_threads")),
     title: v.string(), body: v.string(), createdAt: v.number(), read: v.boolean(),
     income: v.optional(v.object({ gross: v.number(), net: v.number(), currency: v.string() })),
     managerStatus: v.optional(v.string()), managerAttempts: v.optional(v.number()),

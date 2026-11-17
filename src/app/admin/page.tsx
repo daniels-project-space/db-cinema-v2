@@ -37,6 +37,7 @@ export default function AdminPage() {
   const [calendarExpanded, setCalendarExpanded] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [supportAccountId, setSupportAccountId] = useState<string | null>(null);
+  const [emailThreadId, setEmailThreadId] = useState<string | null>(null);
   const [conversationNavigation, setConversationNavigation] = useState(0);
   const [rentalAction,setRentalAction]=useState<"change"|"dates"|"discount"|"refund"|undefined>(undefined);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -55,6 +56,7 @@ export default function AdminPage() {
       if (!route?.openMessages) return;
       setConversationId(route.bookingId);
       setSupportAccountId(route.accountId);
+      setEmailThreadId(route.emailThreadId);
       setConversationNavigation(value => value + 1);
       setDetailId(null);
       setInboxSection("conversations");setTab("inbox");
@@ -162,7 +164,7 @@ export default function AdminPage() {
         )}
 
         {tab === "inbox" && <div className="admin-section-tabs" role="group" aria-label="Messages sections"><button aria-pressed={inboxSection === "conversations"} onClick={() => setInboxSection("conversations")}>Conversations {rentalUnread > 0 ? `(${rentalUnread})` : ""}</button><button aria-pressed={inboxSection === "enquiries"} onClick={() => setInboxSection("enquiries")}>Enquiries ({contacts?.items.filter(m => !m.handled).length ?? 0} pending)</button></div>}
-        {tab === "inbox" && inboxSection === "conversations" && <RentalInbox token={token} focusBookingId={conversationId} focusAccountId={supportAccountId} focusRevision={conversationNavigation} />}
+        {tab === "inbox" && inboxSection === "conversations" && <RentalInbox token={token} focusBookingId={conversationId} focusAccountId={supportAccountId} focusEmailThreadId={emailThreadId} focusRevision={conversationNavigation} />}
         {tab === "insights" && <AdminInsights token={token} onInventory={() => setTab("settings")} />}
 
 
@@ -232,7 +234,7 @@ export default function AdminPage() {
         {tab === "promotions" && promotionSection === "campaigns" && <div className="admin-tool-panel"><ReferralCampaignAdmin token={token}/></div>}
         {tab === "accounts" && !documentsOpen && <div className="admin-section-tabs" role="group" aria-label="Customer pages"><button aria-pressed={customerSection === "customers"} onClick={() => setCustomerSection("customers")}>Customers & members</button><button aria-pressed={customerSection === "invoices"} onClick={() => setCustomerSection("invoices")}>Invoices & PDFs</button></div>}
         {tab === "accounts" && customerSection === "invoices" && <AdminInvoiceLibrary token={token}/>}
-        {tab === "accounts" && customerSection === "customers" && <AccountAdmin token={token} onDocumentsChange={setDocumentsOpen} onRental={id => { setDetailId(id); setTab("bookings"); }} onConversation={(accountId, bookingId) => { setConversationId(bookingId); setSupportAccountId(bookingId ? null : accountId); setConversationNavigation(v => v + 1); setInboxSection("conversations");setTab("inbox"); }} />}
+        {tab === "accounts" && customerSection === "customers" && <AccountAdmin token={token} onDocumentsChange={setDocumentsOpen} onRental={id => { setDetailId(id); setTab("bookings"); }} onConversation={(accountId, bookingId) => { setEmailThreadId(null); setConversationId(bookingId); setSupportAccountId(bookingId ? null : accountId); setConversationNavigation(v => v + 1); setInboxSection("conversations");setTab("inbox"); }} />}
 
         {tab === "promotions" && promotionSection === "stories" && <StoryPrizeAdmin token={token}/>}
 

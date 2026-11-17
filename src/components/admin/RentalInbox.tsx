@@ -137,11 +137,13 @@ export function RentalInbox({
   token,
   focusBookingId,
   focusAccountId,
+  focusEmailThreadId,
   focusRevision = 0,
 }: {
   token: string;
   focusBookingId?: string | null;
   focusAccountId?: string | null;
+  focusEmailThreadId?: string | null;
   focusRevision?: number;
 }) {
   const [stage, setStage] = useState(focusAccountId ? "general" : "all"),
@@ -180,6 +182,14 @@ export function RentalInbox({
   const [showAttention, setShowAttention] = useState(false);
   const [pendingAttention,setPendingAttention]=useState<{id:any;target:string;general:boolean}|null>(null);
   const [attentionError,setAttentionError]=useState("");
+  const [pendingEmailAttention,setPendingEmailAttention]=useState<{id:any;threadId:string}|null>(null);
+  const emailAttention = useQuery(api.emailInbox.adminThread, pendingEmailAttention && selectedEmail === pendingEmailAttention.threadId && isEmailStage ? {token,threadId:pendingEmailAttention.threadId as any} : "skip");
+  useEffect(() => {
+    if (!pendingEmailAttention || emailAttention === undefined) return;
+    if (!emailAttention.authorized || !emailAttention.thread) { setAttentionError("This email conversation is unavailable. The notification remains unread."); setPendingEmailAttention(null); return; }
+    let current=true; void acknowledge({token,id:pendingEmailAttention.id}).then(() => { if(current)setPendingEmailAttention(null); }).catch(() => { if(current){setAttentionError("The email opened, but the notification could not be marked read.");setPendingEmailAttention(null);} });
+    return () => { current=false; };
+  }, [pendingEmailAttention,emailAttention,acknowledge,token]);
   const [navigationRevision,setNavigationRevision]=useState(0);
   const [ping, setPing] = useState(false);
   const previous = useRef<number | null>(null);
@@ -188,7 +198,9 @@ export function RentalInbox({
     setPing(localStorage.getItem("dbc_chat_pings") === "true");
   }, []);
   useEffect(() => {
-    if (focusBookingId) {
+    if (focusEmailThreadId) {
+      setSelected(null); setSelectedEmail(focusEmailThreadId); setStage("emails"); setSearch("");
+    } else if (focusBookingId) {
       setSelected(focusBookingId);
       setSelectedEmail(null);
       setStage("all");
@@ -199,7 +211,7 @@ export function RentalInbox({
       setStage("general");
       setSearch("");
     }
-  }, [focusBookingId, focusAccountId, focusRevision]);
+  }, [focusBookingId, focusAccountId, focusEmailThreadId, focusRevision]);
   useEffect(() => {
     if (!ping) return;
     const unlock = () => {
@@ -293,7 +305,7 @@ export function RentalInbox({
   return (
     <section id="messages" className={chatStyles.inboxScreen}>
       <div className={chatStyles.inbox}>
-        <aside className={chatStyles.directory} data-conversation-open={!!selected} aria-label="Rental inbox navigation">
+        <aside className={chatStyles.directory} data-conversation-open={!!selected || !!selectedEmail} aria-label="Rental inbox navigation">
       <div className={chatStyles.inboxHeading}>
         <div>
           <h2 className="font-display text-xl font-semibold text-white">
@@ -328,13 +340,14 @@ export function RentalInbox({
           const grouped = notifications.filter(n => adminNotificationCategory(n.kind) === category);
           if (!grouped.length) return null;
           return <section key={category} aria-label={category}><h3 className="px-3 pt-3 text-xs font-semibold text-white/65">{category} · {grouped.length}</h3>{grouped.map(n => <button key={n._id} type="button" onClick={() => {
+          if (n.emailThreadId) { setAttentionError(""); setSearch(""); setStage("emails"); setSelected(null); setSelectedEmail(n.emailThreadId); setPendingEmailAttention({id:n._id,threadId:n.emailThreadId}); window.history.replaceState(null,"",ownerConversationUrl({emailThreadId:n.emailThreadId})); return; }
           const target=n.bookingId??n.accountId;
           if(!target){void acknowledge({token,id:n._id}).catch(()=>setAttentionError("The notification could not be marked read. Please retry."));return;}
           setAttentionError("");setSearch("");setStage(n.bookingId?"all":"general");setSelected(target);
           setPendingAttention({id:n._id,target,general:!n.bookingId});setNavigationRevision(v=>v+1);
           window.history.replaceState(null,"",ownerConversationUrl(n.bookingId?{bookingId:n.bookingId}:{accountId:n.accountId}));
         }} aria-busy={pendingAttention?.id===n._id} className={chatStyles.attentionItem}>
-          <span className="block text-xs font-medium text-white/85">{n.title}{(n.bookingId || n.accountId) && ` · ${n.renterName}`}</span><span className="mt-1 block text-[10px] text-[#d7b49b]">{n.bookingId || n.accountId ? RENTAL_STAGE_LABELS[n.rentalStage] ?? "General support" : "System alert · Select to mark read"}</span><span className="mt-2 block text-[11px] leading-5 text-white/50">{n.body}</span>
+          <span className="block text-xs font-medium text-white/85">{n.title}{(n.bookingId || n.accountId) && ` · ${n.renterName}`}</span><span className="mt-1 block text-[10px] text-[#d7b49b]">{n.emailThreadId ? "Email conversation" : n.bookingId || n.accountId ? RENTAL_STAGE_LABELS[n.rentalStage] ?? "General support" : "System alert · Select to mark read"}</span><span className="mt-2 block text-[11px] leading-5 text-white/50">{n.body}</span>
         </button>)}</section>;
         })}</div>}
       </div>}
