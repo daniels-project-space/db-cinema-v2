@@ -718,6 +718,7 @@ export convex/bookings.ts:reuseVerificationCandidate
 export convex/bookings.ts:reuseVerificationPotential
 export convex/bookings.ts:revokeVerificationReuse
 export convex/bookings.ts:saveInitialInvoiceSnapshot
+export convex/bookings.ts:scheduleManualVerificationReminder
 export convex/bookings.ts:setDiditManualReview
 export convex/bookings.ts:setDiditResult
 export convex/bookings.ts:setDiditSession
@@ -814,7 +815,6 @@ export convex/checkout.ts:checkoutPaymentIntent
 export convex/checkout.ts:checkoutSavedCard
 export convex/checkout.ts:confirmAfterVerification
 export convex/checkout.ts:finalize
-export convex/checkout.ts:recoverPendingSavedCard
 export convex/checkout.ts:fulfillMembershipForBooking
 export convex/checkout.ts:grantStripeMembershipInvoice
 export convex/checkout.ts:markReturned
@@ -831,6 +831,7 @@ export convex/checkout.ts:reconcileMemberships
 export convex/checkout.ts:reconcilePendingPayments
 export convex/checkout.ts:reconcileRentalRefund
 export convex/checkout.ts:recoverDepositReturn
+export convex/checkout.ts:recoverPendingSavedCard
 export convex/checkout.ts:refundInventoryConflict
 export convex/checkout.ts:refundRental
 export convex/checkout.ts:releasePausedLateHold
@@ -1300,7 +1301,6 @@ export convex/membershipRefundJobs.ts:enqueue
 export convex/membershipRefundJobs.ts:finish
 export convex/membershipRefundJobs.ts:flagUnallocated
 export convex/notify.ts:bookingAlert
-export convex/notify.ts:paidVerificationEmail
 export convex/notify.ts:bookingOwnerAlert
 export convex/notify.ts:cancellationEmail
 export convex/notify.ts:changeEmail
@@ -1310,6 +1310,7 @@ export convex/notify.ts:emailHumanRequestAlert
 export convex/notify.ts:followUpEmail
 export convex/notify.ts:followUpReplyAlert
 export convex/notify.ts:ownerLead
+export convex/notify.ts:paidVerificationEmail
 export convex/notify.ts:renterChat
 export convex/notify.ts:sendReminders
 export convex/notify.ts:timeChangeEmail
@@ -1648,8 +1649,8 @@ export convex/rmv2_sync.ts:forRmv2SyncPage
 export convex/rmv2_sync.ts:mapBookingForSync
 export convex/rmv2_webhook.ts:push
 export convex/rmv2_webhook.ts:retryDue
-export convex/savedCardState.ts:context
 export convex/savedCardState.ts:alertRecoveryFailure
+export convex/savedCardState.ts:context
 export convex/savedCardState.ts:failed
 export convex/savedCardState.ts:markReturn
 export convex/savedCardState.ts:save

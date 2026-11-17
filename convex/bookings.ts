@@ -610,6 +610,18 @@ export const recordPaidCheckoutReceipt = internalMutation({
   },
 });
 
+// For a paid rental whose initial verification email was sent manually before
+// the automated notices were deployed. The queue deduplicates later retries.
+export const scheduleManualVerificationReminder = internalMutation({
+  args: {bookingId:v.id("bookings"), initialSentAt:v.number()},
+  handler: async (ctx,{bookingId,initialSentAt}) => {
+    const booking=await ctx.db.get(bookingId);
+    if(!booking || booking.status!=="pending_verification" || booking.verificationProvider!=="didit" || !booking.checkoutPaidAt || booking.idVerifyStatus==="verified" || booking.cancellationDecision || booking.returnDecision || !Number.isSafeInteger(initialSentAt) || initialSentAt<booking.checkoutPaidAt || initialSentAt>Date.now()) return false;
+    await queueRentalEmail(ctx,bookingId,"verification_reminder",{dueAt:initialSentAt+12*60*60*1000});
+    return true;
+  },
+});
+
 export const confirm = internalMutation({
   args: { bookingId: v.id("bookings"), paymentIntentId: v.optional(v.string()), rentalManagerCheckedAt: v.optional(v.number()) },
   handler: async (ctx, { bookingId, paymentIntentId, rentalManagerCheckedAt }) => {

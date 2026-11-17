@@ -18,6 +18,11 @@ async function run(id){await delivery.dispatchOne.handler(ctx,{deliveryId:id});a
  const second=h.put('bookings',{...booking,_id:'bookings-verified',idVerifyStatus:'required'});
  const cancelled=await queue.queueRentalEmail(ctx,second._id,'verification_reminder',{dueAt:now+12*3600000});second.idVerifyStatus='verified';now+=12*3600000;
  await delivery.dispatchOne.handler(ctx,{deliveryId:cancelled});assert.equal(get(cancelled).state,'skipped');assert.equal(sent.length,2);
+ const manual=h.put('bookings',{...booking,_id:'bookings-manual',checkoutPaidAt:now-1000,idVerifyStatus:'required'});
+ assert.equal(await bookings.scheduleManualVerificationReminder.handler(ctx,{bookingId:manual._id,initialSentAt:now-500}),true);
+ const manualRow=(h.tables.get('rental_email_deliveries')||[]).find(r=>r.bookingId===manual._id);
+ assert.equal(manualRow.dueAt,now-500+12*3600000);
+ assert.equal(await bookings.scheduleManualVerificationReminder.handler(ctx,{bookingId:manual._id,initialSentAt:now+1}),false);
  assert((h.tables.get('admin_notifications')||[]).some(n=>n.kind==='email_sent'),'guest email acceptance is visible to the owner');
  console.log('PASS paid verification email, 12-hour reminder, replay deduplication, verified suppression and guest delivery notification');
 })().catch(e=>{console.error(e);process.exitCode=1});
