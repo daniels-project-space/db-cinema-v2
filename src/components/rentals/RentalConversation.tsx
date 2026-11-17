@@ -51,7 +51,7 @@ export function RentalConversation({
   escalated?: boolean;
   tools?: React.ReactNode;
   openRevision?: number;
-  bookingSummary?: { items?: { title: string; qty: number; heroImage?: string | null; imageSources?: string[] }[]; dates: string; count: number };
+  bookingSummary?: { items?: { title: string; qty: number; heroImage?: string | null; imageSources?: string[] }[]; dates: string; count: number; handover?: string };
   handoverDetails?: { phone: string; pickupAddress?: string | null; returnAddress?: string | null; pickupInstructions?: string | null; fulfilment: "pickup" | "delivery" };
   workspaceIdentity?: { name?: string | null; phone?: string | null; photo?: string | null; privatePortrait?: React.ReactNode; membershipLabel?: string | null; encoreLabel?: string | null; verified?: boolean };
   renterWorkspace?: boolean;
@@ -416,7 +416,7 @@ export function RentalConversation({
       </section>}
       <div className={`management-conversation-main ${styles.main}`}>
       {(!workspaceIdentity || bookingId) && <div className={styles.bookingStrip}>
-        <div>{!workspaceIdentity && <h4>{title}</h4>}<p>{bookingSummary ? `${bookingSummary.dates} · ${bookingSummary.count} ${bookingSummary.count === 1 ? "listing" : "listings"}` : bookingId ? "Messages, collection and return" : "Account support and enquiries"}</p></div>
+        <div>{!workspaceIdentity && <h4>{title}</h4>}<p>{bookingSummary ? `${bookingSummary.dates} · ${bookingSummary.count} ${bookingSummary.count === 1 ? "listing" : "listings"}` : bookingId ? "Messages, collection and return" : "Account support and enquiries"}</p>{bookingSummary?.handover && <p>{bookingSummary.handover}</p>}</div>
         <span className={styles.stage}>{stageLabel ?? RENTAL_STAGE_LABELS[stage] ?? stage}</span>
         {bookingId && admin && workspaceIdentity && !tools && <details className={styles.workspaceRentalDetails}><summary aria-label="Verification, extension and price controls">Controls</summary><div><RentalVerificationSummary bookingId={bookingId} token={token} admin /><RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin /><RentalPricePanel key={`price-${bookingId}`} token={token} bookingId={bookingId} admin /></div></details>}
       </div>}
