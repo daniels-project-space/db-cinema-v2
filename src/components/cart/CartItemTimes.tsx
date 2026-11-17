@@ -10,7 +10,7 @@ import { useCart, type CartItem } from "./CartProvider";
 import { SmartImage } from "@/components/SmartImage";
 
 /** Checkout keeps each line's own clocks and collapses completed time controls. */
-export function CartItemTimes({ item, delivery = false, initiallyExpanded = false }: { item: CartItem; delivery?: boolean; initiallyExpanded?: boolean }) {
+export function CartItemTimes({ item, delivery = false, initiallyExpanded = false, onNotice }: { item: CartItem; delivery?: boolean; initiallyExpanded?: boolean; onNotice?: (notice: string | null) => void }) {
   const cart = useCart(), id = useId(), priceQuote = useAction(api.checkout.priceQuote);
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -42,6 +42,7 @@ export function CartItemTimes({ item, delivery = false, initiallyExpanded = fals
     if (busy) return;
     setBusy(true);
     setError(null);
+    onNotice?.(null);
     try {
       let total = item.total;
       const invalidSameDayOrder = item.start === item.end && !!first && !!last && last <= first;
@@ -66,6 +67,7 @@ export function CartItemTimes({ item, delivery = false, initiallyExpanded = fals
         total = quote.items[0].total;
       }
       cart.updateDates(item.key, item.start, item.end, total, first || undefined, last || undefined, notice);
+      if (notice) onNotice?.(notice);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not update this rental time.");
     } finally {

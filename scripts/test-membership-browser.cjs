@@ -503,8 +503,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   if(isStagedUnreleasedPolicy(paid.securityPolicyVersion)){
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="checkout-pay-button"]').disabled`),true,'An unreleased staged policy must not enable production checkout');
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').textContent.includes('Quote updating')`),true,'An unknown policy must remain visibly unready');
+    assert.equal(await c.evaluate(`document.querySelector('[data-testid="saved-card-consent-text"]').textContent.includes('Security terms are updating')`),true,'An unreleased policy must not ask renters to accept its unapproved card-claim wording');
+    assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="claim-consent-details"]')`),false,'Unreleased claim details stay out of the checkout consent');
   }
-  const expectedSmallRows=paid.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?1:[CARD_HOLD_SECURITY_POLICY_VERSION,SETUP_INTENT_SECURITY_POLICY_VERSION,SECURITY_POLICY_VERSION,REFUNDABLE_DEPOSIT_POLICY_VERSION].includes(paid.securityPolicyVersion)?2:3;
+  // An unreleased staged policy shows no policy-specific amount rows. The
+  // selected subscription charge remains visible while checkout says the
+  // security quote is updating and keeps payment disabled.
+  const expectedSmallRows=isStagedUnreleasedPolicy(paid.securityPolicyVersion)?1:paid.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?1:[CARD_HOLD_SECURITY_POLICY_VERSION,SETUP_INTENT_SECURITY_POLICY_VERSION,SECURITY_POLICY_VERSION,REFUNDABLE_DEPOSIT_POLICY_VERSION].includes(paid.securityPolicyVersion)?2:3;
   assert.equal(summary.secondaryRows.length,expectedSmallRows,'Small rows match the accepted security policy');
   assert(summary.secondaryRows.every(e=>e.fontSize==='11px'),'Secondary subscription/security figures remain compact');
   assert.equal(summary.subscriptionCredit!==null,paid.membershipCreditApplied>0,'Subscription credit appears only when the authoritative quote actually applies it');
@@ -758,6 +763,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     else if(!currentSecurityPolicy)assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').textContent.includes('£100.00')`),true);
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').innerText.includes('No card hold required.')`),false);
     if (band === 'deposit-and-hold') assert.equal(await c.evaluate(`document.querySelector('[data-testid="rental-agreement-checkbox"]').checked`),false,'A changed kit/security amount requires fresh explicit consent');
+    await until(`document.querySelector('[data-testid="rental-agreement-checkbox"]')?.disabled===false`,'Current quote consent context');
     assert.equal(await c.evaluate(`document.getElementById('co-sig').value`),'','A changed kit requires a fresh signature');
     await c.evaluate(`(()=>{const e=document.querySelector('[data-testid="rental-agreement-checkbox"]');if(!e.checked)e.click()})()`);
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="rental-agreement-checkbox"]').checked`),true);

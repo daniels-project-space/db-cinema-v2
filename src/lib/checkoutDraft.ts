@@ -24,7 +24,7 @@ function fields(value: any): CheckoutDraft {
     protection: value.protection === "deposit" ? "deposit" : "verify",
     ...(typeof value.useAccountCredit === "boolean" ? { useAccountCredit: value.useAccountCredit } : {}),
     agreed: value.agreed === true, deliveryAgreed: value.deliveryAgreed === true,
-    securityConsentContext: typeof value.securityConsentContext === "string" && value.securityConsentContext.length <= 500
+    securityConsentContext: typeof value.securityConsentContext === "string" && value.securityConsentContext.length <= 4000
       ? value.securityConsentContext
       : null,
   };

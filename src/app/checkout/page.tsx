@@ -121,6 +121,7 @@ export default function CheckoutPage() {
   const unavailableItems = items.filter(item => availability?.[item.listingId]?.ok === false);
   const unavailableLineIndices = items.flatMap((item, index) => availability?.[item.listingId]?.ok === false ? [index] : []);
   const [deliveryAgreed, setDeliveryAgreed] = useState(false);
+  const [timeAdjustmentNotice, setTimeAdjustmentNotice] = useState<string | null>(null);
   const [agreed, setAgreed] = useState(false);
   const [signature, setSignature] = useState("");
   const [securityConsentContext, setSecurityConsentContext] = useState<string | null>(null);
@@ -156,7 +157,10 @@ export default function CheckoutPage() {
     setProtection(draft?.protection ?? "verify");
     setUseAccountCredit(draft?.useAccountCredit??false);
     setAgreed(draft?.agreed ?? false);
-    setSecurityConsentContext(draft?.securityConsentContext ?? null);
+    const restoredConsentContext = typeof draft?.securityConsentContext === "string" && draft.securityConsentContext.startsWith("checkout-consent-v2:")
+      ? draft.securityConsentContext
+      : null;
+    setSecurityConsentContext(restoredConsentContext);
     setDeliveryAgreed(draft?.deliveryAgreed ?? false);
     setSignature(""); setDq(null); setQuoting(false); setRecovery(null); setQuoted(null);
     agreementRequest.current = null; membershipRequest.current = null;
@@ -263,8 +267,8 @@ export default function CheckoutPage() {
   }, [quoteKey, getPriceQuote, draftReady]);
 
   // Reading the documents and signing the current order are separate. Changes
-  // to the order invalidate the signature/attempt. Changed security amounts or
-  // policy also reset consent below, since the checkbox accepts those terms.
+  // to the order invalidate the signature/attempt. Consent is bound to the
+  // current quote and resets whenever its price or security terms change.
   const signingContext = JSON.stringify({ quoteKey, name, phone, billingAddress, pickupTime:effectivePickupTime, returnTime:effectiveReturnTime,
     deliveryAgreed, due: currentQuote?.combinedTotalDue, useAccountCredit,policy: currentQuote?.securityPolicyVersion, cancellationProtection:currentQuote?.cancellationProtectionEnabled, deposit: currentQuote?.depositAmount, hold: currentQuote?.depositHoldAmount });
   useEffect(() => { setSignature(""); agreementRequest.current = null; setRecovery(null); }, [signingContext]);
@@ -284,20 +288,38 @@ export default function CheckoutPage() {
   const setupIntentPolicy=isSetupIntentSecurityPolicy(currentQuote?.securityPolicyVersion);
   const immediateClaimPolicy=isImmediateClaimSecurityPolicy(currentQuote?.securityPolicyVersion);
   const rentalAgreements = agreementsForSecurityPolicy(currentQuote?.securityPolicyVersion,currentQuote?.cancellationProtectionEnabled);
-  const savedCardQuoteReady = !!currentQuote && (currentQuote.securityPolicyVersion === SECURITY_POLICY_VERSION || refundablePolicy || cardHoldPolicy || setupIntentPolicy) && Number.isFinite(currentQuote.savedCardLimit) && (cardHoldPolicy ? currentQuote.depositAmount === 0 && currentQuote.savedCardLimit === 0 && [0,50,100,200].includes(currentQuote.depositHoldAmount) : setupIntentPolicy ? [50,100,200].includes(currentQuote.savedCardLimit) && currentQuote.depositAmount === 0 && currentQuote.depositHoldAmount === 0 : (refundablePolicy ? [0,20,50,100].includes(currentQuote.depositAmount) : currentQuote.depositAmount === 0) && currentQuote.depositHoldAmount === 0);
-  const currentSecurityConsentContext = currentQuote ? JSON.stringify({
+  // Immediate-claim v2 is staged on the shared Convex deployment. It shares
+  // SetupIntent mechanics, but must remain fail-closed until its own release is
+  // approved; recognising it here would let a newer backend policy bypass the
+  // checkout's visible "Quote updating" and payment-disabled state.
+  const releasedSetupIntentPolicy = setupIntentPolicy && !immediateClaimPolicy;
+  const savedCardQuoteReady = !!currentQuote && (currentQuote.securityPolicyVersion === SECURITY_POLICY_VERSION || refundablePolicy || cardHoldPolicy || releasedSetupIntentPolicy) && Number.isFinite(currentQuote.savedCardLimit) && (cardHoldPolicy ? currentQuote.depositAmount === 0 && currentQuote.savedCardLimit === 0 && [0,50,100,200].includes(currentQuote.depositHoldAmount) : releasedSetupIntentPolicy ? [50,100,200].includes(currentQuote.savedCardLimit) && currentQuote.depositAmount === 0 && currentQuote.depositHoldAmount === 0 : (refundablePolicy ? [0,20,50,100].includes(currentQuote.depositAmount) : currentQuote.depositAmount === 0) && currentQuote.depositHoldAmount === 0);
+  // Do not persist quoteKey here: it includes private checkout inputs such as
+  // account tokens, email and delivery address. This fingerprint binds consent
+  // to the current basket and legal/security terms using only non-secret data.
+  const currentSecurityConsentContext = currentQuote ? `checkout-consent-v2:${JSON.stringify({
+    items: items.map(item => ({ listingId:item.listingId, start:item.start, end:item.end, pickupTime:item.pickupTime ?? null, returnTime:item.returnTime ?? null, total:item.total, deposit:item.deposit, offerType:item.offerType ?? null })),
+    membership: membership ? { tier:membership.tier, intro:membership.intro } : null,
+    customerType: account.me ? "account" : "guest",
+    fulfilment,
+    deliveryFee: deliveryQuoteCurrent ? dq.fee : null,
+    deliveryAgreed: fulfilment === "delivery" && deliveryAgreed,
+    due: currentQuote.combinedTotalDue,
     policy: currentQuote.securityPolicyVersion,
     limit: currentQuote.savedCardLimit,
     deposit: currentQuote.depositAmount,
     hold: currentQuote.depositHoldAmount,
     cancellationProtection: currentQuote.cancellationProtectionEnabled,
-  }) : null;
+    documents: rentalAgreements.map(({ kind, version }) => ({ kind, version })),
+  })}` : null;
+  const securityConsentMatchesQuote = !!currentSecurityConsentContext && securityConsentContext === currentSecurityConsentContext;
+  const agreedToCurrentQuote = agreed && securityConsentMatchesQuote;
   useEffect(() => {
     if (!draftReady || !currentSecurityConsentContext) return;
     if (securityConsentContext !== currentSecurityConsentContext) setAgreed(false);
     setSecurityConsentContext(currentSecurityConsentContext);
   }, [draftReady, currentSecurityConsentContext, securityConsentContext]);
-  const signDone = agreed && signature.trim().length > 2 && signatureLimit.current === futureChargeLimit && signedContext.current === signingContext;
+  const signDone = agreedToCurrentQuote && signature.trim().length > 2 && signatureLimit.current === futureChargeLimit && signedContext.current === signingContext;
 
   const currentAccountTermsVersion = rentalAgreements.find(doc => doc.kind === "terms")?.version;
   const accountConsentReady = !membership || !!account.me || (!!currentAccountTermsVersion &&
@@ -527,7 +549,8 @@ export default function CheckoutPage() {
               )}
 
               {/* times (both pickup & delivery) */}
-              <div className="mt-3 divide-y divide-white/10">{items.map((item,index)=><CartItemTimes key={`${item.listingId}|${item.start}|${item.end}|${index}`} item={item} delivery={fulfilment==="delivery"} initiallyExpanded={index===firstItemNeedingTimes}/>)}</div>
+              <div className="mt-3 divide-y divide-white/10">{items.map((item,index)=><CartItemTimes key={`${item.listingId}|${item.start}|${item.end}|${index}`} item={item} delivery={fulfilment==="delivery"} initiallyExpanded={index===firstItemNeedingTimes} onNotice={setTimeAdjustmentNotice}/>)}</div>
+              {timeAdjustmentNotice && <p role="status" aria-live="polite" className="mt-2 rounded-lg border border-emerald-300/20 bg-emerald-300/[.05] px-3 py-2 text-xs leading-relaxed text-emerald-200">{timeAdjustmentNotice}</p>}
             </StepCard>
 
             <StepCard n="03" title="Agreements & signature" done={signDone} delay={140}>
@@ -536,10 +559,10 @@ export default function CheckoutPage() {
                   {rentalAgreements.map(d=><a key={d.kind} href={`/legal/${d.kind}?version=${encodeURIComponent(d.version)}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{d.title}</a>)}
                 </nav>
                 <label className="mt-4 flex items-start gap-2.5 text-sm leading-6 text-white/80">
-                  <input data-testid="rental-agreement-checkbox" type="checkbox" checked={agreed} disabled={!currentQuote} onChange={e=>{setAgreed(e.target.checked);agreementRequest.current=null;}} className="mt-1 accent-accent-500 disabled:opacity-40"/>
-                  <span data-testid="saved-card-consent-text">{setupIntentPolicy?`I agree to the linked rental terms and Privacy Notice. I permit evidenced post-return claims up to ${formatGbp(futureChargeLimit)}. No funds are held upfront.`:cardHoldPolicy?"I agree to the linked rental terms and a temporary card hold. This does not authorize later charges.":"I have read the linked rental documents and Privacy Notice, and agree to them and authorize my card for future damage, loss and late-fee payments."}</span>
+                  <input data-testid="rental-agreement-checkbox" type="checkbox" checked={agreedToCurrentQuote} disabled={!currentQuote||!securityConsentMatchesQuote} onChange={e=>{setAgreed(e.target.checked);agreementRequest.current=null;}} className="mt-1 accent-accent-500 disabled:opacity-40"/>
+                  <span data-testid="saved-card-consent-text">{!savedCardQuoteReady?"I agree to the linked rental documents and Privacy Notice. Security terms are updating; checkout stays disabled until the current quote is ready.":setupIntentPolicy?`I agree to the linked rental terms and Privacy Notice. I permit evidenced post-return claims up to ${formatGbp(futureChargeLimit)}. No funds are held upfront.`:cardHoldPolicy?"I agree to the linked rental terms and a temporary card hold. This does not authorize later charges.":"I have read the linked rental documents and Privacy Notice, and agree to them and authorize my card for future damage, loss and late-fee payments."}</span>
                 </label>
-                {setupIntentPolicy && <details data-testid="claim-consent-details" className="ml-7 mt-2 rounded-lg border border-white/10 bg-white/[.025] px-3 py-2 text-xs text-white/55">
+                {savedCardQuoteReady && setupIntentPolicy && <details data-testid="claim-consent-details" className="ml-7 mt-2 rounded-lg border border-white/10 bg-white/[.025] px-3 py-2 text-xs text-white/55">
                   <summary className="cursor-pointer select-none text-accent-300">Claim timing & details</summary>
                   <p className="mt-2 leading-relaxed">{immediateClaimPolicy?"After return, we record the amount, reason and evidence, send itemised notice, then may make one card attempt.":"An itemised notice and seven-day query period apply before collection."} Insurance is separate.</p>
                 </details>}
@@ -599,7 +622,7 @@ export default function CheckoutPage() {
               <hr className="receipt-sep" />
               <div data-testid="checkout-secondary-charges" className="space-y-2">
                 {!!membership && <Row label={membership.intro === "trial" ? "Subscription · first 7 days free" : "First subscription month"} value={currentQuote?.membershipFee ?? 0} muted />}
-                <section data-testid="refundable-security" className="mt-3 rounded-xl border border-white/10 bg-white/[.015] p-3">
+                <section data-testid="refundable-security" data-quote-current={currentQuote ? "true" : "false"} className="mt-3 rounded-xl border border-white/10 bg-white/[.015] p-3">
                   <h3 className="mb-3 text-[10px] font-medium uppercase tracking-[.12em] text-white/55">{savedCardQuoteReady?setupIntentPolicy?'Saved card & future claims':cardHoldPolicy?'Card authorisation hold':assessmentPolicy?'Refundable deposit':'Deposit & card limit':'Quote updating'}</h3>
                   {savedCardQuoteReady?cardHoldPolicy?<><Row label={currentQuote?.depositHoldAmount?"Temporary card hold":"Card hold"} value={currentQuote?.depositHoldAmount??0} muted/><p className="mt-3 text-xs leading-relaxed text-white/55">{currentQuote?.depositHoldAmount?"Not a payment or part of your total. It may reduce available balance. If pickup is over a week away, we request a replacement five hours before pickup and release the old hold only after the new hold succeeds.":"No hold is due because this account meets the agreed exemption criteria."} An issue-free return releases the hold automatically; any claim needs a recorded reason.</p></>:setupIntentPolicy?<><Row label="Future-claim limit" value={futureChargeLimit} muted/><p className="mt-3 text-xs leading-relaxed text-white/55">Card saved · no upfront charge · notice before a claim · insurance is separate.</p><details data-testid="card-claim-details" className="mt-2 text-xs text-white/55"><summary className="cursor-pointer select-none text-accent-300 underline underline-offset-4">How any claim is handled</summary><p className="mt-2 leading-relaxed">{immediateClaimPolicy?"A team member sends itemised notice before one attempt.":"Notice and a seven-day query period apply before collection."} Bank payments may be declined or require authentication.</p></details></>:<>{refundablePolicy&&<Row label="Refundable deposit today" value={currentQuote?.depositAmount??0}/>}{!assessmentPolicy&&<Row label="Later card limit · not charged" value={futureChargeLimit} muted />}<p className="mt-3 text-[10px] leading-5 text-white/55">{refundablePolicy?"Unused deposit refunded to your card; retained amounts reduce later charges.":"No deposit or card hold. The limit is not charged today."}</p></>:<>{previousDepositAmount>0&&<Row label="Previous refundable deposit" value={previousDepositAmount} muted/>}{previousCardHoldAmount>0&&<Row label="Previous card authorisation" value={previousCardHoldAmount} muted/>}<p data-testid="checkout-security-quote-status" className="mt-3 text-[10px] leading-5 text-white/55">{previousSecurityQuote?"Security terms are updating. Payment stays disabled until the new quote is ready.":"Calculating security terms. Payment stays disabled until the quote is ready."}</p></>}
                 </section>

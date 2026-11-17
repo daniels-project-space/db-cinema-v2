@@ -17,7 +17,12 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
  const output=process.env.DBC_CHECKOUT_SCREENSHOTS||'/root/dbc-checkout-draft-review';fs.mkdirSync(output,{recursive:true});
  async function until(expression,label){for(let n=0;n<160;n++){if(await c.evaluate(expression))return;await delay(200)}throw Error(label)}
  async function fill(id,value){await c.evaluate(`(()=>{const e=document.getElementById(${JSON.stringify(id)});if(!e)throw Error('Missing field');const p=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));})()`);await delay(50)}
- async function ready(){await until(`!!document.getElementById('co-sig')&&!document.getElementById('co-sig').disabled`,'Fresh quote must enable signature');}
+ async function ready(){await until(`!!document.getElementById('co-sig')&&!document.getElementById('co-sig').disabled`,'Fresh quote must enable signature');await until(`document.querySelector('[data-testid="refundable-security"]')?.dataset.quoteCurrent==='true'`,'The displayed security state must belong to the current quote');await delay(350);await until(`document.querySelector('[data-testid="refundable-security"]')?.dataset.quoteCurrent==='true'`,'The current quote must remain settled before consent');}
+ async function assertSecurityQuoteState(){
+  const state=await c.evaluate(`(()=>{const e=document.querySelector('[data-testid="refundable-security"]');return {text:e?.innerText??'',heading:e?.querySelector('h3')?.innerText??'',claimDetails:!!document.querySelector('[data-testid="claim-consent-details"]'),payDisabled:document.querySelector('[data-testid="checkout-pay-button"]')?.disabled}})()`);
+  if(state.text.toLowerCase().includes('quote updating')){assert.equal(state.payDisabled,true,'An unreleased security quote keeps payment disabled');assert.equal(state.claimDetails,false,'Unreleased claim details are not presented as accepted terms')}
+  else assert(state.heading.toLowerCase().includes('saved card & future claims'),'Released security terms are shown for the current quote');
+ }
  async function ensureTimePickers(){
   await c.evaluate(`document.querySelectorAll('[data-checkout-item-times]>button[aria-expanded="false"]').forEach(e=>e.click())`);
   await until(`document.querySelectorAll('[role="combobox"][aria-haspopup="listbox"]').length>=2`,'Rental time controls render');
@@ -52,7 +57,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
    await until(`!!document.querySelector('[role=listbox]')`,'Custom time options must open');
    await c.evaluate(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText===${JSON.stringify(time)}).click()`);
   }
-  await ready();await c.evaluate(`document.querySelector('[data-testid=rental-agreement-checkbox]').click()`);await fill('co-sig','Draft Review Renter');await delay(400);
+  await ready();await until(`document.querySelector('[data-testid=rental-agreement-checkbox]')?.disabled===false`,'Current quote consent context');await c.evaluate(`document.querySelector('[data-testid=rental-agreement-checkbox]').click()`);await fill('co-sig','Draft Review Renter');await delay(400);
   assert.equal(await c.evaluate(`document.querySelector('[data-testid=rental-agreement-checkbox]').checked`),true,'Typing signature must not uncheck terms');
   assert.equal(await c.evaluate(`document.getElementById('co-sig').value`),'Draft Review Renter');
   await fill('co-phone','07111111111');await delay(300);
@@ -73,15 +78,23 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
   await until(`JSON.parse(localStorage.getItem('dbc_cart_v1'))?.[0]?.end===${JSON.stringify(extendedEnd)}&&!JSON.parse(localStorage.getItem('dbc_cart_v1'))?.[0]?.pickupTime&&!JSON.parse(localStorage.getItem('dbc_cart_v1'))?.[0]?.returnTime`,'Changing dates clears the now-unverified time selections');
   await navigate('/checkout');await ensureTimePickers();
   assert.deepEqual(await c.evaluate(`['co-email','co-name','co-phone','co-billing-address','co-sig'].map(id=>document.getElementById(id).value)`),['draft-review@example.invalid','Draft Review Renter','07111111111','123 Fixture Street, London SW1A 1AA','']);
-  assert.equal(await c.evaluate(`document.querySelector('[data-testid=rental-agreement-checkbox]').checked`),true,'Terms survive basket changes and fresh quote');
+  assert.equal(await c.evaluate(`document.querySelector('[data-testid=rental-agreement-checkbox]').checked`),false,'Consent for the previous quote is not reused after a basket change');
   assert.equal(await c.evaluate(`document.querySelector('[data-checkout-item-times]').innerText.includes('Times needed')`),true,'Changing rental dates requires fresh pickup and return times');
   await chooseTime(0,'10:00');await chooseTime(1,'18:00');
   assert.equal(await timePickerText(0),'10:00');
   assert.equal(await timePickerText(1),'18:00');
+  await until(`document.querySelector('[data-testid=rental-agreement-checkbox]')?.disabled===false`,'Updated quote consent context');
+  assert.equal(await c.evaluate(`document.querySelector('[data-testid=rental-agreement-checkbox]').checked`),false,'Changing pickup or return times requires fresh quote consent');
+  await c.evaluate(`document.querySelector('[data-testid=rental-agreement-checkbox]').click()`);
+  await fill('co-sig','Draft Review Renter');
   assert.equal(await c.evaluate(`!!document.querySelector('.toast-in')`),false,'Checkout time changes do not cover agreement controls with a cart toast');
-  assert.equal(await c.evaluate(`document.querySelector('[data-testid=refundable-security]').innerText.toLowerCase().includes('saved card & future claims')`),true,'Saved-card security quote remains visible after basket changes');
+  await assertSecurityQuoteState();
   assert.equal(await c.evaluate(`!!document.querySelector('[data-testid=cancellation-protection]')`),true,'Cancellation protection details remain available after basket changes');
+  await until(`(()=>{try{return JSON.parse(sessionStorage.getItem('dbc_checkout_draft_v1:guest')||'{}').fields?.securityConsentContext?.startsWith('checkout-consent-v2:')===true}catch{return false}})()`,'Current quote consent is stored in its safe versioned format');
   const stored=await c.evaluate(`sessionStorage.getItem('dbc_checkout_draft_v1:guest')`);assert(stored&&!stored.includes('signature')&&!stored.includes('requestId'));
+  const draft=JSON.parse(stored).fields;assert(draft.securityConsentContext.startsWith('checkout-consent-v2:'));
+  assert.equal(draft.securityConsentContext.includes('draft-review@example.invalid'),false,'The consent fingerprint does not copy renter contact data into the checkout draft');
+  assert.equal(draft.securityConsentContext.includes('"token"'),false,'The consent fingerprint never contains account credentials');
   const epoch=await c.evaluate('performance.timeOrigin');await c.cmd('Page.reload');await until(`performance.timeOrigin!==${epoch}&&document.readyState==='complete'`,'Reloaded checkout document');await ready();await ensureTimePickers();assert.equal(await c.evaluate(`document.querySelector('[data-testid=rental-agreement-checkbox]').checked`),true);
   assert.equal(await c.evaluate(`document.getElementById('co-sig').value`),'');
   let pickupId=await timePickerId(0);await until(`document.getElementById(${JSON.stringify(pickupId)})&&!document.getElementById(${JSON.stringify(pickupId)}).disabled`,'Reloaded time availability settles');
@@ -103,7 +116,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
    await until(`!document.querySelector('[role=listbox]')`,'Escape closes time choices');
    assert.equal(await c.evaluate(`!!document.querySelector('[role=listbox]')`),false);
   }
-  console.log('PASS real checkout: signature preserves terms; signed-detail changes invalidate signature only; date edits clear old times; saved terms and time selections restore; no saved signature; custom picker keyboard/Escape/desktop/mobile placement. No payment submitted.');
- }catch(e){failure=e;console.error(e.message);console.error(await c.evaluate("JSON.stringify({title:document.title,url:location.href,cart:localStorage.getItem('dbc_cart_v1'),seed:sessionStorage.getItem('draft-browser-seeded'),errors:[...document.querySelectorAll('[role=alert]')].map(e=>e.innerText),sig:!!document.getElementById('co-sig'),due:document.querySelector('[data-testid=checkout-due]')?.innerText,tail:document.querySelector('main')?.innerText.slice(-1200)})"));const shot=await c.cmd('Page.captureScreenshot',{format:'png'});fs.writeFileSync(output+'/failure.png',Buffer.from(shot.data,'base64'))}finally{c.close();await fetch(`${process.env.DBC_CDP_URL||'http://localhost:9224'}/json/close/${c.tabId}`)}
+  console.log('PASS real checkout: signature preserves current-quote consent; signed-detail changes invalidate signature only; quote edits require renewed consent and clear old times; saved current-quote consent and time selections restore; no saved signature; custom picker keyboard/Escape/desktop/mobile placement. No payment submitted.');
+ }catch(e){failure=e;console.error(e.message);console.error(await c.evaluate("JSON.stringify({title:document.title,url:location.href,cart:localStorage.getItem('dbc_cart_v1'),seed:sessionStorage.getItem('draft-browser-seeded'),draft:(()=>{try{const d=JSON.parse(sessionStorage.getItem('dbc_checkout_draft_v1:guest')||'null');return {keys:Object.keys(d?.fields??{}),hasConsent:typeof d?.fields?.securityConsentContext==='string',consentLength:d?.fields?.securityConsentContext?.length,consentPrefix:d?.fields?.securityConsentContext?.slice(0,24),agreed:d?.fields?.agreed}}catch{return null}})(),errors:[...document.querySelectorAll('[role=alert]')].map(e=>e.innerText),sig:!!document.getElementById('co-sig'),due:document.querySelector('[data-testid=checkout-due]')?.innerText,tail:document.querySelector('main')?.innerText.slice(-1200)})"));const shot=await c.cmd('Page.captureScreenshot',{format:'png'});fs.writeFileSync(output+'/failure.png',Buffer.from(shot.data,'base64'))}finally{c.close();await fetch(`${process.env.DBC_CDP_URL||'http://localhost:9224'}/json/close/${c.tabId}`)}
  if(failure)throw failure;
 })().catch(e=>{console.error(e.stack);process.exitCode=1});
