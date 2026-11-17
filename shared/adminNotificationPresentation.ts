@@ -3,7 +3,7 @@ export const ADMIN_NOTIFICATION_CATEGORIES = ["Messages", "Verification", "Booki
 export function adminNotificationCategory(kind: string): typeof ADMIN_NOTIFICATION_CATEGORIES[number] {
   if (["renter_message", "human_request", "gaffer_resumed"].includes(kind)) return "Messages";
   if (["verification_failure", "verification_update", "verification_archive", "identity_match", "drone_document"].includes(kind)) return "Verification";
-  if (["booking_paid", "booking_cancelled", "checkout_failure", "deposit_refund_failure", "stripe_dispute"].includes(kind)) return "Bookings & payments";
+  if (["booking_paid", "booking_cancelled", "checkout_failure", "deposit_refund_failure", "stripe_dispute", "membership_invoice_review"].includes(kind)) return "Bookings & payments";
   if (["email_failure", "email_sent"].includes(kind)) return "Email";
   return "Other";
 }
@@ -13,7 +13,10 @@ export function adminPushPresentation(notification: { kind: string; title: strin
   const reference = notification.bookingId ? `DBC-${String(notification.bookingId).slice(-8).toUpperCase()} · ` : "";
   const body = notification.kind === "verification_update" ? "Didit approved verification. Document archiving may still be in progress."
     : notification.kind !== "verification_failure" ? notification.body
-    : notification.title === "Verification needs review" ? "Check the provider status and required checks. Open the rental for details."
+    : notification.title === "Paid booking needs stock review" ? "Payment was received, but the equipment needs an availability check. The rental is not confirmed."
+      : notification.title === "Verification needs a contact email" ? "The rental needs a contact email before its verification can be checked. Open the rental to fix it."
+        : notification.title === "Verification configuration needs attention" ? "We cannot automatically check verification status. Check the verification service settings."
+          : notification.title === "Verification needs review" ? "Check the provider status and required checks. Open the rental for details."
       : notification.title === "Booking identity or allocation notice" ? "A booking needs an identity or stock check. Open the rental for details."
         : notification.title === "Didit verification not approved" ? "Didit did not approve verification. Open the rental for details."
           : notification.title === "Didit resubmission reported" ? "Didit reports a resubmission; verification is not complete."
