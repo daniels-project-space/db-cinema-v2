@@ -13,6 +13,8 @@ import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { createPublicListingCopy } from "./lib/publicListingCopy";
 import { rentalPricingDays } from "../shared/rentalDuration";
 import { bumpCatalogRevision, catalogRevision } from "./lib/catalogRevision";
+import { contentsFor } from "../shared/rentalContents";
+import { sanitizeCustomerCopy } from "../shared/verifiedRentalCopy";
 
 /**
  * SERVER-AUTHORITATIVE line pricing for checkout (anti-tamper). Recomputes each line's
@@ -583,12 +585,22 @@ export const discoveryOffers = query({
     const rows = (await Promise.all(slugs.map(slug => ctx.db.query("listings").withIndex("by_slug", q => q.eq("slug", slug)).first())))
       .filter((row): row is NonNullable<typeof row> => !!row && !rentalUnavailable(row));
     const publicRows = await createPublicListingCopy(ctx)(rows);
-    return publicRows.map(row => ({
+    return publicRows.map(row => {
+      const contents = contentsFor(row);
+      const needsConfirmation = contents.inventoryFacts?.reviewRequired === true;
+      // Match the product page: reviewed owner facts take precedence, and
+      // seller details awaiting review are never represented as included.
+      const included = needsConfirmation ? contents.inventoryFacts?.contents ?? [] : contents.includes;
+      return {
       slug: row.slug, title: row.title, category: row.category, image: images(row)[0] ?? null,
       daily: Number.isFinite(row.pricing?.daily) && row.pricing.daily > 0
         ? Math.round(row.pricing.daily * (1 - (row.quietDeal ?? 0) / 100)) : null,
       minimumRentalDays: row.minimumRentalDays ?? 1,
-    }));
+      included: included.filter((item: unknown): item is string => typeof item === "string").map(sanitizeCustomerCopy).filter((item: string) => !!item && item.length <= 180).slice(0, 4),
+      needsConfirmation,
+      optionalAvailable: contents.optional.length > 0,
+      lensMount: !needsConfirmation && typeof row.specs?.mount === "string" && /^[A-Za-z0-9 -]{1,20}$/.test(row.specs.mount) ? row.specs.mount : null,
+    }; });
   },
 });
 
