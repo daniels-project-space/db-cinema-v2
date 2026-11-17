@@ -6,8 +6,9 @@ import { bump } from "./rateLimit";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { linkVerificationCopies } from "./lib/verificationOwnership";
 /** Runs inside the attested paid-booking transaction, independently of email delivery. */
-export async function ensurePaidBookingAccount(ctx: any, booking: any) {
- if(!["confirmed","active"].includes(booking.status))return null;
+export async function ensurePaidBookingAccount(ctx: any, booking: any, allowPendingVerification=false) {
+ const paidPending=allowPendingVerification&&booking.status==="pending_verification"&&booking.verificationProvider==="didit"&&Number.isSafeInteger(booking.checkoutPaidAt)&&booking.checkoutPaidAt>0&&!booking.cancellationDecision&&!booking.returnDecision;
+ if(!["confirmed","active"].includes(booking.status)&&!paidPending)return null;
  const email=booking.guestEmail?.trim().toLowerCase();if(!email)return null;
  let account=booking.accountId?await ctx.db.get(booking.accountId):await ctx.db.query("accounts").withIndex("by_email",(q:any)=>q.eq("email",email)).unique();
  if(booking.accountId&&!account)throw Error("The rental account no longer exists.");
@@ -47,6 +48,14 @@ export const prepareSignIn=internalMutation({args:{email:v.string(),secretHash:v
  for(const link of links)if(!link.bookingId&&!link.usedAt&&link.expiresAt>Date.now())await ctx.db.patch(link._id,{expiresAt:Date.now()});
  await ctx.db.insert("account_access_links",{accountId:account._id,secretHash:a.secretHash,createdAt:Date.now(),expiresAt:Date.now()+15*60000});
  return {email};
+}});
+/** A paid guest receives a fresh one-use link with each verification notice. */
+export const preparePendingVerification=internalMutation({args:{bookingId:v.id("bookings"),secretHash:v.string()},handler:async(ctx,a)=>{
+ const booking=await ctx.db.get(a.bookingId);
+ if(!booking||booking.status!=="pending_verification"||booking.verificationProvider!=="didit"||!Number.isSafeInteger(booking.checkoutPaidAt)||booking.checkoutPaidAt!<=0||["verified","rejected"].includes(booking.idVerifyStatus??"")||booking.cancellationDecision||booking.returnDecision||!/^[a-f0-9]{64}$/.test(a.secretHash))return null;
+ const account=await ensurePaidBookingAccount(ctx,booking,true);if(!account||account.blockedAt!=null)return null;
+ await ctx.db.insert("account_access_links",{accountId:account._id,bookingId:booking._id,secretHash:a.secretHash,createdAt:Date.now(),expiresAt:Date.now()+24*60*60_000});
+ return {email:account.email};
 }});
 export const prepare=internalMutation({args:{bookingId:v.id("bookings"),secretHash:v.string()},handler:async(ctx,a)=>{
  const b=await ctx.db.get(a.bookingId);if(!b||!["confirmed","active"].includes(b.status)||b.accountAccessEmailSentAt)return null;
