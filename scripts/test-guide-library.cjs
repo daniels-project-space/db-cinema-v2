@@ -11,4 +11,9 @@ assert.deepEqual(selectGuides(GUIDES,{...defaults,sort:'az'}).map(g=>g.title),GU
 for(const guide of GUIDES){assert(guideReadMinutes(guide)>=1);const ids=guideSectionIds(guide);assert.equal(new Set(ids).size,guide.sections.length);assert(ids.every(Boolean));}
 assert.deepEqual(guideSectionIds({...GUIDES[0],sections:[{h:'Setup',p:''},{h:'Setup',p:''},{h:'???',p:''}]}),['setup','setup-2','section-3']);
 assert.deepEqual(guideSectionIds({...GUIDES[0],sections:[{h:'Setup',p:''},{h:'Setup 2',p:''},{h:'Setup',p:''}]}),['setup','setup-2','setup-3']);
+const lens=GUIDES.find(g=>g.slug==='choosing-camera-lenses');
+assert(lens);assert.equal(guideSectionIds(lens)[1],'focal-length-is-perspective','Existing links to the renamed section continue to work');
+assert(lens.sections.some(s=>s.links?.some(link=>link.href==='/hire/lens-hire-london')));
+assert(lens.sections.some(s=>s.links?.some(link=>link.href==='/gear/cannon-24-105-ef-f4-zoom-lens-960469')));
+assert.deepEqual(guideSectionIds({...lens,sections:[{h:'Renamed',id:'original',p:''},{h:'Original',p:''}]}),['original','original-2']);
 console.log('PASS real guide library: full-text search, combined topic/video filters, meaningful reading-time sort, no mutation, empty results and unique section anchors.');

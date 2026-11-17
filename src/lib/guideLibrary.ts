@@ -22,7 +22,7 @@ export function selectGuides(guides: readonly Guide[], options:{query:string;top
 export function guideSectionIds(guide: Guide) {
   const used=new Set<string>();
   return guide.sections.map((s,i)=>{
-    const base=s.h.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")||`section-${i+1}`;
+    const base=(s.id??s.h).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")||`section-${i+1}`;
     let id=base,count=2;
     while(used.has(id))id=`${base}-${count++}`;
     used.add(id);
