@@ -1,5 +1,5 @@
 export type GuideVideo = { id: string; title: string; author: string };
-export type GuideSection = { h: string; p: string; video?: GuideVideo; tips?: string[] };
+export type GuideSection = { h: string; p: string; video?: GuideVideo; tips?: string[]; links?: { href: string; label: string }[] };
 export type Guide = {
   slug: string;
   title: string;
@@ -28,10 +28,10 @@ export const GUIDES: Guide[] = [
       "Always add a variable ND for outdoor shoots — it's the cheapest day-saver.",
     ],
     sections: [
-      { h: "What does camera hire in London cost?", p: "Daily rates scale with the camera tier — a mirrorless body is a fraction of a full cinema package. The longer you book, the lower the per-day rate: our 3-day and weekly rates are applied automatically at checkout, so a 3-day shoot is far cheaper per day than a single day.", tips: ["Book Friday-to-Monday and you often get the weekend at a 3-day rate.", "Members save a further 10-30% on every rental.", "Bundles (body + lens + media) come in cheaper than the same items added separately."] },
+      { h: "What does camera hire in London cost?", p: "Rates vary by camera and kit. Compare the listed daily rate and what is included, then select your pickup and return times to see the quote for your full rental. Longer-period rates and any eligible membership savings are shown in your quote.", tips: ["Compare the exact batteries, media and lenses in each kit.", "Check minimum rental periods and the final quote for your dates.", "Compare a complete kit with the individual items you need before booking."], links: [{ href: "/hire/camera-hire-london", label: "Compare camera hire and rental options" }, { href: "/hire/sony-fx3-hire-london", label: "Compare Sony FX3 kits" }] },
       { h: "Delivery or pickup?", p: "You can collect from central London or have the kit delivered to set. Delivery is quoted both ways (there and back) based on distance and load, and larger setups (speakers, lighting, DJ rigs) travel by van. Pickup and return happen in set time windows so handover is smooth." },
       { h: "Rental security and insurance", p: "Your checkout quote and signed rental agreement show the security arrangement for that booking. Depending on the accepted policy, this may include a refundable payment, a card authorisation, or permission to attempt specific future card payments; no amount is reserved unless the quote says a card authorisation applies. Existing bookings retain their accepted policy. Security arrangements are not insurance and do not cap renter responsibility. Complete identity and address checks and obtain approval before handover. Ask the team if your project needs its own insurance." },
-      { h: "Picking the right kit", p: "Match the camera to the deliverable: a documentary wants a light, fast body; a commercial wants a large-sensor cinema camera and cine glass. Add ND filters for lenses, a gimbal for movement, and wireless audio for interviews. Browse the full catalogue and the site suggests what pairs well.", tips: ["Pack a spare battery per body and double your media estimate.", "Tell our AI kit-builder your shoot and budget and it specs a compatible kit in seconds."] },
+      { h: "Picking the right kit", p: "Match the camera to your deliverable and crew. Check the lens mount, recording format, batteries and media supplied with each listing. For movement, check the weight of the complete build against the gimbal; for interviews, plan how your microphones connect to the camera or recorder.", tips: ["Allow enough batteries and recording media for the shoot.", "Check the kit-builder’s suggestions and each listing’s supplied parts before booking."], links: [{ href: "/hire/lens-hire-london", label: "Browse lens hire" }, { href: "/hire/audio-hire-london", label: "Explore production audio" }, { href: "/assemble", label: "Plan a complete kit" }] },
     ],
   },
 
@@ -50,9 +50,9 @@ export const GUIDES: Guide[] = [
       "Shoot in a log profile for the most grading room.",
     ],
     sections: [
-      { h: "Camera + lenses", p: "A large-sensor cinema camera gives you the shallow depth and dynamic range that reads as 'expensive'. Pair it with a fast prime set or a cine zoom. Add a variable ND so you can shoot wide open in daylight.", tips: ["Fast primes (f/1.4-2.8) give you that creamy, expensive separation.", "Shoot in a log profile (S-Log3 / V-Log) for the most grading room."] },
+      { h: "Camera + lenses", p: "Choose a camera and lens combination that suits the location, light and final delivery. A fast prime or zoom can help in low light; a variable ND can help control exposure outdoors. Check mount compatibility and the supplied accessories for each kit.", tips: ["Plan your focal lengths around the space and shots.", "If shooting Log, plan exposure and colour grading in advance."], links: [{ href: "/hire/camera-hire-london", label: "Compare camera kits" }, { href: "/hire/lens-hire-london", label: "Browse lenses" }] },
       { h: "Movement", p: "Movement sells energy. A gimbal for run-and-gun, a slider for controlled reveals, and — budget allowing — a follow-focus for sharp tracking shots. Rent the gimbal that matches your camera's weight.", tips: ["Balance the gimbal before you leave home, not on set — see our gimbal guide.", "Match the gimbal payload to your body + heaviest lens, with headroom."] },
-      { h: "Lighting", p: "Colour is everything in music videos. RGB LED panels and tube lights let you build saturated, moody looks fast. Add a hard key for contrast and haze for beams." },
+      { h: "Lighting", p: "Plan the look around the location and available power. RGB lights can add colour, while the choice of key light and modifier affects contrast. Check each listing for stands, modifiers and power accessories.", links: [{ href: "/hire/lighting-hire-london", label: "Explore lighting hire" }] },
       { h: "Audio + playback", p: "You'll shoot to playback, so a portable speaker keeps the artist in time. If you're capturing live vocals or behind-the-scenes, add a wireless mic kit." },
     ],
   },
