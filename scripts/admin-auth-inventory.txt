@@ -1460,11 +1460,15 @@ export convex/rentalDeliveryState.ts:pendingReconcile
 export convex/rentalDeliveryState.ts:prepareCheckout
 export convex/rentalDeliveryState.ts:prepareQuote
 export convex/rentalDeliveryState.ts:quoteContext
+export convex/rentalEmailDelivery.ts:checkProviderDue
 export convex/rentalEmailDelivery.ts:dispatchDue
 export convex/rentalEmailDelivery.ts:dispatchOne
 export convex/rentalEmailDelivery.ts:finish
 export convex/rentalEmailDelivery.ts:prepare
+export convex/rentalEmailDelivery.ts:providerCheckContext
 export convex/rentalEmailDelivery.ts:ready
+export convex/rentalEmailDelivery.ts:recordProviderStatus
+export convex/rentalEmailMail.ts:checkProvider
 export convex/rentalEmailMail.ts:deliver
 export convex/rentalExtensionPayments.ts:approve
 export convex/rentalExtensionPayments.ts:approveFromOwnerWebhook

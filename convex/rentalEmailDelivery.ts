@@ -71,13 +71,14 @@ export const ready=internalQuery({args:{deliveryId:v.id("rental_email_deliveries
   const row=await ctx.db.get(a.deliveryId);
   return row && row.state === "sending" && row.generation===a.generation && row.dueAt>Date.now() && await current(ctx,row) ? row : null;
 }});
-export const finish=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number(),result:v.union(v.literal("sent"),v.literal("retry"),v.literal("skipped"))},handler:async(ctx,a)=>{
+export const finish=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number(),result:v.union(v.literal("sent"),v.literal("retry"),v.literal("skipped")),providerMessageId:v.optional(v.string())},handler:async(ctx,a)=>{
   const row=await ctx.db.get(a.deliveryId);
   if(!row || row.state!=="sending" || row.generation!==a.generation || row.dueAt<=Date.now())return false;
   const now=Date.now(),failed=a.result==="retry" && row.attempts>=MAX_ATTEMPTS;
   await ctx.db.patch(row._id,{state:a.result==="retry"?(failed?"failed":"pending"):a.result,
     updatedAt:now,sentAt:a.result==="sent"?now:undefined,
     dueAt:a.result==="retry"?now+Math.min(6*60,2**(row.attempts-1))*60_000:now,
+    ...(a.result==="sent"&&a.providerMessageId?{providerMessageId:a.providerMessageId,providerDeliveryStatus:"accepted",providerCheckDueAt:now+2*60_000,providerCheckGeneration:0}:{}),
     lastError:a.result==="retry"?(failed?"Delivery attempts exhausted; requires support":"Transport did not accept email"):undefined});
   if(row.kind==="review")await markReviewState(ctx,row.bookingId,{reviewFollowUpStatus:a.result==="sent"?"sent":a.result==="skipped"?"suppressed":failed?"failed":"sending",
     remindedReview:a.result==="sent"||a.result==="skipped",reviewFollowUpSentAt:a.result==="sent"?now:undefined,
@@ -88,6 +89,40 @@ export const finish=internalMutation({args:{deliveryId:v.id("rental_email_delive
   }
   if(failed)await flagFailure(ctx,row);
   return true;
+}});
+
+/** Lease provider checks so a transient action failure is recovered by cron. */
+export const checkProviderDue=internalMutation({args:{},handler:async ctx=>{
+ const now=Date.now();
+ const rows=await ctx.db.query("rental_email_deliveries").withIndex("by_provider_check",q=>q.eq("state","sent").gte("providerCheckDueAt",0).lte("providerCheckDueAt",now)).take(20);
+ for(const row of rows){
+  if(!row.providerMessageId)continue;
+  const generation=(row.providerCheckGeneration??0)+1;
+  await ctx.db.patch(row._id,{providerCheckGeneration:generation,providerCheckDueAt:now+10*60_000});
+  await ctx.scheduler.runAfter(0,internal.rentalEmailMail.checkProvider,{deliveryId:row._id,generation});
+ }
+ return rows.length;
+}});
+export const providerCheckContext=internalQuery({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number()},handler:async(ctx,a)=>{
+ const row=await ctx.db.get(a.deliveryId);
+ return row?.state==="sent"&&row.providerCheckGeneration===a.generation&&row.providerMessageId?{providerMessageId:row.providerMessageId}:null;
+}});
+export const recordProviderStatus=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number(),status:v.string()},handler:async(ctx,a)=>{
+ const row=await ctx.db.get(a.deliveryId),now=Date.now();
+ if(!row||row.state!=="sent"||row.providerCheckGeneration!==a.generation||!row.providerMessageId||row.providerCheckDueAt===undefined)return false;
+ const failed=["bounced","suppressed","failed","complained"].includes(a.status);
+ const delivered=["delivered","opened","clicked"].includes(a.status)||row.providerDeliveryStatus==="delivered";
+ const expired=now-(row.sentAt??now)>=24*60*60_000;
+ const done=failed||expired,notify=failed||(!delivered&&expired)||(delivered&&row.providerDeliveryStatus!=="delivered");
+ await ctx.db.patch(row._id,{providerDeliveryStatus:failed?a.status:delivered?"delivered":expired?"unconfirmed":"accepted",providerCheckDueAt:done?undefined:now+(delivered?60:15)*60_000,updatedAt:now});
+ if(notify){
+  const booking=await ctx.db.get(row.bookingId),account=await accountForRental(ctx,booking);
+  const failureDetail:Record<string,string>={bounced:"The recipient's mail server rejected the email.",suppressed:"The email provider blocked delivery because of an earlier problem with this address.",failed:"The email provider could not send the message.",complained:"The recipient marked the email as spam."};
+  await queueOwnerNotification(ctx,{eventKey:`rental-email-provider:${row._id}:${failed?"failure":delivered?"delivered":"unconfirmed"}`,kind:failed||(expired&&!delivered)?"email_failure":"email_sent",...(account?{accountId:account._id}:{}),bookingId:row.bookingId,
+   title:failed?"Booking email could not be delivered":expired&&!delivered?"Booking email delivery needs checking":"Booking email delivered",
+   body:failed?`${failureDetail[a.status]} Open this rental and contact the renter another way.`:expired&&!delivered?"The provider accepted the email, but delivery could not be confirmed. Check before relying on it.":"The recipient's mail server accepted the booking email. This does not confirm it was read."});
+ }
+ return true;
 }});
 
 /** Attach the immutable prepared message before any provider send. */

@@ -94,7 +94,7 @@ async function viaGmail(m: MailInput, user: string, pass: string): Promise<boole
   }
 }
 
-async function viaResend(m: MailInput, key: string): Promise<boolean> {
+async function viaResend(m: MailInput, key: string, onReceipt?: (id:string)=>void): Promise<boolean> {
   const from = m.from?.trim() || process.env.RESEND_FROM || `${FROM_NAME} <onboarding@resend.dev>`;
   try {
     const res = await fetch("https://api.resend.com/emails", {
@@ -119,6 +119,10 @@ async function viaResend(m: MailInput, key: string): Promise<boolean> {
       console.error(`[mail] resend rejected ${res.status}:`, (await res.text()).slice(0, 300));
       return false;
     }
+    if(onReceipt){
+      try { const body=await res.json() as {id?:unknown}; if(typeof body.id==="string" && /^[a-zA-Z0-9_-]{1,128}$/.test(body.id)) onReceipt(body.id); }
+      catch { /* Acceptance is still valid; the provider receipt is unavailable. */ }
+    }
     return true;
   } catch (e) {
     console.error("[mail] resend send failed:", String((e as any)?.message ?? e));
@@ -126,7 +130,7 @@ async function viaResend(m: MailInput, key: string): Promise<boolean> {
   }
 }
 
-export async function sendMail(m: MailInput): Promise<boolean> {
+export async function sendMail(m: MailInput, onResendReceipt?: (id:string)=>void): Promise<boolean> {
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
   if (user && pass) {
@@ -140,7 +144,7 @@ export async function sendMail(m: MailInput): Promise<boolean> {
     console.error("[mail] no transport configured — set GMAIL_APP_PASSWORD or RESEND_API_KEY");
     return false;
   }
-  return viaResend(m, key);
+  return viaResend(m, key, onResendReceipt);
 }
 
 /** Mail used for customer replies must originate from the business Gmail mailbox. */
