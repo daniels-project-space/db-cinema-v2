@@ -103,5 +103,6 @@ crons.interval("renter-push-recovery", { minutes: 2 }, internal.renterPushDelive
 crons.interval("admin-push-recovery", { minutes: 2 }, internal.adminPushDelivery.retryDue, {});
 crons.interval("sweep-chat-attachment-uploads", { minutes: 5 }, internal.chatAttachments.sweep, {});
 crons.interval("rental-email-recovery", { minutes: 1 }, internal.rentalEmailDelivery.dispatchDue, {});
+crons.interval("rental-email-provider-status", { minutes: 5 }, internal.rentalEmailDelivery.checkProviderDue, {});
 crons.interval("account-restriction-notices", { minutes: 1 }, internal.accountRestrictionNotice.dispatchDue, {});
 export default crons;
