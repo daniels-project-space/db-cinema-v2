@@ -918,6 +918,7 @@ export convex/emailInbox.ts:markHumanRequested
 export convex/emailInbox.ts:markRead
 export convex/emailInbox.ts:markSendFailed
 export convex/emailInbox.ts:prepareQuotedCart
+export convex/emailInbox.ts:recordVerificationNotice
 export convex/emailInbox.ts:replyContext
 export convex/emailInbox.ts:reserveOwnerReply
 export convex/emailInbox.ts:resolveReplyKey

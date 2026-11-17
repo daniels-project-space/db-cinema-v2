@@ -46,7 +46,7 @@ export default defineSchema({
     state: v.union(v.literal("pending"),v.literal("sending"),v.literal("sent"),v.literal("skipped"),v.literal("failed")),
     attempts: v.number(), generation: v.number(), dueAt: v.number(), createdAt: v.number(), updatedAt: v.number(), sentAt: v.optional(v.number()),
     lastError: v.optional(v.string()), payloadStorageId:v.optional(v.id("_storage")), recipientEmail:v.optional(v.string()), preparedPromotional:v.optional(v.boolean()),preparedCleanReturnRequired:v.optional(v.boolean()),
-    providerMessageId:v.optional(v.string()),providerDeliveryStatus:v.optional(v.string()),providerCheckDueAt:v.optional(v.number()),providerCheckGeneration:v.optional(v.number()),
+    providerMessageId:v.optional(v.string()),providerRfcMessageId:v.optional(v.string()),providerDeliveryStatus:v.optional(v.string()),providerCheckDueAt:v.optional(v.number()),providerCheckGeneration:v.optional(v.number()),
   }).index("by_key",["key"]).index("by_booking_kind",["bookingId","kind"]).index("by_state_due",["state","dueAt"]).index("by_provider_check",["state","providerCheckDueAt"]),
   rental_time_changes:defineTable({bookingId:v.id("bookings"),requestId:v.string(),fingerprint:v.string(),detail:v.string(),createdAt:v.number()}).index("by_request",["bookingId","requestId"]),
   rental_cancellations: defineTable({ bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")),
@@ -1197,6 +1197,7 @@ export default defineSchema({
   // orphan in the owner's inbox.
   email_threads: defineTable({
     email: v.string(),
+    bookingId: v.optional(v.id("bookings")),
     name: v.optional(v.string()),
     subject: v.string(),
     replyKey: v.optional(v.string()),

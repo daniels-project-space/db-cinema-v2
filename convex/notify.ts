@@ -39,7 +39,7 @@ async function email(
   html: string,
   attachments?: Array<{ filename: string; path: string }>,
   /** Overrides the owner address — used to thread Gaffer follow-up replies. */
-  replyToOverride?: string,
+  replyToOverride?: string | string[],
   deliveryKey?: string,
   prepareOnly=false,
 ) {
@@ -76,7 +76,10 @@ export const paidVerificationEmail = internalAction({
     const reviewPending=["manual_review","processing"].includes(b.idVerifyStatus);
     const title=reminder?(reviewPending?"Your rental verification is still being checked":"Reminder: complete your rental checks"):"Payment received — complete your rental checks";
     const rows:Array<[string,string]>=b.lineItems.map((li:any)=>[`${li.title} · ${day(li.start)} to ${day(li.end)}`,emailMoney(li.lineTotal)]);rows.push(["Payment received",emailMoney(b.total)]);
-    return email(claim.email,title,rentalEmail({title,preview:"Your rental still needs verification and approval.",url,button:reviewPending?"Check verification progress":"Complete verification",body:`<p>We have received your payment. Your rental still needs identity verification and approval before handover.</p>${emailRows(rows)}${reviewPending?"<p>Your verification is being processed or reviewed; open your rental for its latest status.</p>":""}<p>This private link works once and expires in 24 hours. Please do not forward it. Need help? Reply to this email.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
+    const replyAddress=process.env.INBOUND_REPLY_ADDRESS?.trim();
+    const replyTo=replyAddress&&/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(replyAddress)&&process.env.INBOUND_EMAIL_SECRET?[...new Set([replyAddress,OWNER_EMAIL()])]:undefined;
+    const subject=`${title} · DBC-${String(bookingId).slice(-8).toUpperCase()}`;
+    return email(claim.email,subject,rentalEmail({title,preview:"Your rental still needs verification and approval.",url,button:reviewPending?"Check verification progress":"Complete verification",body:`<p>We have received your payment. Your rental still needs identity verification and approval before handover.</p>${emailRows(rows)}${reviewPending?"<p>Your verification is being processed or reviewed; open your rental for its latest status.</p>":""}<p>This private link works once and expires in 24 hours. Please do not forward it. Need help? Reply to this email; ask for a person if you would prefer the team to respond.</p>`}),undefined,replyTo,deliveryKey,prepareOnly);
   },
 });
 
