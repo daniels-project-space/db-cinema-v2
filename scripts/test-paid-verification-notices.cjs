@@ -1,7 +1,8 @@
 const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
 let now=Date.UTC(2030,0,1);Date.now=()=>now;
-const sent=[],scheduled=[];let acceptMail=true;
-h.setMock('./lib/mailer',{sendMail:async m=>(sent.push(m),acceptMail),OWNER_EMAIL:()=> 'owner@example.invalid'});
+process.env.INBOUND_REPLY_ADDRESS='replies@example.invalid';process.env.INBOUND_EMAIL_SECRET='fixture-secret';
+const sent=[],scheduled=[];let acceptMail=true,simulatedTransport;
+h.setMock('./lib/mailer',{sendMail:async(m,_receipt,onTransport)=>{sent.push(m);if(acceptMail&&simulatedTransport)onTransport?.(simulatedTransport);return acceptMail},deliveryMessageId:key=>`<${key}@fixture.invalid>`,OWNER_EMAIL:()=> 'owner@example.invalid'});
 const queue=h.load('convex/lib/rentalEmailQueue.ts'),delivery=h.load('convex/rentalEmailDelivery.ts'),worker=h.load('convex/rentalEmailMail.ts'),notify=h.load('convex/notify.ts'),bookings=h.load('convex/bookings.ts'),claims=h.load('convex/accountClaims.ts');
 const blobs=new Map();let serial=0;
 const ctx={db:h.db,scheduler:{runAfter:async(ms,ref,args)=>scheduled.push({ms,ref,args})},storage:{store:async blob=>{const id=`blob-${++serial}`;blobs.set(id,blob);return id},get:async id=>blobs.get(id),delete:async id=>blobs.delete(id)},runQuery:async(ref,a)=>{if(ref==='rentalEmailDelivery.ready')return delivery.ready.handler(ctx,a);if(ref==='bookings.get')return bookings.get.handler(ctx,a);throw Error(ref)},runMutation:async(ref,a)=>{if(ref==='rentalEmailDelivery.prepare')return delivery.prepare.handler(ctx,a);if(ref==='rentalEmailDelivery.finish')return delivery.finish.handler(ctx,a);if(ref==='accountClaims.preparePendingVerification')return claims.preparePendingVerification.handler(ctx,a);throw Error(ref)},runAction:async(ref,a)=>{assert.equal(ref,'notify.paidVerificationEmail');return notify.paidVerificationEmail.handler(ctx,a)}};
@@ -13,6 +14,7 @@ async function run(id){await delivery.dispatchOne.handler(ctx,{deliveryId:id});a
  const reminder=await queue.queueRentalEmail(ctx,booking._id,'verification_reminder',{dueAt:now+12*3600000});
  assert.equal(await queue.queueRentalEmail(ctx,booking._id,'paid_verification'),payment);
  await run(payment);assert.equal(get(payment).state,'sent');assert.match(sent[0].subject,/Payment received/);assert.match(sent[0].html,/verification/i);
+ assert.deepEqual(sent[0].replyTo,['replies@example.invalid','owner@example.invalid'],'Replies go to the Gaffer inbox and the team mailbox');
  const firstSecret=sent[0].html.match(/account\/access\?next=verification#([A-Za-z0-9_-]{43})/)?.[1];assert(firstSecret,'The paid guest receives a private one-use verification link');
  const hash=s=>require('node:crypto').createHash('sha256').update(s).digest('hex');
  const account=h.docs.get(booking.accountId);assert(account);assert.equal(account.emailVerifiedAt,undefined,'Payment alone does not prove email ownership');
@@ -42,8 +44,9 @@ async function run(id){await delivery.dispatchOne.handler(ctx,{deliveryId:id});a
  await assert.rejects(claims.exchange.handler(ctx,{secretHash:'c'.repeat(64),sessionToken:'expired'}),/expired/);
  const retryBooking=h.put('bookings',{guestEmail:'retry@example.invalid',status:'pending_verification',verificationProvider:'didit',checkoutPaidAt:now,idVerifyStatus:'required',lineItems:[],total:10});
  const retryNotice=await queue.queueRentalEmail(ctx,retryBooking._id,'paid_verification');acceptMail=false;await run(retryNotice);const firstPayload=sent.at(-1).html;assert.equal(get(retryNotice).state,'pending');
- now=get(retryNotice).dueAt;acceptMail=true;await run(retryNotice);assert.equal(get(retryNotice).state,'sent');assert.equal(sent.at(-1).html,firstPayload,'A transport retry retains the same valid one-use link');
+ now=get(retryNotice).dueAt;acceptMail=true;simulatedTransport='gmail';await run(retryNotice);assert.equal(get(retryNotice).state,'sent');assert.equal(sent.at(-1).html,firstPayload,'A transport retry retains the same valid one-use link');
  assert.equal((h.tables.get('account_access_links')||[]).filter(x=>x.bookingId===retryBooking._id).length,1);
+ assert(scheduled.some(x=>x.ref==='emailInbox.recordVerificationNotice'&&x.args.deliveryId===retryNotice&&x.args.messageId===`<${get(retryNotice).key}@fixture.invalid>`),'Gmail notice mirror receives the actual Message-ID');
  assert((h.tables.get('admin_notifications')||[]).some(n=>n.kind==='email_sent'),'guest email acceptance is visible to the owner');
  console.log('PASS paid verification email, 12-hour reminder, replay deduplication, verified suppression and guest delivery notification');
 })().catch(e=>{console.error(e);process.exitCode=1});

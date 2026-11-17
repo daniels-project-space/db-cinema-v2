@@ -32,6 +32,7 @@ function subjectKey(subject: string) {
   return String(subject ?? "")
     .toLowerCase()
     .replace(/^(\s*(re|fw|fwd)\s*:\s*)+/i, "")
+    .replace(/^(?:payment received — complete your rental checks|reminder: complete your rental checks|your rental verification is still being checked)(?=\s*·\s*dbc-)/, "rental verification")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -53,6 +54,35 @@ async function threadMessages(ctx: any, threadId: any, count = 40) {
     .order("desc")
     .take(count);
 }
+
+/** Mirror the accepted verification notice without storing its private sign-in link. */
+export const recordVerificationNotice=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),subject:v.string(),messageId:v.optional(v.string()),transport:v.optional(v.union(v.literal("gmail"),v.literal("resend")))},handler:async(ctx,a)=>{
+ const delivery=await ctx.db.get(a.deliveryId);
+ if(!delivery||delivery.state!=="sent"||!["paid_verification","verification_reminder"].includes(delivery.kind)||!delivery.recipientEmail)return false;
+ const providerId=`rental-notice:${delivery._id}`;
+ if(await ctx.db.query("email_messages").withIndex("by_provider",q=>q.eq("providerId",providerId)).first())return true;
+ const email=delivery.recipientEmail.trim().toLowerCase(),subject=a.subject.trim().slice(0,500);
+ if(!email||!subject)return false;
+ const booking=await ctx.db.get(delivery.bookingId),account=booking?.accountId?await ctx.db.get(booking.accountId):null;
+ const verifiedAccount=account&&account.blockedAt==null&&account.emailVerificationRequired!==true&&typeof account.emailVerifiedAt==="number"&&Number.isFinite(account.emailVerifiedAt)&&account.emailVerifiedAt>0&&account.email.trim().toLowerCase()===email?account:null;
+ const now=Date.now(),sentAt=delivery.sentAt??now,text="Payment was received. The renter was sent a private link to complete identity verification; approval is required before handover.";
+ const recent=await ctx.db.query("email_threads").withIndex("by_email_updated",q=>q.eq("email",email)).order("desc").take(20);
+ const matches=recent.filter(t=>subjectKey(t.subject)===subjectKey(subject)&&now-t.updatedAt<30*86_400_000);
+ let thread=matches.find(t=>t.bookingId===delivery.bookingId);
+ if(!thread&&matches.length===1&&!matches[0].bookingId){thread=matches[0];await ctx.db.patch(thread._id,{bookingId:delivery.bookingId});}
+ if(!thread){
+  const id=await ctx.db.insert("email_threads",{email,bookingId:delivery.bookingId,subject,replyKey:makeReplyKey(),...(verifiedAccount?{accountId:verifiedAccount._id,verifiedRenterEmail:email}:{}),status:"open",createdAt:now,updatedAt:now,lastAt:sentAt,lastDirection:"out",lastText:text,unreadOwner:0});
+  thread=(await ctx.db.get(id))!;
+ }else if(sentAt>thread.lastAt)await ctx.db.patch(thread._id,{updatedAt:now,lastAt:sentAt,lastDirection:"out",lastText:text});
+ const from=a.transport==="gmail"?(process.env.GMAIL_USER??OWNER_EMAIL):a.transport==="resend"?(process.env.RESEND_FROM?.match(/<([^>]+)>/)?.[1]??"bookings@dbcinemarentals.com"):"DB Cinema Rentals";
+ const messageId=delivery.providerRfcMessageId??a.messageId;
+ await ctx.db.insert("email_messages",{threadId:thread._id,direction:"out",sender:from,recipient:email,subject,text,at:sentAt,providerId,...(messageId?{messageId}:{}),state:"sent",humanRequested:false});
+ if(verifiedAccount&&(!thread.accountId||thread.accountId===verifiedAccount._id)){
+  if(!thread.accountId)await ctx.db.patch(thread._id,{accountId:verifiedAccount._id,verifiedRenterEmail:email});
+  await ctx.scheduler.runAfter(0,internal.emailInbox.copyVerifiedHistory,{accountId:verifiedAccount._id,threadId:thread._id,cursor:null});
+ }
+ return true;
+}});
 
 export const ingest = mutation({
   args: {
@@ -137,7 +167,8 @@ export const ingest = mutation({
         .order("desc")
         .take(20);
       const now = Date.now();
-      thread = recent.find((row) => subjectKey(row.subject) === subjectKey(args.subject) && now - row.updatedAt < 30 * 86_400_000) ?? null;
+      const matches=recent.filter((row) => subjectKey(row.subject) === subjectKey(args.subject) && now - row.updatedAt < 30 * 86_400_000);
+      thread = matches.length===1 ? matches[0] : null;
     }
 
     const now = Date.now();
@@ -241,9 +272,14 @@ export const claimInbound = mutation({
     if (message.state === "replied" || message.state === "handoff") return { state: "done" as const };
     const now = Date.now();
     if (message.state === "processing" && (message.leaseUntil ?? 0) > now) return { state: "busy" as const };
-    await ctx.db.patch(inboundId, { state: "processing", leaseUntil: now + LEASE_MS, error: undefined, humanRequested });
     const thread = await ctx.db.get(message.threadId);
     if (!thread) throw new Error("email thread not found");
+    if(thread.status==="human_requested"){
+      await ctx.db.patch(inboundId,{state:"handoff",leaseUntil:undefined,error:undefined,humanRequested:true});
+      await markEmailHumanRequested(ctx,thread,message,inboundId,now);
+      return {state:"human_waiting" as const};
+    }
+    await ctx.db.patch(inboundId, { state: "processing", leaseUntil: now + LEASE_MS, error: undefined, humanRequested });
     return { state: "claimed" as const, threadId: message.threadId, inboundId, history: await historyFor(ctx, message.threadId), email: thread.email };
   },
 });
@@ -367,7 +403,7 @@ export const claimAutomaticReply = internalMutation({
 });
 
 export const finishAutomaticReply = internalMutation({
-  args: { threadId: v.id("email_threads"), inboundId: v.id("email_messages"), outboundId: v.id("email_messages"), text: v.string(), messageId: v.string(), humanRequested: v.boolean() },
+  args: { threadId: v.id("email_threads"), inboundId: v.id("email_messages"), outboundId: v.id("email_messages"), text: v.string(), messageId: v.optional(v.string()), humanRequested: v.boolean() },
   handler: async (ctx, args) => {
     const thread = await ctx.db.get(args.threadId);
     const inbound = await ctx.db.get(args.inboundId);
@@ -467,7 +503,7 @@ export const sendAssistantReply = action({
       to: thread.email,
       subject: replySubject(thread.subject),
       html: safeHtml(text),
-      replyTo,
+      replyTo: [...new Set([replyTo,OWNER_EMAIL])],
       ...(args.humanRequested && thread.email !== OWNER_EMAIL ? { cc: [OWNER_EMAIL] } : {}),
       deliveryKey,
       inReplyTo: inbound.messageId,
@@ -482,7 +518,7 @@ export const sendAssistantReply = action({
       inboundId: args.inboundId,
       outboundId,
       text,
-      messageId: delivery.messageId,
+      ...(delivery.messageId?{messageId:delivery.messageId}:{}),
       humanRequested: args.humanRequested,
     });
     return { ok: true };
@@ -554,7 +590,7 @@ export const reserveOwnerReply = internalMutation({
 });
 
 export const finishOwnerReply = internalMutation({
-  args: { threadId: v.id("email_threads"), outboundId: v.id("email_messages"), text: v.string(), messageId: v.string(), inReplyTo: v.optional(v.string()), references: v.array(v.string()) },
+  args: { threadId: v.id("email_threads"), outboundId: v.id("email_messages"), text: v.string(), messageId: v.optional(v.string()), inReplyTo: v.optional(v.string()), references: v.array(v.string()) },
   handler: async (ctx, args) => {
     const thread = await ctx.db.get(args.threadId);
     const out = await ctx.db.get(args.outboundId);
@@ -596,7 +632,7 @@ export const sendOwnerReply = action({
       await ctx.runMutation(internal.emailInbox.markSendFailed, { outboundId: claim.outboundId, error: "business Gmail SMTP rejected the reply" });
       throw new Error("business email reply could not be sent");
     }
-    await ctx.runMutation(internal.emailInbox.finishOwnerReply, { threadId: args.threadId, outboundId: claim.outboundId, text, messageId: delivery.messageId, inReplyTo, references });
+    await ctx.runMutation(internal.emailInbox.finishOwnerReply, { threadId: args.threadId, outboundId: claim.outboundId, text, ...(delivery.messageId?{messageId:delivery.messageId}:{}), inReplyTo, references });
     return { ok: true };
   },
 });

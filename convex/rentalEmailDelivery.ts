@@ -71,7 +71,7 @@ export const ready=internalQuery({args:{deliveryId:v.id("rental_email_deliveries
   const row=await ctx.db.get(a.deliveryId);
   return row && row.state === "sending" && row.generation===a.generation && row.dueAt>Date.now() && await current(ctx,row) ? row : null;
 }});
-export const finish=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number(),result:v.union(v.literal("sent"),v.literal("retry"),v.literal("skipped")),providerMessageId:v.optional(v.string())},handler:async(ctx,a)=>{
+export const finish=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number(),result:v.union(v.literal("sent"),v.literal("retry"),v.literal("skipped")),providerMessageId:v.optional(v.string()),noticeSubject:v.optional(v.string()),noticeMessageId:v.optional(v.string()),noticeTransport:v.optional(v.union(v.literal("gmail"),v.literal("resend")))},handler:async(ctx,a)=>{
   const row=await ctx.db.get(a.deliveryId);
   if(!row || row.state!=="sending" || row.generation!==a.generation || row.dueAt<=Date.now())return false;
   const now=Date.now(),failed=a.result==="retry" && row.attempts>=MAX_ATTEMPTS;
@@ -86,6 +86,7 @@ export const finish=internalMutation({args:{deliveryId:v.id("rental_email_delive
   if(a.result === "sent") {
     const booking = await ctx.db.get(row.bookingId), account = await accountForRental(ctx, booking);
     await queueOwnerNotification(ctx, {eventKey:`rental-email-sent:${row._id}`,kind:"email_sent",...(account?{accountId:account._id}:{}),bookingId:row.bookingId,title:"Booking email sent",body:`The ${row.kind} email was accepted for delivery. This does not confirm that it was read.`});
+    if(a.noticeSubject&&["paid_verification","verification_reminder"].includes(row.kind))await ctx.scheduler.runAfter(0,internal.emailInbox.recordVerificationNotice,{deliveryId:row._id,subject:a.noticeSubject,...(a.noticeMessageId?{messageId:a.noticeMessageId}:{}),...(a.noticeTransport?{transport:a.noticeTransport}:{})});
   }
   if(failed)await flagFailure(ctx,row);
   return true;
@@ -107,14 +108,18 @@ export const providerCheckContext=internalQuery({args:{deliveryId:v.id("rental_e
  const row=await ctx.db.get(a.deliveryId);
  return row?.state==="sent"&&row.providerCheckGeneration===a.generation&&row.providerMessageId?{providerMessageId:row.providerMessageId}:null;
 }});
-export const recordProviderStatus=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number(),status:v.string()},handler:async(ctx,a)=>{
+export const recordProviderStatus=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number(),status:v.string(),messageId:v.optional(v.string())},handler:async(ctx,a)=>{
  const row=await ctx.db.get(a.deliveryId),now=Date.now();
  if(!row||row.state!=="sent"||row.providerCheckGeneration!==a.generation||!row.providerMessageId||row.providerCheckDueAt===undefined)return false;
  const failed=["bounced","suppressed","failed","complained"].includes(a.status);
  const delivered=["delivered","opened","clicked"].includes(a.status)||row.providerDeliveryStatus==="delivered";
  const expired=now-(row.sentAt??now)>=24*60*60_000;
  const done=failed||expired,notify=failed||(!delivered&&expired)||(delivered&&row.providerDeliveryStatus!=="delivered");
- await ctx.db.patch(row._id,{providerDeliveryStatus:failed?a.status:delivered?"delivered":expired?"unconfirmed":"accepted",providerCheckDueAt:done?undefined:now+(delivered?60:15)*60_000,updatedAt:now});
+ await ctx.db.patch(row._id,{providerDeliveryStatus:failed?a.status:delivered?"delivered":expired?"unconfirmed":"accepted",providerCheckDueAt:done?undefined:now+(delivered?60:15)*60_000,...(a.messageId?{providerRfcMessageId:a.messageId}:{}),updatedAt:now});
+ if(a.messageId&&["paid_verification","verification_reminder"].includes(row.kind)){
+  const mirrored=await ctx.db.query("email_messages").withIndex("by_provider",q=>q.eq("providerId",`rental-notice:${row._id}`)).first();
+  if(mirrored&&!mirrored.messageId)await ctx.db.patch(mirrored._id,{messageId:a.messageId});
+ }
  if(notify){
   const booking=await ctx.db.get(row.bookingId),account=await accountForRental(ctx,booking);
   const failureDetail:Record<string,string>={bounced:"The recipient's mail server rejected the email.",suppressed:"The email provider blocked delivery because of an earlier problem with this address.",failed:"The email provider could not send the message.",complained:"The recipient marked the email as spam."};
