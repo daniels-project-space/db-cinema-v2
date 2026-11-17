@@ -11,7 +11,7 @@ export const metadata = publicPageMetadata("/how-it-works",'How to hire equipmen
 
 const STEPS = [
   ["01", "Browse", "Find the gear you need by category — cameras, lenses, lighting, audio and more. Each listing shows live availability and multi-day rates.", BadgeBrowse],
-  ["02", "Pick your dates", "Choose your start and end date on the calendar. The longer you rent, the better the per-day rate — applied automatically. Add suggested kit in one tap.", BadgeCalendar],
+  ["02", "Pick your dates", "Choose your rental dates and times to check availability and see the applicable price. Add suggested kit to your basket.", BadgeCalendar],
   ["03", "Book & pay securely", "Checkout shows the rental total and the security terms that apply before you confirm. Your accepted agreement explains whether any refundable payment, card authorisation or saved-card permission applies.", BadgeLock],
   ["04", "Pickup or delivery", "Collect from central London or get it delivered locally. Shoot, then return it on your end date — that's it.", BadgeTruck],
 ] as const;
@@ -67,7 +67,7 @@ export default function HowItWorksPage() {
                 <span className="font-display font-semibold text-white/80">Discounts &amp; offers</span>
               </div>
               <p className="mt-2.5">
-                Multi-day rates apply automatically, and spending over £300 unlocks add-on deals.
+                Rates vary by item and rental length. Your listing and checkout show the applicable total and any eligible savings.
               </p>
             </div>
           </Reveal>
@@ -85,9 +85,9 @@ export default function HowItWorksPage() {
                     {i < HOURS_WINDOWS.length - 1 ? " and " : ""}
                   </span>
                 ))}
-                , every day. You choose your time slots at checkout. Local delivery is quoted by distance and item
-                size as a round trip (delivery + collection), within ~30km of central London — beyond that, pickup
-                only. Delivery uses a third-party courier; times are estimates and may be affected by traffic.
+                , every day. You choose your time slots at checkout. Local delivery is available for eligible
+                addresses; the quote depends on your location, dates and equipment and includes delivery and
+                collection. Delivery uses a third-party courier; times are estimates and may be affected by traffic.
               </p>
             </div>
           </Reveal>
