@@ -20,7 +20,7 @@ function bold(text: string, keyPrefix: string): ReactNode[] {
 /** Contact details become clear actions even when the model accidentally emits a
  * bare URL or address instead of Markdown. Other web links must be Markdown links. */
 const LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)|(https?:\/\/[^\s<>()]+|mailto:[^\s<>()]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/gi;
-const CONTACT_ACTION_RE = /(?:https?:\/\/(?:www\.)?dbcinemarentals\.com\/contact\/?(?:[?#][^\s<>()]*)?|mailto:bookings@dbcinemarentals\.com|bookings@dbcinemarentals\.com)/i;
+const CONTACT_ROUTE_RE = /https?:\/\/(?:www\.)?dbcinemarentals\.com\/contact\/?(?:[?#][^\s<>()]*)?/i;
 function chatLink(raw: string): { href: string; kind: "contact" | "email" | "external" } | null {
   if (raw.toLowerCase() === CONTACT_EMAIL.toLowerCase()) {
     return { href: `mailto:${CONTACT_EMAIL}`, kind: "email" };
@@ -43,7 +43,7 @@ function chatLink(raw: string): { href: string; kind: "contact" | "email" | "ext
 }
 
 export function hasChatContactAction(text: string): boolean {
-  return CONTACT_ACTION_RE.test(text);
+  return CONTACT_ROUTE_RE.test(text) || text.toLowerCase().includes(CONTACT_EMAIL.toLowerCase());
 }
 
 function inline(text: string): ReactNode[] {
