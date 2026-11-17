@@ -11,6 +11,7 @@ import { CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 import { bookingStockLines } from "../shared/rentalWindow";
 import { pickupMapAvailable, WATERSTONES_MAP_URL } from "../shared/pickupLocation";
 import { verificationExpired } from "../shared/verificationProgress";
+import { createHash, randomBytes } from "node:crypto";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -65,14 +66,17 @@ export const bookingOwnerAlert = internalAction({
 
 export const paidVerificationEmail = internalAction({
   args:{prepareOnly:v.optional(v.boolean()),deliveryKey:v.optional(v.string()),bookingId:v.id("bookings"),reminder:v.boolean()},
-  handler:async(ctx,{bookingId,deliveryKey,prepareOnly,reminder})=>{
+  handler:async(ctx,{bookingId,deliveryKey,prepareOnly,reminder}):Promise<any>=>{
     const b:any=await ctx.runQuery(internal.bookings.get,{bookingId});
-    if(!b?.guestEmail||b.status!=="pending_verification"||!b.checkoutPaidAt||b.idVerifyStatus==="verified")return null;
-    const app=process.env.APP_URL??"https://dbcinemarentals.com",url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
+    if(!b?.guestEmail||b.status!=="pending_verification"||!b.checkoutPaidAt||["verified","rejected"].includes(b.idVerifyStatus))return null;
+    const secret=randomBytes(32).toString("base64url"),secretHash=createHash("sha256").update(secret).digest("hex");
+    const claim:any=await ctx.runMutation(internal.accountClaims.preparePendingVerification,{bookingId,secretHash});
+    if(!claim)return null;
+    const app=new URL(process.env.APP_URL??"https://dbcinemarentals.com").origin,url=`${app}/account/access?next=verification#${encodeURIComponent(secret)}`;
     const reviewPending=["manual_review","processing"].includes(b.idVerifyStatus);
     const title=reminder?(reviewPending?"Your rental verification is still being checked":"Reminder: complete your rental checks"):"Payment received — complete your rental checks";
     const rows:Array<[string,string]>=b.lineItems.map((li:any)=>[`${li.title} · ${day(li.start)} to ${day(li.end)}`,emailMoney(li.lineTotal)]);rows.push(["Payment received",emailMoney(b.total)]);
-    return email(b.guestEmail,title,rentalEmail({title,preview:"Your rental still needs verification and approval.",url,button:reviewPending?"Check verification progress":"Complete verification",body:`<p>We have received your payment. Your rental still needs identity verification and approval before handover.</p>${emailRows(rows)}${reviewPending?"<p>Your verification is being processed or reviewed; open your rental for its latest status.</p>":""}<p>If prompted, sign in or create an account using the email address used for this booking. Need help? Reply to this email.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
+    return email(claim.email,title,rentalEmail({title,preview:"Your rental still needs verification and approval.",url,button:reviewPending?"Check verification progress":"Complete verification",body:`<p>We have received your payment. Your rental still needs identity verification and approval before handover.</p>${emailRows(rows)}${reviewPending?"<p>Your verification is being processed or reviewed; open your rental for its latest status.</p>":""}<p>This private link works once and expires in 24 hours. Please do not forward it. Need help? Reply to this email.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
   },
 });
 

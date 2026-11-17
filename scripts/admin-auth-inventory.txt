@@ -505,6 +505,7 @@ export convex/accountClaims.ts:ensurePaidBookingAccount
 export convex/accountClaims.ts:exchange
 export convex/accountClaims.ts:failed
 export convex/accountClaims.ts:prepare
+export convex/accountClaims.ts:preparePendingVerification
 export convex/accountClaims.ts:prepareSignIn
 export convex/accountClaims.ts:prepareSignup
 export convex/accountClaims.ts:sent

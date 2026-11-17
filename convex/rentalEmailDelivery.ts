@@ -16,7 +16,7 @@ async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliv
   const account=await accountForRental(ctx,b);
   const recipient=account?.email ?? (b.accountId ? null : b.guestEmail);
   if(!recipient || (row.recipientEmail && row.recipientEmail!==recipient)) return false;
-  if(row.kind==="paid_verification"||row.kind==="verification_reminder")return b.status==="pending_verification"&&!!b.checkoutPaidAt&&b.idVerifyStatus!=="verified"&&!b.cancellationDecision&&!b.returnDecision&&account?.blockedAt==null;
+  if(row.kind==="paid_verification"||row.kind==="verification_reminder")return b.status==="pending_verification"&&!!b.checkoutPaidAt&&!["verified","rejected"].includes(b.idVerifyStatus??"")&&!b.cancellationDecision&&!b.returnDecision&&account?.blockedAt==null;
   if(row.kind === "cancellation_choice"){
     const offer=b.cancellationDecision?.operatorOfferId?await ctx.db.get(b.cancellationDecision.operatorOfferId):null;
     return !!offer&&offer.emailDeliveryId===row._id&&offer.state==="email_pending"&&account?.blockedAt==null&&offer.recipientEmail===recipient&&Date.now()<(offer.choiceDeadline??0);
