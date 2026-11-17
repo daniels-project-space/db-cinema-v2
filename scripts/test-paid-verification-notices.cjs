@@ -1,0 +1,28 @@
+const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
+let now=Date.UTC(2030,0,1);Date.now=()=>now;
+const sent=[],scheduled=[];
+h.setMock('./lib/mailer',{sendMail:async m=>(sent.push(m),true),OWNER_EMAIL:()=> 'owner@example.invalid'});
+const queue=h.load('convex/lib/rentalEmailQueue.ts'),delivery=h.load('convex/rentalEmailDelivery.ts'),worker=h.load('convex/rentalEmailMail.ts'),notify=h.load('convex/notify.ts'),bookings=h.load('convex/bookings.ts');
+const blobs=new Map();let serial=0;
+const ctx={db:h.db,scheduler:{runAfter:async(ms,ref,args)=>scheduled.push({ms,ref,args})},storage:{store:async blob=>{const id=`blob-${++serial}`;blobs.set(id,blob);return id},get:async id=>blobs.get(id),delete:async id=>blobs.delete(id)},runQuery:async(ref,a)=>{if(ref==='rentalEmailDelivery.ready')return delivery.ready.handler(ctx,a);if(ref==='bookings.get')return bookings.get.handler(ctx,a);throw Error(ref)},runMutation:async(ref,a)=>{if(ref==='rentalEmailDelivery.prepare')return delivery.prepare.handler(ctx,a);if(ref==='rentalEmailDelivery.finish')return delivery.finish.handler(ctx,a);throw Error(ref)},runAction:async(ref,a)=>{assert.equal(ref,'notify.paidVerificationEmail');return notify.paidVerificationEmail.handler(ctx,a)}};
+const booking=h.put('bookings',{status:'pending_verification',checkoutPaidAt:now,idVerifyStatus:'required',verificationProvider:'didit',guestEmail:'renter@example.invalid',total:65,lineItems:[{title:'Camera',lineTotal:65,start:now,end:now}]});
+const get=id=>h.docs.get(id);
+async function run(id){await delivery.dispatchOne.handler(ctx,{deliveryId:id});await worker.deliver.handler(ctx,scheduled.at(-1).args)}
+(async()=>{
+ const payment=await queue.queueRentalEmail(ctx,booking._id,'paid_verification');
+ const reminder=await queue.queueRentalEmail(ctx,booking._id,'verification_reminder',{dueAt:now+12*3600000});
+ assert.equal(await queue.queueRentalEmail(ctx,booking._id,'paid_verification'),payment);
+ await run(payment);assert.equal(get(payment).state,'sent');assert.match(sent[0].subject,/Payment received/);assert.match(sent[0].html,/verification/i);
+ await delivery.dispatchOne.handler(ctx,{deliveryId:reminder});assert.equal(get(reminder).state,'pending');
+ now+=12*3600000;await run(reminder);assert.equal(get(reminder).state,'sent');assert.match(sent[1].subject,/Reminder/);
+ const second=h.put('bookings',{...booking,_id:'bookings-verified',idVerifyStatus:'required'});
+ const cancelled=await queue.queueRentalEmail(ctx,second._id,'verification_reminder',{dueAt:now+12*3600000});second.idVerifyStatus='verified';now+=12*3600000;
+ await delivery.dispatchOne.handler(ctx,{deliveryId:cancelled});assert.equal(get(cancelled).state,'skipped');assert.equal(sent.length,2);
+ const manual=h.put('bookings',{...booking,_id:'bookings-manual',checkoutPaidAt:now-1000,idVerifyStatus:'required'});
+ assert.equal(await bookings.scheduleManualVerificationReminder.handler(ctx,{bookingId:manual._id,initialSentAt:now-500}),true);
+ const manualRow=(h.tables.get('rental_email_deliveries')||[]).find(r=>r.bookingId===manual._id);
+ assert.equal(manualRow.dueAt,now-500+12*3600000);
+ assert.equal(await bookings.scheduleManualVerificationReminder.handler(ctx,{bookingId:manual._id,initialSentAt:now+1}),false);
+ assert((h.tables.get('admin_notifications')||[]).some(n=>n.kind==='email_sent'),'guest email acceptance is visible to the owner');
+ console.log('PASS paid verification email, 12-hour reminder, replay deduplication, verified suppression and guest delivery notification');
+})().catch(e=>{console.error(e);process.exitCode=1});

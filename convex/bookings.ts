@@ -596,9 +596,29 @@ export const recordPaidCheckoutReceipt = internalMutation({
       await ctx.db.patch(hold._id, { holdExpiresAt: undefined });
     if (changed || holds.some((hold: any) => hold.status === "hold" && hold.holdExpiresAt !== undefined))
       await queueRmv2Sync(ctx, bookingId);
+    if(awaitingDidit && isSavedCardRental(booking) && booking.savedCardStatus!=="saved")
+      await ctx.scheduler.runAfter(0,internal.checkout.recoverPendingSavedCard,{bookingId,attempt:1});
+    if(changed && awaitingDidit && booking.idVerifyStatus!=="verified"){
+      await queueRentalEmail(ctx,bookingId,"paid_verification");
+      await queueRentalEmail(ctx,bookingId,"verification_reminder",{dueAt:checkoutPaidAt+12*60*60*1000});
+      const account=await accountForRental(ctx,booking),income=Math.max(0,booking.total-(booking.depositAmount??0));
+      await queueOwnerNotification(ctx,{eventKey:`paid:${bookingId}`,kind:"booking_paid",...(account?{accountId:account._id}:{}),bookingId,title:"New booking — verification needed",body:"Payment received. The renter still needs to complete their identity checks.",income:{gross:income,net:Math.max(0,booking.subtotal-(booking.discount??0)-(booking.creditApplied??0)),currency:"GBP"}});
+    }
     if (awaitingDidit && booking.idVerifyStatus === "verified")
       await ctx.scheduler.runAfter(15 * 60000, internal.checkout.confirmAfterVerification, { bookingId, attempt: 1 });
     return { recorded: true, checkoutPaidAt, awaitingVerification: awaitingDidit };
+  },
+});
+
+// For a paid rental whose initial verification email was sent manually before
+// the automated notices were deployed. The queue deduplicates later retries.
+export const scheduleManualVerificationReminder = internalMutation({
+  args: {bookingId:v.id("bookings"), initialSentAt:v.number()},
+  handler: async (ctx,{bookingId,initialSentAt}) => {
+    const booking=await ctx.db.get(bookingId);
+    if(!booking || booking.status!=="pending_verification" || booking.verificationProvider!=="didit" || !booking.checkoutPaidAt || booking.idVerifyStatus==="verified" || booking.cancellationDecision || booking.returnDecision || !Number.isSafeInteger(initialSentAt) || initialSentAt<booking.checkoutPaidAt || initialSentAt>Date.now()) return false;
+    await queueRentalEmail(ctx,bookingId,"verification_reminder",{dueAt:initialSentAt+12*60*60*1000});
+    return true;
   },
 });
 
@@ -1603,6 +1623,7 @@ export const get = internalQuery({
     return {
       _id: b._id,
       status: b.status,
+      checkoutPaidAt:b.checkoutPaidAt??null,
       lineItems: b.lineItems,
       subtotal: b.subtotal,
       depositAmount: b.depositAmount,
@@ -1770,7 +1791,7 @@ export const verificationAccess = internalQuery({
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
     const customer = b.customerId ? await ctx.db.get(b.customerId) : null;
-    return { guestEmail: b.guestEmail, status: b.status, verificationProvider: b.verificationProvider,
+    return { guestEmail: b.guestEmail, status: b.status, verificationProvider: b.verificationProvider,checkoutPaidAt:b.checkoutPaidAt,
       idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId,
       idVerificationSource: b.idVerificationSource, diditEventId: b.diditEventId ?? null,
       diditEventAt: b.diditEventAt ?? null, diditManualDecisionAt: b.diditManualDecisionAt ?? null,
