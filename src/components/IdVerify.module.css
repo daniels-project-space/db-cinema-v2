@@ -38,47 +38,92 @@
     position: fixed;
     inset: 0;
     z-index: 1000;
-    display: flex;
-    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
     margin: 0;
-    padding-top: env(safe-area-inset-top);
+    padding: 0;
     background: #fff;
   }
 
   .mobileBar {
+    position: absolute;
+    top: max(env(safe-area-inset-top), 8px);
+    right: 0.75rem;
+    z-index: 1;
     display: flex;
-    flex: 0 0 48px;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding-inline: 1rem;
-    background: #111827;
+    justify-content: flex-end;
+    pointer-events: none;
+  }
+
+  .mobileOptionsButton {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    border: 1px solid rgb(255 255 255 / 16%);
+    border-radius: 9999px;
+    background: rgb(17 24 39 / 88%);
     color: #fff;
-  }
-
-  .backButton,
-  .newTabButton {
-    min-height: 44px;
-    color: inherit;
-    font-size: 0.875rem;
-    text-decoration: underline;
-    text-underline-offset: 3px;
-  }
-
-  .backButton {
-    border: 0;
-    padding: 0;
-    background: transparent;
-    font-family: inherit;
+    font: 700 1.4rem/1 system-ui, sans-serif;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    pointer-events: auto;
     cursor: pointer;
   }
 
+  .mobileMenu {
+    position: fixed;
+    top: auto;
+    right: 0.75rem;
+    bottom: max(calc(env(safe-area-inset-bottom) + 84px), 100px);
+    display: grid;
+    min-width: 184px;
+    gap: 4px;
+    padding: 6px;
+    border: 1px solid rgb(255 255 255 / 14%);
+    border-radius: 14px;
+    background: rgb(17 24 39 / 94%);
+    box-shadow: 0 12px 36px rgb(0 0 0 / 32%);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    pointer-events: auto;
+  }
+
+  .mobileMenu button,
+  .mobileMenu a {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: #fff;
+    font: 500 0.875rem/1.25 system-ui, sans-serif;
+    text-align: left;
+    text-decoration: none;
+  }
+
+  .mobileMenu button:focus-visible,
+  .mobileMenu a:focus-visible,
+  .mobileOptionsButton:focus-visible {
+    outline: 2px solid #d3a679;
+    outline-offset: 2px;
+  }
+
+  .mobileMenu button:hover,
+  .mobileMenu a:hover {
+    background: rgb(255 255 255 / 9%);
+  }
+
   .frame {
+    position: absolute;
+    inset: 0;
     width: 100%;
-    height: auto;
-    min-height: 0;
+    height: 100%;
     max-height: none;
-    flex: 1 1 auto;
+    min-height: 0;
     margin: 0;
     border-radius: 0;
   }

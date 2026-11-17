@@ -1,0 +1,30 @@
+const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
+let now=Date.UTC(2030,0,1);Date.now=()=>now;
+const sent=[],scheduled=[];
+h.setMock('./lib/mailer',{sendMail:async m=>(sent.push(m),true),OWNER_EMAIL:()=> 'owner@example.invalid'});
+const queue=h.load('convex/lib/rentalEmailQueue.ts'),delivery=h.load('convex/rentalEmailDelivery.ts'),worker=h.load('convex/rentalEmailMail.ts'),notify=h.load('convex/notify.ts'),bookings=h.load('convex/bookings.ts');
+const blobs=new Map();let serial=0;
+const ctx={db:h.db,scheduler:{runAfter:async(ms,ref,args)=>scheduled.push({ms,ref,args})},storage:{store:async blob=>{const id=`blob-${++serial}`;blobs.set(id,blob);return id},get:async id=>blobs.get(id),delete:async id=>blobs.delete(id)},runQuery:async(ref,a)=>{if(ref==='rentalEmailDelivery.ready')return delivery.ready.handler(ctx,a);if(ref==='bookings.get')return bookings.get.handler(ctx,a);throw Error(ref)},runMutation:async(ref,a)=>{if(ref==='rentalEmailDelivery.prepare')return delivery.prepare.handler(ctx,a);if(ref==='rentalEmailDelivery.finish')return delivery.finish.handler(ctx,a);throw Error(ref)},runAction:async(ref,a)=>{assert.equal(ref,'notify.paidVerificationEmail');return notify.paidVerificationEmail.handler(ctx,a)}};
+const booking=h.put('bookings',{status:'pending_verification',checkoutPaidAt:now,idVerifyStatus:'required',verificationProvider:'didit',guestEmail:'renter@example.invalid',total:65,lineItems:[{title:'Camera',lineTotal:65,start:now,end:now}]});
+const get=id=>h.docs.get(id);
+async function run(id){await delivery.dispatchOne.handler(ctx,{deliveryId:id});await worker.deliver.handler(ctx,scheduled.at(-1).args)}
+(async()=>{
+ const payment=await queue.queueRentalEmail(ctx,booking._id,'paid_verification');
+ const reminder=await queue.queueRentalEmail(ctx,booking._id,'verification_reminder',{dueAt:now+12*3600000});
+ assert.equal(await queue.queueRentalEmail(ctx,booking._id,'paid_verification'),payment);
+ await run(payment);assert.equal(get(payment).state,'sent');assert.match(sent[0].subject,/Payment received/);assert.match(sent[0].html,/verification/i);
+ await delivery.dispatchOne.handler(ctx,{deliveryId:reminder});assert.equal(get(reminder).state,'pending');
+ now+=12*3600000;await run(reminder);assert.equal(get(reminder).state,'sent');assert.match(sent[1].subject,/Reminder/);
+ const pendingReview=h.put('bookings',{...booking,_id:'bookings-review-pending',idVerifyStatus:'manual_review'});
+ const reviewMail=await queue.queueRentalEmail(ctx,pendingReview._id,'paid_verification');await run(reviewMail);assert.equal(get(reviewMail).state,'sent');assert.match(sent.at(-1).subject,/verification in progress/i);assert.match(sent.at(-1).html,/No further action is needed/i);assert.match(sent.at(-1).html,/Check verification progress/);
+ const declined=h.put('bookings',{...booking,_id:'bookings-declined',idVerifyStatus:'required'});
+ const declinedPayment=await queue.queueRentalEmail(ctx,declined._id,'paid_verification');const declinedReminder=await queue.queueRentalEmail(ctx,declined._id,'verification_reminder',{dueAt:now+3600000});declined.idVerifyStatus='rejected';
+ await run(declinedPayment);assert.equal(get(declinedPayment).state,'skipped','A delayed payment email is suppressed after Didit rejects the renter');
+ now+=3600000;await run(declinedReminder);assert.equal(get(declinedReminder).state,'skipped','A scheduled reminder is suppressed after Didit rejects the renter');
+ assert.equal(await notify.paidVerificationEmail.handler(ctx,{bookingId:declined._id,reminder:true}),null,'The email action refuses to send a rejected renter a verification-completion reminder');
+ const second=h.put('bookings',{...booking,_id:'bookings-verified',idVerifyStatus:'required'});
+ const cancelled=await queue.queueRentalEmail(ctx,second._id,'verification_reminder',{dueAt:now+12*3600000});second.idVerifyStatus='verified';now+=12*3600000;
+ const sentBeforeSuppression=sent.length;await delivery.dispatchOne.handler(ctx,{deliveryId:cancelled});assert.equal(get(cancelled).state,'skipped');assert.equal(sent.length,sentBeforeSuppression);
+ assert((h.tables.get('admin_notifications')||[]).some(n=>n.kind==='email_sent'),'guest email acceptance is visible to the owner');
+ console.log('PASS paid verification email, 12-hour reminder, replay deduplication, verified suppression and guest delivery notification');
+})().catch(e=>{console.error(e);process.exitCode=1});

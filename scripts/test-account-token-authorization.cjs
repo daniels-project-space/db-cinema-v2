@@ -10,6 +10,10 @@ const ctx={runQuery:async(ref,args)=>{if(ref==='accounts._byToken')return accoun
  for(const token of ['blocked','expired','unverified','missing'])assert.equal(await accounts._byToken.handler(dbctx,{token}),null,token);
  for(const token of ['blocked','expired','unverified','missing','foreign'])await assert.rejects(checkout.retrySavedCard.handler(ctx,{token,bookingId:booking._id}),/access denied/i);
  await checkout.retrySavedCard.handler(ctx,{token:'owner',bookingId:booking._id});assert.equal(calls,1,'only owning active session reaches card handler');
+ booking.status='pending_verification';booking.checkoutPaidAt=Date.now();
+ await checkout.retrySavedCard.handler(ctx,{token:'owner',bookingId:booking._id});assert.equal(calls,2,'paid pending rentals can reconcile their existing checkout card');
+ delete booking.checkoutPaidAt;await assert.rejects(checkout.retrySavedCard.handler(ctx,{token:'owner',bookingId:booking._id}),/not awaiting card confirmation/i);
+ booking.status='confirmed';
  for(const token of ['blocked','expired','unverified','missing'])await assert.rejects(identity.createAccountSession.handler(ctx,{token,origin:'https://fixture.invalid'}),/sign in/i);
  const old=process.env.RENTAL_CHECKOUT_ENABLED;process.env.RENTAL_CHECKOUT_ENABLED='true';try{for(const token of ['blocked','expired','unverified','missing'])await assert.rejects(checkout.startMembership.handler(ctx,{token,tier:'pro',origin:'https://fixture.invalid'}),/sign in/i)}finally{if(old===undefined)delete process.env.RENTAL_CHECKOUT_ENABLED;else process.env.RENTAL_CHECKOUT_ENABLED=old}
  console.log('PASS synthetic account authorization: valid, foreign, blocked, expired, unverified and missing sessions through account, card, identity and membership handlers; no providers called.');

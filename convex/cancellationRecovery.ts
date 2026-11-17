@@ -9,7 +9,7 @@ import { approvedRequest, cancellationRequestKey } from "./lib/rentalRequestExec
 export const inventoryConflictStatus=query({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,args)=>{
  if(!checkAdminToken(args.token))throw Error("unauthorized");
  const b=await ctx.db.get(args.bookingId);
- if(process.env.INVENTORY_CONFLICT_REFUND_ENABLED!=="true"||!b||b.status!=="pending_verification"||b.verificationConfirmationIssue!=="inventory_unavailable"||!b.stripePaymentIntentId||!b.stripeCheckoutSessionId)return null;
+ if(process.env.INVENTORY_CONFLICT_REFUND_ENABLED!=="true"||!b||b.status!=="pending_verification"||!(b.verificationConfirmationIssue==="inventory_unavailable"||b.verificationConfirmationIssue==="manager_capacity_conflict")||!b.stripePaymentIntentId||!b.stripeCheckoutSessionId)return null;
  const job=await ctx.db.query("rental_cancellations").withIndex("by_booking",q=>q.eq("bookingId",args.bookingId)).unique();
  return {amount:b.total,unspentCredit:b.checkoutCreditState==="unspent"&&!b.paidConfirmedAt&&!b.membershipCheckoutId?(b.creditApplied??0):0,reason:b.cancellationDecision?.inventoryConflictReason??"",started:!!b.cancellationDecision?.inventoryConflictRefund,status:job?.status??null};
 }});

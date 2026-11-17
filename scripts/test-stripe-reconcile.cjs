@@ -67,7 +67,7 @@ const {expire:expireCredits}=load('convex/credits.ts');
     },
     runMutation: async (ref,args)=>{
       mutations.push({ref,args});
-      if(ref==='bookings:recordPaidCheckoutReceipt')return {recorded:true};
+      if(ref==='bookings:recordPaidCheckoutReceipt')return {recorded:true,requiresSavedCard:false};
       if(ref==='bookings:confirm')return args.bookingId==='verification'?{awaitingVerification:true}:{already:false};
       if(ref==='bookings:expireUnpaidPending')return true;
       throw Error(`Unexpected mutation ${ref}`);

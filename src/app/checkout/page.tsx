@@ -123,6 +123,7 @@ export default function CheckoutPage() {
   const [deliveryAgreed, setDeliveryAgreed] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [signature, setSignature] = useState("");
+  const [securityConsentContext, setSecurityConsentContext] = useState<string | null>(null);
   const agreementRequest = useRef<string | null>(null);
   const signatureLimit = useRef<number | null>(null);
   const signedContext = useRef<string | null>(null);
@@ -155,6 +156,7 @@ export default function CheckoutPage() {
     setProtection(draft?.protection ?? "verify");
     setUseAccountCredit(draft?.useAccountCredit??false);
     setAgreed(draft?.agreed ?? false);
+    setSecurityConsentContext(draft?.securityConsentContext ?? null);
     setDeliveryAgreed(draft?.deliveryAgreed ?? false);
     setSignature(""); setDq(null); setQuoting(false); setRecovery(null); setQuoted(null);
     agreementRequest.current = null; membershipRequest.current = null;
@@ -166,10 +168,10 @@ export default function CheckoutPage() {
     if (!draftReady) return;
     saveCheckoutDraft(browserCheckoutStorage(), draftScope!, DRAFT_TERMS, {
       email, name, phone, billingAddress, fulfilment, address, postcode, protection,
-      agreed, deliveryAgreed,useAccountCredit,
+      agreed, deliveryAgreed, useAccountCredit, securityConsentContext,
     });
   }, [draftReady, draftScope, email, name, phone, billingAddress, fulfilment, address,
-    postcode, protection, agreed, deliveryAgreed,useAccountCredit]);
+    postcode, protection, agreed, deliveryAgreed, useAccountCredit, securityConsentContext]);
 
   useEffect(() => {
     const profile = account.me;
@@ -283,7 +285,18 @@ export default function CheckoutPage() {
   const immediateClaimPolicy=isImmediateClaimSecurityPolicy(currentQuote?.securityPolicyVersion);
   const rentalAgreements = agreementsForSecurityPolicy(currentQuote?.securityPolicyVersion,currentQuote?.cancellationProtectionEnabled);
   const savedCardQuoteReady = !!currentQuote && (currentQuote.securityPolicyVersion === SECURITY_POLICY_VERSION || refundablePolicy || cardHoldPolicy || setupIntentPolicy) && Number.isFinite(currentQuote.savedCardLimit) && (cardHoldPolicy ? currentQuote.depositAmount === 0 && currentQuote.savedCardLimit === 0 && [0,50,100,200].includes(currentQuote.depositHoldAmount) : setupIntentPolicy ? [50,100,200].includes(currentQuote.savedCardLimit) && currentQuote.depositAmount === 0 && currentQuote.depositHoldAmount === 0 : (refundablePolicy ? [0,20,50,100].includes(currentQuote.depositAmount) : currentQuote.depositAmount === 0) && currentQuote.depositHoldAmount === 0);
-  useEffect(()=>{setAgreed(false);setSignature("");agreementRequest.current=null;},[futureChargeLimit,currentQuote?.depositAmount,currentQuote?.securityPolicyVersion,currentQuote?.cancellationProtectionEnabled]);
+  const currentSecurityConsentContext = currentQuote ? JSON.stringify({
+    policy: currentQuote.securityPolicyVersion,
+    limit: currentQuote.savedCardLimit,
+    deposit: currentQuote.depositAmount,
+    hold: currentQuote.depositHoldAmount,
+    cancellationProtection: currentQuote.cancellationProtectionEnabled,
+  }) : null;
+  useEffect(() => {
+    if (!draftReady || !currentSecurityConsentContext) return;
+    if (securityConsentContext !== currentSecurityConsentContext) setAgreed(false);
+    setSecurityConsentContext(currentSecurityConsentContext);
+  }, [draftReady, currentSecurityConsentContext, securityConsentContext]);
   const signDone = agreed && signature.trim().length > 2 && signatureLimit.current === futureChargeLimit && signedContext.current === signingContext;
 
   const currentAccountTermsVersion = rentalAgreements.find(doc => doc.kind === "terms")?.version;

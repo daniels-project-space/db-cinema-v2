@@ -2,7 +2,15 @@
 
 Reviewed changes against `ab18d4c34e8aeddd497935bb5ded629d33a805f5` in `/home/ubuntu/db-cinema-v2`. Initially prepared as a source-only review. On 5 October the operator explicitly authorised publication of the new terms and requested PDFs without personal data. The current public text omits the individual equipment owner’s name; PDFs are standalone terms without customer particulars. Publication does not authorise checkout activation, lifting handover review, payments, broker messages or customer data changes. The pre-existing `.serena/project.yml` work is excluded from this release.
 
+## Current code and policy check — 16 November 2026
+
+The later checkout policy revisions now encode the decisions Daniel gave in this chat: v23 sets the renter-cancellation boundaries (full refund or 100% credit at least seven days before; credit only more than 48 hours but fewer than seven days; no rental refund or credit at 48 hours or less); v24 adds the company-cancellation choice of a full eligible refund or 130% credit, subject to the stated terms-violation exception; v25 clarifies that payment and required verification must both pass before a rental is confirmed or its final confirmation, invoice, and exact collection address are sent. The `SETUP_INTENT_SECURITY_POLICY_ENABLED` checkout path selects the immediate-claim policy: no cash deposit or card hold, an off-session saved card with the £50/£100/£200 claim ceiling, and a separately recorded, evidenced post-return claim. Existing signed versions remain immutable.
+
+This verifies code/text alignment with the operator decisions; it is **not** solicitor, insurer, privacy, or operational approval. The October review items below that require external review or real handover evidence remain open. The hard release gate stays in place until those items have evidence; passing code tests alone does not lift it.
+
 ## Implemented behaviour and limits
+
+> The detailed review below records the 5 October 2026 source review. The 16 November update above supersedes its legal-version and commercial cancellation-policy statements; unchanged external-review and handover-evidence blockers remain open.
 
 Legal version advances from the inspected `2026-10-v8` to `2026-10-v9`, following the existing increment convention. The full inspected v8 text is preserved in `shared/legal-history/2026-10-v8.ts`; v9 is the real legal-page and new agreement text. Current pages accept a version query for those two versions. Independent membership `2026-10-membership-v9` and referral `2026-10-referrals-v2` economics/text remain unchanged. The checkout reference to referrals is corrected to its actual independent version. Earlier legal versions remain in existing Git history and booking records; no fabricated full copy is attached to an older booking.
 
@@ -113,7 +121,7 @@ No live Convex schema/index deployment, serializable concurrent-mutation/provide
 
 The original immutable snapshot remains intact during amendments, but existing extension/addition/owner-reschedule operations do not yet create a separately signed complete amendment instrument. Release stays blocked until an approved material-amendment acceptance process is connected. Existing stored prices, payment/approval rules and history are preserved.
 
-The commercial cancellation handlers still implement the existing commercial refund/credit schedule. A separately approved statutory classification/refund/early-start path is required before launch; this source does not falsely label the commercial path as a tested statutory refund. No new refund/capture/debt collection capability was added.
+The commercial cancellation handlers now implement the operator-approved v23–v25 refund/credit schedule for new rentals. A separately reviewed and tested statutory classification/refund/early-start path is still required before launch; this source does not label the commercial path as a tested statutory refund. No new refund/capture/debt collection capability was added in the October review.
 
 The hard review gate is deliberately not a final operational evidence system. After source review, broker/legal/operational decisions and a real evidence/acknowledgement workflow, it needs a separately authorised implementation/release review. Do not remove it to make a demo handover succeed.
 

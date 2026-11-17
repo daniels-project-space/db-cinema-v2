@@ -243,6 +243,8 @@ export const start = action({
       throw new ConvexError({code:"CHECKOUT_PAUSED",message:"Checkout is temporarily paused while we improve the booking experience. Your basket is saved; please check back soon."});
     if (!RENTAL_DRAFT_RELEASE_READY)
       throw new ConvexError({code:"RENTAL_AGREEMENT_REVIEW",message:"Online rental booking is temporarily paused while we complete the rental agreement and handover checks. Your basket is saved; please try again soon."});
+    if (!swapAuthorityAvailable())
+      throw new ConvexError({code:"STOCK_SYNC_UNAVAILABLE",message:"Online booking is temporarily paused while Rental Manager stock coordination is unavailable. Your basket is saved; please try again soon."});
     if (process.env.BUSINESS_VAT_REGISTERED === "true")
       throw new Error("Rental receipt tax configuration needs updating before checkout can continue.");
     if (!process.env.DIDIT_API_KEY || !process.env.DIDIT_WORKFLOW_ID || !process.env.DIDIT_WEBHOOK_SECRET ||
@@ -621,10 +623,23 @@ async function expireUnpaidCheckout(ctx:any,sb:Stripe,bookingId:any,session:Stri
 async function confirmPaidBookingWithLiveStock(ctx: any, bookingId: any, session: Stripe.Checkout.Session) {
   if (!checkoutCompleted(session) || session.metadata?.bookingId !== String(bookingId))
     throw Error("Paid checkout does not match this booking.");
-  const providerReceipt=await verifiedCheckoutReceipt(stripe(),session);
+  const sb=stripe();
+  const providerReceipt=await verifiedCheckoutReceipt(sb,session);
   const paymentIntentId=providerReceipt.paymentIntentId;
   const receipt = await ctx.runMutation(internal.bookings.recordPaidCheckoutReceipt, { bookingId, sessionId: session.id, ...providerReceipt });
   if (receipt.closed) return receipt;
+  if (typeof receipt.requiresSavedCard !== "boolean")
+    throw new Error("The rental security requirement could not be verified. The payment is recorded and the rental remains held while we retry.");
+  if (receipt.requiresSavedCard) {
+    try {
+      const saved = await checkoutSavedCard(session, sb);
+      const applied = await ctx.runMutation(internal.savedCardState.save, { bookingId, sessionId: session.id, ...saved });
+      if (!applied) throw new Error("The verified card could not be attached to this paid rental.");
+    } catch (error) {
+      try { await ctx.runMutation(internal.savedCardState.failed, { bookingId }); } catch {}
+      throw new ConvexError({ code: "SAVED_CARD_SETUP_UNAVAILABLE", message: "Payment is recorded and the rental is held, but Stripe has not confirmed the saved card. The rental is not confirmed; we are retrying. Please do not pay again." });
+    }
+  }
   if (receipt.awaitingVerification) {
     // A successful Didit checkout must reach Rental Manager before the payer
     // leaves the paid-pending state. The local reservation is already durable;
@@ -704,10 +719,32 @@ export async function checkoutSavedCard(session:Stripe.Checkout.Session,sb:Strip
  const customerId=typeof session.customer==="string"?session.customer:session.customer?.id;
  if(!customerId)throw Error("Rental checkout has no saved card customer.");
  let paymentMethod:string|undefined;
- const paymentId=await checkoutPaymentIntent(session);
- if(paymentId){const pi=await sb.paymentIntents.retrieve(paymentId);if(pi.status==="succeeded")paymentMethod=typeof pi.payment_method==="string"?pi.payment_method:pi.payment_method?.id;}
- if(!paymentMethod&&session.setup_intent){const setup=await sb.setupIntents.retrieve(typeof session.setup_intent==="string"?session.setup_intent:session.setup_intent.id);if(setup.status==="succeeded")paymentMethod=typeof setup.payment_method==="string"?setup.payment_method:setup.payment_method?.id;}
- if(!paymentMethod&&session.subscription){const sub=await sb.subscriptions.retrieve(typeof session.subscription==="string"?session.subscription:session.subscription.id);paymentMethod=typeof sub.default_payment_method==="string"?sub.default_payment_method:sub.default_payment_method?.id;if(!paymentMethod&&sub.pending_setup_intent){const setup=await sb.setupIntents.retrieve(typeof sub.pending_setup_intent==="string"?sub.pending_setup_intent:sub.pending_setup_intent.id);if(setup.status==="succeeded")paymentMethod=typeof setup.payment_method==="string"?setup.payment_method:setup.payment_method?.id;}}
+ if(session.setup_intent){
+  const setup=await sb.setupIntents.retrieve(typeof session.setup_intent==="string"?session.setup_intent:session.setup_intent.id);
+  const setupCustomer=typeof setup.customer==="string"?setup.customer:setup.customer?.id;
+  if(setup.status!=="succeeded"||setupCustomer!==customerId||setup.usage!=="off_session")throw Error("The rental SetupIntent has not successfully saved an off-session card to this customer.");
+  paymentMethod=typeof setup.payment_method==="string"?setup.payment_method:setup.payment_method?.id;
+ }
+ if(!paymentMethod&&session.subscription){
+  const sub=await sb.subscriptions.retrieve(typeof session.subscription==="string"?session.subscription:session.subscription.id);
+  const subscriptionCustomer=typeof sub.customer==="string"?sub.customer:sub.customer?.id;
+  if(subscriptionCustomer!==customerId)throw Error("The rental subscription does not belong to this checkout customer.");
+  paymentMethod=typeof sub.default_payment_method==="string"?sub.default_payment_method:sub.default_payment_method?.id;
+  if(!paymentMethod&&sub.pending_setup_intent){
+   const setup=await sb.setupIntents.retrieve(typeof sub.pending_setup_intent==="string"?sub.pending_setup_intent:sub.pending_setup_intent.id);
+   const setupCustomer=typeof setup.customer==="string"?setup.customer:setup.customer?.id;
+   if(setup.status==="succeeded"&&setupCustomer===customerId&&setup.usage==="off_session")paymentMethod=typeof setup.payment_method==="string"?setup.payment_method:setup.payment_method?.id;
+  }
+ }
+ if(!paymentMethod){
+  const paymentId=await checkoutPaymentIntent(session,sb);
+  if(paymentId){
+   const pi=await sb.paymentIntents.retrieve(paymentId);
+   const paymentCustomer=typeof pi.customer==="string"?pi.customer:pi.customer?.id;
+   if(pi.status==="succeeded"&&paymentCustomer===customerId&&pi.setup_future_usage==="off_session")
+    paymentMethod=typeof pi.payment_method==="string"?pi.payment_method:pi.payment_method?.id;
+  }
+ }
  if(!paymentMethod)throw Error("Your reusable card could not be saved. Open your rental account to complete card setup.");
  const method=await sb.paymentMethods.retrieve(paymentMethod);
  const attached=typeof method.customer==="string"?method.customer:method.customer?.id;
@@ -716,19 +753,33 @@ export async function checkoutSavedCard(session:Stripe.Checkout.Session,sb:Strip
 }
 export const prepareSavedCard = internalAction({args:{bookingId:v.id("bookings")},handler:async(ctx,{bookingId})=>{
  const b:any=await ctx.runQuery(internal.savedCardState.context,{bookingId});
- if(!isSavedCardRental(b)||!["confirmed","active"].includes(b.status)||b.cancellationDecision||b.returnDecision||b.savedCardStatus==="saved")return;
+ const paidPending=b?.status==="pending_verification" && Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt>0;
+ if(!isSavedCardRental(b)||(!["confirmed","active"].includes(b.status)&&!paidPending)||b.cancellationDecision||b.returnDecision||b.savedCardStatus==="saved")return;
  try{
   const sb=stripe(),session=await sb.checkout.sessions.retrieve(b.stripeCheckoutSessionId);
   if(session.metadata?.bookingId!==String(bookingId)||!checkoutCompleted(session))throw Error("The rental checkout payment is not confirmed.");
-  await ctx.runMutation(internal.savedCardState.save,{bookingId,sessionId:session.id,...await checkoutSavedCard(session,sb)});
+  const applied=await ctx.runMutation(internal.savedCardState.save,{bookingId,sessionId:session.id,...await checkoutSavedCard(session,sb)});
+  if(!applied)throw Error("The verified card receipt could not be recorded for this rental.");
  }catch(error){await ctx.runMutation(internal.savedCardState.failed,{bookingId});throw error;}
+}});
+/** Bounded recovery for a paid checkout whose card receipt was interrupted. */
+export const recoverPendingSavedCard = internalAction({args:{bookingId:v.id("bookings"),attempt:v.number()},handler:async(ctx,{bookingId,attempt})=>{
+ const b:any=await ctx.runQuery(internal.savedCardState.context,{bookingId});
+ if(!b || b.status!=="pending_verification" || !Number.isSafeInteger(b.checkoutPaidAt) || b.checkoutPaidAt<=0 || !isSavedCardRental(b) || b.savedCardStatus==="saved" || b.cancellationDecision || b.returnDecision)return;
+ try{await ctx.runAction(internal.checkout.prepareSavedCard,{bookingId});}
+ catch(error:any){
+  const transient=["StripeConnectionError","StripeAPIError","StripeRateLimitError"].includes(error?.type);
+  if(transient && attempt<3)await ctx.scheduler.runAfter(attempt*5*60_000,internal.checkout.recoverPendingSavedCard,{bookingId,attempt:attempt+1});
+  else await ctx.runMutation(internal.savedCardState.alertRecoveryFailure,{bookingId});
+ }
 }});
 export const retrySavedCard = action({args:{token:v.string(),bookingId:v.id("bookings"),admin:v.optional(v.boolean())},handler:async(ctx,a):Promise<void>=>{
  let b:any;
  if(a.admin)await ctx.runMutation(internal.securityChargeState.authorizeAdminPayment,{token:a.token,operation:"checkout.retrySavedCard"});
  else{b=await ctx.runQuery(internal.savedCardState.context,{bookingId:a.bookingId});const account:any=await ctx.runQuery(internal.accounts._byToken,{token:a.token});if(!account||!belongsToRentalAccount(b,account))throw Error("Rental card access denied.");}
  if(!b)b=await ctx.runQuery(internal.savedCardState.context,{bookingId:a.bookingId});
- if(!isSavedCardRental(b)||!["confirmed","active"].includes(b.status))throw Error("This rental is not awaiting card confirmation.");
+ const paidPending=b?.status==="pending_verification" && Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt>0;
+ if(!isSavedCardRental(b)||(!["confirmed","active"].includes(b.status)&&!paidPending))throw Error("This rental is not awaiting card confirmation.");
  await ctx.runAction(internal.checkout.prepareSavedCard,{bookingId:a.bookingId});
 }});
 export const preparePickupSecurity = internalAction({args:{bookingId:v.id("bookings")},handler:async(ctx,{bookingId})=>{
@@ -2168,7 +2219,7 @@ export const refundInventoryConflict = action({
   if(!confirmed)throw Error("Review the original payment and confirm the refund first.");
   const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
   if(b?.status==="cancelled"&&b.cancellationDecision?.inventoryConflictRefund)return {ok:true,already:true};
-  if(!b||b.status!=="pending_verification"||b.verificationConfirmationIssue!=="inventory_unavailable"||!b.siteOnly||!b.stripeCheckoutSessionId||!b.stripePaymentIntentId)throw Error("A paid unconfirmed rental with an inventory conflict is required.");
+  if(!b||b.status!=="pending_verification"||!(b.verificationConfirmationIssue==="inventory_unavailable"||b.verificationConfirmationIssue==="manager_capacity_conflict")||!b.siteOnly||!b.stripeCheckoutSessionId||!b.stripePaymentIntentId)throw Error("A paid unconfirmed rental with an inventory conflict is required.");
   const session=await stripe().checkout.sessions.retrieve(b.stripeCheckoutSessionId);
   const paymentId=await checkoutPaymentIntent(session);
   if(!paymentId||session.id!==b.stripeCheckoutSessionId||session.status!=="complete"||session.payment_status!=="paid"||session.metadata?.bookingId!==String(bookingId)||paymentId!==b.stripePaymentIntentId||session.currency?.toLowerCase()!==(b.currency??"GBP").toLowerCase()||session.amount_total!==pence(b.total))throw Error("The original checkout payment does not match this rental. No refund was issued.");

@@ -40,7 +40,7 @@ const ctx = {
     throw new Error(`Unexpected query ${ref}`);
   },
   runMutation: async (ref) => {
-    if (ref === 'bookings.recordPaidCheckoutReceipt') return { recorded: true, awaitingVerification:true, checkoutPaidAt:Date.now() };
+    if (ref === 'bookings.recordPaidCheckoutReceipt') return { recorded: true, awaitingVerification:true, checkoutPaidAt:Date.now(), requiresSavedCard:false };
     if (ref === 'bookings.confirm') { confirmations++; return { awaitingInventoryReview: inventoryRetries > 0 }; }
     if (ref === 'bookings.markVerificationConfirmationFailure') { failures++; return true; }
     if (ref === 'analytics.track') { trackedPurchases++; return true; }

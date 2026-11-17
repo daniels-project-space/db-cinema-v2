@@ -12,6 +12,7 @@ export const deliver=internalAction({args:{deliveryId:v.id("rental_email_deliver
       let payload:MailInput|null;
       const args={prepareOnly:true,deliveryKey:row.key,bookingId:row.bookingId};
       if(row.kind==="payment")payload=await ctx.runAction(internal.notify.bookingAlert,args) as MailInput|null;
+      else if(row.kind==="paid_verification" || row.kind==="verification_reminder")payload=await ctx.runAction(internal.notify.paidVerificationEmail,{...args,reminder:row.kind==="verification_reminder"}) as MailInput|null;
       else if(row.kind==="receipt")payload=await ctx.runAction(internal.invoice.invoiceEmail,args) as MailInput|null;
       else if(row.kind==="verification")payload=await ctx.runAction(internal.notify.verificationEmail,{...args,status:row.verificationStatus!}) as MailInput|null;
       else if(row.kind==="time_change")payload=await ctx.runAction(internal.notify.timeChangeEmail,{...args,detail:row.changeDetail!,changeKind:row.changeKind}) as MailInput|null;

@@ -259,8 +259,11 @@ export function VerificationProgress({
     selfie: "A quick selfie to match your photo ID.",
     address: "A recent bill, bank statement or official address document.",
   };
+  const managerCapacityConflict = booking.verificationConfirmationIssue === "manager_capacity_conflict";
   const stage =
-    booking.status === "pending_verification" && booking.rentalManagerSyncPending
+    booking.status === "pending_verification" && managerCapacityConflict
+      ? "Equipment reservation needs review"
+      : booking.status === "pending_verification" && booking.rentalManagerSyncPending
       ? "Rental reservation syncing"
       : booking.status === "pending_verification" && booking.verificationConfirmationIssue
       ? booking.verificationConfirmationIssue === "inventory_unavailable" ? "Booking availability needs review" : "Booking confirmation needs review"
@@ -305,13 +308,15 @@ export function VerificationProgress({
                     ? "Return being settled"
                     : "Rental closed"
                 : booking.status === "pending_verification"
-                  ? booking.rentalManagerSyncPending
+                  ? managerCapacityConflict
+                    ? "Payment received — stock reservation needs review"
+                    : booking.rentalManagerSyncPending
                     ? "Payment received — reservation syncing"
                     : booking.verificationConfirmationIssue
                     ? "Payment received — booking not confirmed"
                     : booking.idVerifyStatus === "verified"
                     ? "Didit approved — booking finalizing"
-                    : "Payment received — booking not confirmed"
+                    : "Payment received — complete verification"
                 : approvalUnknown
                   ? "Verification needs a team check"
                   : approved
@@ -325,7 +330,9 @@ export function VerificationProgress({
               {journey.closed
                 ? "This rental no longer accepts document uploads."
                 : booking.status === "pending_verification"
-                  ? booking.rentalManagerSyncPending
+                  ? managerCapacityConflict
+                    ? "Rental Manager could not reserve the selected equipment after payment. This rental is not confirmed; our team is checking stock and payment. Please do not pay again."
+                    : booking.rentalManagerSyncPending
                     ? booking.idVerifyStatus === "verified"
                       ? "Didit approved your verification. We’re still syncing the paid reservation with our equipment system. This rental is not confirmed yet; please do not pay again."
                       : "Your payment is recorded. We’re syncing the paid reservation with our equipment system. This rental is not confirmed yet; continue verification below and please do not pay again."

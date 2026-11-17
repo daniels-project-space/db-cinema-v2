@@ -6,6 +6,10 @@ const { load } = require("./lib/rentalTestHarness.cjs");
 const checkoutSource = fs.readFileSync(path.join(__dirname, "../convex/checkout.ts"), "utf8");
 assert.match(checkoutSource, /if\s*\(!RENTAL_DRAFT_RELEASE_READY\)[\s\S]{0,300}RENTAL_AGREEMENT_REVIEW/,
   "Rental checkout must share the handover release-readiness gate");
+assert.match(checkoutSource, /if\s*\(!swapAuthorityAvailable\(\)\)[\s\S]{0,300}STOCK_SYNC_UNAVAILABLE/,
+  "Rental checkout must stop before payment when paid pending-verification stock claims cannot reach Rental Manager");
+assert.ok(checkoutSource.indexOf("if (!swapAuthorityAvailable())") < checkoutSource.indexOf("assertDiditCheckoutCapacity("),
+  "Stock authority readiness must be checked before any Didit capacity/provider work");
 assert.match(checkoutSource, /assertRentalBasketTrialAllowed\(a\.selectedMembership\.intro,\s*!!existingMembershipCheckout\)/,
   "New rental-basket membership attempts must use the server trial rule after preserving an existing accepted attempt");
 

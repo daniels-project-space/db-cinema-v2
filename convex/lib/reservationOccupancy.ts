@@ -10,13 +10,12 @@ export async function reservationOccupancy(ctx: any, row: any, now = Date.now())
     booking = await ctx.db.get(row.bookingId);
     const checkoutPaid = Number.isSafeInteger(booking?.checkoutPaidAt) && booking.checkoutPaidAt > 0;
     const pending = ["pending_payment", "pending_verification"].includes(booking?.status);
-    const verificationFailed = booking?.verificationProvider === "didit" && booking?.idVerifyStatus === "rejected";
-    paidVerificationHold = !!(pending && checkoutPaid && !verificationFailed);
+    paidVerificationHold = !!(pending && checkoutPaid);
     // Unpaid baskets and unverified checkout holds remain advisory. A payment
-    // receipt turns the exact physical allocation into a real stock hold while
-    // Didit is processing, waiting for input, or reviewing the documents.
+    // receipt turns this allocation into a durable stock hold; a Didit result
+    // alone (including rejection) cannot release it before explicit resolution.
     if (pending && !paidVerificationHold) return null;
-    if (booking?.status === "cancelled" || verificationFailed) return null;
+    if (booking?.status === "cancelled") return null;
   }
   if (row.status === "hold" && (row.holdExpiresAt ?? Infinity) <= now) {
     if (!paidVerificationHold && !await reservationPaymentUnresolved(ctx, row)) return null;

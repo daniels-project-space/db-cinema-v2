@@ -439,10 +439,10 @@ async function due(b) {
 
   error = null;
   methods.set("pm_card", { id: "pm_card", type: "card", customer: "cus_test" });
-  intents.set("pi_paid", { status: "succeeded", payment_method: "pm_card" });
-  setups.set("seti", { status: "succeeded", payment_method: "pm_card" });
-  subscriptions.set("sub_paid", { default_payment_method: "pm_card" });
-  subscriptions.set("sub_trial", { pending_setup_intent: "seti" });
+  intents.set("pi_paid", { status: "succeeded", customer:"cus_test", setup_future_usage:"off_session", payment_method: "pm_card" });
+  setups.set("seti", { status: "succeeded", customer:"cus_test", usage:"off_session", payment_method: "pm_card" });
+  subscriptions.set("sub_paid", { customer:"cus_test", default_payment_method: "pm_card" });
+  subscriptions.set("sub_trial", { customer:"cus_test", pending_setup_intent: "seti" });
   for (const s of [
     { payment_intent: "pi_paid" },
     { setup_intent: "seti" },

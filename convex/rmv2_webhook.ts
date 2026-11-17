@@ -41,8 +41,9 @@ export const push = internalAction({
     const claim = await ctx.runMutation(internal.rmv2Delivery.claim, { bookingId, revision });
     if (!claim) return { ok: false, reason: "not_due_or_claimed" };
     const generation = claim.generation;
+    let paidPendingStockAcknowledgement:any;
     async function result(ok: boolean, reason?: string, stockAcknowledgement?:any, deferred = false) {
-      await ctx.runMutation(internal.rmv2Delivery.record, { bookingId, revision, generation, ok, ...(reason ? { reason } : {}), ...(stockAcknowledgement?{stockAcknowledgement}:{}), ...(deferred ? {deferred:true} : {}) });
+      await ctx.runMutation(internal.rmv2Delivery.record, { bookingId, revision, generation, ok, ...(reason ? { reason } : {}), ...(stockAcknowledgement?{stockAcknowledgement}:{}), ...(deferred ? {deferred:true} : {}), ...(paidPendingStockAcknowledgement ? {paidPendingStockAcknowledgement} : {}) });
       return { ok, ...(reason ? { reason } : {}) };
     }
     const url = process.env.RMV2_WEBHOOK_URL;
@@ -127,6 +128,12 @@ export const push = internalAction({
         if (acquired.status !== "confirmed" || paidClaim?.operation !== "acquirePaidBooking" ||
             paidClaim.bookingId !== String(booking.id) || !(claimHoldsStock || reservationTookOver))
           return result(false, "paid_pending_stock_claim_unconfirmed");
+        paidPendingStockAcknowledgement = {
+          bookingId: booking.id,
+          bookingRevision: revision,
+          outcome: paidClaim.outcome,
+          holdsStock: paidClaim.holdsStock === true,
+        };
       }
       return result(true,undefined,stock?{...ack,...(stock.kind==="booking_confirmation"?{kind:"booking_confirmation"}:{swapId:stock.swapId})}:undefined);
     } catch (err) {

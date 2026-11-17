@@ -39,7 +39,7 @@ export default defineSchema({
     emailDeliveryId:v.optional(v.id("rental_email_deliveries")),lastError:v.optional(v.string()),
   }).index("by_booking",["bookingId"]).index("by_due",["dueAt"]),
   rental_email_deliveries: defineTable({
-    bookingId: v.id("bookings"), kind: v.union(v.literal("payment"),v.literal("receipt"),v.literal("verification"),v.literal("cancellation"),v.literal("review"),v.literal("cancellation_choice"),v.literal("time_change"),v.literal("refund_invoice")),
+    bookingId: v.id("bookings"), kind: v.union(v.literal("payment"),v.literal("paid_verification"),v.literal("verification_reminder"),v.literal("receipt"),v.literal("verification"),v.literal("cancellation"),v.literal("review"),v.literal("cancellation_choice"),v.literal("time_change"),v.literal("refund_invoice")),
     key: v.string(), sequence: v.number(), verificationStatus: v.optional(v.string()), verificationSchedule:v.optional(v.string()),
     refundId:v.optional(v.id("rental_refunds")),
     mode: v.optional(v.string()), refundAmount: v.optional(v.number()), creditAmount: v.optional(v.number()),
@@ -386,7 +386,7 @@ export default defineSchema({
     identityRiskNotice: v.optional(v.string()),
     verificationUpdatedAt: v.optional(v.number()),
     idVerifyStatus: v.optional(v.string()),
-    verificationConfirmationIssue: v.optional(v.union(v.literal("inventory_unavailable"),v.literal("provider_confirmation_failed"))),
+    verificationConfirmationIssue: v.optional(v.union(v.literal("inventory_unavailable"),v.literal("manager_capacity_conflict"),v.literal("provider_confirmation_failed"))),
     droneLicenceStorageId: v.optional(v.id("_storage")),
     droneLicenceDocumentId: v.optional(v.id("verification_documents")),
     droneLicenceStatus: v.optional(v.union(v.literal("review"), v.literal("approved"), v.literal("requires_input"))),

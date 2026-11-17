@@ -31,7 +31,7 @@ const ctx = { scheduler: { runAfter: async (...args) => scheduled.push(args) }, 
   fail = true;
   let confirmed = false, funded = false;
   const webhookCtx = { scheduler:ctx.scheduler, runQuery:async () => null, runAction:async ref => { assert.equal(ref, 'sync.syncHyggloReservations'); return { checkedAt:Date.now() }; }, runMutation:async ref => {
-    if (ref === 'bookings.recordPaidCheckoutReceipt') return {};
+    if (ref === 'bookings.recordPaidCheckoutReceipt') return { requiresSavedCard:false };
     if (ref === 'bookings.confirm') { if (funded) throw Error('The paid first-month credit receipt has not settled yet.'); confirmed = true; return {}; }
     throw Error(`Unexpected mutation ${ref}`);
   } };

@@ -92,7 +92,13 @@ const reserve = (booking,ttlMs=60000) => bookings.placeHolds.handler(ctx,{bookin
  assert((await reservationOccupancy(ctx,pendingHold)),'Paid pending Didit equipment is occupied across the verification wait');
  assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,0,'Other renters cannot book stock held by a paid pending verification');
  await bookings.releaseExpiredHolds.handler(ctx,{});assert(await db.get(pendingHold._id),'The expiry worker preserves a paid pending Didit allocation');
- pendingBooking.idVerifyStatus='rejected';pendingHold.status='cancelled';
- assert.equal(await reservationOccupancy(ctx,pendingHold),null);assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,1,'Terminal verification failure releases the inventory');
- console.log('PASS unpaid checkout markers never reserve stock; verified Stripe receipt makes a durable paid Didit hold; expiry preserves it until rejection; confirmed bookings block inventory. Synthetic database; no provider writes.');
+ for(const status of ['rejected','requires_input','manual_review']){
+  pendingBooking.idVerifyStatus=status;
+  assert(await reservationOccupancy(ctx,pendingHold),`A paid booking stays held while Didit is ${status}`);
+  assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,0,`Didit ${status} does not release the paid booking's inventory`);
+ }
+ pendingBooking.status='cancelled';
+ assert.equal(await reservationOccupancy(ctx,pendingHold),null,'An explicit booking cancellation releases the paid verification hold');
+ assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,1,'Explicit cancellation returns inventory to availability');
+ console.log('PASS unpaid checkout markers never reserve stock; paid Didit bookings remain held during rejection, resubmission, or manual review; explicit cancellation releases stock. Synthetic database; no provider writes.');
 }finally{Date.now=realNow}})().catch(e=>{console.error(e);process.exitCode=1});

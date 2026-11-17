@@ -36,6 +36,11 @@ assert.match(GAFFER_VOICE_AGENT_PROMPT, /# DECIDE, THEN SPEAK[\s\S]*one concise,
 assert.match(GAFFER_VOICE_AGENT_PROMPT, /Never begin one answer and replace it halfway through/i);
 // These values satisfy the checkout activation boundary; no provider call is made.
 Object.assign(process.env, {
+  // Let checkout tests reach the behavior under test using synthetic stock
+  // authority. No provider request is made by these fixtures.
+  SHARED_STOCK_AUTHORITY_READY: 'enabled', SHARED_STOCK_BRIDGE_EXPERIMENTAL: 'true',
+  SHARED_STOCK_WEBSITE_SECRET: 'fixture-stock-authority-secret-12345678901234567890',
+  RMV2_WEBHOOK_URL: 'https://fixture-manager.convex.site/dbcinema/booking-sync', RMV2_WEBHOOK_SECRET: 'fixture-private-read',
   RENTAL_CHECKOUT_ENABLED: 'true', DIDIT_API_KEY: 'test', DIDIT_WORKFLOW_ID: 'test', DIDIT_WEBHOOK_SECRET: 'test', DIDIT_APPLICATION_ID: 'test', DIDIT_ENVIRONMENT: 'sandbox',
   STRIPE_WEBHOOK_SECRET: 'test', STRIPE_SECRET_KEY: 'test', STRIPE_RENTAL_PAYMENT_METHOD_CONFIGURATION_ID: 'test',
   INVOICE_SECRET: 'test', APP_URL: 'https://example.invalid', BUSINESS_LEGAL_NAME: 'Test supplier',

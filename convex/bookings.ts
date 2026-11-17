@@ -646,9 +646,9 @@ export const recordPaidCheckoutReceipt = internalMutation({
       throw Error("A zero-payment checkout has an unexpected charge or payment intent. Review the checkout before proceeding.");
     if (booking.cancellationDecision || ["cancelled", "returned"].includes(booking.status)) {
       if(bookingClaimEnabled())await reviewOutstandingBookingClaim(ctx,bookingId);
-      return { closed: true, duplicatePayment: false };
+      return { closed: true, duplicatePayment: false, requiresSavedCard:isSavedCardRental(booking) };
     }
-    if (["confirmed", "active"].includes(booking.status)) return { recorded: true };
+    if (["confirmed", "active"].includes(booking.status)) return { recorded: true, requiresSavedCard:isSavedCardRental(booking) };
     if (!["pending_payment", "pending_verification"].includes(booking.status)) throw Error("Booking is not awaiting confirmation.");
     // A checkout receipt can be retried while a prior item-change claim is
     // still reconciling. Keep the retry all-or-nothing; do not rewrite the
@@ -671,9 +671,15 @@ export const recordPaidCheckoutReceipt = internalMutation({
       await ctx.db.patch(hold._id, { holdExpiresAt: undefined });
     if (changed || holds.some((hold: any) => hold.status === "hold" && hold.holdExpiresAt !== undefined))
       await queueRmv2Sync(ctx, bookingId);
+    if (changed && isSavedCardRental(booking) && booking.savedCardStatus !== "saved")
+      await ctx.scheduler.runAfter(60_000,internal.checkout.recoverPendingSavedCard,{bookingId,attempt:1});
+    if (awaitingDidit && booking.idVerifyStatus !== "verified") {
+      await queueRentalEmail(ctx,bookingId,"paid_verification");
+      await queueRentalEmail(ctx,bookingId,"verification_reminder",{dueAt:checkoutPaidAt+12*60*60*1000});
+    }
     if (awaitingDidit && booking.idVerifyStatus === "verified")
       await ctx.scheduler.runAfter(15 * 60000, internal.checkout.confirmAfterVerification, { bookingId, attempt: 1 });
-    return { recorded: true, checkoutPaidAt, awaitingVerification: awaitingDidit };
+    return { recorded: true, checkoutPaidAt, awaitingVerification: awaitingDidit, requiresSavedCard:isSavedCardRental(booking) };
   },
 });
 
@@ -695,6 +701,8 @@ export const confirm = internalMutation({
       }
       return { already: true };
     }
+    if (isSavedCardRental(booking) && booking.savedCardStatus !== "saved")
+      throw new Error("A successful reusable-card setup is required before this rental can be confirmed.");
     // Do not turn soft holds into confirmed allocations while an earlier
     // equipment change still has an unresolved external stock receipt.
     await assertSwapStockReconciled(ctx, bookingId);
@@ -1777,6 +1785,7 @@ export const get = internalQuery({
     return {
       _id: b._id,
       status: b.status,
+      checkoutPaidAt: b.checkoutPaidAt ?? null,
       lineItems: b.lineItems,
       subtotal: b.subtotal,
       depositAmount: b.depositAmount,
@@ -2503,7 +2512,7 @@ export const getForCancel = internalQuery({
 
 export const prepareInventoryConflictRefund=internalMutation({args:{bookingId:v.id("bookings"),sessionId:v.string(),paymentIntentId:v.string(),reason:v.string()},handler:async(ctx,args)=>{
  const b=await ctx.db.get(args.bookingId);
- if(!b||b.status!=="pending_verification"||b.verificationConfirmationIssue!=="inventory_unavailable"||b.stripeCheckoutSessionId!==args.sessionId||b.stripePaymentIntentId!==args.paymentIntentId)throw Error("The paid unconfirmed rental or its stock issue changed. Review again.");
+ if(!b||b.status!=="pending_verification"||!(b.verificationConfirmationIssue==="inventory_unavailable"||b.verificationConfirmationIssue==="manager_capacity_conflict")||b.stripeCheckoutSessionId!==args.sessionId||b.stripePaymentIntentId!==args.paymentIntentId)throw Error("The paid unconfirmed rental or its stock issue changed. Review again.");
  const reason=args.reason.trim();if(reason.length<5||reason.length>400)throw Error("Record a reason between 5 and 400 characters.");
  if(b.cancellationDecision){if(b.cancellationDecision.inventoryConflictRefund&&b.cancellationDecision.inventoryConflictReason===reason)return b.cancellationDecision;throw Error("Another cancellation decision is already in progress.");}
  if(b.returnDecision||b.activeAdditionId||b.activeExtensionId||b.activePriceAdjustmentId||b.activeItemSwapId||b.activeDeliveryQuoteId||b.membershipCheckoutId||(b.membershipCreditApplied??0)>0||((b.creditApplied??0)>0&&(b.checkoutCreditState!=="unspent"||b.paidConfirmedAt)))throw Error("This booking has other financial activity and needs individual review.");

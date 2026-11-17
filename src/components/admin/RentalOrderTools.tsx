@@ -310,9 +310,9 @@ export function RentalOrderTools({
   const hasPaymentActions = ["confirmed", "pending_payment"].includes(b.status) || ["confirmed", "active"].includes(b.status) && !!b.stripePaymentIntentId || diditDeclinedPending;
   return (
     <div data-testid="owner-rental-tools">
-      {b.verificationConfirmationIssue === "inventory_unavailable" && <div role="alert" className="mb-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-xs text-amber-100">
-        <p className="font-semibold">Checkout completed · equipment needs review</p>
-        <p className="mt-1">This booking is not confirmed. Check live availability and contact the renter before arranging an alternative. If the booking cannot be fulfilled, review the original payment and any refund in Stripe using the normal approval process. Do not mark the rental confirmed without available stock.</p>
+      {(b.verificationConfirmationIssue === "inventory_unavailable" || b.verificationConfirmationIssue === "manager_capacity_conflict") && <div role="alert" className="mb-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-xs text-amber-100">
+        <p className="font-semibold">Checkout completed · {b.verificationConfirmationIssue === "manager_capacity_conflict" ? "Manager could not reserve stock" : "equipment needs review"}</p>
+        <p className="mt-1">This booking is not confirmed. Recheck live availability and payment, and contact the renter before offering alternatives. If it cannot be fulfilled, resolve the original payment through the approved settlement process. Do not mark it confirmed without an acknowledged stock reservation.</p>
       </div>}
       {diditDeclinedPending && <div role="alert" data-testid="didit-declined-rental-notice" className="mb-3 rounded-xl border border-rose-300/20 bg-rose-300/[.05] px-3 py-2.5 text-xs text-rose-100"><p className="font-medium">Didit declined · settlement queued</p><p className="mt-1 text-rose-100/70">Accepted terms apply. No 130% bonus. Retry if it stays pending.</p></div>}
       <section className={chatStyles.bookingFacts} aria-label="Booked equipment and handover">
