@@ -491,7 +491,7 @@ export const sendAssistantReply = action({
     if (claim.state === "sent") return { ok: true, duplicate: true };
     if (claim.state === "busy") return { ok: false, busy: true };
     const { thread, inbound, outboundId, deliveryKey } = claim;
-    const replyTo = gafferReplyAddress(thread.replyKey);
+    const replyTo = inbound.providerId?.startsWith("agentmail:") ? process.env.AGENTMAIL_INBOX_ADDRESS?.trim() : gafferReplyAddress(thread.replyKey);
     if (!replyTo) {
       await ctx.runMutation(internal.emailInbox.markSendFailed, {
         outboundId,
@@ -503,6 +503,7 @@ export const sendAssistantReply = action({
     const references = [...new Set([...(inbound.references ?? []), inbound.messageId].filter((value): value is string => typeof value === "string" && value.length > 0))].slice(-20);
     const delivery = await ctx.runAction(internal.emailMailer.sendBusinessReply, {
       to: thread.email,
+      ...(inbound.providerId?.startsWith("agentmail:") ? { agentMailMessageId: inbound.providerId.slice("agentmail:".length) } : {}),
       subject: replySubject(thread.subject),
       html: safeHtml(text),
       replyTo: [...new Set([replyTo,OWNER_EMAIL])],
@@ -623,6 +624,7 @@ export const sendOwnerReply = action({
     if (claim.state === "busy") return { ok: false, busy: true };
     const delivery = await ctx.runAction(internal.emailMailer.sendBusinessReply, {
       to: data.thread.email,
+      ...(() => { const inbound = data.recent.find((message: any) => message.direction === "in"); return inbound?.providerId?.startsWith("agentmail:") ? { agentMailMessageId: inbound.providerId.slice("agentmail:".length) } : {}; })(),
       subject: replySubject(data.thread.subject),
       html: safeHtml(text),
       replyTo: OWNER_EMAIL,
