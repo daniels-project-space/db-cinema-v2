@@ -29,7 +29,7 @@ export async function queueRentalEmail(ctx: MutationCtx, bookingId: Id<"bookings
     bookingId,kind,...noticeDetail,...(booking?{verificationSchedule:pickupScheduleFingerprint(booking)}:{}),key:kind==="refund_invoice"?`${bookingId}:refund_invoice:${detail.refundId}`:`${bookingId}:${kind}:${kind === "verification" || kind === "cancellation_choice" || kind === "time_change" ? sequence : 1}`,
     sequence,state:"pending",attempts:0,generation:0,dueAt:dueAt??now,createdAt:now,updatedAt:now,
   });
-  await ctx.scheduler.runAfter(0,internal.rentalEmailDelivery.dispatchOne,{deliveryId:id});
+  await ctx.scheduler.runAfter(Math.max(0,(dueAt??now)-now),internal.rentalEmailDelivery.dispatchOne,{deliveryId:id});
   return id;
 }
 export async function refreshQueuedVerificationEmail(ctx:MutationCtx,bookingId:Id<"bookings">){

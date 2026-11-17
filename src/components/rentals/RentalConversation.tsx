@@ -52,7 +52,7 @@ export function RentalConversation({
   escalated?: boolean;
   tools?: React.ReactNode;
   openRevision?: number;
-  bookingSummary?: { heading?: string; items?: { index?: number; title: string; qty: number; heroImage?: string | null; imageSources?: string[] }[]; dates: string; count: number };
+  bookingSummary?: { heading?: string; items?: { index?: number; title: string; qty: number; heroImage?: string | null; imageSources?: string[] }[]; dates: string; count: number; handover?: string };
   handoverDetails?: { phone: string; pickupAddress?: string | null; returnAddress?: string | null; pickupInstructions?: string | null; fulfilment: "pickup" | "delivery" };
   workspaceIdentity?: { name?: string | null; phone?: string | null; photo?: string | null; privatePortrait?: React.ReactNode; membershipLabel?: string | null; encoreLabel?: string | null; verified?: boolean };
   renterWorkspace?: boolean;
@@ -477,10 +477,10 @@ export function RentalConversation({
         <a href={`tel:${handoverDetails.phone.replace(/[^\d+]/g, "")}`} aria-label={`Call Leo at ${handoverDetails.phone}`}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M5 3h3l2 5-2 1.5a14 14 0 0 0 6.5 6.5l1.5-2 5 2v3a2 2 0 0 1-2 2C10.2 20.5 3.5 13.8 3 5a2 2 0 0 1 2-2Z" /></svg><span>Call Leo</span><strong>{handoverDetails.phone}</strong></a>
       </section>}
       <div className={`management-conversation-main ${styles.main}`}>
-      {(!workspaceIdentity || bookingId) && !(renterWorkspace && bookingSummary) && <div className={styles.bookingStrip}>
-        <div>{!workspaceIdentity && <h4>{title}</h4>}<p>{bookingSummary ? `${bookingSummary.dates} · ${bookingSummary.count} ${bookingSummary.count === 1 ? "listing" : "listings"}` : bookingId ? "Messages, collection and return" : "Account support and enquiries"}</p></div>
+      {(!workspaceIdentity || bookingId) && <div className={styles.bookingStrip}>
+        <div>{!workspaceIdentity && <h4>{title}</h4>}<p>{bookingSummary ? `${bookingSummary.dates} · ${bookingSummary.count} ${bookingSummary.count === 1 ? "listing" : "listings"}` : bookingId ? "Messages, collection and return" : "Account support and enquiries"}</p>{bookingSummary?.handover && <p>{bookingSummary.handover}</p>}</div>
         <span className={styles.stage}>{stageLabel ?? RENTAL_STAGE_LABELS[stage] ?? stage}</span>
-        {bookingId && admin && workspaceIdentity && !tools && <details className={styles.workspaceRentalDetails}><summary aria-label="Verification and price controls">Controls</summary><div><RentalVerificationSummary bookingId={bookingId} token={token} admin /><RentalPricePanel key={`price-${bookingId}`} token={token} bookingId={bookingId} admin /></div></details>}
+        {bookingId && admin && workspaceIdentity && !tools && <details className={styles.workspaceRentalDetails}><summary aria-label="Verification, extension and price controls">Controls</summary><div><RentalVerificationSummary bookingId={bookingId} token={token} admin /><RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin /><RentalPricePanel key={`price-${bookingId}`} token={token} bookingId={bookingId} admin /></div></details>}
       </div>}
       {bookingId && (!admin || !tools) && !workspaceIdentity && <RentalVerificationSummary bookingId={bookingId} token={token} admin={admin}/>}
       {!admin && bookingId && (

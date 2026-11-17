@@ -9,7 +9,10 @@ export function rentalClockLabel(time?: string | null) {
 export function rentalHandoverLabel(booking: {lineItems:RentalWindowInput[];pickupTime?:string|null;returnTime?:string|null}, kind:"pickup"|"return") {
   const groups = new Map<string, {day:number;time:string}>();
   for (const line of bookingStockLines(booking)) {
-    const day = dateLabel(kind === "pickup" ? line.start : line.end);
+    let startDay:number, endDay:number;
+    try { startDay=dateLabel(line.start); endDay=dateLabel(line.end); }
+    catch { return "Dates need review"; }
+    const day = kind === "pickup" ? startDay : endDay;
     const time = rentalClockLabel(kind === "pickup" ? line.pickupTime : line.returnTime);
     groups.set(JSON.stringify([day,time]), {day,time});
   }

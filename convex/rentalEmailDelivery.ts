@@ -60,8 +60,8 @@ async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliv
   }
   if(row.kind === "verification") {
     const latest=(await ctx.db.query("rental_email_deliveries").withIndex("by_booking_kind",q=>q.eq("bookingId",b._id).eq("kind","verification")).order("desc").take(1))[0];
-    const pendingResolutionNotice=b.status==="pending_verification"&&row.verificationStatus!=="verified";
-    return latest?._id===row._id && b.idVerifyStatus === row.verificationStatus && (["confirmed","active"].includes(b.status)||pendingResolutionNotice) && (!row.verificationSchedule || row.verificationSchedule===pickupScheduleFingerprint(b));
+    const pendingResolution=b.status==="pending_verification"&&!!b.checkoutPaidAt&&row.verificationStatus!=="verified";
+    return latest?._id===row._id && b.idVerifyStatus === row.verificationStatus && (["confirmed","active"].includes(b.status)||pendingResolution) && (!row.verificationSchedule || row.verificationSchedule===pickupScheduleFingerprint(b));
   }
   // A payment receipt remains useful after a paid rental is returned/cancelled.
   return ["confirmed","active","returned","cancelled"].includes(b.status) && !!(b.stripePaymentIntentId || b.total === 0);

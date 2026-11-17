@@ -758,6 +758,16 @@ export const prepareSavedCard = internalAction({args:{bookingId:v.id("bookings")
  try{
   const sb=stripe(),session=await sb.checkout.sessions.retrieve(b.stripeCheckoutSessionId);
   if(session.metadata?.bookingId!==String(bookingId)||!checkoutCompleted(session))throw Error("The rental checkout payment is not confirmed.");
+  if(paidPending){
+   if(session.mode!=='payment')return;
+   // Revalidate the paid checkout before using it to recover a saved-card
+   // receipt; the initial webhook may have committed before its response was lost.
+   const customerId=typeof session.customer==='string'?session.customer:session.customer?.id;
+   if(!customerId||!session.currency||!Number.isSafeInteger(session.amount_total)||session.amount_total!==Math.round(b.total*100)||session.currency.toUpperCase()!==(b.currency??'GBP').toUpperCase())throw Error('The checkout amount, currency or customer does not match this rental.');
+   const paymentId=await checkoutPaymentIntent(session);if(!paymentId||paymentId!==b.stripePaymentIntentId)throw Error('The rental payment does not match this checkout.');
+   const payment=await sb.paymentIntents.retrieve(paymentId),paymentCustomer=typeof payment.customer==='string'?payment.customer:payment.customer?.id;
+   if(payment.status!=='succeeded'||payment.amount_received!==session.amount_total||payment.currency.toUpperCase()!==session.currency.toUpperCase()||paymentCustomer!==customerId||payment.setup_future_usage!=='off_session'||!payment.payment_method)throw Error('Stripe has not confirmed this checkout card for future payments.');
+  }
   const applied=await ctx.runMutation(internal.savedCardState.save,{bookingId,sessionId:session.id,...await checkoutSavedCard(session,sb)});
   if(!applied)throw Error("The verified card receipt could not be recorded for this rental.");
  }catch(error){await ctx.runMutation(internal.savedCardState.failed,{bookingId});throw error;}
@@ -1631,7 +1641,8 @@ export const finalize = action({
             const pending = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: bookingId as any });
             if (pending?.status === "pending_verification" && pending.verificationProvider === "didit" &&
                 pending.stripeCheckoutSessionId === sessionId && typeof pending.checkoutPaidAt === "number" &&
-                Number.isSafeInteger(pending.checkoutPaidAt) && pending.checkoutPaidAt > 0)
+                Number.isSafeInteger(pending.checkoutPaidAt) && pending.checkoutPaidAt > 0 &&
+                !pending.cancellationDecision && !pending.returnDecision)
               return { bookingId, paid, verificationPending: true };
           } catch {
             // Preserve the original provider error if the paid booking cannot be

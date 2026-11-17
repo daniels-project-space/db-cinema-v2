@@ -17,6 +17,7 @@ import { RentalConversation } from "@/components/rentals/RentalConversation";
 import { ownerConversationUrl } from "../../../shared/ownerConversationRoute";
 import { ADMIN_NOTIFICATION_CATEGORIES, adminNotificationCategory } from "../../../shared/adminNotificationPresentation";
 import { rentalStageLabel } from "../../../shared/rentalReadiness";
+import { rentalHandoverLabel } from "../../../shared/rentalHandover";
 import {
   rentalTitle,
   rentalDate,
@@ -557,7 +558,7 @@ export function RentalInbox({
               title={rentalTitle(focus.items[0]?.title ?? "General support")}
               stage={focus.status}
               stageLabel={focus.status === "support" ? "Support" : rentalStageLabel(focus)}
-              bookingSummary={{items: focus.items.map(item => ({ title: item.title, qty: item.qty, imageSources: item.imageSources?.length ? item.imageSources : item.heroImage ? [item.heroImage] : [] })), dates: focus.start ? rentalDate(focus.start, focus.end) : "Account support", count: focus.items.length}}
+              bookingSummary={{items: focus.items.map(item => ({ title: item.title, qty: item.qty, imageSources: item.imageSources?.length ? item.imageSources : item.heroImage ? [item.heroImage] : [] })), dates: focus.start ? rentalDate(focus.start, focus.end) : "Account support", count: focus.items.length, ...(focus.status !== "support" && focus.items.length ? {handover: `Collection / delivery: ${rentalHandoverLabel({lineItems:focus.items},"pickup")} · Return: ${rentalHandoverLabel({lineItems:focus.items},"return")} · London time`} : {})}}
               escalated={focus.escalated}
               tools={
                 focus.status !== "support" ? (

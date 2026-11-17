@@ -671,15 +671,27 @@ export const recordPaidCheckoutReceipt = internalMutation({
       await ctx.db.patch(hold._id, { holdExpiresAt: undefined });
     if (changed || holds.some((hold: any) => hold.status === "hold" && hold.holdExpiresAt !== undefined))
       await queueRmv2Sync(ctx, bookingId);
-    if (changed && isSavedCardRental(booking) && booking.savedCardStatus !== "saved")
-      await ctx.scheduler.runAfter(60_000,internal.checkout.recoverPendingSavedCard,{bookingId,attempt:1});
-    if (awaitingDidit && booking.idVerifyStatus !== "verified") {
+    if (changed && awaitingDidit && isSavedCardRental(booking) && booking.savedCardStatus !== "saved")
+      await ctx.scheduler.runAfter(0,internal.checkout.recoverPendingSavedCard,{bookingId,attempt:1});
+    if (changed && awaitingDidit && booking.idVerifyStatus !== "verified") {
       await queueRentalEmail(ctx,bookingId,"paid_verification");
       await queueRentalEmail(ctx,bookingId,"verification_reminder",{dueAt:checkoutPaidAt+12*60*60*1000});
     }
     if (awaitingDidit && booking.idVerifyStatus === "verified")
       await ctx.scheduler.runAfter(15 * 60000, internal.checkout.confirmAfterVerification, { bookingId, attempt: 1 });
     return { recorded: true, checkoutPaidAt, awaitingVerification: awaitingDidit, requiresSavedCard:isSavedCardRental(booking) };
+  },
+});
+
+// For a paid rental whose initial verification email was sent manually before
+// the automated notices were deployed. The queue deduplicates later retries.
+export const scheduleManualVerificationReminder = internalMutation({
+  args: {bookingId:v.id("bookings"), initialSentAt:v.number()},
+  handler: async (ctx,{bookingId,initialSentAt}) => {
+    const booking=await ctx.db.get(bookingId);
+    if(!booking || booking.status!=="pending_verification" || booking.verificationProvider!=="didit" || !booking.checkoutPaidAt || booking.idVerifyStatus==="verified" || booking.cancellationDecision || booking.returnDecision || !Number.isSafeInteger(initialSentAt) || initialSentAt<booking.checkoutPaidAt || initialSentAt>Date.now()) return false;
+    await queueRentalEmail(ctx,bookingId,"verification_reminder",{dueAt:initialSentAt+12*60*60*1000});
+    return true;
   },
 });
 
