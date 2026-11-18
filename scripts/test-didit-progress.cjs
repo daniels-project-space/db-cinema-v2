@@ -42,7 +42,7 @@ const {rentalProgress}=load('shared/rentalProgress.ts');
   assert.equal(concurrent.diditEventId,'webhook-arrived','a provider progress read cannot overwrite a newer webhook');
   assert.equal(rentalStageLabel({...booking,idVerifyStatus:saved.status}),'Verification needs review');
   mutations=[];gets=0;claim=false;
-  assert.equal((await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'})).status,'unchanged');assert.equal(gets,0);assert(!mutations.some(([ref])=>ref==='bookings.setDiditResult'));claim=true;
+  assert.equal((await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'})).status,'throttled');assert.equal(gets,0);assert(!mutations.some(([ref])=>ref==='bookings.setDiditResult'));claim=true;
   const foreign={...actionCtx,runQuery:async ref=>ref==='bookings.verificationAccess'?booking:{_id:'someone-else',email:'other@example.test'}};
   await assert.rejects(refreshProgress.handler(foreign,{bookingId:'booking-1',accountToken:'other'}),/Sign in/);assert.equal(gets,0);
   await assert.rejects(refreshProgress.handler(actionCtx,{bookingId:'booking-1',checkoutSessionId:'cs_unrelated'}),/Sign in/);assert.equal(gets,0);
@@ -52,7 +52,7 @@ const {rentalProgress}=load('shared/rentalProgress.ts');
    await assert.rejects(refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'}),/does not match/);assert(!mutations.some(([ref])=>ref==='bookings.setDiditResult'));provider[field]=original;
   }
   provider.status='Approved';provider.face_matches=[{status:'Approved'}];provider.poa_verifications=[];mutations=[];
-  await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'verified','a final Didit approval auto-approves when feature details are omitted');assert.deepEqual(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].checks,{identity:'approved',selfie:'approved',address:'approved'});
+  await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'manual_review','an overall approval cannot replace missing address evidence');assert.deepEqual(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].checks,{identity:'approved',selfie:'approved',address:'waiting'});
   provider.poa_verifications=[{status:'Approved'}];mutations=[];
   await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'verified','Didit approval is not blocked by unavailable cross-account matching');
   provider.id_verifications=[{status:'Approved',full_name:'Test Rental Customer',date_of_birth:'1990-01-01'}];mutations=[];

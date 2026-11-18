@@ -32,9 +32,10 @@ const update = (eventId, eventAt, status, extra = {}) => bookings.setDiditResult
   const missing = harness.put('bookings', { status:'confirmed',verificationProvider:'didit',diditSessionId:'missing-session',idVerifyStatus:'processing',guestEmail:'missing@example.invalid',lineItems:[] });
   const mismatchedApproval = await bookings.setDiditResult.handler(ctx, { bookingId:missing._id,sessionId:'missing-session',eventId:'missing-address',eventAt:106,status:'manual_review',providerStatus:'Approved',checks:{identity:'approved',selfie:'approved',address:'waiting'},poaPostcodes:[] });
   const missingAlerts = (harness.tables.get('admin_notifications') ?? []).filter(row => row.bookingId === missing._id);
-  assert.equal(mismatchedApproval,false,'a website-side manual hold cannot contradict Didit Approved');
-  assert.equal(missing.idVerifyStatus,'processing','an inconsistent result cannot put the booking in manual review');
-  assert.equal(missingAlerts.length,0,'an inconsistent result cannot create a manual-review alert');
+  assert.equal(mismatchedApproval,true,'an overall approval with a missing required check is recorded for review');
+  assert.equal(missing.idVerifyStatus,'manual_review','missing address evidence cannot be presented as approved');
+  assert.equal(missing.status,'pending_verification','incomplete verification cannot leave the rental confirmed');
+  assert(missingAlerts.some(row=>row.title==='Verification needs review'),'the owner is alerted to the incomplete checks');
   const review = harness.put('bookings', { status:'confirmed',verificationProvider:'didit',diditSessionId:'review-session',idVerifyStatus:'processing',guestEmail:'review@example.invalid',lineItems:[] });
   await bookings.setDiditResult.handler(ctx, { bookingId:review._id,sessionId:'review-session',eventId:'manual-review',eventAt:107,status:'manual_review',providerStatus:'In Review',poaPostcodes:[] });
   const reviewAlert = (harness.tables.get('admin_notifications') ?? []).find(row => row.bookingId === review._id);

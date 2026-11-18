@@ -90,6 +90,11 @@
   margin-top: 4px;
   color: var(--muted);
 }
+.stepsCompact { grid-template-columns: 1fr; gap: 10px; padding: 12px 0; }
+.stepsCompact .step { display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 8px; text-align: left; }
+.stepsCompact .step::after { display: none; }
+.stepsCompact .circle { grid-row: span 2; width: 24px; height: 24px; margin: 0; font-size: 11px; }
+.stepsCompact .step small { margin-top: 2px; }
 .panel {
   background: #191b1a;
   border: 1px solid var(--border);

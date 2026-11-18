@@ -15,8 +15,8 @@ export function useVerificationRefresh(bookingId: string, token?: string | null,
       if (!enabled || document.hidden || flight.current || (!token && !checkoutSessionId)) return;
       flight.current = true;
       try {
-        await refresh({bookingId: bookingId as any, accountToken: token ?? undefined, checkoutSessionId: checkoutSessionId ?? undefined, admin});
-        if (active) setError(false);
+        const result = await refresh({bookingId: bookingId as any, accountToken: token ?? undefined, checkoutSessionId: checkoutSessionId ?? undefined, admin});
+        if (active && result.status !== "throttled") setError(false);
       } catch { if (active) setError(true); }
       finally { flight.current = false; }
     }

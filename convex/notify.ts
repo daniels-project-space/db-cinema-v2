@@ -11,6 +11,7 @@ import { CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 import { bookingStockLines } from "../shared/rentalWindow";
 import { pickupMapAvailable, WATERSTONES_MAP_URL } from "../shared/pickupLocation";
 import { verificationExpired } from "../shared/verificationProgress";
+import { customerDiditFailureNote } from "../shared/diditFailureReason";
 import { createHash, randomBytes } from "node:crypto";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -118,8 +119,8 @@ export const verificationEmail = internalAction({
     const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
     const messages:Record<string,{title:string;body:string;button:string}>={
       verified:{title:"Your identity check passed",body:"Your identity and address verification is approved for this rental.",button:"Follow your rental"},
-      manual_review:{title:"Your verification is being reviewed",body:"Your documents have been referred for a human review. We will contact you if anything else is needed.",button:"View verification progress"},
-      rejected:{title:"Your verification needs support",body:"The automated check could not approve your documents. Reply to this email so we can review the result before handover.",button:"View your rental"},
+      manual_review:{title:"Your verification is being reviewed",body:"Your verification needs a review. We will contact you if anything else is needed.",button:"View verification progress"},
+      rejected:{title:"Your verification needs attention",body:`${customerDiditFailureNote(b.verificationNote) || "The automated check could not approve your documents."} Open your verification or reply to this email so the team can help.`,button:"View your verification"},
       processing:{title:"Your verification is processing",body:"Your checks are still processing. You can follow their progress in your rental.",button:"View verification progress"},
       requires_input:{title:"Complete your verification",body:"Your check needs another try. Open your rental to see which documents need updating.",button:"Continue verification"},
       canceled:{title:"Continue your verification",body:"Your verification session was cancelled. Open your rental to continue the required checks.",button:"Continue verification"},

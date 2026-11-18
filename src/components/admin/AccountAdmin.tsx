@@ -191,6 +191,7 @@ export function AccountAdmin({
     selected && !panelClosed ? { token, accountId: selected.id } : "skip",
   );
   const reviewQueue = useQuery(api.accountAdmin.verificationReviews, selected && !panelClosed ? {token,accountId:selected.id as any} : "skip");
+  const [verificationSelection, setVerificationSelection] = useState<{accountId:string;bookingId:string} | null>(null);
   const history = useQuery(
     api.accountAdmin.history,
     selected ? { token, accountId: selected.id } : "skip",
@@ -437,11 +438,13 @@ export function AccountAdmin({
     : null;
   const supportConversation = detail?.conversations.find(thread => !thread.bookingId) ?? null;
   const reviewRentals = reviewQueue?.items ?? [];
+  const verificationRentals = [...reviewRentals, ...(detail?.rentals ?? []).filter(rental => ["pending_verification", "confirmed", "active"].includes(rental.status) && !reviewRentals.some(review => review.id === rental.id))];
+  const verificationRental = verificationRentals.find(rental => verificationSelection?.accountId === selected?.id && rental.id === verificationSelection?.bookingId) ?? verificationRentals[0] ?? null;
   const profileSections = [
     ["overview", "Account details"],
     ["rentals", "Rentals"],
     ["rental-actions", "Rental actions"],
-    ...(reviewRentals.length ? [["verification", "Verification needs review"]] : []),
+    ...(verificationRentals.length ? [["verification", reviewRentals.length ? "Verification needs review" : "Verification"]] : []),
     ["documents", "Documents"],
     ["billing", "Billing"],
     ["invoices", "Invoices"],
@@ -690,7 +693,7 @@ export function AccountAdmin({
                 onClick={() => setSection(current => current === key ? "closed" : key)}
                 className={`${section === key ? styles.active : ""} ${key === "restriction" ? styles.dangerAction : ""} ${key === "verification" ? styles.verificationAttention : ""}`}
               >
-                <span className={styles.actionLabel}><ActionIcon name={key}/>{key === "verification" ? <>{name}<span className={styles.reviewCount}>{reviewRentals.length}</span></> : <>{name}{key === "rentals" && detail ? ` · ${detail.rentals.length}${detail.rentalsMore ? "+" : ""}` : ""}</>}</span>
+                <span className={styles.actionLabel}><ActionIcon name={key}/>{key === "verification" ? <>{name}{reviewRentals.length > 0 && <span className={styles.reviewCount}>{reviewRentals.length}</span>}</> : <>{name}{key === "rentals" && detail ? ` · ${detail.rentals.length}${detail.rentalsMore ? "+" : ""}` : ""}</>}</span>
                 {key === "billing" && detail && (() => {
                   const status = subscriptionSummary(detail);
                   return <span className={`${styles.actionStatus} ${status.tone === "ready" ? styles.actionStatusReady : status.tone === "attention" ? styles.actionStatusAttention : styles.actionStatusMuted}`} data-testid="admin-subscription-summary" aria-label={`Recurring subscription: ${status.label}`}>{status.label}</span>;
@@ -735,7 +738,10 @@ export function AccountAdmin({
                   </section>
                 )}
                 {section === "rental-actions" && <section className={styles.card}>{activeRental ? <RentalOrderTools key={activeRental.id} token={token} bookingId={activeRental.id} /> : <p className={styles.empty}>Select a rental conversation to manage its delivery, dates, payments and return.</p>}</section>}
-                {section === "verification" && reviewRentals.map(rental => <section key={rental.id} className={styles.card}><h3>{rental.title}</h3><p>{date(rental.start)}</p><RentalVerificationSummary token={token} bookingId={rental.id} admin /></section>)}
+                {section === "verification" && verificationRental && <section className={styles.card}>
+                  {verificationRentals.length > 1 && <label>Rental to check<select aria-label="Rental verification to check" value={verificationRental.id} onChange={event => { if (selected) setVerificationSelection({accountId:selected.id,bookingId:event.target.value}); }}>{verificationRentals.map(rental => <option key={rental.id} value={rental.id}>{rental.title} · {date(rental.start)}</option>)}</select></label>}
+                  <h3>{verificationRental.title}</h3><p>{date(verificationRental.start)}</p><RentalVerificationSummary key={verificationRental.id} token={token} bookingId={verificationRental.id} admin />
+                </section>}
                 {section === "verification" && reviewQueue?.more && <p className={styles.empty}>More than 20 cases need review. Resolve the displayed cases to see the rest.</p>}
                 {section === "notes" && (
                   <section className={styles.card}>

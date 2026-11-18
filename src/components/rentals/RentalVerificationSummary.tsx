@@ -127,6 +127,18 @@ export function RentalVerificationSummary({ bookingId, token, admin = false }: {
   const renter = useQuery(api.bookings.verificationProgress, admin ? "skip" : { token, bookingId: bookingId as any });
   const booking = admin ? owner : renter;
   const refreshError = useVerificationRefresh(bookingId, token, undefined, admin, !!booking && verificationBookingOpen(booking.status) && booking.idVerifyStatus !== "verified");
+  const refresh = useAction(api.didit.refreshProgress);
+  const [checking, setChecking] = useState(false);
+  const [checkMessage, setCheckMessage] = useState("");
+  async function checkNow() {
+    if (checking) return;
+    setChecking(true); setCheckMessage("");
+    try {
+      const result = await refresh({bookingId:bookingId as any,accountToken:token,admin:true});
+      setCheckMessage(result.status === "throttled" ? "A check was recently requested. Try again shortly." : result.status === "updated" || result.status === "unchanged" ? "Didit checked · the latest available stages are shown." : "Didit could not be checked for this rental.");
+    } catch { setCheckMessage("Could not check Didit. The last confirmed stages are shown; try again."); }
+    finally { setChecking(false); }
+  }
 
   if (!booking || !verificationBookingOpen(booking.status)) return null;
 
@@ -135,10 +147,12 @@ export function RentalVerificationSummary({ bookingId, token, admin = false }: {
   return (
     <section aria-label="Rental verification progress" className="mt-4 rounded-3xl border border-white/10 bg-gradient-to-br from-white/[.07] via-[#171819]/95 to-amber-950/10 p-4 shadow-[0_18px_48px_rgba(0,0,0,.22)] backdrop-blur-2xl">
       <p className="mb-3 text-[11px] font-semibold uppercase tracking-[.14em] text-accent-200">{rentalStageLabel(booking)}</p>
-      <VerificationBar booking={booking} />
+      {admin && owner?.verificationProvider === "didit" && owner.diditSessionId && <div className="mb-2 flex flex-wrap items-center gap-2"><button type="button" disabled={checking} onClick={() => void checkNow()} className="rounded-full border border-white/20 px-3 py-2 text-xs text-white hover:bg-white/10 disabled:opacity-50">{checking ? "Checking Didit…" : "Check Didit now"}</button>{owner.idVerifyStatus !== "verified" && <span className="text-[10px] text-white/50">Auto-checks while this case is open</span>}</div>}
+      {checkMessage && <p role="status" className="mb-2 text-xs text-white/70">{checkMessage}</p>}
+      <VerificationBar booking={booking} compact={admin} />
       <VerificationChecks checks={booking.verificationChecks} verificationStatus={booking.idVerifyStatus} />
       {needsDiditReview && <DiditReviewCard bookingId={bookingId} token={token} reason={owner.verificationNote} sessionId={owner.diditSessionId} />}
-      {booking.verificationUpdatedAt && <p className="mt-2 text-[10px] text-white/40">Updated {new Date(booking.verificationUpdatedAt).toLocaleString("en-GB", { timeZone: "Europe/London" })} · London</p>}
+      {booking.verificationUpdatedAt && <p className="mt-2 text-[10px] text-white/40">Result last changed {new Date(booking.verificationUpdatedAt).toLocaleString("en-GB", { timeZone: "Europe/London" })} · London</p>}
       {refreshError && <p role="status" className="mt-2 text-xs text-amber-200">Refresh retrying · last confirmed result shown.</p>}
       {!admin && <Link href={`/account/verification/${bookingId}`} className="mt-3 inline-block text-xs text-accent-300 hover:underline">Open verification and uploads ↗</Link>}
     </section>
