@@ -226,14 +226,13 @@ export function VerificationProgress({
     return (
       <div className="rounded-2xl border border-white/10 p-6">
         <h2 className="font-display text-xl text-white">
-          Sign in to view this rental
+          {account.me ? "This rental is not available in this account" : "Sign in to view this rental"}
         </h2>
         <p className="mt-2 text-sm text-white/50">
-          Use the account linked to your booking to see its verification and
-          upload documents.
+          {account.me ? "Check that you are using the account linked to this booking, or contact the team for help." : "Use the account linked to your booking to see its verification and upload documents."}
         </p>
         <Link
-          href={`/account?rental=${encodeURIComponent(bookingId)}`}
+          href={account.me ? "/account" : `/account?rental=${encodeURIComponent(bookingId)}&next=verification`}
           className="btn-primary mt-4 px-5 py-2"
         >
           Go to my account

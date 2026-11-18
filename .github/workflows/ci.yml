@@ -93,6 +93,8 @@ jobs:
           npm run test:membership-browser
           node scripts/test-verification-suspension-browser.cjs
           node scripts/test-verification-claim-browser.cjs
+          node scripts/test-verification-signin-browser.cjs
+          node scripts/test-verification-unavailable-browser.cjs
           node scripts/test-verification-admin-delivery-browser.cjs
           node scripts/test-account-verification-badge-browser.cjs
           DBC_CHECKOUT_ROOT=http://127.0.0.1:41795 node scripts/test-checkout-boundary-browser.cjs

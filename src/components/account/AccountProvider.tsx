@@ -52,7 +52,7 @@ type AccountCtx = {
   token: string | null;
   me: Me;
   loading: boolean;
-  signUp: (email: string, password: string, name?: string, next?: "chat" | "review", bookingId?: string) => Promise<void>;
+  signUp: (email: string, password: string, name?: string, next?: "chat" | "review" | "verification", bookingId?: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: (credential: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -107,7 +107,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = useCallback(
-    async (email: string, password: string, name?: string, next?: "chat" | "review", bookingId?: string) => {
+    async (email: string, password: string, name?: string, next?: "chat" | "review" | "verification", bookingId?: string) => {
       const { token } = await signUpA({ email, password, name, next, bookingId: bookingId as any });
       if(!token)return;
       persist(token);
