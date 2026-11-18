@@ -331,7 +331,7 @@ export function VerificationProgress({
                       : booking.idVerifyStatus === "requires_input"
                         ? "Your payment is recorded, but this rental is not confirmed yet. Didit needs a replacement document; follow its instructions below. Please do not pay again."
                         : booking.idVerifyStatus === "rejected"
-                          ? "Didit has not approved verification, so this rental is not confirmed. Message the team here for help."
+                          ? "Didit has not approved verification, so this rental is not confirmed. Try again below or message the team for help."
                           : "Your payment is recorded, but this rental is not confirmed until Didit approves verification. Continue below; you do not need to pay again."
                 : !ready
                   ? booking.status === "pending_payment"
@@ -354,7 +354,7 @@ export function VerificationProgress({
                         : booking.idVerifyStatus === "requires_input"
                           ? "Please replace the requested document to continue."
                           : booking.idVerifyStatus === "rejected"
-                            ? "Verification could not be completed. Message the team for help."
+                            ? "Verification could not be completed. Try again below or message the team for help."
                       : "Have your photo ID and proof of address ready."}
             </p>
             {ready && !journey.closed && (

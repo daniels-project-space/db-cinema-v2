@@ -71,7 +71,7 @@ export const batch = internalQuery({
         (booking.diditReconciledAt ?? 0) === candidate.checkedAt)) return [];
       return [{ bookingId: candidate.bookingId, sessionId: candidate.sessionId, email: candidate.email,
         expectedEventId: booking.diditEventId ?? null, expectedEventAt: booking.diditEventAt ?? null,
-        expectedManualDecisionAt: booking.diditManualDecisionAt ?? null }];
+        expectedManualDecisionAt: booking.diditManualDecisionAt ?? null, diditRetryNotice: booking.diditRetryNotice ?? null }];
     });
   },
 });

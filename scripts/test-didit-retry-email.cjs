@@ -1,0 +1,48 @@
+const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
+const bookings=h.load('convex/bookings.ts');
+const notify=h.load('convex/notify.ts');
+const {DIDIT_ID_PHOTO_MISSING,DIDIT_ADDRESS_UNSUPPORTED,DIDIT_ADDRESS_DATE_UNREADABLE,DIDIT_FAILURE_SUPPORT,diditFailureReason,customerDiditFailureNote}=h.load('shared/diditFailureReason.ts');
+const scheduled=[];
+const ctx={db:h.db,scheduler:{runAfter:async(ms,ref,args)=>scheduled.push({ms,ref,args})}};
+async function change(booking,requestId){
+  return bookings.setDiditResult.handler(ctx,{bookingId:booking._id,sessionId:booking.diditSessionId,eventId:`event-${booking._id}`,eventAt:Date.now(),status:'requires_input',providerStatus:'Resubmitted',poaPostcodes:[],checks:{identity:'requires_input',selfie:'requires_input',address:'approved'},...(requestId?{providerRetryRequestId:requestId}:{})});
+}
+(async()=>{
+  const addressDecision=risk=>({id_verifications:[{status:'Approved',warnings:[{risk:'DOCUMENT_EXPIRED',log_type:'information'}]}],poa_verifications:[{status:'Declined',warnings:[{risk,log_type:'error'}]}]});
+  assert.equal(diditFailureReason(addressDecision('INVALID_DOCUMENT_TYPE')),DIDIT_ADDRESS_UNSUPPORTED,'an old informational ID warning must not hide the declined address reason');
+  assert.equal(diditFailureReason(addressDecision('UNABLE_TO_VALIDATE_DOCUMENT_AGE')),DIDIT_ADDRESS_DATE_UNREADABLE);
+  assert.equal(customerDiditFailureNote(DIDIT_ADDRESS_UNSUPPORTED),DIDIT_ADDRESS_UNSUPPORTED);
+  assert.equal(diditFailureReason({...addressDecision('INVALID_DOCUMENT_TYPE'),id_verifications:[{status:'Declined',warnings:[{risk:'SUSPECTED_DOCUMENT_MANIPULATION',log_type:'error'}]}]}),DIDIT_FAILURE_SUPPORT,'risk signals retain the safe support fallback');
+  const base={status:'pending_verification',checkoutPaidAt:Date.now(),idVerifyStatus:'rejected',verificationProvider:'didit',diditSessionId:'sandbox-session',guestEmail:'test@example.invalid',lineItems:[],total:10,diditRetryNotice:{requestId:'request-1',sessionId:'sandbox-session'}};
+  const own=h.put('bookings',{...base});await change(own,'request-1');
+  const emails=()=>h.tables.get('rental_email_deliveries')||[];
+  assert(!emails().some(row=>row.bookingId===own._id),'a provider-confirmed retry email is not duplicated by the website');
+  const external=h.put('bookings',{...base});await change(external,undefined);
+  assert(emails().some(row=>row.bookingId===external._id&&row.verificationStatus==='requires_input'),'an external resubmission still queues the website email');
+  const mismatch=h.put('bookings',{...base});await change(mismatch,'other-request');
+  assert(emails().some(row=>row.bookingId===mismatch._id),'an unrelated provider request cannot suppress the website email');
+  const account=h.put('accounts',{email:base.guestEmail});
+  const declined=h.put('bookings',{...base,accountId:account._id,idVerifyStatus:'processing'});
+  await bookings.setDiditResult.handler(ctx,{bookingId:declined._id,sessionId:declined.diditSessionId,eventId:'decline-does-not-block',eventAt:Date.now(),status:'rejected',providerStatus:'Declined',poaPostcodes:[],checks:{identity:'rejected',selfie:'waiting',address:'waiting'}});
+  assert.equal(account.blockedAt,undefined,'a declined document check must not block the account');
+  assert(!(h.tables.get('account_restriction_notices')||[]).some(row=>row.accountId===account._id),'a declined document check must not send an account restriction notice');
+  const recoveryAccount=h.put('accounts',{email:'recovery@example.invalid',blockedAt:Date.now()});
+  const recovery=h.put('bookings',{...base,guestEmail:recoveryAccount.email,accountId:recoveryAccount._id,securityPolicyVersion:'2026-11-setup-intent-v1',savedCardStatus:'saved'});
+  const recoverArgs={bookingId:recovery._id,sessionId:recovery.diditSessionId,eventId:'recover-lost-response',eventAt:Date.now(),status:'requires_input',providerStatus:'Resubmitted',poaPostcodes:[],checks:{identity:'requires_input',selfie:'requires_input',address:'approved'},providerRetryRequestId:'request-1',renterRetryRecovery:true,requireApplied:true,recoveryExpectedAccountId:recovery.accountId,recoveryExpectedEmail:recovery.guestEmail};
+  assert.equal(await bookings.setDiditResult.handler(ctx,recoverArgs),false,'a restricted account cannot recover a retry through a checkout link');
+  recoveryAccount.blockedAt=undefined;
+  assert.equal(await bookings.setDiditResult.handler(ctx,{...recoverArgs,recoveryExpectedEmail:'previous@example.invalid'}),false,'changed renter ownership cannot recover a prior attempt');
+  assert.equal(await bookings.setDiditResult.handler(ctx,recoverArgs),true,'an eligible account can recover the already-started retry');
+  assert(!emails().some(row=>row.bookingId===recovery._id),'recovery does not queue a second email');
+  const missing=h.put('bookings',{...base,idVerifyStatus:'processing'});
+  await bookings.setDiditResult.handler(ctx,{bookingId:missing._id,sessionId:missing.diditSessionId,eventId:'incomplete-approved',eventAt:Date.now(),status:'manual_review',providerStatus:'Approved',poaPostcodes:[],checks:{identity:'approved',selfie:'approved',address:'waiting'}});
+  assert.equal(missing.idVerifyStatus,'manual_review');assert.equal(missing.status,'pending_verification');
+  assert(!scheduled.some(call=>call.ref==='checkout.confirmAfterVerification'&&call.args.bookingId===missing._id),'overall approval without address proof cannot trigger confirmation');
+  const failureBooking={...base,verificationNote:DIDIT_ID_PHOTO_MISSING};
+  const email=await notify.verificationEmail.handler({runQuery:async()=>failureBooking},{bookingId:'fixture-booking',status:'rejected',prepareOnly:true});
+  assert(email.html.includes('could not find a photo'));assert(email.html.includes('/account/verification/fixture-booking'),'failure email links to the verification page');
+  failureBooking.verificationNote='PRIVATE_PROVIDER_CODE';
+  const safeEmail=await notify.verificationEmail.handler({runQuery:async()=>failureBooking},{bookingId:'fixture-booking',status:'rejected',prepareOnly:true});
+  assert(!safeEmail.html.includes('PRIVATE_PROVIDER_CODE'),'unreviewed provider details never enter renter email');
+  console.log('PASS retry email correlation: own provider notice deduplicated; external and mismatched requests remain notified.');
+})().catch(e=>{console.error(e);process.exitCode=1});

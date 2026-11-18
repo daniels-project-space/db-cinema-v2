@@ -1831,6 +1831,7 @@ export const verificationAccess = internalQuery({
     return { guestEmail: b.guestEmail, status: b.status, verificationProvider: b.verificationProvider,checkoutPaidAt:b.checkoutPaidAt,
       idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId,
       idVerificationSource: b.idVerificationSource, diditEventId: b.diditEventId ?? null,
+      diditRetryNotice: b.diditRetryNotice ?? null,
       diditEventAt: b.diditEventAt ?? null, diditManualDecisionAt: b.diditManualDecisionAt ?? null,
       verificationChecks: b.verificationChecks ?? null,
       verificationNote: b.verificationNote ?? null,
@@ -1998,8 +1999,12 @@ export const setDiditResult = internalMutation({
     expectedEventAt: v.optional(v.union(v.number(), v.null())),
     expectedManualDecisionAt: v.optional(v.union(v.number(), v.null())),
     adminReviewSessionToken: v.optional(v.string()),
+    providerRetryRequestId: v.optional(v.string()),
+    renterRetryRecovery: v.optional(v.boolean()),
+    recoveryExpectedAccountId: v.optional(v.union(v.id("accounts"),v.null())),
+    recoveryExpectedEmail: v.optional(v.string()),
   },
-  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, reconciliation, requireApplied, sweepGeneration, expectedEventId, expectedEventAt, expectedManualDecisionAt, adminReviewSessionToken }) => {
+  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, reconciliation, requireApplied, sweepGeneration, expectedEventId, expectedEventAt, expectedManualDecisionAt, adminReviewSessionToken, providerRetryRequestId, renterRetryRecovery, recoveryExpectedAccountId, recoveryExpectedEmail }) => {
     if (adminReviewSessionToken !== undefined) {
       if (!adminSessionMigrationReady()) throw Error("Admin session migration is not ready.");
       await assertAdminScopeSession(ctx, adminReviewSessionToken, "verification:write");
@@ -2008,6 +2013,14 @@ export const setDiditResult = internalMutation({
     if (sweepGeneration !== undefined && !(await currentDiditSweep(ctx, sweepGeneration))) return false;
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
+    if (renterRetryRecovery) {
+      const account = await accountForRental(ctx, b);
+      if (!verificationCanStart(b) || !Number.isSafeInteger(b.checkoutPaidAt) || (b.checkoutPaidAt ?? 0) <= 0 ||
+          b.idVerifyStatus !== "rejected" || providerStatus !== "Resubmitted" || status !== "requires_input" ||
+          !providerRetryRequestId || b.diditRetryNotice?.requestId !== providerRetryRequestId || b.diditRetryNotice.sessionId !== sessionId ||
+          recoveryExpectedAccountId === undefined || (b.accountId ?? null) !== recoveryExpectedAccountId || b.guestEmail !== recoveryExpectedEmail ||
+          b.accountId && !account || account?.blockedAt != null) return false;
+    }
     if (expectedEventId !== undefined && ((b.diditEventId ?? null) !== expectedEventId || (b.diditEventAt ?? null) !== expectedEventAt ||
         (b.diditManualDecisionAt ?? null) !== expectedManualDecisionAt)) return !requireApplied;
     if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt ||
@@ -2081,7 +2094,9 @@ export const setDiditResult = internalMutation({
     }
     else if (["rejected", "requires_input", "manual_review"].includes(status)) await revokeReuse(ctx, bookingId);
     await verificationUpdateMessage(ctx, bookingId, previous, status);
-    if (verificationBookingOpen(b.status) && previous !== status && ["manual_review", "requires_input", "rejected"].includes(status))
+    const providerRetryEmail = status === "requires_input" && providerStatus === "Resubmitted" && !!providerRetryRequestId &&
+      b.diditRetryNotice?.sessionId === sessionId && b.diditRetryNotice.requestId === providerRetryRequestId;
+    if (verificationBookingOpen(b.status) && previous !== status && ["manual_review", "requires_input", "rejected"].includes(status) && !providerRetryEmail)
       await queueRentalEmail(ctx,bookingId,"verification",{verificationStatus:status});
     if (verificationBookingOpen(b.status) && previous !== status && (status === "requires_input" || status === "rejected" || status === "verified" && providerStatus === "Approved" && !identityRiskNotice)) {
       const account = await accountForRental(ctx, b);

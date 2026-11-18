@@ -110,6 +110,18 @@ function signed(event) {
   assert.equal(await webhook.handler(unavailableCtx,signed({...event,event_id:'event-failure-offline',status:'Declined',decision:{}})),'processing_error');
   assert.deepEqual(failureRef,['bookings:flagDiditProcessingFailure'],'failure detail is not replaced by an irreversible generic email during provider outage');
   assert.equal(result,priorResult);
+  const retryMarker={requestId:'retry-1',sessionId:event.session_id,startedAt:Date.now()};
+  const retryCalls=[];
+  const retryCtx={runQuery:async()=>({diditSessionId:event.session_id,guestEmail:'test@example.invalid',diditRetryNotice:retryMarker}),runMutation:async(ref,args)=>{retryCalls.push({ref,args});return true}};
+  webhookReport.status='Resubmitted';webhookReport.reviews=[];
+  global.fetch=async()=>new Response(JSON.stringify(webhookReport));
+  const retryEvent={...event,event_id:'event-retry',status:'Resubmitted',decision:{}};
+  assert.equal(await webhook.handler(retryCtx,signed(retryEvent)),'processing_error');
+  assert.deepEqual(retryCalls.map(x=>x.ref),['bookings:flagDiditProcessingFailure'],'an early resubmission webhook must not queue a second email');
+  retryCalls.length=0;
+  webhookReport.reviews=[{new_status:'Resubmitted',comment:'DB Cinema renter retry retry-1',created_at:new Date().toISOString()}];
+  assert.equal(await webhook.handler(retryCtx,signed(retryEvent)),true);
+  assert.equal(retryCalls[0].args.providerRetryRequestId,'retry-1','the later webhook uses the provider review to correlate the email');
   global.fetch=originalWebhookFetch;
   result = null;
   assert.equal(await webhook.handler(ctx, {...signed(event), signature: '0'.repeat(64)}), false);

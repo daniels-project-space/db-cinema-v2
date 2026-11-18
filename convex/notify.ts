@@ -120,7 +120,7 @@ export const verificationEmail = internalAction({
     const messages:Record<string,{title:string;body:string;button:string}>={
       verified:{title:"Your identity check passed",body:"Your identity and address verification is approved for this rental.",button:"Follow your rental"},
       manual_review:{title:"Your verification is being reviewed",body:"Your verification needs a review. We will contact you if anything else is needed.",button:"View verification progress"},
-      rejected:{title:"Your verification needs attention",body:`${customerDiditFailureNote(b.verificationNote) || "The automated check could not approve your documents."} Open your verification or reply to this email so the team can help.`,button:"View your verification"},
+      rejected:{title:"Your verification needs attention",body:`${customerDiditFailureNote(b.verificationNote) || "The automated check could not approve your documents."} Open your verification to see whether you can try again, or reply to this email for help.`,button:"View your verification"},
       processing:{title:"Your verification is processing",body:"Your checks are still processing. You can follow their progress in your rental.",button:"View verification progress"},
       requires_input:{title:"Complete your verification",body:"Your check needs another try. Open your rental to see which documents need updating.",button:"Continue verification"},
       canceled:{title:"Continue your verification",body:"Your verification session was cancelled. Open your rental to continue the required checks.",button:"Continue verification"},
