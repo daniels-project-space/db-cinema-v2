@@ -1,0 +1,44 @@
+// Synthetic browser exercise of the actual account page; no mail or real login.
+const assert=require('node:assert/strict'),fs=require('node:fs'),http=require('node:http'),os=require('node:os'),path=require('node:path');
+const {spawn}=require('node:child_process'),esbuild=require('esbuild');
+const source=fs.readFileSync('scripts/test-membership-browser.cjs','utf8');
+const connect=new Function('require',source.slice(0,source.indexOf('const { ConvexHttpClient }'))+'\nreturn connect;')(require);
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{
+ const names=['AccountCreditReceipts','ReferralPanel','EncoreCrest','SiteHeader','GoogleSignIn','GearCard','AccountFrame','AccountProfilePill','ChatAvatar','RenterChat','MembershipPlanCard','AccentPicker','CollectiveProfile','RenterNotificationBell','RenterOverview','RentalCalendar','ShootLists','AvatarUpload','ManagementShell','InvoiceLibrary','PrivatePortraitPreference'];
+ const fixture=`import React from 'react';const p=new Proxy(()=>{},{get:(_,k)=>k==='then'?undefined:p});export const api=p;export const useQuery=()=>undefined;export const useMutation=()=>async()=>({});export const useAction=()=>async(a)=>{if(globalThis.fixtureSetup)return a.setupToken?{token:'synthetic-token'}:a.challenge?{setupToken:'synthetic-setup-token'}:{challenge:'synthetic-challenge'};globalThis.lastSignInRequest=a;return {ok:true,token:'synthetic-token'}};export const usePaginatedQuery=()=>({status:'Exhausted',results:[],loadMore:()=>{}});export const useAccount=()=>{const [me,setMe]=React.useState(globalThis.fixtureMe||null);React.useEffect(()=>{const f=()=>setMe(globalThis.fixtureMe);window.addEventListener('fixture-account',f);return()=>window.removeEventListener('fixture-account',f)},[]);return {me,loading:false,token:me?'test-token':null,signIn:async()=>{globalThis.fixtureMe={name:'Test',email:'test@example.invalid',marketingEmails:false};window.dispatchEvent(new Event('fixture-account'))},signUp:async()=>{},signOut:async()=>{},acceptSession:()=>{}}};export const tierByKey=()=>null;export const TIERS=[];${names.map(x=>`export const ${x}=()=>null;`).join('')}`;
+ const mocks={name:'account-fixture',setup(build){build.onResolve({filter:/^(next\/link|convex\/react|convex-helpers\/react|@cvx\/|@\/)/},a=>({path:a.path,namespace:'fixture'}));build.onLoad({filter:/.*/,namespace:'fixture'},a=>({loader:'jsx',resolveDir:process.cwd(),contents:a.path==='next/link'?`import React from 'react';export default function Link({href,children,...p}){return <a href={href} {...p}>{children}</a>}`:fixture}));}};
+ const entry=`import React from 'react';import{createRoot}from'react-dom/client';import AccountPage from './src/app/account/page';createRoot(document.getElementById('root')).render(<AccountPage/>);`;
+ const bundle=await esbuild.build({stdin:{contents:entry,resolveDir:process.cwd(),loader:'jsx'},bundle:true,write:false,platform:'browser',format:'iife',plugins:[mocks]});
+ const accessEntry=`import React from 'react';import{createRoot}from'react-dom/client';import AccountAccess from './src/app/account/access/page';createRoot(document.getElementById('root')).render(<AccountAccess/>);`;
+ const accessBundle=await esbuild.build({stdin:{contents:accessEntry,resolveDir:process.cwd(),loader:'jsx'},bundle:true,write:false,platform:'browser',format:'iife',plugins:[mocks]});
+ const setupEntry=`import React from 'react';import{createRoot}from'react-dom/client';import AccountSetup from './src/app/account/setup/page';createRoot(document.getElementById('root')).render(<AccountSetup/>);`;
+ const setupBundle=await esbuild.build({stdin:{contents:setupEntry,resolveDir:process.cwd(),loader:'jsx'},bundle:true,write:false,platform:'browser',format:'iife',plugins:[mocks]});
+ let verificationVisits=0,accessVisits=0;
+ const server=http.createServer((req,res)=>{if(req.url==='/setup-bundle.js'){res.setHeader('Content-Type','text/javascript');return res.end(setupBundle.outputFiles[0].text)}if(req.url.startsWith('/account/setup'))return res.end('<div id="root"></div><script>globalThis.fixtureSetup=true</script><script src="/setup-bundle.js"></script>');if(req.url==='/access-bundle.js'){res.setHeader('Content-Type','text/javascript');return res.end(accessBundle.outputFiles[0].text)}if(req.url.startsWith('/account/access')){accessVisits++;return res.end('<div id="root"></div><script src="/access-bundle.js"></script>')}if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript');return res.end(bundle.outputFiles[0].text)}if(req.url.startsWith('/account/verification/')){verificationVisits++;res.setHeader('Content-Type','text/html');return res.end('<p>Verification destination reached</p>')}res.end('<div id="root"></div><script src="/bundle.js"></script>')});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'dbc-signin-return-'));const chrome=spawn('/opt/google/chrome/chrome',['--headless=new','--no-sandbox','--disable-gpu','--remote-debugging-port=0',`--user-data-dir=${dir}`,'about:blank'],{stdio:'ignore'});let client;
+ try{let port;for(let n=0;n<100;n++){try{port=fs.readFileSync(path.join(dir,'DevToolsActivePort'),'utf8').split('\n')[0];break}catch{await delay(100)}}assert(port);process.env.DBC_CDP_URL=`http://127.0.0.1:${port}`;client=await connect();await client.cmd('Page.enable');
+ const start=`http://127.0.0.1:${server.address().port}/account?rental=synthetic-booking&next=verification`;
+ await client.cmd('Page.navigate',{url:start});await delay(1200);
+ assert.equal(await client.evaluate(`document.querySelector('a[href^="/account/setup"]').getAttribute('href')`),'/account/setup?purpose=reset&next=verification&rental=synthetic-booking');
+ await client.evaluate(`{const input=document.querySelector('[name=email]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'test@example.invalid');input.dispatchEvent(new Event('input',{bubbles:true}))}`);await delay(200);
+ await client.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('Email me a sign-in link')).click()`);await delay(200);
+ const requested=await client.evaluate('globalThis.lastSignInRequest');assert.equal(requested.next,'verification');assert.equal(requested.bookingId,'synthetic-booking','email sign-in keeps the exact verification destination');
+ await client.evaluate(`document.querySelector('[name=email]').value='test@example.invalid';document.querySelector('[name=password]').value='password';document.querySelector('form').requestSubmit()`);
+ for(let n=0;n<50&&!await client.evaluate(`location.pathname==='/account/verification/synthetic-booking'`);n++)await delay(100);
+ assert.equal(await client.evaluate('location.pathname'),'/account/verification/synthetic-booking','password sign-in returns to the requested verification page');
+ await client.cmd('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/account/access?next=verification&rental=synthetic-booking#synthetic-secret`});
+ for(let n=0;n<50&&verificationVisits<2;n++)await delay(100);
+ assert.equal(accessVisits,1);assert.equal(verificationVisits,2,'the email sign-in causes a new navigation to verification');
+ assert.equal(await client.evaluate('location.pathname'),'/account/verification/synthetic-booking','email sign-in returns to the requested verification page');
+ await client.cmd('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/account/setup?purpose=reset&next=verification&rental=synthetic-booking`});await delay(300);
+ const fill=async(label,value)=>client.evaluate(`{const input=document.querySelector('[aria-label=${JSON.stringify(label)}]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event('input',{bubbles:true}))}`);
+ await fill('Email','test@example.invalid');await client.evaluate(`document.querySelector('form').requestSubmit()`);await delay(200);
+ await fill('One-time code','123456');await client.evaluate(`document.querySelector('form').requestSubmit()`);await delay(200);
+ await fill('New password','password123');await fill('Confirm password','password123');await client.evaluate(`document.querySelector('form').requestSubmit()`);
+ for(let n=0;n<50&&verificationVisits<3;n++)await delay(100);
+ assert.equal(verificationVisits,3,'password reset signs in and returns to verification');
+
+ console.log('PASS actual account page returns a synthetic password sign-in to verification and returns email sign-in and password reset to the same verification page.');
+ }finally{if(client)client.close();if(chrome.exitCode===null){const p=new Promise(r=>chrome.once('exit',r));chrome.kill();await p}server.close();await fs.promises.rm(dir,{recursive:true,force:true,maxRetries:20,retryDelay:200})}
+})().catch(e=>{console.error(e);process.exitCode=1});

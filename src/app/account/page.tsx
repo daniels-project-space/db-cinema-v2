@@ -1,6 +1,7 @@
 "use client";
 import {AccountCreditReceipts} from "@/components/account/AccountCreditReceipts";
 import { REVIEW_PRIZE_GBP } from "../../../shared/reviewPrize";
+import { accountAccessDestination } from "../../../shared/accountAccess";
 import { ReferralPanel } from "@/components/account/ReferralPanel";
 import { EncoreCrest } from "@/components/account/LoyaltyCelebration";
 
@@ -64,11 +65,20 @@ function AuthForm() {
   const [name, setName] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [resetHref, setResetHref] = useState("/account/setup?purpose=reset");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const rental = params.get("rental");
+    if (params.get("next") === "verification" && rental)
+      setResetHref(`/account/setup?purpose=reset&next=verification&rental=${encodeURIComponent(rental)}`);
+  }, []);
 
-  function reviewReturn() {
+  function accessReturn() {
     const params = new URLSearchParams(window.location.search);
     const bookingId = params.get("rental");
-    return params.get("review") === "1" && bookingId ? { next: "review" as const, bookingId: bookingId as Id<"bookings"> } : {};
+    if (params.get("review") === "1" && bookingId) return { next: "review" as const, bookingId: bookingId as Id<"bookings"> };
+    if (params.get("next") === "verification" && bookingId) return { next: "verification" as const, bookingId: bookingId as Id<"bookings"> };
+    return {};
   }
 
   async function go(values: FormData) {
@@ -83,7 +93,7 @@ function AuthForm() {
     setErr(null);
     try {
       if (mode === "signup") {
-        const target = reviewReturn();
+        const target = accessReturn();
         await account.signUp(submittedEmail, submittedPassword, submittedName || undefined, target.next, target.bookingId);
         setLinkSent(true);
       }
@@ -163,9 +173,9 @@ function AuthForm() {
         {mode === "signup" && linkSent && <p role="status" className="text-xs text-accent-300">Check your email to confirm account creation and activate your password. Private rentals stay locked until then.</p>}
         <GoogleSignIn onError={setErr} />
         {mode === "signin" && <>
-          <Link href="/account/setup?purpose=reset" className="text-sm text-accent-300 hover:underline">Forgot password?</Link>
+          <Link href={resetHref} className="text-sm text-accent-300 hover:underline">Forgot password?</Link>
           <div className="mt-2 border-t border-white/10 pt-4 text-xs text-white/50">Booked without a password? Sign in with your rental email.</div>
-          <button type="button" className="btn-secondary py-3" disabled={busy || !email.trim()} onClick={async()=>{setBusy(true);setErr(null);setLinkSent(false);try{await requestSignIn({email,...reviewReturn()});setLinkSent(true);}catch{setErr("Could not request a link. Please try again.");}finally{setBusy(false);}}}>Email me a sign-in link</button>
+          <button type="button" className="btn-secondary py-3" disabled={busy || !email.trim()} onClick={async()=>{setBusy(true);setErr(null);setLinkSent(false);try{await requestSignIn({email,...accessReturn()});setLinkSent(true);}catch{setErr("Could not request a link. Please try again.");}finally{setBusy(false);}}}>Email me a sign-in link</button>
           {linkSent && <p role="status" className="text-xs text-accent-300">If an account uses this email, a private sign-in link is on its way. It expires in 15 minutes.</p>}
         </>}
       </form>
@@ -176,6 +186,12 @@ function AuthForm() {
 function Dashboard() {
   const account = useAccount();
   const me = account.me!;
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const bookingId = params.get("rental");
+    if (params.get("next") === "verification" && bookingId)
+      window.location.replace(accountAccessDestination(bookingId, "verification"));
+  }, []);
   const unreadMessages =
     useQuery(
       api.rentalChat.unreadTotals,
