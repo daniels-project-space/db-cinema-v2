@@ -1641,7 +1641,10 @@ export const saveInitialInvoiceSnapshot=internalMutation({
     const confirmedCancelled=booking.status==="cancelled"&&!!(booking.paidConfirmedAt||booking.creditIssuedId||operatorEvidence?.bookingId===booking._id&&operatorEvidence.accountId===booking.accountId);
     if(booking.status==="pending_payment"||(!booking.stripePaymentIntentId&&!(["confirmed","active","returned"].includes(booking.status)||confirmedCancelled)))throw Error("Only a settled rental can issue an invoice snapshot.");
     const sameMoney=(value:any,expected:any)=>Number.isFinite(value)&&Number.isFinite(expected)&&Math.round(value*100)===Math.round(expected*100);
-    if(!snapshot||snapshot.number!==`DBC-${String(booking._id).slice(-8).toUpperCase()}`||!Array.isArray(snapshot.lineItems)||JSON.stringify(snapshot.lineItems)!==JSON.stringify(rentalBillingLines(booking))||!sameMoney(snapshot.subtotal,booking.subtotal)||!sameMoney(snapshot.total,booking.total)||!sameMoney(snapshot.depositAmount,booking.depositAmount)||!Number.isSafeInteger(snapshot.issuedAt))throw Error("The rental changed while its invoice was being prepared. Retry the invoice.");
+    // Convex can return object fields in a different order across calls. Keep
+    // exact line values and array order, while ignoring object key order.
+    const canonicalLines=(rows:any[])=>JSON.stringify(rows.map(row=>row && typeof row==="object" && !Array.isArray(row) ? Object.fromEntries(Object.entries(row).sort(([a],[b])=>a.localeCompare(b))) : row));
+    if(!snapshot||snapshot.number!==`DBC-${String(booking._id).slice(-8).toUpperCase()}`||!Array.isArray(snapshot.lineItems)||canonicalLines(snapshot.lineItems)!==canonicalLines(rentalBillingLines(booking))||!sameMoney(snapshot.subtotal,booking.subtotal)||!sameMoney(snapshot.total,booking.total)||!sameMoney(snapshot.depositAmount,booking.depositAmount)||!Number.isSafeInteger(snapshot.issuedAt))throw Error("The rental changed while its invoice was being prepared. Retry the invoice.");
     await ctx.db.patch(bookingId,{invoiceSnapshot:snapshot});
     return snapshot;
   },
