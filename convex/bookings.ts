@@ -1726,7 +1726,7 @@ export const invoiceData = query({
       number: `DBC-${String(b._id).slice(-8).toUpperCase()}`,
       agreementSnapshot: readAgreementSnapshot(b.agreementSnapshot),
       acceptedAgreementEvidence: {name:b.agreementName??null,signedAt:b.agreementSignedAt??null,documents:b.agreementDocs??[]},
-      issuedAt: b._creationTime,
+      issuedAt: Math.trunc(b._creationTime),
       supplierName: "DB Cinema Rentals",
       supplierAddress: undefined,
       status: b.status,
