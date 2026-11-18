@@ -538,6 +538,13 @@ async function confirmPaidBookingWithLiveStock(ctx: any, bookingId: any, session
     throw Error("The paid checkout has no identifiable payment. Review it before confirming the rental.");
   const receipt = await ctx.runMutation(internal.bookings.recordPaidCheckoutReceipt, { bookingId, sessionId: session.id, paymentIntentId });
   if (receipt.closed) return receipt;
+  if (receipt.needsVerificationHoldRecovery) {
+    // Reacquire only the original paid allocation against a fresh Manager
+    // snapshot before the usual acknowledged delivery and confirmation.
+    const fresh = await ctx.runAction(internal.sync.syncHyggloReservations, {force:true});
+    if (!Number.isSafeInteger(fresh?.checkedAt)) throw new Error("Payment and verification are complete, but the equipment reservation needs review.");
+    await ctx.runMutation(internal.bookings.restoreReleasedVerificationHold,{bookingId,sessionId:session.id,paymentIntentId,rentalManagerCheckedAt:fresh.checkedAt});
+  }
   if (receipt.awaitingVerification) {
     // A successful Didit checkout must reach Rental Manager before the payer
     // leaves the paid-pending state. The local reservation is already durable;

@@ -83,6 +83,28 @@ async function quietExpectedError(run) {
   managerPushSucceeds=true;await checkout.confirmAfterVerification.handler(ctx,{bookingId:booking._id,attempt:1});
   assert.equal(confirmations,beforeGate.confirmations+1);assert.equal(trackedPurchases,2);
 
+  // A legacy declined case may have had its paid hold cancelled. Recovery must
+  // refresh stock, restore the exact ledger, get Manager's receipt, then run
+  // the ordinary final stock check before any confirmation.
+  const recoveryOrder=[];let recoveryFails=false;
+  const recoveryCtx={...ctx,runAction:async(ref,args)=>{
+    if(ref==='sync.syncHyggloReservations'){recoveryOrder.push('stock');return {checkedAt:Date.now()};}
+    if(ref==='rmv2_webhook.push'){recoveryOrder.push('manager');return {ok:true};}
+    throw Error(`Unexpected action ${ref}`);
+  },runMutation:async(ref,args)=>{
+    if(ref==='bookings.recordPaidCheckoutReceipt')return {recorded:true,awaitingVerification:true,requiresSavedCard:false,needsVerificationHoldRecovery:true};
+    if(ref==='bookings.restoreReleasedVerificationHold'){recoveryOrder.push('restore');if(recoveryFails)throw Error('No available stock');return {restored:true};}
+    if(ref==='bookings.confirm'){recoveryOrder.push('confirm');return {};}
+    if(ref==='analytics.track')return true;
+    if(ref==='bookings.markVerificationConfirmationFailure')return true;
+    throw Error(`Unexpected mutation ${ref}`);
+  }};
+  await checkout.confirmAfterVerification.handler(recoveryCtx,{bookingId:booking._id});
+  assert.deepEqual(recoveryOrder,['stock','restore','manager','stock','confirm']);
+  recoveryOrder.length=0;recoveryFails=true;
+  await quietExpectedError(()=>checkout.confirmAfterVerification.handler(recoveryCtx,{bookingId:booking._id}));
+  assert.deepEqual(recoveryOrder,['stock','restore'],'an unavailable allocation cannot reach delivery or confirmation');
+
   retrievalFailures = 1;
   await quietExpectedError(() => checkout.confirmAfterVerification.handler(ctx, { bookingId: booking._id, attempt: 3 }));
   assert.equal(failures, 1, 'exhausted provider retries create a visible admin alert');

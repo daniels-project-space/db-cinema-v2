@@ -1,0 +1,26 @@
+const assert=require('node:assert/strict');
+const h=require('./lib/rentalTestHarness.cjs');
+const {load,put,db}=h;
+const {stockWindow}=load('convex/lib/stockWindows.ts');
+const {restoreReleasedVerificationHold}=load('convex/bookings.ts');
+const now=Date.now(), day=Date.UTC(2031,0,1),line={listingId:'listing-recovery',start:day,end:day,qty:1,pickupTime:'10:00',returnTime:'17:00'};
+const window=stockWindow(line,true);const unit=put('inventory_units',{_id:'unit-recovery',name:'Fixture camera',quantityOwned:1,active:true});
+put('listings',{_id:line.listingId,title:'Fixture',active:true,components:[{inventoryUnitId:unit._id,qty:1}]});
+put('rmv2_sync_state',{key:'shared-stock-v1',status:'ok',cursor:JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:now})});
+const physical={inventoryUnitId:unit._id,listingId:line.listingId,start:window.start,end:window.end,qty:1,endExclusive:true,turnaroundBufferMinutes:60};
+const fingerprint=JSON.stringify({lines:[JSON.stringify([line.listingId,line.start,line.end,line.pickupTime,line.returnTime,line.qty])],physical:[JSON.stringify([unit._id,line.listingId,physical.start,physical.end,physical.qty,true,60])]});
+const booking=put('bookings',{_id:'booking-recovery',status:'pending_verification',verificationProvider:'didit',idVerifyStatus:'verified',idVerifiedAt:now,stripeCheckoutSessionId:'cs-fixture',stripePaymentIntentId:'pi-fixture',checkoutPaidAt:now,stockHoldFingerprint:fingerprint,lineItems:[line]});
+const original=put('reservations',{...physical,_id:'reservation-original',bookingId:booking._id,source:'site',status:'cancelled'});
+const events=[];const ctx={db,scheduler:{runAfter:async(...a)=>events.push(a)}};
+const args={bookingId:booking._id,sessionId:'cs-fixture',paymentIntentId:'pi-fixture',rentalManagerCheckedAt:now};
+(async()=>{
+ await assert.rejects(restoreReleasedVerificationHold.handler(ctx,{...args,rentalManagerCheckedAt:now-1}),/fresh Rental Manager/);
+ booking.idVerifyStatus='rejected';await assert.rejects(restoreReleasedVerificationHold.handler(ctx,args),/paid verification/);booking.idVerifyStatus='verified';booking.idVerifiedAt=now-91*86400000;await assert.rejects(restoreReleasedVerificationHold.handler(ctx,args),/paid verification/);booking.idVerifiedAt=now;
+ await assert.rejects(restoreReleasedVerificationHold.handler(ctx,{...args,paymentIntentId:'pi-other'}),/paid verification/);
+ const conflict=put('reservations',{...physical,_id:'other-reservation',bookingId:'another-booking',source:'site',status:'confirmed'});
+ await assert.rejects(restoreReleasedVerificationHold.handler(ctx,args),/already reserved/);assert.equal(original.status,'cancelled');conflict.status='cancelled';
+ original.qty=2;await assert.rejects(restoreReleasedVerificationHold.handler(ctx,args),/original equipment allocation/);original.qty=1;
+ assert.deepEqual(await restoreReleasedVerificationHold.handler(ctx,args),{restored:true});assert.equal(original.status,'hold');assert.equal(original.holdExpiresAt,undefined);assert.equal(booking.status,'pending_verification');assert.equal(booking.rmv2SyncStatus,'pending');assert(events.length>0);
+ assert.deepEqual(await restoreReleasedVerificationHold.handler(ctx,args),{restored:false},'retries must not create duplicate holds');
+ console.log('PASS paid verification recovery: exact original allocation, fresh stock and payment binding; conflicts refuse recovery; no booking is confirmed.');
+})().catch(e=>{console.error(e);process.exitCode=1});

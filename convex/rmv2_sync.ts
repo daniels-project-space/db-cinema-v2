@@ -146,7 +146,7 @@ export function mapBookingForSync(
     ...(reservations?.length ? { physicalReservations: reservations
       .filter(r => r.source === "site" && (["confirmed", "active", "returned"].includes(r.status) ||
         b.status === "pending_verification" && b.verificationProvider === "didit" &&
-        typeof b.checkoutPaidAt === "number" && Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt > 0 && b.idVerifyStatus !== "rejected" &&
+        typeof b.checkoutPaidAt === "number" && Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt > 0 &&
         r.status === "hold" && !r.extensionRequestId && !r.externalRef))
       .map(r => {
         const unit = unitById.get(String(r.inventoryUnitId));

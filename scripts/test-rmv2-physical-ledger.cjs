@@ -36,7 +36,7 @@ const {mapBookingForSync,forRmv2SyncOne}=load('convex/rmv2_sync.ts');
  const unpaidProjection=mapBookingForSync({...paidPending,checkoutPaidAt:undefined},new Map(),new Map([[String(booked._id),booked]]),new Map(),[pendingHold]);
  assert.deepEqual(unpaidProjection.physicalReservations,[],'An unpaid verification/cart marker does not reserve stock in Rental Manager');
  const declinedProjection=mapBookingForSync({...paidPending,idVerifyStatus:'rejected'},new Map(),new Map([[String(booked._id),booked]]),new Map(),[pendingHold]);
- assert.deepEqual(declinedProjection.physicalReservations,[],'A terminal Didit rejection releases the transferred hold');
+ assert.equal(declinedProjection.physicalReservations.length,1,'A declined check does not release a paid physical allocation');
  await db.patch(row._id,{status:'cancelled'});for(const r of projection.physicalReservations.slice(1))await db.patch(r.reservationId,{status:'cancelled'});
  assert.deepEqual((await forRmv2SyncOne.handler({db},{bookingId:booking._id})).physicalReservations,[],'An existing but fully cancelled site ledger is distinguishable from no ledger');
  const account=put('accounts',{email:'test@example.invalid'});const damageCase=put('rental_damage_cases',{bookingId:booking._id,accountId:account._id,itemKey:'unit:0',title:'Sony FX3 · unit 1',inventoryUnitId:booked._id,details:'Casing damage with evidence',status:'open',openedAt:1000});
