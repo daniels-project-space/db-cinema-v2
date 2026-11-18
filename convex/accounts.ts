@@ -161,7 +161,7 @@ export const sweepExpiredSessions = internalMutation({
 
 // ── public actions ───────────────────────────────────────────────
 export const signUp = action({
-  args: { email: v.string(), password: v.string(), name: v.optional(v.string()), next: v.optional(v.union(v.literal("chat"),v.literal("review"))), bookingId: v.optional(v.id("bookings")) },
+  args: { email: v.string(), password: v.string(), name: v.optional(v.string()), next: v.optional(v.union(v.literal("chat"),v.literal("review"),v.literal("verification"))), bookingId: v.optional(v.id("bookings")) },
   handler: async (ctx, { email, password, name, next, bookingId }): Promise<{ token: string }> => {
     const e = email.trim().toLowerCase();
     if (!validAccountEmail(e) || password.length < 6)
