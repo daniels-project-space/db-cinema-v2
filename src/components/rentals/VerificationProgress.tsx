@@ -66,17 +66,19 @@ function useVerificationClock(booking?: VerificationBooking | null) {
 export function VerificationBar({
   booking,
   now: providedNow,
+  compact = false,
 }: {
   booking: VerificationBooking;
   now?: number;
+  compact?: boolean;
 }) {
   const clock = useVerificationClock(booking);
   const { steps, current } = verificationJourney(booking, providedNow ?? clock);
   return (
     <ol
       aria-label="Verification progress"
-      className={styles.steps}
-      style={{ gridTemplateColumns: `repeat(${steps.length},minmax(0,1fr))` }}
+      className={`${styles.steps} ${compact ? styles.stepsCompact : ""}`}
+      style={compact ? undefined : { gridTemplateColumns: `repeat(${steps.length},minmax(0,1fr))` }}
     >
       {steps.map((step, i) => (
         <li

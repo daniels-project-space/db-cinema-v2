@@ -1,6 +1,7 @@
 "use node";
 
 import { verificationChecks, verificationCanStart, verificationBookingOpen, verificationExpired } from "../shared/verificationProgress";
+import { diditFailureReason } from "../shared/diditFailureReason";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import Stripe from "stripe";
@@ -309,7 +310,7 @@ async function refreshBoundProgress(ctx: any, bookingId: any, booking: any): Pro
     if (!verificationBookingOpen(booking.status)) return {status: "closed"};
     if (booking.verificationProvider !== "didit" || !booking.diditSessionId) return {status: "not_started"};
     const claimed = await ctx.runMutation(internal.bookings.claimDiditProgressRefresh, {bookingId, sessionId:booking.diditSessionId});
-    if (!claimed) return {status: "unchanged"};
+    if (!claimed) return {status: "throttled"};
     try {
     const cfg = config();
     const readStartedAt = Date.now();
@@ -443,7 +444,8 @@ function mapDecision(rawStatus: unknown, decision: any): {
   else return null;
   let note = rawStatus === "Expired" ? "The verification link expired. Start a new check before handover."
     : rawStatus === "Abandoned" ? "The verification was not completed. Start a new check before handover."
-    : status === "requires_input" ? "Please complete the requested document step." : undefined;
+    : status === "requires_input" ? "Please complete the requested document step."
+    : status === "rejected" ? diditFailureReason(decision) : undefined;
   const expiries = (Array.isArray(decision?.id_verifications) ? decision.id_verifications : [])
     .map((item: any) => /^\d{4}-\d{2}-\d{2}$/.test(item.expiration_date ?? "") ? Date.parse(`${item.expiration_date}T00:00:00Z`) : NaN);
   const documentExpiresAt = expiries.length && expiries.every(Number.isFinite) ? Math.min(...expiries) : undefined;
@@ -457,9 +459,11 @@ function mapDecision(rawStatus: unknown, decision: any): {
   // value before enabling it so current person keys continue to match.
   const secret = process.env.RESTRICTED_IDENTITY_HMAC_SECRET || process.env.INVOICE_SECRET;
   const personKey = secret && keys.length && new Set(keys).size === 1 ? createHmac("sha256", secret).update(`dbc-person-v1:${keys[0]}`).digest("hex") : undefined;
-  const checks = rawStatus === "Approved"
-    ? { identity: "approved", selfie: "approved", address: "approved" } as const
-    : verificationChecks(decision);
+  const checks = verificationChecks(decision);
+  if (rawStatus === "Approved" && !["identity", "selfie", "address"].every(key => checks[key as keyof typeof checks] === "approved")) {
+    status = "manual_review";
+    note = "Your verification needs a team review because one or more required checks could not be confirmed.";
+  }
   return { status, note, poaPostcodes, checks, ...(personKey ? { personKey } : {}), ...(documentExpiresAt ? { documentExpiresAt } : {}) };
 }
 
@@ -505,7 +509,16 @@ export const webhook = internalAction({
         !Number.isSafeInteger(event.created_at)) return reject("payload",true);
     const bookingId = event.vendor_data.slice("dbc-booking-".length);
     try {
-      const mapped = mapDecision(event.status, event.decision);
+      let decision = event.decision;
+      if (event.status === "Declined" || event.status === "Approved" && !["id_verifications", "liveness_checks", "face_matches", "poa_verifications"].every(field => Array.isArray(decision?.[field]) && decision[field].length)) {
+        const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, {bookingId: bookingId as any});
+        if (!booking || booking.diditSessionId !== event.session_id || !booking.guestEmail) throw Error("Verification case does not match this rental.");
+        const report = await retrieveSession(cfg.apiKey, event.session_id, bookingId, booking.guestEmail);
+        if (report.workflow_id !== cfg.workflowId) throw Error("Verification workflow does not match this rental.");
+        if (report.status !== event.status) return true;
+        decision = report;
+      }
+      const mapped = mapDecision(event.status, decision);
       if (!mapped) throw Error("Unsupported verification status");
       return await ctx.runMutation(internal.bookings.setDiditResult, {
         bookingId: bookingId as any,

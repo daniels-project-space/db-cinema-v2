@@ -8,6 +8,7 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { IconCheck } from "@/components/icons";
 import styles from "./IdVerify.module.css";
 import { getDiditEmbeddedUrl, getDiditLayoutHeight, getDiditStandaloneUrl } from "@/lib/diditEmbed";
+import { customerDiditFailureNote } from "../../shared/diditFailureReason";
 
 const LABEL: Record<string, string> = {
   required: "Verify your identity, selfie and address",
@@ -100,6 +101,7 @@ function IdVerifySession({ bookingId, status, note, compact, autoStart = false, 
     <div className={compact ? "" : "rounded-xl border border-accent-400/20 bg-accent-400/[0.06] p-4"}>
       {!compact && <div className="text-sm text-white/70">{restart ? "Verification needs restarting" : LABEL[status] ?? LABEL.required}</div>}
       {note && (status === "requires_input" || status === "manual_review") && <p className="mt-1 text-xs text-amber-200">{note}</p>}
+      {status === "rejected" && customerDiditFailureNote(note) && <p className="mt-1 text-xs text-amber-200">{customerDiditFailureNote(note)}</p>}
       {status === "processing" && <p className="mt-1 text-xs text-white/45">Continue verification if any steps remain. This page updates when a result is available.</p>}
       {status === "manual_review" && <p className="mt-1 text-xs text-white/45">Message the team if you need an update on this review.</p>}
       {reused && <p role="status" className="mt-2 text-sm text-emerald-300">Your recent verification has been reused. We’re updating your rental progress.</p>}

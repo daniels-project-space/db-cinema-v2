@@ -2014,9 +2014,11 @@ export const setDiditResult = internalMutation({
         (b.diditManualDecisionAt ?? 0) >= eventAt) return !requireApplied;
     const preservingVerifiedManualDecision = b.idVerificationSource === "manual" && b.idVerifyStatus === "verified" &&
       providerStatus === "Approved" && status === "manual_review";
-    // The admin review queue is reserved for a provider-level manual hold.
-    // Never create that state from an Approved Didit result or missing status.
-    if (status === "manual_review" && providerStatus !== "In Review" && !preservingVerifiedManualDecision) return false;
+    // An overall provider approval is not evidence that every required step
+    // passed. Keep incomplete approvals in review until the checks are verified.
+    const incompleteApproved = providerStatus === "Approved" && !!checks &&
+      ["identity", "selfie", "address"].some(key => checks[key as "identity" | "selfie" | "address"] !== "approved");
+    if (status === "manual_review" && providerStatus !== "In Review" && !preservingVerifiedManualDecision && !incompleteApproved) return false;
     if (status!=="processing" || providerStatus==="In Progress" || Object.values(checks??{}).some(check=>check!=="waiting")) {
       const changed=b.idVerifyStatus!==status || (["identity","selfie","address"] as const).some(key=>b.verificationChecks?.[key]!==checks?.[key]) || (b.documentExpiresAt??null)!==(documentExpiresAt??null);
       await queueVerificationArchive(ctx,b,!reconciliation || changed);
