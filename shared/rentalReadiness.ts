@@ -24,6 +24,7 @@ export function rentalStageLabel(b: VerificationBooking): string {
   if (b.status === "returned") return "Returned";
   if (b.status === "cancelled") return "Cancelled";
   if (b.status === "pending_verification") {
+    if (b.idVerifyStatus === "verified") return "Verification passed · confirmation pending";
     if (b.idVerifyStatus === "manual_review") return "Verification needs review";
     if (b.idVerifyStatus === "requires_input") return "Documents needed";
     if (b.idVerifyStatus === "rejected") return "Verification needs attention";

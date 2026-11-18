@@ -518,8 +518,7 @@ export const releaseExpiredHolds = internalMutation({
         const booking = h.bookingId ? await ctx.db.get(h.bookingId) : null;
         const paidDiditPending = booking?.verificationProvider === "didit" &&
           ["pending_payment", "pending_verification"].includes(booking.status) &&
-          typeof booking.checkoutPaidAt === "number" && Number.isSafeInteger(booking.checkoutPaidAt) && booking.checkoutPaidAt > 0 &&
-          booking.idVerifyStatus !== "rejected";
+          typeof booking.checkoutPaidAt === "number" && Number.isSafeInteger(booking.checkoutPaidAt) && booking.checkoutPaidAt > 0;
         if (paidDiditPending) continue;
         // Checkout and amendment outcomes require provider reconciliation, not TTL.
         if (await reservationPaymentUnresolved(ctx, h)) continue;
@@ -606,7 +605,42 @@ export const recordPaidCheckoutReceipt = internalMutation({
     }
     if (awaitingDidit && booking.idVerifyStatus === "verified")
       await ctx.scheduler.runAfter(15 * 60000, internal.checkout.confirmAfterVerification, { bookingId, attempt: 1 });
-    return { recorded: true, checkoutPaidAt, awaitingVerification: awaitingDidit };
+    return { recorded: true, checkoutPaidAt, awaitingVerification: awaitingDidit, needsVerificationHoldRecovery: awaitingDidit && booking.idVerifyStatus === "verified" && !holds.some((hold:any) => hold.status === "hold") };
+  },
+});
+
+/** Recover a paid hold released by the old declined-verification behavior.
+ * Never recreate from the current catalogue: only the original exact ledger,
+ * its fingerprint, and a fresh shared-stock check can authorize recovery. */
+export const restoreReleasedVerificationHold = internalMutation({
+  args:{bookingId:v.id("bookings"),sessionId:v.string(),paymentIntentId:v.optional(v.string()),rentalManagerCheckedAt:v.number()},
+  handler:async(ctx,{bookingId,sessionId,paymentIntentId,rentalManagerCheckedAt})=>{
+    const b=await ctx.db.get(bookingId);
+    if(!b || b.status!=="pending_verification" || b.verificationProvider!=="didit" || b.idVerifyStatus!=="verified" ||
+       b.stripeCheckoutSessionId!==sessionId || !Number.isSafeInteger(b.checkoutPaidAt) || b.checkoutPaidAt!<=0 ||
+       (verificationValidUntil(b)??0)<=Date.now() || b.cancellationDecision || b.returnDecision ||
+       (b.stripePaymentIntentId??null)!==(paymentIntentId??null) || !b.stockHoldFingerprint)
+      throw Error("The paid verification or original allocation changed; the team must review this rental.");
+    if(bookingClaimEnabled()) throw Error("The shared-stock booking claim must recover this rental.");
+    const state=await ctx.db.query("rmv2_sync_state").withIndex("by_key",(q:any)=>q.eq("key","shared-stock-v1")).first();
+    let checkedAt:number|undefined;try{checkedAt=JSON.parse(state?.cursor??"null")?.checkedAt}catch{}
+    if(!state || state.status!=="ok" || checkedAt!==rentalManagerCheckedAt || !isSharedStockSnapshotFresh(rentalManagerCheckedAt,Date.now(),CART_STOCK_SYNC_MAX_AGE_MS))
+      throw Error("A fresh Rental Manager availability check is required.");
+    const rows=await ctx.db.query("reservations").withIndex("by_booking",(q:any)=>q.eq("bookingId",bookingId)).collect();
+    const holds=rows.filter((r:any)=>r.status==="hold");
+    if(holds.length){
+      if(stockAllocationFingerprint(b,holds)!==b.stockHoldFingerprint)throw Error("The active rental allocation changed.");
+      return {restored:false};
+    }
+    if(rows.some((r:any)=>["confirmed","active"].includes(r.status)))throw Error("This rental already has committed equipment.");
+    const original=rows.filter((r:any)=>r.status==="cancelled" && r.source==="site" && !r.extensionRequestId && !r.externalRef);
+    if(!original.length || stockAllocationFingerprint(b,original)!==b.stockHoldFingerprint)
+      throw Error("The original equipment allocation cannot be safely reconstructed.");
+    await assertRentalAllocation(ctx,b,original.map((r:any)=>({...r,status:"confirmed"})));
+    await assertRentalInventory(ctx,bookingStockLines(b),bookingId);
+    for(const row of original)await ctx.db.patch(row._id,{status:"hold",holdExpiresAt:undefined});
+    await queueRmv2Sync(ctx,bookingId);
+    return {restored:true};
   },
 });
 
@@ -2027,13 +2061,7 @@ export const setDiditResult = internalMutation({
       identityRiskNotice: status === "verified" ? identityRiskNotice : undefined,
       verificationUpdatedAt: Date.now(),
     });
-    // A final Didit rejection releases only the pending checkout allocation.
-    // Confirmed/active rentals remain booked for the team's cancellation flow.
-    if (status === "rejected" && b.status === "pending_verification") {
-      const reservations = await ctx.db.query("reservations").withIndex("by_booking", (q: any) => q.eq("bookingId", bookingId)).collect();
-      for (const reservation of reservations) if (reservation.status === "hold")
-        await ctx.db.patch(reservation._id, { status: "cancelled", holdExpiresAt: undefined });
-    }
+    // A failed document check does not cancel a paid rental or release its stock.
     if (status === "verified") {
       if (checkRestrictedIdentity) await queueRestrictedIdentityCheck(ctx, bookingId, sessionId, eventId, !identityAttached);
       await markAccountVerified(ctx, bookingId);

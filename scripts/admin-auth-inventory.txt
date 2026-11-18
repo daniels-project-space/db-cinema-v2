@@ -714,6 +714,7 @@ export convex/bookings.ts:remindersFeed
 export convex/bookings.ts:renewalCandidates
 export convex/bookings.ts:renewalContext
 export convex/bookings.ts:replaceHold
+export convex/bookings.ts:restoreReleasedVerificationHold
 export convex/bookings.ts:returnStatementContext
 export convex/bookings.ts:reuseVerificationCandidate
 export convex/bookings.ts:reuseVerificationPotential

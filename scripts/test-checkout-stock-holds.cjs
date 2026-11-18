@@ -92,7 +92,8 @@ const reserve = (booking,ttlMs=60000) => bookings.placeHolds.handler(ctx,{bookin
  assert((await reservationOccupancy(ctx,pendingHold)),'Paid pending Didit equipment is occupied across the verification wait');
  assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,0,'Other renters cannot book stock held by a paid pending verification');
  await bookings.releaseExpiredHolds.handler(ctx,{});assert(await db.get(pendingHold._id),'The expiry worker preserves a paid pending Didit allocation');
- pendingBooking.idVerifyStatus='rejected';pendingHold.status='cancelled';
- assert.equal(await reservationOccupancy(ctx,pendingHold),null);assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,1,'Terminal verification failure releases the inventory');
- console.log('PASS unpaid checkout markers never reserve stock; verified Stripe receipt makes a durable paid Didit hold; expiry preserves it until rejection; confirmed bookings block inventory. Synthetic database; no provider writes.');
+ pendingBooking.idVerifyStatus='rejected';
+ assert(await reservationOccupancy(ctx,pendingHold),'A declined verification cannot release paid stock');await bookings.releaseExpiredHolds.handler(ctx,{});assert(await db.get(pendingHold._id));
+ assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,0,'A failed check preserves stock until the paid rental is explicitly resolved');
+ console.log('PASS unpaid markers remain advisory; paid Didit holds survive expiry and rejection. Synthetic database; no provider writes.');
 }finally{Date.now=realNow}})().catch(e=>{console.error(e);process.exitCode=1});
