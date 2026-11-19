@@ -1,6 +1,6 @@
 /** Actual inbox mutations and reply action; provider transport is synthetic. */
 const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
-process.env.INBOUND_EMAIL_SECRET='fixture-secret';process.env.INBOUND_REPLY_ADDRESS='replies@example.invalid';process.env.RESEND_API_KEY='fixture';
+process.env.AGENTMAIL_INBOX_ADDRESS='booking@agentmail.to';process.env.INBOUND_EMAIL_SECRET='fixture-secret';process.env.INBOUND_REPLY_ADDRESS='replies@example.invalid';process.env.RESEND_API_KEY='fixture';
 const inbox=h.load('convex/emailInbox.ts'),sent=[],scheduled=[];
 const ctx={db:h.db,scheduler:{runAfter:async(...a)=>scheduled.push(a)},runMutation:async(ref,args)=>{const name=ref.split('.')[1];return inbox[name].handler(ctx,args)},runAction:async(ref,args)=>{assert.equal(ref,'emailMailer.sendBusinessReply');sent.push(args);return {sent:true,messageId:'<reply-fixture@example.invalid>'}}};
 (async()=>{
@@ -29,5 +29,12 @@ const ctx={db:h.db,scheduler:{runAfter:async(...a)=>scheduled.push(a)},runMutati
  account.emailVerifiedAt=Date.now();account.emailVerificationRequired=false;const verifiedNotice=h.put('rental_email_deliveries',{bookingId:booking._id,kind:'verification_reminder',state:'sent',recipientEmail:account.email,sentAt:Date.now()});await inbox.recordVerificationNotice.handler(ctx,{deliveryId:verifiedNotice._id,subject:reminderSubject});
  assert.equal(thread.accountId,account._id);await inbox.copyVerifiedHistory.handler(ctx,{accountId:account._id,threadId:thread._id,cursor:null});assert((h.tables.get('messages')||[]).some(m=>m.accountId===account._id&&m.meta?.emailThreadId===thread._id),'Verified renter can see the mirrored history');assert(!(h.tables.get('messages')||[]).some(m=>m.text.includes('#')),'Mirrored history excludes private sign-in links');
  const other=await inbox.ingest.handler(ctx,{secret:'fixture-secret',providerId:'other-inbound',from:'other@example.invalid',to:'replies@example.invalid',subject:`Re: ${args.subject}`,text:'Hello',references:[]});assert.notEqual(other.threadId,thread._id);
+ const agent=await inbox.ingest.handler(ctx,{secret:'fixture-secret',providerId:'agentmail:<agent-in@example.invalid>',from:'other@example.invalid',to:'booking@agentmail.to',subject:'Camera enquiry',text:'Can you help?',references:[],messageId:'<agent-in@example.invalid>'});
+ assert.equal((await inbox.claimInbound.handler(ctx,{secret:'fixture-secret',inboundId:agent.inboundId,humanRequested:false})).state,'claimed');
+ assert.equal((await inbox.sendAssistantReply.handler(ctx,{secret:'fixture-secret',threadId:agent.threadId,inboundId:agent.inboundId,text:'Yes, happy to help.',humanRequested:false})).ok,true);
+ assert.equal(sent.at(-1).agentMailMessageId,'<agent-in@example.invalid>');
+ process.env.ADMIN_TOKEN='fixture-admin';ctx.runQuery=async(ref,args)=>inbox[ref.split('.')[1]].handler(ctx,args);
+ assert.equal((await inbox.sendOwnerReply.handler(ctx,{token:'fixture-admin',threadId:agent.threadId,text:'A team member can help.'})).ok,true);
+ assert.equal(sent.at(-1).agentMailMessageId,'<agent-in@example.invalid>','Owner replies use the customer message in the new inbox');
  console.log('PASS verification notice mirroring, sender-bound reply threading, one automatic response and private-link exclusion. Synthetic transport only.');
 })().catch(e=>{console.error(e);process.exitCode=1});
