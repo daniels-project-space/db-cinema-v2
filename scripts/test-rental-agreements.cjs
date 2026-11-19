@@ -41,6 +41,11 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  }
  assert.equal(count(),1);const snapshot=JSON.parse(saved);
  assert.equal(snapshot.version,LEGAL_VERSION);assert.equal(LEGAL_VERSION,'2026-10-v13');
+ const lateVerification=snapshot.documents.find(d=>d.kind==='verification-deadline');
+ assert.equal(lateVerification.version,'2026-11-v22');
+ assert.match(lateVerification.text.sections[0].p,/two hours after the scheduled rental start/i);
+ assert.doesNotMatch(snapshot.documents.find(d=>d.kind==='terms').text.sections.map(s=>s.p).join(' '),/two hours after the scheduled rental start/i,'historic base terms remain byte-for-byte from their accepted version');
+ assert.doesNotMatch(LEGAL_ARCHIVE['2026-10-v13'].terms.sections.map(s=>s.p).join(' '),/two hours after the scheduled rental start/i);
  const current=load('shared/legalDocuments.ts').LEGAL_DOCS['deposit-agreement'];assert.match(JSON.stringify(current),/no card hold/i);assert.match(JSON.stringify(current),/10%/);assert.match(JSON.stringify(current),/£250/);assert.match(JSON.stringify(current),/seven days/);assert.match(JSON.stringify(current),/authentication/i);assert.match(JSON.stringify(load('shared/legalDocuments.ts').LEGAL_ARCHIVE['2026-10-v12']['deposit-agreement']),/automatically request.*agreed pickup/);
  const v9=load('shared/legal-history/2026-10-v9.ts').default;const legal=load('shared/legalDocuments.ts');assert.equal(legal.RENTAL_DRAFT_RELEASE_READY,false);const identity=legal.LEGAL_DOCS['rental-agreement'].sections.find(s=>s.h.startsWith('5.')).p;for(const rule of ['at least two different established sources','ID, selfie/liveness and address proof','Manual/legacy approvals do not qualify','cannot bypass acceptance'])assert(identity.includes(rule),'Required verification safeguards remain');assert(!/solicitor|review-ready|Draft notice|before launch/i.test(JSON.stringify(legal.LEGAL_DOCS)));assert.deepEqual(legal.LEGAL_ARCHIVE['2026-10-v10'],load('shared/legal-history/2026-10-v10.ts').default);assert.deepEqual(legal.LEGAL_ARCHIVE['2026-10-v9'],v9);assert.equal(snapshot.particulars.total,200);
  assert.equal(snapshot.particulars.securityHold,0);assert.equal(snapshot.particulars.timeZone,'Europe/London');
@@ -63,6 +68,13 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  await db.patch(b._id,{depositHoldExpiresAt:Date.now()+600000,idVerificationSource:'manual'});await assert.rejects(release(),/review.*outstanding/);
  await db.patch(b._id,{idVerifyStatus:'requires_input'});await assert.rejects(release(),/verification must/);
  await db.patch(b._id,{idVerifyStatus:'verified'});
+ const lateStart=Date.now()-4*60*60*1000;
+ const lateBooking=put('bookings',{...b,_id:undefined,status:'pending_verification',checkoutPaidAt:lateStart-60000,lineItems:[{listingId:item._id,title:item.title,start:lateStart,end:lateStart+86400000,qty:1,lineTotal:100}],verificationProvider:'didit',idVerifyStatus:'processing',diditSessionId:'late-verification-session',pickedUpAt:undefined,cancellationDecision:undefined,returnDecision:undefined,verificationExpiresAt:undefined,lateVerificationAllowedAt:undefined});
+ await assert.rejects(bookings.adminAllowLateVerification.handler(ctx,{token:'not-an-admin',bookingId:lateBooking._id}),/admin|unauthorized/i);
+ assert.equal(lateBooking.lateVerificationAllowedAt,undefined,'an unauthenticated caller cannot reopen verification');
+ const reopened=await bookings.adminAllowLateVerification.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:lateBooking._id});
+ assert.equal(reopened.allowed,true);assert.equal(lateBooking.lateVerificationAllowedAt,reopened.allowedAt);
+ await assert.rejects(bookings.adminAllowLateVerification.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:put('bookings',{...lateBooking,_id:undefined,pickedUpAt:Date.now()})._id}),/uncollected|reopened/i);
  const acct=put('accounts',{email:args.customerEmail});put('sessions',{token:'agreement-renter',accountId:acct._id,expiresAt:Date.now()+600000});
  assert.equal(await bookings.invoiceData.handler(ctx,{bookingId:b._id,token:'foreign'}),null);
  assert.equal((await bookings.invoiceData.handler(ctx,{bookingId:b._id,token:process.env.ADMIN_TOKEN})).number,`DBC-${b._id.slice(-8).toUpperCase()}`,'Administrators can open the linked receipt');

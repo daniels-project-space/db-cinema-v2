@@ -1,4 +1,5 @@
 /** Didit webhook and booking approval boundary. No provider calls or customer data. */
+require("./test-late-verification-cutoff.cjs");
 const assert = require('node:assert/strict');
 const { createHmac } = require('node:crypto');
 const fs = require('node:fs');
@@ -382,6 +383,11 @@ function signed(event) {
   let rejectedPatch=false;assert.equal(await setDiditManualReview.handler({db:{get:async()=>({...reviewBooking,idVerifyStatus:'rejected'}),patch:async()=>{rejectedPatch=true}}},{bookingId:'booking-1',sessionId:'session-1',decision:'approve',note:'Reviewed'}),false);assert.equal(rejectedPatch,false,'a later provider rejection cannot be overridden by a stale review');
   let racedPatch=false;assert.equal(await setDiditManualReview.handler({db:{get:async()=>({...reviewBooking,diditEventId:'new-signed-event',diditEventAt:100}),patch:async()=>{racedPatch=true}}},{bookingId:'booking-1',sessionId:'session-1',decision:'approve',note:'Reviewed',expectedEventId:null,expectedEventAt:null,expectedManualDecisionAt:null}),false);assert.equal(racedPatch,false,'Any newer signed provider event fences a stale manual review even when status is unchanged');
   assert.equal(await setDiditResult.handler({db:{get:async()=>({...reviewBooking,diditEventId:'new-signed-event',diditEventAt:100})}},{bookingId:'booking-1',sessionId:'session-1',eventId:'stale-reconcile',eventAt:101,status:'verified',providerStatus:'Approved',poaPostcodes:[],reconciliation:true,requireApplied:true,expectedEventId:null,expectedEventAt:null,expectedManualDecisionAt:null}),false,'A newer signed event prevents stale provider reconciliation from claiming success');
+  const lateBooking={...reviewBooking,status:'pending_verification',idVerifyStatus:'processing',lineItems:[{start:Date.now()-3*60*60*1000}],lateVerificationBlockedAt:Date.now()-1000};
+  let latePatch=false;
+  assert.equal(await setDiditResult.handler({db:{get:async()=>lateBooking,patch:async()=>{latePatch=true;}}},{bookingId:'booking-1',sessionId:'session-1',eventId:'late-approved',eventAt:Date.now(),status:'verified',providerStatus:'Approved',poaPostcodes:[]}),true,'late Didit callbacks are acknowledged without approving the booking');
+  assert.equal(latePatch,false,'a Didit approval after the two-hour cutoff cannot change booking state');
+  assert.equal(lateBooking.idVerifyStatus,'processing');
   let stalePatch = false;
   await setDiditResult.handler({db:{get:async()=>({...reviewBooking,diditManualDecisionAt:now*1000+1000}),patch:async()=>{stalePatch=true;}}},
     {bookingId:'booking-1',sessionId:'session-1',eventId:'stale',eventAt:now*1000,

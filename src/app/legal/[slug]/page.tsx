@@ -9,7 +9,7 @@ import { LEGAL_DOCS as DOCS, LEGAL_ARCHIVE } from "../../../../shared/legalDocum
 import { CURRENT_PRIVACY_NOTICE, CURRENT_PRIVACY_NOTICE_VERSION } from "../../../../shared/currentPrivacyNotice";
 
 export function generateStaticParams() {
-  return Object.keys(DOCS).map((slug) => ({ slug }));
+  return [...new Set([...Object.keys(DOCS), ...Object.keys(LEGAL_ARCHIVE["2026-11-v22"] ?? {})])].map((slug) => ({ slug }));
 }
 
 export default async function LegalPage({
@@ -23,7 +23,7 @@ export default async function LegalPage({
   const selected=await searchParams;
   const version=selected.version??await currentLegalVersion();
   const currentPrivacy = slug === "privacy" && !selected.version;
-  const doc = currentPrivacy ? CURRENT_PRIVACY_NOTICE : version === LEGAL_VERSION ? DOCS[slug] : LEGAL_ARCHIVE[version]?.[slug];
+  const doc = currentPrivacy ? CURRENT_PRIVACY_NOTICE : LEGAL_ARCHIVE[version]?.[slug] ?? (version === LEGAL_VERSION ? DOCS[slug] : undefined);
   if (!doc) notFound();
   return (
     <>
