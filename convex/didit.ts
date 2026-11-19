@@ -1,6 +1,6 @@
 "use node";
 
-import { verificationChecks, verificationCanStart, verificationBookingOpen, verificationExpired } from "../shared/verificationProgress";
+import { verificationChecks, verificationCanStart, verificationBookingOpen, verificationExpired, verificationLateWindowClosed } from "../shared/verificationProgress";
 import { diditFailureReason } from "../shared/diditFailureReason";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
@@ -55,6 +55,8 @@ export const bookingSession = action({
   },
   handler: async (ctx, a): Promise<{ url: string | null; reused?: boolean; updated?: boolean }> => {
     let booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
+    if (booking && verificationLateWindowClosed(booking))
+      throw Error("The online verification window closed two hours after the rental started. Contact the team if you need an administrator to reopen it.");
     const savedReuseEligible = booking && booking.accountAccessRequired === false &&
       ["required", "processing", "requires_input", "manual_review", "rejected"].includes(booking.idVerifyStatus ?? "required") &&
       booking.idVerificationSource !== "manual" && !booking.diditManualDecisionAt;
@@ -236,6 +238,8 @@ export const adminReview = action({
         !verificationBookingOpen(booking.status) ||
         !["manual_review", "rejected"].includes(booking.idVerifyStatus))
       throw new Error("Only a paid rental with a completed Didit case can be reviewed here.");
+    if (verificationLateWindowClosed(booking))
+      throw Error("Reopen late verification in the admin panel before making a Didit decision.");
     if (decision === "approve" && booking.idVerifyStatus !== "manual_review")
       throw new Error("The rental is not awaiting Didit review. Refresh the case or request resubmission.");
     const cfg = config();
@@ -308,6 +312,7 @@ export const refreshProgress = action({
 
 async function refreshBoundProgress(ctx: any, bookingId: any, booking: any): Promise<{status:string}> {
     if (!verificationBookingOpen(booking.status)) return {status: "closed"};
+    if (verificationLateWindowClosed(booking)) return {status: "late_window_closed"};
     if (booking.verificationProvider !== "didit" || !booking.diditSessionId) return {status: "not_started"};
     const claimed = await ctx.runMutation(internal.bookings.claimDiditProgressRefresh, {bookingId, sessionId:booking.diditSessionId});
     if (!claimed) return {status: "throttled"};

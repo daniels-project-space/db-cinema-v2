@@ -9,6 +9,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { accountForRental } from "./lib/rentalAccount";
 import { handoverScheduleFingerprint, pickupScheduleFingerprint } from "./lib/rentalEmailQueue";
+import { paidRentalUnverifiedAfterWindow } from "../shared/verificationProgress";
 const LEASE_MS=10*60_000, MAX_ATTEMPTS=8;
 
 async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliveries">) {
@@ -16,7 +17,7 @@ async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliv
   const account=await accountForRental(ctx,b);
   const recipient=account?.email ?? (b.accountId ? null : b.guestEmail);
   if(!recipient || (row.recipientEmail && row.recipientEmail!==recipient)) return false;
-  if(row.kind==="paid_verification"||row.kind==="verification_reminder")return b.status==="pending_verification"&&!!b.checkoutPaidAt&&!["verified","rejected"].includes(b.idVerifyStatus??"")&&!b.cancellationDecision&&!b.returnDecision&&account?.blockedAt==null;
+  if(row.kind==="paid_verification"||row.kind==="verification_reminder")return b.status==="pending_verification"&&!!b.checkoutPaidAt&&!["verified","rejected"].includes(b.idVerifyStatus??"")&&!b.cancellationDecision&&!b.returnDecision&&account?.blockedAt==null&&!paidRentalUnverifiedAfterWindow(b);
   if(row.kind === "cancellation_choice"){
     const offer=b.cancellationDecision?.operatorOfferId?await ctx.db.get(b.cancellationDecision.operatorOfferId):null;
     return !!offer&&offer.emailDeliveryId===row._id&&offer.state==="email_pending"&&account?.blockedAt==null&&offer.recipientEmail===recipient&&Date.now()<(offer.choiceDeadline??0);
@@ -32,6 +33,7 @@ async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliv
     const latest=(await ctx.db.query("rental_email_deliveries").withIndex("by_booking_kind",q=>q.eq("bookingId",b._id).eq("kind","time_change")).order("desc").take(1))[0];
     return latest?._id===row._id && ["confirmed","active"].includes(b.status) && !!row.changeSchedule && (row.changeSchedule===handoverScheduleFingerprint(b) || row.changeSchedule===pickupScheduleFingerprint(b));
   }
+  if(row.kind === "verification" && paidRentalUnverifiedAfterWindow(b))return false;
   if(row.kind === "verification") {
     const latest=(await ctx.db.query("rental_email_deliveries").withIndex("by_booking_kind",q=>q.eq("bookingId",b._id).eq("kind","verification")).order("desc").take(1))[0];
     const pendingResolution=b.status==="pending_verification"&&!!b.checkoutPaidAt&&row.verificationStatus!=="verified";

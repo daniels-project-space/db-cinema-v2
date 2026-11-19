@@ -11,6 +11,8 @@ import {
   verificationCanStart,
   verificationExpired,
   verificationValidUntil,
+  verificationDeadlineAt,
+  verificationLateWindowClosed,
 } from "../../../shared/verificationProgress";
 import { verificationJourney, verificationLinkLabel } from "../../../shared/verificationJourney";
 import type { VerificationBooking } from "../../../shared/rentalReadiness";
@@ -37,6 +39,7 @@ function useVerificationClock(booking?: VerificationBooking | null) {
     const verificationExpiry = booking ? verificationValidUntil(booking) : null;
     const deadlines = [
       verificationExpiry,
+      booking ? verificationDeadlineAt(booking) : null,
       booking?.depositHoldExpiresAt,
     ].filter((at): at is number => typeof at === "number" && at > now);
     const timer = deadlines.length
@@ -58,6 +61,7 @@ function useVerificationClock(booking?: VerificationBooking | null) {
   }, [
     booking?.idVerifiedAt,
     booking?.verificationExpiresAt,
+    booking?.verificationDeadlineAt,
     booking?.depositHoldExpiresAt,
     now,
   ]);
@@ -107,7 +111,9 @@ export function VerificationLink({
   compact?: boolean;
 }) {
   const now = useVerificationClock(booking);
+  const lateWindowClosed = verificationLateWindowClosed(booking, now);
   const approved = verificationJourney(booking, now).reviewed;
+  if (lateWindowClosed && (booking.idVerifyStatus !== "verified" || verificationExpired(booking, now))) return <p className="mb-4 text-sm text-amber-100/75">Verification window closed · contact the team to ask whether it can be reopened.</p>;
   const label = verificationLinkLabel(booking, approved);
   return (
     <section
@@ -211,6 +217,7 @@ export function VerificationProgress({
     false,
     !!booking &&
       booking.verificationAvailable &&
+      !verificationLateWindowClosed(booking, now) &&
       booking.idVerifyStatus !== "verified",
   );
   if (
@@ -241,12 +248,13 @@ export function VerificationProgress({
     );
   const journey = verificationJourney(booking, now),
     wide = presentation === "page";
-  const ready = booking.verificationAvailable && verificationCanStart(booking);
+  const expired = verificationExpired(booking, now);
+  const lateWindowClosed = verificationLateWindowClosed(booking, now) && (booking.idVerifyStatus !== "verified" || expired);
+  const ready = !lateWindowClosed && booking.verificationAvailable && verificationCanStart(booking, now);
   const approved = journey.reviewed;
   const approvalUnknown =
     booking.idVerifyStatus === "verified" &&
     verificationValidUntil(booking) == null;
-  const expired = verificationExpired(booking, now);
   const providerApproved = booking.idVerifyStatus === "verified" && !expired && !approvalUnknown && journey.documents;
   const uploadStatus =
     expired && booking.idVerifyStatus === "verified"
@@ -259,6 +267,9 @@ export function VerificationProgress({
     address: "A recent bill, bank statement or official address document.",
   };
   const stage =
+    lateWindowClosed && booking.idVerifyStatus !== "verified"
+      ? "Verification window closed"
+      :
     booking.status === "pending_verification" && booking.verificationConfirmationIssue
       ? booking.verificationConfirmationIssue === "inventory_unavailable" ? "Booking availability needs review" : "Booking confirmation needs review"
       : approvalUnknown && !journey.closed
@@ -302,7 +313,9 @@ export function VerificationProgress({
                     ? "Return being settled"
                     : "Rental closed"
                 : booking.status === "pending_verification"
-                  ? booking.verificationConfirmationIssue
+                  ? lateWindowClosed
+                    ? "Verification window closed"
+                    : booking.verificationConfirmationIssue
                     ? "Payment received — booking not confirmed"
                     : booking.idVerifyStatus === "verified"
                     ? "Didit approved — booking finalizing"
@@ -319,7 +332,9 @@ export function VerificationProgress({
             <p role="status" aria-live="polite" className={styles.intro}>
               {journey.closed
                 ? "This rental no longer accepts document uploads."
-                : booking.status === "pending_verification"
+                : lateWindowClosed
+                  ? "Online verification has closed because more than two hours have passed since the rental started. This rental remains unconfirmed. Contact the team if you believe it should be reopened; an administrator must allow any late verification."
+                  : booking.status === "pending_verification"
                   ? booking.verificationConfirmationIssue === "inventory_unavailable"
                     ? "Didit approved your verification, but equipment availability needs a team check. This rental is not confirmed yet. We will update you here; please do not pay again."
                     : booking.verificationConfirmationIssue

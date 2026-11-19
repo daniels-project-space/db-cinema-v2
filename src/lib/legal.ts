@@ -7,6 +7,7 @@ import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, isCardHoldSec
  * Bump LEGAL_VERSION whenever any agreement text changes.
  */
 export const LEGAL_VERSION = "2026-10-v13";
+export const LATE_VERIFICATION_LEGAL_VERSION = "2026-11-v22";
 
 export const AGREEMENTS = [
   { kind:"referrals",title:"Price Benefits & Referral Terms",version:"2026-10-referrals-v2" },
@@ -17,6 +18,7 @@ export const AGREEMENTS = [
   { kind: "cancellation", title: "Cancellation & Refund Policy", version: LEGAL_VERSION },
   { kind: "insurance", title: "Equipment Protection & Liability Policy", version: LEGAL_VERSION },
   { kind: "data-processing", title: "Data Processing Terms", version: LEGAL_VERSION },
+  { kind: "verification-deadline", title: "Verification deadline & missed collection", version: LATE_VERIFICATION_LEGAL_VERSION },
 ] as const;
 
 export type AgreementDoc = { kind: string; version: string };

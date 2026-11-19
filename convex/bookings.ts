@@ -31,7 +31,7 @@ import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecove
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { isLegacyStripeIdentity } from "../shared/identityProvider";
 import { assertRenterExposure, renterExposure, replacementValues, attachRenterPerson } from "./lib/rentalExposure";
-import { securityReady, verificationCanStart, verificationSessionCanOpen, verificationBookingOpen, renterVerificationNote, verificationExpired, verificationValidUntil } from "../shared/verificationProgress";
+import { securityReady, verificationCanStart, verificationSessionCanOpen, verificationBookingOpen, renterVerificationNote, verificationExpired, verificationValidUntil, verificationDeadlineAt, verificationLateWindowClosed } from "../shared/verificationProgress";
 import { assertDroneApproval, requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
 import { queueVerificationArchive, assertVerificationArchive } from "./verificationArchive";
 import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
@@ -66,7 +66,7 @@ import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage, saveAccountDiditVerification, verificationReuseOwnerMatches } from "./lib/verificationReuse";
 import { assertCreditOffer } from "./lib/rentalCreditPolicy";
 import { rentalCancellationStart, bookingCancelKind,CANCELLATION_CREDIT_DAYS,NO_REFUND_WITHIN_48_HOURS_CANCELLATION_VERSION } from "../src/lib/cancellationPolicy";
-import { LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, CARD_HOLD_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS } from "../src/lib/legal";
+import { LEGAL_VERSION, LATE_VERIFICATION_LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, CARD_HOLD_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS } from "../src/lib/legal";
 import { assertAgreementBeforeRelease, snapshotAgreement, readAgreementSnapshot, agreementRequestFingerprint as fingerprintAgreement } from "../shared/rentalAgreement";
 
 
@@ -218,7 +218,7 @@ export const createPending = internalMutation({
       if(!owner||owner.blockedAt!=null||owner.email!==a.customerEmail.trim().toLowerCase())throw Error("Rental account does not match the checkout customer.");
     }
     if(a.checkoutInputFingerprint&&!/^[a-f0-9]{64}$/.test(a.checkoutInputFingerprint))throw Error("Invalid checkout receipt.");
-    const newAgreement = a.agreementDocs?.some(d => [LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,...SETUP_INTENT_LEGAL_VERSIONS].includes(d.version));
+    const newAgreement = a.agreementDocs?.some(d => [LEGAL_VERSION,LATE_VERIFICATION_LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,...SETUP_INTENT_LEGAL_VERSIONS].includes(d.version));
     if ((hasCashDepositPolicy(a.securityPolicyVersion) || isCardHoldSecurityPolicy(a.securityPolicyVersion) || isSetupIntentSecurityPolicy(a.securityPolicyVersion)) && !newAgreement) throw Error("Review and accept the current security agreements before paying.");
     const agreementRequestFingerprint = a.agreementRequestId ? fingerprintAgreement(a) : undefined;
     if (newAgreement && !a.agreementRequestId) throw Error("An agreement acceptance attempt is required.");
@@ -1830,6 +1830,7 @@ export const verificationAccess = internalQuery({
     const customer = b.customerId ? await ctx.db.get(b.customerId) : null;
     return { guestEmail: b.guestEmail, status: b.status, verificationProvider: b.verificationProvider,checkoutPaidAt:b.checkoutPaidAt,
       idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId,
+      verificationDeadlineAt: verificationDeadlineAt(b), lateVerificationAllowedAt: b.lateVerificationAllowedAt ?? null,
       idVerificationSource: b.idVerificationSource, diditEventId: b.diditEventId ?? null,
       diditEventAt: b.diditEventAt ?? null, diditManualDecisionAt: b.diditManualDecisionAt ?? null,
       verificationChecks: b.verificationChecks ?? null,
@@ -2008,6 +2009,16 @@ export const setDiditResult = internalMutation({
     if (sweepGeneration !== undefined && !(await currentDiditSweep(ctx, sweepGeneration))) return false;
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
+    if (verificationLateWindowClosed(b, eventAt)) {
+      if (verificationBookingOpen(b.status) && !b.lateVerificationBlockedAt) {
+        await ctx.db.patch(bookingId, { lateVerificationBlockedAt: Date.now() });
+        const account = await accountForRental(ctx, b);
+        await queueOwnerNotification(ctx, { eventKey: `didit-late-verification:${bookingId}`, kind: "verification_failure",
+          ...(account ? { accountId: account._id } : {}), bookingId, title: "Verification arrived after its window",
+          body: "Didit sent an update after the two-hour verification window. The rental remains unconfirmed; use the admin control to reopen verification if appropriate." });
+      }
+      return true;
+    }
     if (expectedEventId !== undefined && ((b.diditEventId ?? null) !== expectedEventId || (b.diditEventAt ?? null) !== expectedEventAt ||
         (b.diditManualDecisionAt ?? null) !== expectedManualDecisionAt)) return !requireApplied;
     if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt ||
@@ -2566,6 +2577,7 @@ export const verificationProgress = query({
     for (const line of b.lineItems) if (!images.has(String(line.listingId))) images.set(String(line.listingId), listingRentalImages(await ctx.db.get(line.listingId)));
     return { _id: b._id, status: b.status, idVerifyStatus: b.idVerifyStatus ?? "required",
       verificationAvailable: verificationCanStart(b),
+      verificationDeadlineAt: verificationDeadlineAt(b), lateVerificationAllowedAt: b.lateVerificationAllowedAt ?? null,
       cancellationPending: !!b.cancellationDecision && b.status !== "cancelled",
       returnPending: !!b.returnDecision && b.status !== "returned",
       idVerificationSource: b.idVerificationSource ?? null,
@@ -2585,6 +2597,42 @@ export const verificationProgress = query({
         returnTime: line.returnTime === undefined ? b.returnTime ?? null : line.returnTime,
         images: images.get(String(line.listingId)) ?? [], lineTotal: line.lineTotal })),
     };
+  },
+});
+
+export const adminLateVerificationInfo = query({
+  args: { token: v.string(), bookingId: v.id("bookings") },
+  handler: async (ctx, { token, bookingId }) => {
+    if (!checkAdminToken(token)) return null;
+    const b = await ctx.db.get(bookingId);
+    if (!b) return null;
+    const deadlineAt = verificationDeadlineAt(b);
+    return {
+      deadlineAt,
+      allowedAt: b.lateVerificationAllowedAt ?? null,
+      eligible: !!deadlineAt && verificationBookingOpen(b.status) && !!b.checkoutPaidAt &&
+        b.verificationProvider === "didit" && !b.pickedUpAt && !b.cancellationDecision && !b.returnDecision &&
+        (b.idVerifyStatus !== "verified" || verificationExpired(b)),
+    };
+  },
+});
+
+export const adminAllowLateVerification = mutation({
+  args: { token: v.string(), bookingId: v.id("bookings") },
+  handler: async (ctx, { token, bookingId }) => {
+    await assertAdmin(ctx, token, "bookings.adminAllowLateVerification");
+    const b = await ctx.db.get(bookingId);
+    if (!b) throw Error("Rental not found.");
+    const deadlineAt = verificationDeadlineAt(b);
+    if (!deadlineAt || Date.now() < deadlineAt) throw Error("The two-hour verification window has not ended.");
+    if (!verificationBookingOpen(b.status) || !b.checkoutPaidAt || b.verificationProvider !== "didit" || b.pickedUpAt ||
+        b.cancellationDecision || b.returnDecision || b.idVerifyStatus === "verified" && !verificationExpired(b))
+      throw Error("Only a paid, uncollected rental that still needs verification can be reopened.");
+    if (b.lateVerificationAllowedAt) return { allowed: true, allowedAt: b.lateVerificationAllowedAt };
+    const allowedAt = Date.now();
+    await ctx.db.patch(bookingId, { lateVerificationAllowedAt: allowedAt, lateVerificationBlockedAt: undefined, verificationUpdatedAt: allowedAt });
+    await queueRmv2Sync(ctx, bookingId);
+    return { allowed: true, allowedAt };
   },
 });
 

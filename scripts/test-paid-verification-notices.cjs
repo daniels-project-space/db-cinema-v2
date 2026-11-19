@@ -21,12 +21,10 @@ async function run(id){await delivery.dispatchOne.handler(ctx,{deliveryId:id});a
  const firstAccess=await claims.exchange.handler(ctx,{secretHash:hash(firstSecret),sessionToken:'fixture-session'});assert.equal(firstAccess.bookingId,booking._id);assert(account.emailVerifiedAt);
  await assert.rejects(claims.exchange.handler(ctx,{secretHash:hash(firstSecret),sessionToken:'replay'}),/already been used/);
  await delivery.dispatchOne.handler(ctx,{deliveryId:reminder});assert.equal(get(reminder).state,'pending');
- now+=12*3600000;await run(reminder);assert.equal(get(reminder).state,'sent');assert.match(sent[1].subject,/Reminder/);
- const secondSecret=sent[1].html.match(/account\/access\?next=verification#([A-Za-z0-9_-]{43})/)?.[1];assert(secondSecret&&secondSecret!==firstSecret,'The reminder has a fresh link');
- assert.equal((await claims.exchange.handler(ctx,{secretHash:hash(secondSecret),sessionToken:'fixture-reminder-session'})).bookingId,booking._id);
+ now+=12*3600000;await delivery.dispatchOne.handler(ctx,{deliveryId:reminder});assert.equal(get(reminder).state,'skipped','Paid verification reminders stop after the two-hour rental-start deadline');assert.equal(sent.length,1);
  const second=h.put('bookings',{...booking,_id:'bookings-verified',idVerifyStatus:'required'});
  const cancelled=await queue.queueRentalEmail(ctx,second._id,'verification_reminder',{dueAt:now+12*3600000});second.idVerifyStatus='verified';now+=12*3600000;
- await delivery.dispatchOne.handler(ctx,{deliveryId:cancelled});assert.equal(get(cancelled).state,'skipped');assert.equal(sent.length,2);
+ await delivery.dispatchOne.handler(ctx,{deliveryId:cancelled});assert.equal(get(cancelled).state,'skipped');assert.equal(sent.length,1);
  const manual=h.put('bookings',{...booking,_id:'bookings-manual',checkoutPaidAt:now-1000,idVerifyStatus:'required'});
  assert.equal(await bookings.scheduleManualVerificationReminder.handler(ctx,{bookingId:manual._id,initialSentAt:now-500}),true);
  const manualRow=(h.tables.get('rental_email_deliveries')||[]).find(r=>r.bookingId===manual._id);

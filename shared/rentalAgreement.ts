@@ -45,12 +45,15 @@ export function snapshotAgreement(a: any, acceptedAt: number, chargedTotal: numb
   if (!a.customerName?.trim() || !a.billingAddress?.trim() || !a.pickupTime || !a.returnTime || !a.lineItems?.length)
     throw Error("Complete booking particulars are required for agreement acceptance.");
   const legalVersion = agreementsForSecurityPolicy(a.securityPolicyVersion,a.cancellationProtectionEnabled).find(doc=>doc.kind==="rental-agreement")!.version;
-  const docs = legalVersion === LEGAL_VERSION ? LEGAL_DOCS : LEGAL_ARCHIVE[legalVersion];
+  const docsForVersion = (version: string) => LEGAL_ARCHIVE[version] ?? (version === LEGAL_VERSION ? LEGAL_DOCS : undefined);
   const snapshot: AgreementSnapshot = {
     format:1, version:legalVersion, acceptedAt, signer:a.agreementName.trim(),
-    documents:a.agreementDocs.map((d:Accepted) => ({...d,text:d.kind === "delivery-disclaimer"
-      ? {title:"Delivery arrangements",updated:"October 2026",sections:[{h:"Delivery",p:DELIVERY_ACCEPTANCE_TEXT}]}
-      : docs[d.kind]})),
+    documents:a.agreementDocs.map((d:Accepted) => {
+      if (d.kind === "delivery-disclaimer") return {...d,text:{title:"Delivery arrangements",updated:"October 2026",sections:[{h:"Delivery",p:DELIVERY_ACCEPTANCE_TEXT}]}};
+      const doc=(d.kind==="referrals"?docsForVersion(legalVersion):docsForVersion(d.version))?.[d.kind];
+      if (!doc) throw Error("An accepted agreement copy is unavailable; payment cannot continue.");
+      return {...d,text:doc};
+    }),
     particulars:{customerName:a.customerName.trim(),email:a.customerEmail.trim().toLowerCase(),billingAddress:a.billingAddress,
       fulfilment:a.fulfilment,address:a.address??null,pickupTime:a.pickupTime,returnTime:a.returnTime,timeZone:"Europe/London",
       lineItems:a.lineItems.map((line:any)=>({...line})),subtotal:a.subtotal,discount:a.discount??0,deliveryFee:a.deliveryFee,
