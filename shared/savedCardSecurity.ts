@@ -1,6 +1,6 @@
-import { ASSESSMENT_SECURITY_POLICY_VERSION, depositForBookingPolicy, hasCashDepositPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit, SETUP_INTENT_SECURITY_POLICY_VERSION, IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION, isImmediateClaimSecurityPolicy } from "./rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, depositForBookingPolicy, hasCashDepositPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit, setupIntentSecurityLimit, immediateClaimSecurityLimit, SETUP_INTENT_SECURITY_POLICY_VERSION, PREVIOUS_IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION, IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION, isImmediateClaimSecurityPolicy, isScaledImmediateClaimSecurityPolicy } from "./rentalSecurity";
 import { readAgreementSnapshot } from "./rentalAgreement";
-import { ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS, IMMEDIATE_CLAIM_LEGAL_VERSIONS } from "../src/lib/legal";
+import { ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS, IMMEDIATE_CLAIM_LEGAL_VERSION, IMMEDIATE_CLAIM_LEGAL_VERSIONS, PREVIOUS_IMMEDIATE_CLAIM_LEGAL_VERSIONS } from "../src/lib/legal";
 
 export const SECURITY_COLLECTION_NOTICE_HOURS = 7 * 24;
 export const SECURITY_COLLECTION_DAYS = 30;
@@ -15,11 +15,15 @@ export function setupIntentConsentText(limit: number) {
   if (![50,100,200].includes(limit)) throw Error("Invalid future security payment limit.");
   return `I authorise DB Cinema Rentals to save my card through Stripe for later off-session, one-time payments for itemised and evidenced late-return charges or material, permanent cosmetic damage or loss beyond fair wear, up to £${limit.toFixed(2)} combined for this rental. No security deposit is charged and no funds are reserved at checkout or pickup. A saved card is not a bank hold or a guarantee that a later payment will be approved; my bank may decline it or require authentication. No amount is automatically charged on an on-time return without a reported issue. An authorised team member must record the specific reason and evidence, send an itemised notice, allow at least seven days to query or dispute it, and make any permitted collection within 30 days after the recorded return. Fair wear, pre-existing defects, minor removable marks and damage attributable to DB are excluded. Insurance claims or excess are separate under the insurance terms and are not charged under this permission. Any amount above this limit requires a separate agreement; statutory and bank dispute rights remain unchanged.`;
 }
-export function immediateClaimConsentText(limit:number) {
- if (![50,100,200].includes(limit)) throw Error("Invalid future security payment limit.");
- return `I authorise DB Cinema Rentals to save my card through Stripe for later off-session, one-time payments for itemised and evidenced late-return charges or material, permanent cosmetic damage or loss beyond fair wear, up to £${limit.toFixed(2)} combined for this rental. No security deposit is charged and no funds are reserved at checkout or pickup. A saved card is not a bank hold or a guarantee that a later payment will be approved; my bank may decline it or require authentication. No amount is automatically charged on an on-time return without a reported issue. If an authorised team member records a permitted amount, reason and supporting evidence after return, DB Cinema will send an itemised notice and may attempt that amount immediately using this saved card. Fair wear, pre-existing defects, minor removable marks and damage attributable to DB are excluded. Insurance claims or excess are separate under the insurance terms and are not charged under this permission. Any amount above this limit requires a separate agreement; statutory and bank dispute rights remain unchanged.`;
+export function immediateClaimConsentText(limit:number,legalVersion=IMMEDIATE_CLAIM_LEGAL_VERSION) {
+ if(!Number.isSafeInteger(Math.round(limit*100))||limit<50||!(IMMEDIATE_CLAIM_LEGAL_VERSIONS as readonly string[]).includes(legalVersion))throw Error("Invalid future security payment limit.");
+ if(legalVersion!==IMMEDIATE_CLAIM_LEGAL_VERSION){
+  if(![50,100,200].includes(limit))throw Error("Invalid historical future security payment limit.");
+  return `I authorise DB Cinema Rentals to save my card through Stripe for later off-session, one-time payments for itemised and evidenced late-return charges or material, permanent cosmetic damage or loss beyond fair wear, up to £${limit.toFixed(2)} combined for this rental. No security deposit is charged and no funds are reserved at checkout or pickup. A saved card is not a bank hold or a guarantee that a later payment will be approved; my bank may decline it or require authentication. No amount is automatically charged on an on-time return without a reported issue. If an authorised team member records a permitted amount, reason and supporting evidence after return, DB Cinema will send an itemised notice and may attempt that amount immediately using this saved card. Fair wear, pre-existing defects, minor removable marks and damage attributable to DB are excluded. Insurance claims or excess are separate under the insurance terms and are not charged under this permission. Any amount above this limit requires a separate agreement; statutory and bank dispute rights remain unchanged.`;
+ }
+ return `I authorise DB Cinema Rentals to save my card through Stripe for later off-session, one-time payments for itemised and evidenced late-return charges or material, permanent cosmetic damage or loss beyond fair wear, up to £${limit.toFixed(2)} combined for this rental. No security deposit is charged and no funds are reserved at checkout or pickup. A saved card is not a bank hold or a guarantee that a later payment will be approved; my bank may decline it or require authentication. No amount is automatically charged on an on-time return without a reported issue. DB may decide at its discretion whether to pursue a permitted claim and how much to claim, but only for a supported amount actually due under the agreed rental terms and never above this ceiling. Before any card attempt, DB will send a final itemised claim invoice describing the late fee or damage, loss, repair or reasonable replacement, showing its calculation and including supporting evidence. An authorised team member records the reason, evidence and amount. After sending that invoice, DB may make one off-session collection attempt using this saved card within 30 days after the recorded return. You may query or dispute the assessment at any time. Fair wear, pre-existing defects, minor removable marks and damage attributable to DB are excluded. Insurance claims or excess are separate under the insurance terms and are not charged under this permission. Any amount above this limit requires a separate agreement; statutory and bank dispute rights remain unchanged.`;
 }
-export function isSavedCardRental(b: any) { return [SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, ASSESSMENT_SECURITY_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION, IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION].includes(b?.securityPolicyVersion); }
+export function isSavedCardRental(b: any) { return [SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, ASSESSMENT_SECURITY_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION, PREVIOUS_IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION, IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION].includes(b?.securityPolicyVersion); }
 export function savedCardRentalValue(b: any) {
   return b.lineItems.reduce((sum:number,line:any)=>{
     const value=b.replacementValues?.find((row:any)=>row.listingId===line.listingId)?.unitPence;
@@ -61,11 +65,20 @@ export function assertSavedCardConsent(b:any) {
     const fail=()=>{throw Error("The retained SetupIntent saved-card consent is missing or inconsistent. No charge is permitted.")};
     const snapshot=readAgreementSnapshot(b.agreementSnapshot);
     if(!snapshot||!b.laterChargeConsentAt||!b.agreementSignedAt||snapshot.acceptedAt!==b.agreementSignedAt||snapshot.signer!==b.agreementName||snapshot.particulars.securityPolicyVersion!==b.securityPolicyVersion||(b.depositAmount??0)!==0||(b.depositHoldAmount??0)!==0||(b.securityAmendments??[]).length)return fail();
+    const legalVersion=String(snapshot.version??"");
+    const immediateClaim=isImmediateClaimSecurityPolicy(b.securityPolicyVersion),scaledImmediateClaim=isScaledImmediateClaimSecurityPolicy(b.securityPolicyVersion);
+    const allowedImmediateLegalVersions=scaledImmediateClaim?[IMMEDIATE_CLAIM_LEGAL_VERSION]:PREVIOUS_IMMEDIATE_CLAIM_LEGAL_VERSIONS;
+    if(immediateClaim?!(allowedImmediateLegalVersions as readonly string[]).includes(legalVersion):!SETUP_INTENT_LEGAL_VERSIONS.includes(legalVersion))return fail();
     const limit=snapshot.particulars.savedCardLimit;
-    if(typeof limit!=="number"||![50,100,200].includes(limit))return fail();
-    const consent=isImmediateClaimSecurityPolicy(b.securityPolicyVersion)?immediateClaimConsentText(limit):setupIntentConsentText(limit);
+    if(typeof limit!=="number"||!Number.isSafeInteger(Math.round(limit*100))||limit<50)return fail();
+    if(immediateClaim){
+      if(scaledImmediateClaim){
+        let expected:number;try{expected=immediateClaimSecurityLimit(savedCardRentalValue(b))}catch{return fail();}
+        if(Math.round(expected*100)!==Math.round(limit*100))return fail();
+      }else if(![50,100,200].includes(limit))return fail();
+    }else if(![50,100,200].includes(limit))return fail();
+    const consent=immediateClaim?immediateClaimConsentText(limit,legalVersion):setupIntentConsentText(limit);
     if(snapshot.particulars.savedCardConsent!==consent||b.savedCardLimit!==limit||b.savedCardConsentText!==consent)return fail();
-    if(isImmediateClaimSecurityPolicy(b.securityPolicyVersion)?!IMMEDIATE_CLAIM_LEGAL_VERSIONS.includes(snapshot.version as typeof IMMEDIATE_CLAIM_LEGAL_VERSIONS[number]):!SETUP_INTENT_LEGAL_VERSIONS.includes(snapshot.version))return fail();
     return limit;
   }
   const fail=()=>{throw Error("The retained saved-card payment consent is missing or inconsistent. No charge is permitted.")};
