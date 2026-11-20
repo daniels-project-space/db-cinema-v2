@@ -1,6 +1,14 @@
 const assert=require('node:assert/strict');
 const {load,db,put,setMock}=require('./lib/rentalTestHarness.cjs');
 const security=load('shared/rentalSecurity.ts');
+for(const [value,limit] of [[0,50],[999.99,50],[1000,100],[3999.99,100],[4000,200],[4500,250],[5000,300]]) assert.equal(security.immediateClaimSecurityLimit(value),limit,`immediate-claim cap scales at ${value}`);
+assert.equal(security.cardLimitForPolicy(security.PREVIOUS_IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION,4500),200,'previous immediate-claim consent keeps the flat £200 ceiling');
+assert.equal(security.cardLimitForPolicy(security.IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION,4500),250,'new immediate-claim consent scales above £4,000');
+assert.equal(security.isImmediateClaimSecurityPolicy(security.PREVIOUS_IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION),true,'previous policy retains its immediate-claim handling');
+assert.equal(security.isScaledImmediateClaimSecurityPolicy(security.PREVIOUS_IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION),false,'previous policy does not inherit the new scaled cap');
+assert.equal(security.cardLimitForPolicy(security.SETUP_INTENT_SECURITY_POLICY_VERSION,4500),200,'archived SetupIntent policy retains its fixed £200 tier');
+assert.equal(security.cardHoldFor(4500),200,'existing card-hold authorisations keep their agreed tier');
+assert.throws(()=>security.immediateClaimSecurityLimit(NaN),/Invalid/);
 for(const protection of ['verify','deposit']) {
  for(const [value,deposit,hold] of [[0,100,0],[299.99,100,30],[300,100,30],[999.99,100,100],[2500,62.5,250],[10000,100,1000]]) assert.deepEqual(security.securityForPolicy(security.LEGACY_TEN_PERCENT_HOLD_POLICY,protection,value),protection==='deposit'&&value>=1000?{deposit:value/2,hold:value}:{deposit,hold});
 }

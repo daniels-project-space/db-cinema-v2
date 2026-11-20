@@ -9,6 +9,7 @@ import currentImmediateClaimTerms from "./legal-history/2026-11-v22";
 import currentSevenDayBoundaryTerms from "./legal-history/2026-11-v23";
 import currentCompanyCancellationTerms from "./legal-history/2026-11-v24";
 import currentBookingConfirmationTerms from "./legal-history/2026-11-v25";
+import currentFutureClaimTerms from "./legal-history/2026-11-v26";
 import privacyNoticeV2 from "./legal-history/privacy-2026-11-10-v2";
 import refundable from './legal-history/2026-10-v14';
 import current from "./legal-history/2026-10-v13";
@@ -20,6 +21,7 @@ import earlier from "./legal-history/2026-10-v8";
 export type LegalDoc = { title: string; updated: string; sections: { h: string; p: string }[] };
 export const LEGAL_DOCS: Record<string, LegalDoc> = current;
 export const LEGAL_ARCHIVE: Record<string, Record<string, LegalDoc>> = {
+  "2026-11-v26":currentFutureClaimTerms,
   "2026-11-v25":currentBookingConfirmationTerms,
   "2026-11-10-v2": { privacy: privacyNoticeV2 },
   "2026-11-v24":currentCompanyCancellationTerms,

@@ -1,5 +1,5 @@
-import { LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, CARD_HOLD_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS, IMMEDIATE_CLAIM_LEGAL_VERSION, IMMEDIATE_CLAIM_LEGAL_VERSIONS, agreementsForSecurityPolicy } from "../src/lib/legal";
-import { ASSESSMENT_SECURITY_POLICY_VERSION, CARD_HOLD_SECURITY_POLICY_VERSION, isCardHoldSecurityPolicy, isSetupIntentSecurityPolicy, isImmediateClaimSecurityPolicy } from "./rentalSecurity";
+import { LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, CARD_HOLD_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS, IMMEDIATE_CLAIM_LEGAL_VERSION, IMMEDIATE_CLAIM_LEGAL_VERSIONS, PREVIOUS_IMMEDIATE_CLAIM_LEGAL_VERSIONS, agreementsForSecurityPolicy } from "../src/lib/legal";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, CARD_HOLD_SECURITY_POLICY_VERSION, isCardHoldSecurityPolicy, isSetupIntentSecurityPolicy, isImmediateClaimSecurityPolicy, isScaledImmediateClaimSecurityPolicy } from "./rentalSecurity";
 import { LEGAL_DOCS, LEGAL_ARCHIVE, RENTAL_DRAFT_RELEASE_READY, type LegalDoc } from "./legalDocuments";
 import { CURRENT_PRIVACY_NOTICE } from "./currentPrivacyNotice";
 import { TRAFALGAR_PICKUP_AREA } from "./pickupLocation";
@@ -84,7 +84,7 @@ export function assertAgreementBeforeRelease(b: any) {
   const acceptedVersion=b.agreementDocs.find((d:Accepted)=>d.kind==="rental-agreement")?.version??"";
   if ([LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,"2026-10-v15","2026-10-v16",ASSESSMENT_DEPOSIT_LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,CARD_HOLD_LEGAL_VERSION,...SETUP_INTENT_LEGAL_VERSIONS,...IMMEDIATE_CLAIM_LEGAL_VERSIONS].includes(acceptedVersion)) {
     const s=readAgreementSnapshot(b.agreementSnapshot);
-    const allowedVersions=isImmediateClaimSecurityPolicy(b.securityPolicyVersion)?IMMEDIATE_CLAIM_LEGAL_VERSIONS:isSetupIntentSecurityPolicy(b.securityPolicyVersion)?SETUP_INTENT_LEGAL_VERSIONS:b.securityPolicyVersion===CARD_HOLD_SECURITY_POLICY_VERSION?[CARD_HOLD_LEGAL_VERSION]:b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION
+    const allowedVersions=isScaledImmediateClaimSecurityPolicy(b.securityPolicyVersion)?[IMMEDIATE_CLAIM_LEGAL_VERSION]:isImmediateClaimSecurityPolicy(b.securityPolicyVersion)?PREVIOUS_IMMEDIATE_CLAIM_LEGAL_VERSIONS:isSetupIntentSecurityPolicy(b.securityPolicyVersion)?SETUP_INTENT_LEGAL_VERSIONS:b.securityPolicyVersion===CARD_HOLD_SECURITY_POLICY_VERSION?[CARD_HOLD_LEGAL_VERSION]:b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION
       ?b.cancellationProtectionEnabled?["2026-10-v16",CANCELLATION_PROTECTION_LEGAL_VERSION]:["2026-10-v15",ASSESSMENT_DEPOSIT_LEGAL_VERSION]
       :b.securityPolicyVersion===REFUNDABLE_DEPOSIT_LEGAL_VERSION?[REFUNDABLE_DEPOSIT_LEGAL_VERSION]:[LEGAL_VERSION];
     if (!s || !allowedVersions.includes(acceptedVersion) || s.version!==acceptedVersion || s.signer!==b.agreementName.trim() || s.acceptedAt!==b.agreementSignedAt ||

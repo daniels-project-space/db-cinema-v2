@@ -71,6 +71,8 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       await client.evaluate(`(()=>{const summary=[...document.querySelectorAll('summary')].find(x=>x.textContent.includes('Return time'));summary?.click()})()`);
       const initial = await client.evaluate(`(()=>{const late=[...document.querySelectorAll('label')].find(x=>x.textContent.includes('I am claiming this late amount'));const input=late?.querySelector('input[type=checkbox]');return {checked:input?.checked,text:document.body.innerText,overflow:document.documentElement.scrollWidth>innerWidth}})()`);
       assert.equal(initial.checked, false, "late claim must be opt-in");
+      assert.match(initial.text, /Mark rental returned/);
+      assert.match(initial.text, /No issues found — Mark all good/);
       assert.match(initial.text, /No late fee will be claimed/);
       assert.match(initial.text, /No claim means no card charge\./, "The renter-facing no-claim summary reflects the saved-card flow");
       assert.doesNotMatch(initial.text, /active card hold is released|remaining authorisations are released/, "SetupIntent rentals must not be described as holding funds");

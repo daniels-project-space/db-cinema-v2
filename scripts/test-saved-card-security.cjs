@@ -153,7 +153,7 @@ const actionCtx={runQuery:async(ref,args)=>{
  const legal=load('shared/legalDocuments.ts');assert.equal(legal.RENTAL_DRAFT_RELEASE_READY,false);const terms=JSON.stringify(legal.LEGAL_DOCS.terms);
  assert.match(terms,/£100 per rental/);assert.match(terms,/actually incurred and evidenced/);assert.match(terms,/age, condition and depreciation/);assert.match(terms,/separate payment approval/);
  const checkout=fs.readFileSync('src/app/checkout/page.tsx','utf8');
- assert(checkout.includes("After return, we record the amount, reason and evidence, send itemised notice, then may make one card attempt"),'Checkout requires an itemised notice after recording the amount, reason and evidence before the one permitted card attempt');
+ assert(checkout.includes("DB may choose whether and how much to claim for an evidenced amount actually due. Before one card attempt, we send a final itemised invoice with the damage or repair/replacement description, calculation and evidence."),'Checkout permits only a supported claim and sends its itemised invoice and evidence before the one card attempt');
  assert(checkout.includes("Notice and a seven-day query period apply before collection"),'Historic v1 agreement wording remains explicit');
  assert(checkout.includes("This checkbox does not authorise later off-session charges"),'Card Hold wording remains distinct');
  const holdDocs=setupLegal.agreementsForSecurityPolicy(policy.CARD_HOLD_SECURITY_POLICY_VERSION);

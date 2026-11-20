@@ -8,7 +8,8 @@ const newAgreement = LEGAL_ARCHIVE["2026-11-v21"];
 const immediateAgreement = LEGAL_ARCHIVE["2026-11-v22"];
 const previousCurrentAgreement = LEGAL_ARCHIVE["2026-11-v23"];
 const previousCompanyAgreement = LEGAL_ARCHIVE["2026-11-v24"];
-const currentAgreement = LEGAL_ARCHIVE["2026-11-v25"];
+const previousBookingAgreement = LEGAL_ARCHIVE["2026-11-v25"];
+const currentAgreement = LEGAL_ARCHIVE["2026-11-v26"];
 const rentalSecurityHeading = agreement["rental-terms"].sections.find(section => section.h.startsWith("2."))?.h;
 assert.equal(rentalSecurityHeading, "2. Saved-card security claims");
 
@@ -39,6 +40,7 @@ assert.match(previousCompanyCancellation, /because equipment is unexpectedly una
 assert.match(currentCompanyCancellation, /cancels your confirmed rental before pickup for any reason/);
 assert.match(currentCompanyCancellation, /130%.*rejected or restricted/);
 assert.equal(currentCompanyCancellation, previousCompanyAgreement.terms.sections.find(section => section.h === "Free cancellation protection").p, "v25 preserves v24's company cancellation protection wording");
+assert.equal(previousBookingAgreement.terms.sections.find(section => section.h === "2. Bookings").p, currentAgreement.terms.sections.find(section => section.h === "2. Bookings").p, "v26 preserves v25's booking-confirmation wording");
 for(const kind of ["terms","rental-terms","rental-agreement","cancellation"]){
  const section=currentAgreement[kind].sections.find(section=>section.h===(kind==="cancellation"?"Your cancellation":"Cancellation and refunds"));
  assert.match(section.p,/seven or more London calendar days/);
@@ -50,11 +52,15 @@ const oldClaimText = Object.values(agreement).flatMap(document => document.secti
 assert.match(oldClaimText, /at least seven days to query or dispute/);
 const immediateClaimText = currentAgreement["deposit-agreement"].sections.map(section => section.p).join(" ");
 assert.match(immediateClaimText, /one off-session collection attempt using the saved card/);
-assert.match(immediateClaimText, /may happen immediately after notice/);
+assert.match(immediateClaimText, /DB may decide at its discretion whether to pursue a permitted claim/);
+assert.match(immediateClaimText, /final itemised claim invoice describing.*including supporting evidence/);
+assert.match(immediateClaimText, /increases continuously by £100 for each additional £1,000.*proportionally to the penny/);
+assert.doesNotMatch(LEGAL_ARCHIVE["2026-11-v25"]["deposit-agreement"].sections.map(section=>section.p).join(" "), /DB may decide at its discretion/);
 assert.doesNotMatch(immediateClaimText, /at least seven days/);
 const membershipPage = fs.readFileSync("src/app/legal/membership/page.tsx", "utf8");
 const v22MembershipCopy = membershipPage.slice(membershipPage.indexOf("if(setupIntentPolicy){"));
-assert.match(v22MembershipCopy, /sends itemised notice, and may make one immediate attempt within 30 days after return/);
+assert.match(v22MembershipCopy, /Above £4,000, it rises continuously by £100 for each additional £1,000/);
+assert.match(v22MembershipCopy, /final itemised invoice describing.*supporting evidence/);
 assert.doesNotMatch(v22MembershipCopy, /allow at least seven days to dispute/);
 assert.doesNotMatch(v22MembershipCopy, /new rental deposit exemption/i);
 assert.doesNotMatch(v22MembershipCopy, /upfront refundable security payment, applicable card hold/i);
