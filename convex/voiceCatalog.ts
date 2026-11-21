@@ -183,11 +183,10 @@ function shape(r: Doc<"listings">) {
     slug: r.slug,
     category: r.category,
     heroImage: heroImage(r),
-    daily: r.pricing?.daily != null ? Math.round(r.pricing.daily * (1 - (r.quietDeal ?? 0) / 100)) : null,
+    daily: r.pricing?.daily ?? null,
     pricing: r.pricing ?? null,
     deposit: r.depositAmount ?? null,
     minDays: r.minimumRentalDays ?? 1,
-    deal: r.quietDeal ?? null,
     // What glass is in the box. The catalogue carries several near-identical
     // bodies that differ only by the lens bundled with them — an a7 III with a
     // 28-70 and an a7 III with a GM 24-70 are separate listings at different

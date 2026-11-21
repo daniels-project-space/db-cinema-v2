@@ -1,5 +1,5 @@
 export const SINGLE_BENEFIT_VERSION = "single-benefit-v1";
-export type BenefitKind = "none"|"catalog_offer"|"quiet"|"promo"|"weekend"|"delivery"|"loyalty"|"joining"|"earned_credit"|"referral_friend"|"referral_reward";
+export type BenefitKind = "none"|"catalog_offer"|"promo"|"weekend"|"delivery"|"loyalty"|"joining"|"earned_credit"|"referral_friend"|"referral_reward";
 export type Benefit = {kind:BenefitKind; savingPence:number; label:string};
 /** Exactly one price benefit, independent of client totals or input order. */
 export function bestBenefit(candidates: Benefit[]): Benefit {

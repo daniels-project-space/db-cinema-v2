@@ -117,6 +117,13 @@ export default defineSchema({
       day14: v.optional(v.number()),
       day30: v.optional(v.number()),
     }),
+    websitePriceFactors: v.optional(v.object({
+      daily: v.optional(v.number()),
+      day3: v.optional(v.number()),
+      day7: v.optional(v.number()),
+      day14: v.optional(v.number()),
+      day30: v.optional(v.number()),
+    })),
     depositAmount: v.number(),
     stockMappingStatus: v.optional(v.union(v.literal("complete"), v.literal("incomplete"), v.literal("not_owned"))),
     // bill-of-materials: which physical units this bundle consumes
@@ -129,7 +136,7 @@ export default defineSchema({
     hyggloListingSlug: v.optional(v.string()),
     hyggloProductId: v.optional(v.number()),
     demandScore: v.optional(v.number()), // rental-history demand (set by sync.applyDemand)
-    quietDeal: v.optional(v.number()), // % off — auto-set on genuinely-idle items (catalog.refreshQuietDeals)
+    quietDeal: v.optional(v.number()), // Legacy field retained for existing documents; storefront pricing ignores it.
     suppressed: v.optional(v.boolean()), // local marketing-only override — kept inactive every sync
     marketingOnly: v.optional(v.boolean()),
     marketingOnlySource: v.optional(v.union(v.literal("auto"), v.literal("admin"), v.literal("rental_manager"))),

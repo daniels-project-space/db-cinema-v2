@@ -76,9 +76,7 @@ export async function previewKit(
           `${l.title} needs at least ${l.minimumRentalDays} days.`,
         );
       const q = quote(l.pricing, days);
-      const total = l.quietDeal
-        ? Math.round(q.total * (1 - l.quietDeal / 100))
-        : q.total;
+      const total = q.total;
       return {
         ...line,
         title: l.title,

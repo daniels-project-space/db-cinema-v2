@@ -55,7 +55,7 @@ export const sets = query({
     const describe = (sourceListing: typeof original) => {
       const l=displayById.get(String(sourceListing._id))??sourceListing;
       const price = quote(l.pricing, days);
-      const total = l.quietDeal ? Math.round(price.total * (1 - l.quietDeal / 100)) : price.total;
+      const total = price.total;
       return { listingId: String(l._id), slug: l.slug, title: l.title, included:l.rentalContents?.included??[],verifiedComponentContents:l.verifiedComponentContents??[],heroImage: listingImages(l)[0] ?? null, imageSources: listingImages(l), days, perDay: Math.round(total / days * 100) / 100, total, deposit: l.depositAmount };
     };
     const availability = new Map<string, boolean>();
@@ -160,7 +160,7 @@ export const forCart = query({
           await assertRentalInventory(ctx, [{ ...line,listingId: candidate._id,qty:line.qty??1 }, ...retained.filter(r => r.listing.components.some(c => units.has(String(c.inventoryUnitId)))).map(r => ({ ...r.line, qty: r.line.qty??1 }))]);
         } catch { continue; }
         const price = quote(candidate.pricing, days);
-        const total = candidate.quietDeal ? Math.round(price.total * (1-candidate.quietDeal/100)) : price.total;
+        const total = price.total;
         const publicCandidate=displayById.get(String(candidate._id))??candidate;
         result[line.key].push({ listingId: candidate._id, slug: candidate.slug, title: publicCandidate.title, included:publicCandidate.rentalContents?.included??[],verifiedComponentContents:publicCandidate.verifiedComponentContents??[],heroImage: listingImages(candidate)[0] ?? null, imageSources: listingImages(candidate), days, perDay: Math.round(total/days*100)/100, total, deposit: candidate.depositAmount });
         seen.add(signature);

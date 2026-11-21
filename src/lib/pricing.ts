@@ -44,9 +44,13 @@ export type NextTier = {
   progress: number; // 0..1 between current tier threshold and next
 };
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 export const money = (n: number) => Math.round(n); // whole-pound display
 export const formatGbp = (n: number) => new Intl.NumberFormat("en-GB", {style:"currency",currency:"GBP"}).format(n);
+export const formatRate = (n: number) => new Intl.NumberFormat("en-GB", {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+}).format(round2(n));
 
 // fallback discounts off the daily rate when a rung isn't supplied by Hygglo
 const SYNTH_DISCOUNT: Record<number, number> = {
@@ -99,23 +103,23 @@ export function quote(p: Pricing, days: number): Quote {
   for (const t of ladder) if (safeDays >= t.days) tier = t;
 
   const perDay = tier.perDay;
-  const total = money(perDay * safeDays);
-  const dailyBaseline = money(ladder[0].perDay * safeDays);
-  const saved = Math.max(0, dailyBaseline - total);
+  const total = round2(perDay * safeDays);
+  const dailyBaseline = round2(ladder[0].perDay * safeDays);
+  const saved = round2(Math.max(0, dailyBaseline - total));
   const savedPct = dailyBaseline > 0 ? Math.round((saved / dailyBaseline) * 100) : 0;
 
   const nextRung = ladder.find((t) => t.days > safeDays) ?? null;
   let next: NextTier | null = null;
   if (nextRung) {
-    const nTotal = money(nextRung.perDay * nextRung.days);
-    const nBaseline = money(ladder[0].perDay * nextRung.days);
+    const nTotal = round2(nextRung.perDay * nextRung.days);
+    const nBaseline = round2(ladder[0].perDay * nextRung.days);
     const span = nextRung.days - tier.days;
     next = {
       tier: nextRung,
       daysToNext: nextRung.days - safeDays,
       total: nTotal,
       perDay: nextRung.perDay,
-      saved: Math.max(0, nBaseline - nTotal),
+      saved: round2(Math.max(0, nBaseline - nTotal)),
       progress: span > 0 ? Math.min(1, (safeDays - tier.days) / span) : 1,
     };
   }

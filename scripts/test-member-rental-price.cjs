@@ -26,7 +26,7 @@ const {londonMonth}=load('convex/lib/memberDelivery.ts');
  assert.equal(price.deliveryFee,100);
  assert.equal(price.depositAmount,0);
  assert.equal(price.depositHoldAmount,0);assert.equal(price.savedCardLimit,200);
- camera.quietDeal=50;price=await calculateRentalPrice(ctx,input);assert.equal(price.weekendSaving,0,'a weekend deal never increases a cheaper ordinary quote');assert.equal(price.totalReduction,270);camera.quietDeal=5;
+ camera.quietDeal=50;price=await calculateRentalPrice(ctx,input);assert.equal(price.weekendSaving,100,'a legacy Quiet Deal cannot suppress a valid membership weekend benefit');assert.equal(price.totalReduction,100,'legacy Quiet Deal is ignored by the authoritative checkout quote');camera.quietDeal=5;
  acct.membershipTier='plus';price=await calculateRentalPrice(ctx,input);
  assert.equal(price.subtotal,540,'ordinary quiet discount remains without weekend deal');
  assert.equal(price.totalReduction,50);assert.equal(price.deliveryFee,100);
