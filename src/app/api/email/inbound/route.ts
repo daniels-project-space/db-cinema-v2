@@ -13,8 +13,7 @@ export const dynamic = "force-dynamic";
 
 const OWNER_EMAIL = "dbcinemarentals@gmail.com";
 
-function verifyResendSignature(req: NextRequest, raw: string): boolean {
-  const secret = process.env.RESEND_WEBHOOK_SECRET;
+function verifyResendSignature(req: NextRequest, raw: string, secret = process.env.RESEND_WEBHOOK_SECRET): boolean {
   const id = req.headers.get("svix-id");
   const timestamp = req.headers.get("svix-timestamp");
   const signature = req.headers.get("svix-signature");
@@ -198,6 +197,43 @@ async function processGafferInboundEmail(message: InboundEmail) {
   }
 }
 
+async function processAgentMailEmail(raw: string) {
+  let event: any;
+  try { event = JSON.parse(raw); } catch { return NextResponse.json({ error: "bad payload" }, { status: 400 }); }
+  if (event?.event_type !== "message.received") return NextResponse.json({ ok: true, ignored: "event type" });
+  let message = event?.message;
+  const inbox = process.env.AGENTMAIL_INBOX_ADDRESS?.trim().toLowerCase();
+  if (!inbox || typeof message?.inbox_id !== "string" || message.inbox_id.trim().toLowerCase() !== inbox)
+    return NextResponse.json({ error: "unrecognised inbox" }, { status: 400 });
+  const id = typeof message.message_id === "string" ? message.message_id.trim() : "";
+  if (!id || id.length > 512 || /[\r\n]/.test(id)) return NextResponse.json({ error: "invalid message id" }, { status: 400 });
+  if (!message.extracted_text && !message.text && !message.extracted_html && !message.html) {
+    const apiKey = process.env.AGENTMAIL_API_KEY;
+    if (!apiKey) return NextResponse.json({ error: "email content unavailable" }, { status: 503 });
+    try {
+      const response = await fetch(`https://api.agentmail.to/v0/inboxes/${encodeURIComponent(inbox)}/messages/${encodeURIComponent(id)}`, { headers: { authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(15_000) });
+      if (!response.ok) return NextResponse.json({ error: "email content unavailable" }, { status: 503 });
+      const full = await response.json();
+      if (full?.inbox_id !== inbox || full?.message_id !== id) return NextResponse.json({ error: "message mismatch" }, { status: 400 });
+      message = full;
+    } catch { return NextResponse.json({ error: "email content unavailable" }, { status: 503 }); }
+  }
+  const headers = message.headers ?? {};
+  const automated = headerValue(headers, "auto-submitted").trim().toLowerCase();
+  if ((automated && automated !== "no") || /^(bulk|list|junk)$/i.test(headerValue(headers, "precedence").trim()))
+    return NextResponse.json({ ok: true, ignored: "automated mail" });
+  const text = typeof message.extracted_text === "string" && message.extracted_text.trim() ? message.extracted_text :
+    typeof message.text === "string" && message.text.trim() ? newTextOnly(message.text) : newTextOnly(htmlToText(message.extracted_html ?? message.html ?? ""));
+  if (!text.trim()) return NextResponse.json({ error: "email content unavailable" }, { status: 503 });
+  return processGafferInboundEmail({
+    providerId: `agentmail:${id}`, messageId: id,
+    ...(typeof message.in_reply_to === "string" ? { inReplyTo: message.in_reply_to } : {}),
+    references: Array.isArray(message.references) ? message.references.filter((value: unknown): value is string => typeof value === "string").slice(-20) : [],
+    from: senderFrom({ from: message.from, sender: message.from }), name: nameFrom(message.from), to: inbox,
+    subject: String(message.subject ?? "Customer rental enquiry").trim().slice(0, 500), text,
+  });
+}
+
 async function processResendEmail(req: NextRequest, raw: string) {
   if (!process.env.INBOUND_EMAIL_SECRET || !process.env.NEXT_PUBLIC_CONVEX_URL) {
     return NextResponse.json({ error: "Inbound email storage is not configured." }, { status: 503 });
@@ -351,5 +387,6 @@ export async function POST(req: NextRequest) {
     const legacy = await processLegacyFollowUp(req, raw, legacySecret);
     if (legacy) return legacy;
   }
+  if (process.env.AGENTMAIL_WEBHOOK_SECRET && verifyResendSignature(req, raw, process.env.AGENTMAIL_WEBHOOK_SECRET)) return processAgentMailEmail(raw);
   return processResendEmail(req, raw);
 }

@@ -1,6 +1,7 @@
 "use node";
 
 import { v } from "convex/values";
+import { createHash } from "node:crypto";
 import { internalAction } from "./_generated/server";
 import { deliveryMessageId, sendMail, supportEmailFrom } from "./lib/mailer";
 
@@ -8,6 +9,7 @@ import { deliveryMessageId, sendMail, supportEmailFrom } from "./lib/mailer";
 export const sendBusinessReply = internalAction({
   args: {
     deliveryKey: v.string(),
+    agentMailMessageId: v.optional(v.string()),
     to: v.string(),
     subject: v.string(),
     html: v.string(),
@@ -17,6 +19,20 @@ export const sendBusinessReply = internalAction({
     references: v.array(v.string()),
   },
   handler: async (_ctx, args) => {
+    if (args.agentMailMessageId) {
+      const key = process.env.AGENTMAIL_API_KEY, inbox = process.env.AGENTMAIL_INBOX_ADDRESS;
+      if (!key || !inbox) return { sent: false };
+      try {
+        const result = await fetch(`https://api.agentmail.to/v0/inboxes/${encodeURIComponent(inbox)}/messages/${encodeURIComponent(args.agentMailMessageId)}/reply`, {
+          method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "idempotency-key": createHash("sha256").update(args.deliveryKey).digest("hex") },
+          body: JSON.stringify({ to: args.to, ...(args.cc?.length ? { cc: args.cc } : {}), html: args.html, reply_to: inbox }), signal: AbortSignal.timeout(15_000),
+        });
+        if (!result.ok) return { sent: false };
+        const value = await result.json() as { message_id?: unknown };
+        const messageId = typeof value.message_id === "string" && value.message_id.length <= 512 && !/[\r\n]/.test(value.message_id) ? value.message_id : undefined;
+        return { sent: true, ...(messageId ? { messageId } : {}) };
+      } catch { return { sent: false }; }
+    }
     let providerId:string|undefined,transport:"gmail"|"resend"|undefined;
     const sent = await sendMail({
       deliveryKey: args.deliveryKey,
