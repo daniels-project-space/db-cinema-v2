@@ -1,3 +1,5 @@
+import { paidRentalUnverifiedAfterWindow } from "../../shared/verificationProgress";
+
 /** Review requests require settled security, not merely the scheduled end date. */
 export function reviewGate(b: any): string | null {
   if (b.remindedReview || b.reviewFollowUpStatus === "sent") return "already_sent";
@@ -6,6 +8,7 @@ export function reviewGate(b: any): string | null {
 /** An email already sent does not stop its recipient writing the review. */
 export function customerReviewGate(b: any): string | null {
   if (b.status !== "returned") return "not_returned";
+  if (paidRentalUnverifiedAfterWindow(b)) return "verification_window_passed";
   if ((b.depositKept ?? 0) > 0 || (b.depositHoldCapturedForDamage ?? 0) > 0 ||
       (b.returnDecision?.damageKept ?? 0) > 0 || (b.lateFeePaidFromHold ?? 0) > 0)
     return "deposit_retained";
@@ -29,8 +32,9 @@ export function reviewFingerprint(b: any): string {
     b.depositKept,b.depositHoldCapturedForDamage,b.returnDecision?.damageKept,
     b.lateFeeAmount,b.lateFeeStatus,b.lateFeePaidFromHold,b.stripePaymentIntentId,
     b.stripeDepositIntentId,b.depositHoldStatus,b.depositHoldRenewalIntentId,b.depositHoldPreviousIntentIds,
-    b.actualReturnedAt,b.guestEmail]);
+    b.actualReturnedAt,b.guestEmail,b.idVerifyStatus,b.checkoutPaidAt,b.pickedUpAt,
+    b.lineItems?.map((line:any)=>line.start) ?? []]);
 }
 export function reviewSuppressed(reason: string): boolean {
-  return ["deposit_retained", "partial_refund"].includes(reason);
+  return ["deposit_retained", "partial_refund", "verification_window_passed"].includes(reason);
 }

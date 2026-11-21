@@ -22,6 +22,22 @@ export function verificationChecks(decision: any): VerificationChecks {
 export function verificationBookingOpen(status:string) {
   return ["pending_verification", "confirmed", "active"].includes(status);
 }
+export const LATE_VERIFICATION_GRACE_MS = 2 * 60 * 60 * 1000;
+export function verificationDeadlineAt(booking: { start?: number | null; verificationDeadlineAt?: number | null; lineItems?: Array<{ start?: number | null }> | null }) {
+  if (typeof booking.verificationDeadlineAt === "number" && Number.isFinite(booking.verificationDeadlineAt)) return booking.verificationDeadlineAt;
+  const starts = (booking.lineItems ?? []).map(line => line.start).filter((start): start is number => typeof start === "number" && Number.isFinite(start));
+  const start = typeof booking.start === "number" && Number.isFinite(booking.start) ? booking.start : starts.length ? Math.min(...starts) : null;
+  return start === null ? null : start + LATE_VERIFICATION_GRACE_MS;
+}
+export function verificationLateWindowClosed(booking: { start?: number | null; verificationDeadlineAt?: number | null; lineItems?: Array<{ start?: number | null }> | null; lateVerificationAllowedAt?: number | null }, now = Date.now()) {
+  const deadline = verificationDeadlineAt(booking);
+  return deadline !== null && now >= deadline && !(typeof booking.lateVerificationAllowedAt === "number" && booking.lateVerificationAllowedAt > 0);
+}
+export function paidRentalUnverifiedAfterWindow(booking: { checkoutPaidAt?: number | null; idVerifyStatus?: string | null; pickedUpAt?: number | null; start?: number | null; verificationDeadlineAt?: number | null; idVerifiedAt?: number | null; verificationExpiresAt?: number | null; lineItems?: Array<{ start?: number | null }> | null }, now = Date.now()) {
+  const deadline = verificationDeadlineAt(booking);
+  const approved = booking.idVerifyStatus === "verified" && !verificationExpired(booking, now);
+  return !!booking.checkoutPaidAt && !approved && !booking.pickedUpAt && deadline !== null && now >= deadline;
+}
 export function securityReady(booking: { status: string; depositHoldAmount?: number; depositHoldStatus?: string | null; securityPolicyVersion?:string|null; savedCardStatus?:string|null }) {
   if (isSavedCardRental(booking)) return verificationBookingOpen(booking.status) && booking.savedCardStatus === "saved";
   return verificationBookingOpen(booking.status) && (!(booking.depositHoldAmount ?? 0) || booking.depositHoldStatus === "held");
@@ -29,8 +45,8 @@ export function securityReady(booking: { status: string; depositHoldAmount?: num
 
 /** Paid pickup-policy rentals can complete documents before the scheduled hold.
  * This never substitutes for actual security readiness at handover. */
-export function verificationCanStart(booking: {status:string;depositHoldAmount?:number;depositHoldStatus?:string|null;securityHoldPolicyVersion?:string|null;securityPolicyVersion?:string|null;savedCardStatus?:string|null;cancellationDecision?:unknown;returnDecision?:unknown}) {
-  return !booking.cancellationDecision && !booking.returnDecision && (securityReady(booking) ||
+export function verificationCanStart(booking: {status:string;depositHoldAmount?:number;depositHoldStatus?:string|null;securityHoldPolicyVersion?:string|null;securityPolicyVersion?:string|null;savedCardStatus?:string|null;cancellationDecision?:unknown;returnDecision?:unknown;start?:number|null;verificationDeadlineAt?:number|null;lateVerificationAllowedAt?:number|null;lineItems?:Array<{start?:number|null}>|null}, now = Date.now()) {
+  return !verificationLateWindowClosed(booking, now) && !booking.cancellationDecision && !booking.returnDecision && (securityReady(booking) ||
     ((isPickupHoldPolicyVersion(booking.securityHoldPolicyVersion)||isSavedCardRental(booking)) && verificationBookingOpen(booking.status)));
 }
 
@@ -48,7 +64,7 @@ export function verificationExpired(booking: { verificationExpiresAt?: number | 
   return expiresAt != null && expiresAt <= now;
 }
 export function verificationSessionCanOpen(booking: Parameters<typeof verificationCanStart>[0] & { idVerifyStatus?: string | null; verificationExpiresAt?: number | null; idVerifiedAt?: number | null; documentExpiresAt?: number | null }, now = Date.now()) {
-  return verificationCanStart(booking) && (["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required") ||
+  return verificationCanStart(booking, now) && (["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required") ||
     (booking.idVerifyStatus === "verified" && verificationExpired(booking, now)));
 }
 

@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useAction, useQuery } from "convex/react";
-import { useState } from "react";
+import { useAction, useMutation, useQuery } from "convex/react";
+import { useEffect, useState } from "react";
 import { api } from "@cvx/_generated/api";
 import { VerificationBar } from "./VerificationProgress";
 import { useVerificationRefresh } from "./useVerificationRefresh";
@@ -125,29 +125,54 @@ function DiditReviewCard({
 export function RentalVerificationSummary({ bookingId, token, admin = false }: { bookingId: string; token: string; admin?: boolean }) {
   const owner = useQuery(api.rentalOperations.details, admin ? { token, bookingId: bookingId as any } : "skip");
   const renter = useQuery(api.bookings.verificationProgress, admin ? "skip" : { token, bookingId: bookingId as any });
+  const lateInfo = useQuery(api.bookings.adminLateVerificationInfo, admin ? { token, bookingId: bookingId as any } : "skip");
+  const allowLateVerification = useMutation(api.bookings.adminAllowLateVerification);
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  useEffect(() => {
+    const deadline = lateInfo?.deadlineAt;
+    if (typeof deadline !== "number" || deadline <= clockNow) return;
+    const timer = setTimeout(() => setClockNow(Date.now()), deadline - clockNow + 1);
+    return () => clearTimeout(timer);
+  }, [clockNow, lateInfo?.deadlineAt]);
   const booking = admin ? owner : renter;
-  const refreshError = useVerificationRefresh(bookingId, token, undefined, admin, !!booking && verificationBookingOpen(booking.status) && booking.idVerifyStatus !== "verified");
+  const lateWindowBlocked = admin && (!lateInfo || !!lateInfo.deadlineAt && clockNow >= lateInfo.deadlineAt && !lateInfo.allowedAt);
+  const refreshError = useVerificationRefresh(bookingId, token, undefined, admin, !!booking && verificationBookingOpen(booking.status) && booking.idVerifyStatus !== "verified" && !lateWindowBlocked);
   const refresh = useAction(api.didit.refreshProgress);
   const [checking, setChecking] = useState(false);
   const [checkMessage, setCheckMessage] = useState("");
+  const [lateBusy, setLateBusy] = useState(false);
+  const [lateMessage, setLateMessage] = useState("");
   async function checkNow() {
     if (checking) return;
     setChecking(true); setCheckMessage("");
     try {
       const result = await refresh({bookingId:bookingId as any,accountToken:token,admin:true});
-      setCheckMessage(result.status === "throttled" ? "A check was recently requested. Try again shortly." : result.status === "updated" || result.status === "unchanged" ? "Didit checked · the latest available stages are shown." : "Didit could not be checked for this rental.");
+      setCheckMessage(result.status === "throttled" ? "A check was recently requested. Try again shortly." : result.status === "late_window_closed" ? "The two-hour window is closed. Reopen verification before checking Didit." : result.status === "updated" || result.status === "unchanged" ? "Didit checked · the latest available stages are shown." : "Didit could not be checked for this rental.");
     } catch { setCheckMessage("Could not check Didit. The last confirmed stages are shown; try again."); }
     finally { setChecking(false); }
+  }
+  async function reopenLateVerification() {
+    if (lateBusy) return;
+    setLateBusy(true); setLateMessage("");
+    try {
+      await allowLateVerification({ token, bookingId: bookingId as any });
+      setLateMessage("Verification reopened. The renter can continue the same Didit case.");
+    } catch (error) {
+      setLateMessage(error instanceof Error ? error.message : "Could not reopen verification.");
+    } finally { setLateBusy(false); }
   }
 
   if (!booking || !verificationBookingOpen(booking.status)) return null;
 
-  const needsDiditReview = admin && owner?.verificationProvider === "didit" && owner.idVerifyStatus === "manual_review";
+  const needsDiditReview = admin && !lateWindowBlocked && owner?.verificationProvider === "didit" && owner.idVerifyStatus === "manual_review";
 
   return (
     <section aria-label="Rental verification progress" className="mt-4 rounded-3xl border border-white/10 bg-gradient-to-br from-white/[.07] via-[#171819]/95 to-amber-950/10 p-4 shadow-[0_18px_48px_rgba(0,0,0,.22)] backdrop-blur-2xl">
       <p className="mb-3 text-[11px] font-semibold uppercase tracking-[.14em] text-accent-200">{rentalStageLabel(booking)}</p>
-      {admin && owner?.verificationProvider === "didit" && owner.diditSessionId && <div className="mb-2 flex flex-wrap items-center gap-2"><button type="button" disabled={checking} onClick={() => void checkNow()} className="rounded-full border border-white/20 px-3 py-2 text-xs text-white hover:bg-white/10 disabled:opacity-50">{checking ? "Checking Didit…" : "Check Didit now"}</button>{owner.idVerifyStatus !== "verified" && <span className="text-[10px] text-white/50">Auto-checks while this case is open</span>}</div>}
+      {admin && lateInfo?.eligible && typeof lateInfo.deadlineAt === "number" && clockNow >= lateInfo.deadlineAt && !lateInfo.allowedAt && <div role="alert" className="mb-3 rounded-2xl border border-amber-200/20 bg-amber-200/[.06] p-3 text-xs text-amber-50"><strong className="block">Two-hour verification window closed</strong><span className="mt-1 block text-white/60">Reopen only if the team has approved a late verification.</span><button type="button" disabled={lateBusy} onClick={() => void reopenLateVerification()} className="mt-3 rounded-full border border-amber-100/25 px-3 py-2 font-semibold text-amber-100 disabled:opacity-50">{lateBusy ? "Reopening…" : "Allow late verification"}</button></div>}
+      {admin && lateInfo?.allowedAt && <p role="status" className="mb-3 rounded-xl border border-emerald-200/15 bg-emerald-200/[.05] px-3 py-2 text-xs text-emerald-100">Late verification has been manually reopened.</p>}
+      {lateMessage && <p role="status" className="mb-2 text-xs text-white/70">{lateMessage}</p>}
+      {admin && owner?.verificationProvider === "didit" && owner.diditSessionId && <div className="mb-2 flex flex-wrap items-center gap-2"><button type="button" disabled={checking || lateWindowBlocked} onClick={() => void checkNow()} className="rounded-full border border-white/20 px-3 py-2 text-xs text-white hover:bg-white/10 disabled:opacity-50">{checking ? "Checking Didit…" : "Check Didit now"}</button>{owner.idVerifyStatus !== "verified" && <span className="text-[10px] text-white/50">{lateWindowBlocked ? "Reopen the window before checking" : "Auto-checks while this case is open"}</span>}</div>}
       {checkMessage && <p role="status" className="mb-2 text-xs text-white/70">{checkMessage}</p>}
       <VerificationBar booking={booking} compact={admin} />
       <VerificationChecks checks={booking.verificationChecks} verificationStatus={booking.idVerifyStatus} />

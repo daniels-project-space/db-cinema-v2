@@ -15,6 +15,10 @@ export type VerificationBooking = {
   depositHoldExpiresAt?: number | null;
   verificationArchiveReady?: boolean;
   verificationExpiresAt?: number | null;
+  verificationDeadlineAt?: number | null;
+  lateVerificationAllowedAt?: number | null;
+  start?: number | null;
+  lineItems?: Array<{ start?: number | null }> | null;
   idVerifiedAt?: number | null;
   documentExpiresAt?: number | null;
 };

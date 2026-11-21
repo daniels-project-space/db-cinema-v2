@@ -362,6 +362,8 @@ export default defineSchema({
     diditEventAt: v.optional(v.number()),
     diditManualDecisionAt: v.optional(v.number()),
     diditReconciledAt: v.optional(v.number()),
+    lateVerificationAllowedAt: v.optional(v.number()),
+    lateVerificationBlockedAt: v.optional(v.number()),
     verificationProvider: v.optional(v.string()),
     verificationNote: v.optional(v.string()),
     identityRiskNotice: v.optional(v.string()),

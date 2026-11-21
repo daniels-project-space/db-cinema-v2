@@ -417,6 +417,8 @@ call src/components/rentals/RentalRequestHistory.tsx:rentalRequests.review
 call src/components/rentals/RentalSwapApproval.tsx:rentalSwapPayments.accept
 call src/components/rentals/RentalSwapApproval.tsx:rentalSwapState.customerDecline
 call src/components/rentals/RentalSwapApproval.tsx:rentalSwapState.customerProposal
+call src/components/rentals/RentalVerificationSummary.tsx:bookings.adminAllowLateVerification
+call src/components/rentals/RentalVerificationSummary.tsx:bookings.adminLateVerificationInfo
 call src/components/rentals/RentalVerificationSummary.tsx:bookings.verificationProgress
 call src/components/rentals/RentalVerificationSummary.tsx:didit.refreshProgress
 call src/components/rentals/RentalVerificationSummary.tsx:rentalOperations.details
@@ -640,10 +642,12 @@ export convex/bookingStockClaims.ts:recordBookingStockApplication
 export convex/bookingStockClaims.ts:releaseLease
 export convex/bookingStockClaims.ts:reviewOutstandingBookingClaim
 export convex/bookings.ts:_finalizeCancellation
+export convex/bookings.ts:adminAllowLateVerification
 export convex/bookings.ts:adminAuthorized
 export convex/bookings.ts:adminCalendarPage
 export convex/bookings.ts:adminInvoicePage
 export convex/bookings.ts:adminList
+export convex/bookings.ts:adminLateVerificationInfo
 export convex/bookings.ts:adminPauseLateFee
 export convex/bookings.ts:adminRequireReverification
 export convex/bookings.ts:adminSetIdStatus
