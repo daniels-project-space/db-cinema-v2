@@ -593,12 +593,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(`!!document.querySelector('[data-testid="potential-membership-savings"]')`);
   assert((await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').innerText`)).includes(bigWeekdayQuote.recommendations[0].netSaving.toFixed(2)));
   await shot("weekday-immediate-credit-mobile");
-  // Removing real £100 lines crosses Studio → Pro → Starter. Preserve the
+  // Removing real £100–£149.99 lines crosses Studio → Pro → Starter. Preserve the
   // card space while pricing, with no stale saving or selectable stale plan.
-  const eligibleTransitionGear=rows.filter(g=>g.pricing?.daily===100&&!g.displayOnly&&!g.quietDeal);
-  assert(eligibleTransitionGear.length>0,"Tier transitions need real £100 equipment");
+  const eligibleTransitionGear=rows.filter(g=>g.pricing?.daily>=100&&g.pricing?.daily<150&&!g.displayOnly&&!g.quietDeal);
+  assert(eligibleTransitionGear.length>0,"Tier transitions need real £100–£149.99 equipment");
   // Cart lines have independent keys and can contain the same listing. Keep
-  // three real £100 lines even when the live catalogue has fewer distinct kits.
+  // three listings in this price band even when the live catalogue has fewer distinct kits.
   const transitionGear=Array.from({length:3},(_,n)=>eligibleTransitionGear[n%eligibleTransitionGear.length]);
   let transitionItems=transitionGear.map((g,n)=>({...bigWeekdayItem,key:'tier-transition-'+n,listingId:g._id,title:g.title,slug:g.slug,heroImage:g.heroImage,deposit:g.depositAmount,end:new Date(weekdayEnd).toISOString().slice(0,10),days:1,total:100,perDay:100}));
   await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(transitionItems))});localStorage.removeItem('dbc_membership_selection_v1');true`);
