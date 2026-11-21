@@ -153,10 +153,10 @@ async function passDidit(fixture) {
  assert.equal(retiredSelected.combinedTotalDue-retiredSelected.depositAmount,1865.3,'Savings includes the £99 subscription fee and excludes security');
  extras[0].quietDeal=50;
  const competingQuiet=await checkout.priceQuote.handler(ctx,restoredBasket);
- assert.equal(competingQuiet.benefitKind,'quiet');assert.equal(competingQuiet.totalReduction,45);
- assert.equal(competingQuiet.membershipOffer,null,'Keep no stacking: a genuine larger remaining price benefit still wins');
- assert.equal(competingQuiet.recommendations.find(r=>r.tier==='studio').netSaving,-5.3);
- assert.equal(renderQuotedHook(competingQuiet,account),'','Never invent a positive savings card for a more expensive subscription');
+ assert.equal(competingQuiet.benefitKind,'none');assert.equal(competingQuiet.totalReduction,0,'legacy Quiet Deal fields cannot alter checkout pricing');
+ assert.deepEqual(competingQuiet.membershipOffer,retiredBase.membershipOffer,'membership savings remain available after legacy Quiet Deal metadata is ignored');
+ assert.equal(competingQuiet.recommendations.find(r=>r.tier==='studio').netSaving,39.7);
+ assert.match(renderQuotedHook(competingQuiet,account),/<h3[^>]*>Subscribe to save £39\.70<\/h3>/);
  extras[0].quietDeal=undefined;
  account=put('accounts',{email:'large@example.invalid'});camera.pricing.daily=300;
  const large=await checkout.priceQuote.handler(ctx,input());assert.equal(large.recommendations[0].netSaving,39.7);
