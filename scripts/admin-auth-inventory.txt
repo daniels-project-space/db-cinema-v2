@@ -1852,3 +1852,10 @@ route src/app/api/email/inbound/route.ts
 route src/app/api/invoice/[id]/route.ts
 route src/app/api/swml/inbound/route.ts
 route src/app/api/voice/route.ts
+export convex/lib/pricing.ts:toPence
+export convex/lib/websitePricing.ts:WEBSITE_PRICE_INCREASE
+export convex/lib/websitePricing.ts:WEBSITE_PRICE_KEYS
+export convex/lib/websitePricing.ts:WebsitePriceFactors
+export convex/lib/websitePricing.ts:WebsitePriceLadder
+export convex/lib/websitePricing.ts:applyWebsitePriceFactors
+export convex/lib/websitePricing.ts:websitePriceFactors

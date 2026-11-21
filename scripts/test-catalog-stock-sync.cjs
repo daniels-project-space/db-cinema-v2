@@ -1,21 +1,24 @@
 const assert=require('node:assert/strict');
 const {load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
-const sync=load('convex/sync.ts'),availability=load('convex/availability.ts'),catalog=load('convex/catalog.ts');
+const sync=load('convex/sync.ts'),availability=load('convex/availability.ts'),catalog=load('convex/catalog.ts'),websitePricing=load('convex/lib/websitePricing.ts');
 const ctx={db},start=Date.UTC(2030,0,1),end=start+86400000;
 process.env.ADMIN_TOKEN='fixture-source-quantity-owner';
 process.env.RMV2_WEBHOOK_URL='https://fixture-manager.convex.site/dbcinema/booking-sync';process.env.RMV2_WEBHOOK_SECRET='fixture-read-service';
-const row=(extra={})=>{const {masterItemId='source-camera',masterQty=2,componentQty=1,...fields}=extra;return {hyggloProductId:10,stockMappingStatus:'complete',stockComponents:[{masterItemId,name:'Fixture source camera',qty:componentQty,quantityOwned:masterQty,active:true,replacementCost:1000}],slug:'fixture-body',title:'Fixture physical camera',category:'Cameras',itemType:'camera-body',sizeScore:1,weightKg:1,sourceImages:['https://images.example/source-camera.png'],pricing:{daily:40},depositAmount:1000,minimumRentalDays:1,unavailableDates:[],...fields}};
+const row=(extra={})=>{const {masterItemId='source-camera',masterQty=2,componentQty=1,...fields}=extra;return {hyggloProductId:10,stockMappingStatus:'complete',stockComponents:[{masterItemId,name:'Fixture source camera',qty:componentQty,quantityOwned:masterQty,active:true,replacementCost:1000}],slug:'fixture-body',title:'Fixture physical camera',category:'Cameras',itemType:'camera-body',sizeScore:1,weightKg:1,sourceImages:['https://images.example/source-camera.png'],pricing:{daily:40,day3:30,day7:20,day30:10},depositAmount:1000,minimumRentalDays:1,unavailableDates:[],...fields}};
 const getListing=slug=>db.query('listings').withIndex('by_slug',q=>q.eq('slug',slug)).first();
 const apply=items=>sync.applyCatalog.handler(ctx,{items});
 const stock=l=>availability.forListing.handler(ctx,{listingId:l._id,start,end});
 (async()=>{
+ assert.deepEqual(websitePricing.applyWebsitePriceFactors({daily:22.7,day3:40,day7:50},websitePricing.websitePriceFactors({daily:22.7,day3:40,day7:50})),{daily:28.22,day3:49.08,day7:61.35},'New prices are exactly 22.7% above current whole-pound visible rates');
+ const legacyListing=put('listings',{slug:'fixture-body',title:'Fixture physical camera',active:true,pricing:{daily:40,day3:30,day7:20,day30:10},quietDeal:10,components:[]});
  await apply([row(),row({slug:'fixture-three',hyggloProductId:11,componentQty:3})]);
  const body=await getListing('fixture-body'),kit=await getListing('fixture-three');
+ assert.deepEqual(body.pricing,{daily:44.17,day3:33.13,day7:22.09,day30:11.04},'Legacy Quiet Deal prices rise 22.7% from their renter-visible whole-pound rate on every stored tier');assert.equal(body.quietDeal,undefined,'The first price rebase clears the legacy discount');assert(body.websitePriceFactors.daily>0,'The chosen price offset persists through future RMV2 syncs');
  assert.equal(body.components[0].inventoryUnitId,kit.components[0].inventoryUnitId,'Both offerings share the master physical pool');
  const unit=await db.get(body.components[0].inventoryUnitId);assert.equal(unit.quantityOwned,2,'A three-body listing cannot manufacture a third body');assert.equal((await stock(kit)).available,0);assert.equal((await stock(body)).available,2);
  body.r2Images=['https://assets.example/accepted.png'];body.marketingOnly=false;body.marketingOnlySource='admin';
  const reservation=put('reservations',{inventoryUnitId:unit._id,start,end,qty:1,status:'confirmed',source:'site'});
- await apply([row({masterQty:1}),row({slug:'fixture-three',hyggloProductId:11,masterQty:1,componentQty:3})]);assert.equal(unit.quantityOwned,1,'Reduced source quantities must replace larger historical counts');assert.equal((await stock(body)).available,0);assert.equal(await db.get(reservation._id),reservation,'Catalog reductions preserve actual rental occupancy');assert.deepEqual(body.r2Images,['https://assets.example/accepted.png']);assert.equal(body.marketingOnly,false);assert.equal(body.marketingOnlySource,'admin');
+ await apply([row({masterQty:1}),row({slug:'fixture-three',hyggloProductId:11,masterQty:1,componentQty:3})]);assert.deepEqual(body.pricing,{daily:44.17,day3:33.13,day7:22.09,day30:11.04},'Repeating the RMV2 sync does not compound the price increase');assert.equal(unit.quantityOwned,1,'Reduced source quantities must replace larger historical counts');assert.equal((await stock(body)).available,0);assert.equal(await db.get(reservation._id),reservation,'Catalog reductions preserve actual rental occupancy');assert.deepEqual(body.r2Images,['https://assets.example/accepted.png']);assert.equal(body.marketingOnly,false);assert.equal(body.marketingOnlySource,'admin');
  await apply([row({masterQty:0})]);assert.equal(unit.quantityOwned,0);assert.equal((await stock(body)).available,0);assert((await catalog.listListings.handler(ctx,{})).some(l=>l._id===body._id),'Zero stock remains selectable for demand logging');
  await apply([row({masterQty:5})]);assert.equal(unit.quantityOwned,5);assert.equal((await stock(body)).available,4,'Replenishment uses real source count minus existing rental');
  const untouched=JSON.stringify([...tables.get('inventory_units')]);

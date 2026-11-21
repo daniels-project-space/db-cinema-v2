@@ -13,7 +13,7 @@ const msOf = (d: string) => { const t = Date.parse(/T/.test(d) ? d : d + "T00:00
 
 function currentQuote(listing: any, days: number) {
   const q = quote(listing.pricing, days);
-  const total = listing.quietDeal ? Math.round(q.total * (1 - listing.quietDeal / 100)) : q.total;
+  const total = q.total;
   return { ...q, total, perDay: Math.round(total / days * 100) / 100 };
 }
 

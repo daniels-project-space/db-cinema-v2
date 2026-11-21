@@ -9,7 +9,7 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { useGafferFocus } from "@/components/gaffer/GafferFocus";
 import { SmartImage } from "@/components/SmartImage";
 import { IconHeart, IconCheck } from "@/components/icons";
-import { money } from "@/lib/pricing";
+import { formatRate } from "@/lib/pricing";
 import { getSessionId } from "@/lib/session";
 
 export type GearListing = {
@@ -24,15 +24,12 @@ export type GearListing = {
   pricing: { daily: number; day3?: number; day7?: number };
   depositAmount: number;
   minimumRentalDays: number;
-  quietDeal?: number | null;
   displayOnly?: boolean | null;
   bookable?: boolean;
 };
 
-const off = (n: number, pct: number) => Math.round(n * (1 - pct / 100));
-
 export function GearCard({ listing, mobileCompact = false, priorityImage = false }: { listing: GearListing; mobileCompact?: boolean; priorityImage?: boolean }) {
-  const { slug, title, category, heroImage, pricing, quietDeal, displayOnly } = listing;
+  const { slug, title, category, heroImage, pricing, displayOnly } = listing;
   const account = useAccount();
   const router = useRouter();
   const track = useMutation(api.analytics.track);
@@ -112,10 +109,6 @@ export function GearCard({ listing, mobileCompact = false, priorityImage = false
           <span className="absolute left-2.5 top-2.5 z-10 rounded-full border border-amber-300/30 bg-black/70 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-100 shadow-lg backdrop-blur">
             Request to confirm
           </span>
-        ) : quietDeal ? (
-          <span className="absolute left-2.5 top-2.5 z-10 rounded-full bg-emerald-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
-            −{quietDeal}% quiet deal
-          </span>
         ) : null}
         <SmartImage fit="contain"
           src={heroImage}
@@ -145,15 +138,12 @@ export function GearCard({ listing, mobileCompact = false, priorityImage = false
         ) : (
           <div className="flex items-baseline gap-1">
               <span className="font-display text-xl font-bold text-accent-400 sm:text-2xl">
-              £{money(quietDeal ? off(pricing.daily, quietDeal) : pricing.daily)}
+              £{formatRate(pricing.daily)}
             </span>
             <span className="text-sm text-white/40">/day</span>
-            {quietDeal ? (
-              <span className="text-xs text-white/30 line-through">£{money(pricing.daily)}</span>
-            ) : null}
             {pricing.day7 ? (
               <span className="ml-auto font-mono text-[11px] text-white/35">
-                £{money(quietDeal ? off(pricing.day7, quietDeal) : pricing.day7)}/d · 7+
+                £{formatRate(pricing.day7)}/d · 7+
               </span>
             ) : null}
           </div>

@@ -35,7 +35,7 @@ const aliases = new Map([
   ["@/components/Reveal", `import React from 'react';export function Reveal({children,className='',delay=0}){return <div className={className} style={{transitionDelay:delay+'ms'}}>{children}</div>}`],
   ["@/components/CategoryIcon", `import React from 'react';export function CategoryIcon({name,className=''}){return <svg aria-hidden='true' viewBox='0 0 24 24' className={className} fill='none' stroke='currentColor' strokeWidth='1.5'><circle cx='12' cy='12' r='8'/><path d='M4 12h16'/></svg>}`],
   ["@/lib/session", `export function getSessionId(){return'catalog-mobile-fixture'}`],
-  ["@/lib/pricing", `export function money(value){return Number(value).toFixed(2)}`],
+  ["@/lib/pricing", `export function formatRate(value){return Number(value).toFixed(2)}`],
 ]);
 
 const plugin = {

@@ -16,6 +16,10 @@ const listings = [
   { _id: "dji-mic-2", slug: "dji-mic-2", title: "DJI Mic 2 Set", itemType: "wireless-mic", pricing: { daily: 18 }, components: [{ inventoryUnitId: "dji-mic-2", qty: 1 }], inventoryFacts: { owned: true, contents: ["DJI Mic 2 Set"] } },
   { _id: "dji-mic-1", slug: "dji-mic-1", title: "DJI Mic Wireless Kit with 2x Lavalier Microphones", itemType: "wireless-mic", pricing: { daily: 12 }, components: [{ inventoryUnitId: "dji-mic-1", qty: 1 }], inventoryFacts: { owned: true, reviewRequired: false, contents: ["1 × DJI Wireless Mics", "2x transmitter", "1x receiver", "1x charging case", "2x DJI Lavalier microphones"] } },
 ];
+const requestedStart = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+const requestedDate = requestedStart.toISOString().slice(0, 10);
+const requestedDateUtc = Date.parse(`${requestedDate}T00:00:00.000Z`);
+const requestDateLabel = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(requestedStart);
 let intent;
 let availability = new Map(listings.map((item) => [item._id, 1]));
 let availabilityChecks = [];
@@ -29,8 +33,8 @@ setMock("convex/browser", {
       if (name === "catalog.byItemType") return listings.filter((item) => args.types.includes(item.itemType));
       if (name === "catalog.listingsByIds") return listings.filter((item) => args.ids.includes(item._id));
       if (name === "availability.forListing" || name === "availability.forTimeSlots") {
-        assert.equal(args.start, Date.UTC(2026, 10, 20), "availability must use the requested date");
-        assert.equal(args.end, Date.UTC(2026, 10, 20), "availability must use the requested date");
+        assert.equal(args.start, requestedDateUtc, "availability must use the requested date");
+        assert.equal(args.end, requestedDateUtc, "availability must use the requested date");
         assert.equal(args.pickupTime, "10:00");
         assert.equal(args.returnTime, "17:00");
         availabilityChecks.push(args.listingId);
@@ -56,7 +60,7 @@ assert.equal(requestedMicKitCount("4x mic kits for a weekend shoot"), 4);
 assert.equal(requestedMicKitCount("four DJI Mic 1 sets"), 4);
 assert.equal(requestedMicKitCount("4 mics total"), null, "microphone count must not be mistaken for a rental-kit count");
 assert.equal(requestedMicKitCount("2 x Rode Mic Pro kits plus 1 x DJI Mic 2 set"), null, "separate product quantities must not be misreported as one model's requested quantity");
-const request = "2 x Rode Mic Pro kits (4 mics total) plus 1 x DJI Mic 2 set for 20 November, pickup 10:00 and return 17:00";
+const request = `2 x Rode Mic Pro kits (4 mics total) plus 1 x DJI Mic 2 set for ${requestDateLabel}, pickup 10:00 and return 17:00`;
 async function run(availabilityById = new Map(listings.map((item) => [item._id, 1])), requestText = request, channel = "chat") {
   availability = availabilityById;
   availabilityChecks = [];
@@ -67,8 +71,8 @@ async function run(availabilityById = new Map(listings.map((item) => [item._id, 
     itemTypes: ["wireless-mic"],
     cameraModel: "",
     pricePref: "any",
-    start: "2026-11-20",
-    end: "2026-11-20",
+    start: requestedDate,
+    end: requestedDate,
     pickupTime: "10:00",
     returnTime: "17:00",
   };
@@ -94,7 +98,7 @@ async function run(availabilityById = new Map(listings.map((item) => [item._id, 
   assert(narration.includes("REQUESTED MICROPHONE MODELS NOT FREE"));
 
   const fourKitAvailability = new Map([["rode-pro", 0], ["dji-mic-2", 0], ["dji-mic-1", 2]]);
-  result = await run(fourKitAvailability, "4x mic kits for 20 November, pickup 10:00 and return 17:00", "email");
+  result = await run(fourKitAvailability, `4x mic kits for ${requestDateLabel}, pickup 10:00 and return 17:00`, "email");
   const djiOne = result.cards.find((card) => card.item.listingId === "dji-mic-1");
   assert(djiOne, "an available compatible kit must remain visible when the requested quantity exceeds one listing's stock");
   assert.equal(djiOne.item.availableUnits, 2, "the card must preserve the exact listing-unit availability count");
@@ -107,9 +111,9 @@ async function run(availabilityById = new Map(listings.map((item) => [item._id, 
   assert(narration.includes("EMAIL RESPONSE:"), "email narration must account for the deterministic inventory section");
   assert.equal(availabilityChecks.filter((id) => id === "dji-mic-1").length, 1, "rank and card rendering must reuse the same availability read");
 
-  result = await run(new Map([["rode-pro", 1], ["dji-mic-2", 1], ["dji-mic-1", 1]]), "Please quote one DJI Mic 1 set for 20 November, pickup 10:00 and return 17:00");
+  result = await run(new Map([["rode-pro", 1], ["dji-mic-2", 1], ["dji-mic-1", 1]]), `Please quote one DJI Mic 1 set for ${requestDateLabel}, pickup 10:00 and return 17:00`);
   assert(result.cards.some((card) => card.item.listingId === "dji-mic-1"), "the owner-verified first-generation offer must match an explicit DJI Mic 1 request even though its public title has no generation number");
-  assert(narration.includes(`REQUESTED MICROPHONE MODELS AVAILABLE 2026-11-20→2026-11-20: ${listings[2].title}`), "the first-generation listing must appear in the named, date-checked option set");
+  assert(narration.includes(`REQUESTED MICROPHONE MODELS AVAILABLE ${requestedDate}→${requestedDate}: ${listings[2].title}`), "the first-generation listing must appear in the named, date-checked option set");
 
   process.stdout.write("Gaffer multi-mic request, named model, and date/time availability checks passed.\n");
 })().catch((error) => {

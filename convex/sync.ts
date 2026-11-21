@@ -8,6 +8,7 @@ import { automaticMarketingFields } from "./lib/marketingInventory";
 import { inventoryCapacity } from "./lib/inventoryCapacity";
 import { CART_STOCK_SYNC_MAX_AGE_MS, isSharedStockSnapshotFresh, isSharedStockSyncFresh } from "./lib/shared_stock_sync";
 import { bumpCatalogRevision } from "./lib/catalogRevision";
+import { applyWebsitePriceFactors, websitePriceFactors } from "./lib/websitePricing";
 
 /**
  * Canonical camera-MODEL identity for inventory reconciliation against the rental
@@ -238,7 +239,7 @@ export const applyCatalog = internalMutation({
     ),
   },
   handler: async (ctx, { items, fingerprint }) => {
-    const stateKey = "catalog-payload-v5-seller-copy-identity";
+    const stateKey = "catalog-payload-v6-website-pricing";
     const state = fingerprint
       ? await ctx.db
           .query("rmv2_sync_state")
@@ -337,6 +338,12 @@ export const applyCatalog = internalMutation({
         .first();
 
       // shared fields synced from RMv2 every run
+      const priceFactors = websitePriceFactors(
+        it.pricing,
+        (existing as any)?.websitePriceFactors,
+        (existing as any)?.quietDeal,
+        (existing as any)?.pricing ?? it.pricing,
+      );
       const synced = {
         ...(it.inventoryFacts?{inventoryFacts:it.inventoryFacts}:{}),
         slug: it.slug,
@@ -350,7 +357,9 @@ export const applyCatalog = internalMutation({
         sizeScore: it.sizeScore,
         weightKg: it.weightKg,
         sourceImages: it.sourceImages,
-        pricing: it.pricing,
+        pricing: applyWebsitePriceFactors(it.pricing, priceFactors),
+        websitePriceFactors: priceFactors,
+        quietDeal: undefined,
         depositAmount: it.depositAmount,
         components,
         stockMappingStatus: it.stockMappingStatus,

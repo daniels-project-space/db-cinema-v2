@@ -118,7 +118,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   // A membership added here earns credit now; recurring perks start after this booking.
   const member = !selected && membershipActiveNow(acct) ? tierByKey(membershipTierFor(acct)) : null;
   const raw: any[] = await ctx.runQuery(internal.catalog.repriceLines, {
-    items: a.items.map(i => ({ listingId: i.listingId, start: i.start, end: i.end, pickupTime: i.pickupTime, returnTime: i.returnTime, offerType: i.offerType })), undiscounted: true,
+    items: a.items.map(i => ({ listingId: i.listingId, start: i.start, end: i.end, pickupTime: i.pickupTime, returnTime: i.returnTime, offerType: i.offerType })),
   });
   const weekendCandidate = member?.weekend ? Math.min(100,raw.reduce((n,r)=>n+(r?.weekendSaving??0),0)) : 0;
   const items: PricedItem[] = a.items.map((it,idx)=>{const r=raw[idx];if(!r)throw Error(`"${it.title}" is no longer available.`);return {...it,title:r.title,total:r.total,deposit:r.deposit,dailyRate:r.dailyRate};});
@@ -195,7 +195,6 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const pence = (n:number)=>Math.max(0,Math.round(n*100));
   const chosen = a.useAccountCredit===true && existingBefore>0 ? {kind:"earned_credit" as const,savingPence:pence(existingBefore)+immediate.appliedPence,label:"Selected account credit"} : bestBenefit([
     {kind:"promo",savingPence:pence(promoDiscount),label:promoCode?.toUpperCase()??"Promo saving"},
-    {kind:"quiet",savingPence:pence(subtotal-raw.reduce((n,r)=>n+(r.quietTotal??r.total),0)),label:"Quiet gear saving"},
     {kind:"weekend",savingPence:pence(weekendCandidate),label:"Member weekend deal · £100 cap"},
     {kind:"delivery",savingPence:pence(deliveryCandidate),label:"Member delivery saving"},
     {kind:"loyalty",savingPence:!selected&&!membershipActiveNow(acct)?pence(subtotal*(acct?.loyaltyPercent??(acct?.loyaltyEligible?loyaltyPercent(3):0))/100):0,label:`Encore · ${acct?.loyaltyPercent??10}% rental saving`},

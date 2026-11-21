@@ -25,7 +25,7 @@ const describe = (l: any) => ({ _id:l._id, listingId:l._id, slug:l.slug, title:l
   rentalContents:l.rentalContents?{...l.rentalContents}:null, verifiedComponentContents:l.verifiedComponentContents??[], pricing:l.pricing, depositAmount:l.depositAmount,
   heroImage:listingImages(l)[0]??null, image:listingImages(l)[0]??null, imageSources:listingImages(l),
   role:l.itemType==="camera-body"?"camera":l.itemType==="lens"?"lens":"other", demandScore:l.demandScore??0,
-  bookable:!rentalUnavailable(l)&&rentableCandidate(l), marketingOnly:!!l.marketingOnly, displayOnly:!!l.suppressed, quietDeal:l.quietDeal??null });
+  bookable:!rentalUnavailable(l)&&rentableCandidate(l), marketingOnly:!!l.marketingOnly, displayOnly:!!l.suppressed });
 
 /** One reactive read for the visible choices. Indexed type/physical-pool reads
  * subscribe to listings, quantities, bookings and shared stock imports. The
@@ -84,7 +84,7 @@ export const options = query({
           const other=chosen.filter(r=>(r.components??[]).some((c:any)=>units.has(String(c.inventoryUnitId)))).map(r=>({listingId:r._id,start:g.start!,end:g.end!,pickupTime:g.pickupTime,returnTime:g.returnTime,qty:1}));
           try{await assertRentalInventory(ctx,[...retained.map(line=>({...line,qty:line.qty??1})),...other,{listingId:l._id,start:g.start!,end:g.end!,pickupTime:g.pickupTime,returnTime:g.returnTime,qty:1}],undefined,cache);available=days>=(l.minimumRentalDays??1);}catch{available=false;}
         }
-        const price=quote(l.pricing,days),total=l.quietDeal?Math.round(price.total*(1-l.quietDeal/100)):price.total;
+        const price=quote(l.pricing,days),total=price.total;
         const requestCompatible=recommendationCompatible(l,context,evidence);
         options.push({...describe(publicListing),available,needsTimes:!ready,requestCompatible,automaticEligible:!rentalUnavailable(l)&&rentableCandidate(l)&&requestCompatible,
           start:g.start===undefined?null:new Date(g.start).toISOString().slice(0,10),end:g.end===undefined?null:new Date(g.end).toISOString().slice(0,10),

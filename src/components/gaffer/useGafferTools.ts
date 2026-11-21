@@ -588,11 +588,10 @@ export function useGafferTools() {
             : `${line} Nothing else in ${hit.category} is free then either — shall I try different dates?`;
         }
 
-        if (!hit.pricing || !Number.isFinite(hit.pricing.daily) || hit.pricing.daily <= 0 || hit.deal != null && (!Number.isFinite(hit.deal) || hit.deal < 0 || hit.deal > 100))
+        if (!hit.pricing || !Number.isFinite(hit.pricing.daily) || hit.pricing.daily <= 0)
           return "I couldn't confirm the current rental price for " + hit.title + ", so I haven't added it. Please try again.";
         const baseQuote = quote(hit.pricing, days);
-        const total = hit.deal ? Math.round(baseQuote.total * (1 - hit.deal / 100)) : baseQuote.total;
-        const q = { total, perDay: Math.round(total / days * 100) / 100 };
+        const q = { total: baseQuote.total, perDay: Math.round(baseQuote.total / days * 100) / 100 };
 
         // the pick lands on screen first, the basket a moment later
         focus(hit.id);

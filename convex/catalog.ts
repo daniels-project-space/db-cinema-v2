@@ -25,7 +25,6 @@ import { sanitizeCustomerCopy } from "../shared/verifiedRentalCopy";
  */
 export const repriceLines = internalQuery({
   args: {
-    undiscounted: v.optional(v.boolean()),
     items: v.array(
       v.object({
         listingId: v.id("listings"),
@@ -37,19 +36,16 @@ export const repriceLines = internalQuery({
       }),
     ),
   },
-  handler: async (ctx, { items, undiscounted }) => {
+  handler: async (ctx, { items }) => {
     const listings = await Promise.all(items.map((it) => ctx.db.get(it.listingId)));
 
-    const out: ({ title: string; total: number; deposit: number; dailyRate: number; ordinaryTotal:number; offerTotal:number;quietTotal:number; weekendSaving: number } | null)[] = [];
+    const out: ({ title: string; total: number; deposit: number; dailyRate: number; weekendSaving: number } | null)[] = [];
     items.forEach((it, idx) => {
       const l: any = listings[idx];
       if (!l || !l.active) { out.push(null); return; }
       const days = rentalPricingDays(it.start, it.end, it.pickupTime, it.returnTime);
       const q: any = quote(l.pricing, days);
-      // automatic quiet-item discount (idle gear) — applied server-side so the charged price matches the badge
-      const offerTotal=q.total,quietTotal=l.quietDeal?Math.round(q.total*(1-l.quietDeal/100)):q.total;
-      const total=quietTotal;
-      out.push({ title: l.title, total: undiscounted ? q.total : total, ordinaryTotal: total, offerTotal,quietTotal, deposit: l.depositAmount ?? 0, dailyRate: l.pricing.daily ?? 0, weekendSaving: weekendDays(it.start, it.end) ? Math.max(0, q.total - quote(l.pricing, days - 1).total) : 0 });
+      out.push({ title: l.title, total: q.total, deposit: l.depositAmount ?? 0, dailyRate: l.pricing.daily ?? 0, weekendSaving: weekendDays(it.start, it.end) ? Math.max(0, q.total - quote(l.pricing, days - 1).total) : 0 });
     });
     return out;
   },
@@ -87,7 +83,6 @@ const card = (l: any) => ({
   demandScore: l.demandScore ?? 0,
   marketingOnly: isMarketingOnly(l),
   bookable: isPubliclyBookable(l),
-  quietDeal: l.quietDeal ?? null,
   displayOnly: !!l.suppressed && !isMarketingOnly(l),
 });
 
@@ -198,7 +193,6 @@ export const listListings = query({
     rows.sort(
       (a, b) =>
         (a.suppressed ? 1 : 0) - (b.suppressed ? 1 : 0) || // display-only items sink to the bottom
-        (b.quietDeal ? 1 : 0) - (a.quietDeal ? 1 : 0) || // idle "quiet deals" surface first
         ((b as any).demandScore ?? 0) - ((a as any).demandScore ?? 0) || // then by REAL rental demand (was alphabetical, which buried popular gear)
         a.title.localeCompare(b.title),
     );
@@ -302,79 +296,19 @@ export const searchHomeGear = query({
   },
 });
 
-// ── Set-aware idle detection → light "quiet deal" discount ────────────
-// An item that's rented mostly inside SETS looks idle on its own demandScore but
-// is actually busy. So we judge by the demand of its gear ANYWHERE (its model
-// tokens appearing in any popular listing/bundle), not just its own bookings.
-// Only the genuinely-idle few (capped) get a light discount + promotion.
-// We compare items by their DISTINCTIVE gear tokens (model/focal — fx3, komodo,
-// 24-70, x-t5), dropping brands, generic and spec words. That way a brand like
-// "sony" (which appears in lots of busy listings) can't make a niche item look
-// busy — only its actual model deciding whether the gear is rented elsewhere.
-const QUIET_STOP = new Set([
-  // generic
-  "camera", "cameras", "lens", "lenses", "set", "sets", "kit", "kits", "bundle", "package", "with", "for", "the", "and", "pro", "full", "frame", "cinema", "mirrorless", "digital", "video", "professional", "new", "mark", "ii", "iii", "plus", "zoom", "prime", "wide", "mount", "rigged", "rig", "photography", "film", "content", "creator", "advanced", "basic", "portable", "powered", "capacity", "spare", "extra", "mini", "max", "ultra",
-  // item-type words
-  "monitor", "light", "lights", "tripod", "gimbal", "drone", "speaker", "speakers", "mic", "microphone", "recorder", "filter", "filters", "stand", "cage", "battery", "batteries", "charger", "card", "cards", "case", "bag", "pole",
-  // brands
-  "sony", "canon", "dji", "blackmagic", "bmpcc", "fujifilm", "fuji", "panasonic", "lumix", "nikon", "aputure", "godox", "nanlite", "amaran", "forza", "rode", "sennheiser", "deity", "atomos", "smallhd", "feelworld", "hollyland", "sigma", "tamron", "samyang", "rokinon", "zeiss", "tilta", "zhiyun", "moza", "pioneer", "jbl", "insta", "gopro", "osmo", "manfrotto", "sachtler", "dzo", "dzofilm", "blazar", "sirui", "laowa",
-  // spec noise
-  "4k", "6k", "8k", "2k", "1080p", "1080", "720", "fps", "60fps", "120fps", "2x", "3x", "4x", "5x", "6x", "8x", "gb", "tb", "ssd", "wah", "watt", "f2", "f4", "f28", "f18", "f14", "t1", "t2",
-]);
-function quietTokens(title: string): string[] {
-  return [...new Set(
-    String(title || "").toLowerCase().replace(/\bcannon\b/g, "canon").replace(/[^a-z0-9- ]/g, " ").split(/\s+/)
-      .filter((w) => w.length >= 2 && !QUIET_STOP.has(w) && !/^\d{1,4}(gb|tb)?$/.test(w)),
-  )];
-}
 export const refreshQuietDeals = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const QUIET_PCT = 10, MAX_QUIET = 10, POPULAR = 4, LOW_OWN = 1;
-    const ls = await ctx.db.query("listings").withIndex("by_active", (q) => q.eq("active", true)).collect();
-    // peak demand of each gear token across ALL listings (so set rentals count)
-    const pop = new Map<string, number>();
-    for (const l of ls) {
-      const d = (l as any).demandScore ?? 0;
-      for (const t of quietTokens(l.title)) pop.set(t, Math.max(pop.get(t) ?? 0, d));
-    }
-    // candidates: genuinely idle, not packages, not suppressed
-    const cands = ls
-      .filter((l) => !(l as any).suppressed && ((l as any).demandScore ?? 0) <= LOW_OWN && l.category !== "Packages")
-      .map((l) => ({ l, peak: quietTokens(l.title).reduce((m, t) => Math.max(m, pop.get(t) ?? 0), 0) }))
-      .filter((x) => x.peak < POPULAR); // gear not popular in ANY set → genuinely idle
-
-    // keep ONLY items we genuinely have in inventory: every component must map to an active
-    // unit the shop owns enough of — so phantom / marketing / display-only items, or kits we
-    // can't fully assemble, never get a quiet discount.
-    const ownedCands: typeof cands = [];
-    for (const x of cands) {
-      const comps = (((x.l as any).components ?? []) as Array<{ inventoryUnitId: any; qty: number }>);
-      if (comps.length === 0) continue; // no inventory mapping → not really stocked
-      let owned = true;
-      for (const c of comps) {
-        const u: any = await ctx.db.get(c.inventoryUnitId);
-        if (!u || u.active === false || (u.quantityOwned ?? 0) < (c.qty || 1)) { owned = false; break; }
-      }
-      if (owned) ownedCands.push(x);
-    }
-    const idle = ownedCands
-      .sort((a, b) => a.peak - b.peak || ((a.l as any).demandScore ?? 0) - ((b.l as any).demandScore ?? 0))
-      .slice(0, MAX_QUIET);
-    const chosen = new Set(idle.map((x) => x.l._id));
-
-    // clear stale discounts EVERYWHERE (incl. inactive / suppressed / no-longer-owned) + set on chosen
-    let set = 0, cleared = 0;
     const all = await ctx.db.query("listings").collect();
+    let cleared = 0;
     for (const l of all) {
-      const want = chosen.has(l._id) ? QUIET_PCT : undefined;
-      if (((l as any).quietDeal ?? undefined) !== want) {
-        await ctx.db.patch(l._id, { quietDeal: want } as any);
-        want ? set++ : cleared++;
+      if ((l as any).quietDeal !== undefined) {
+        await ctx.db.patch(l._id, { quietDeal: undefined } as any);
+        cleared++;
       }
     }
-    if (set || cleared) await bumpCatalogRevision(ctx);
-    return { discounted: set, cleared, scanned: ls.length, picks: idle.map((x) => x.l.title.slice(0, 50)) };
+    if (cleared) await bumpCatalogRevision(ctx);
+    return { discounted: 0, cleared, scanned: all.length, picks: [] };
   },
 });
 
@@ -594,7 +528,7 @@ export const discoveryOffers = query({
       return {
       slug: row.slug, title: row.title, category: row.category, image: images(row)[0] ?? null,
       daily: Number.isFinite(row.pricing?.daily) && row.pricing.daily > 0
-        ? Math.round(row.pricing.daily * (1 - (row.quietDeal ?? 0) / 100)) : null,
+        ? Math.round(row.pricing.daily * 100) / 100 : null,
       minimumRentalDays: row.minimumRentalDays ?? 1,
       included: included.filter((item: unknown): item is string => typeof item === "string").map(sanitizeCustomerCopy).filter((item: string) => !!item && item.length <= 180).slice(0, 4),
       needsConfirmation,

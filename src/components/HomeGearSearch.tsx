@@ -7,7 +7,7 @@ import { api } from "@cvx/_generated/api";
 import { SmartImage } from "@/components/SmartImage";
 import { IconArrowRight, IconSearch } from "@/components/icons";
 import { GearCard, type GearListing } from "@/components/GearCard";
-import { money } from "@/lib/pricing";
+import { formatRate } from "@/lib/pricing";
 
 import { gearSearchIntent, type SearchDepartment as Category } from "@/lib/gearSearchIntent";
 import { CategoryIcon } from "@/components/CategoryIcon";
@@ -103,7 +103,7 @@ export function HomeGearSearch({ categories, featured, initialRevision }: { cate
     <div className={styles.reveal} data-open={searching} id={id} aria-busy={loading} aria-hidden={!searching} inert={!searching}><div className={styles.results}>
       <div className="pt-6">{status}{browse}<div className="rail flex snap-x gap-4 overflow-x-auto pb-3" aria-label="Gear search results">{listings.map(l => <button key={l._id} type="button" onClick={() => setSelected(l)} className={styles.result} aria-label={`Choose rental times for ${l.title}`}>
         <SmartImage src={l.heroImage} fallbackSources={l.imageSources} alt={l.title} fit="contain" className="h-36 w-full" />
-        <span className="mt-4 block line-clamp-2 text-sm font-semibold text-white">{l.title}</span><span className="mt-2 block text-xs text-white/45">{l.category}</span><span className="mt-3 flex items-center justify-between text-sm text-accent-200">{money(l.pricing.daily)}/day <IconArrowRight className="h-4 w-4" /></span>
+        <span className="mt-4 block line-clamp-2 text-sm font-semibold text-white">{l.title}</span><span className="mt-2 block text-xs text-white/45">{l.category}</span><span className="mt-3 flex items-center justify-between text-sm text-accent-200">£{formatRate(l.pricing.daily)}/day <IconArrowRight className="h-4 w-4" /></span>
       </button>)}</div></div>
     </div></div>
     {selected && <QuickBook key={selected._id} listing={selected} onClose={() => setSelected(null)} />}
