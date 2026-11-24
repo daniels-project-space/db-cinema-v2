@@ -89,7 +89,6 @@ call src/app/checkout/page.tsx:settings.get
 call src/app/checkout/success/page.tsx:checkout.finalize
 call src/app/checkout/success/page.tsx:checkout.syncHold
 call src/app/checkout/success/page.tsx:rentalAdditions.sync
-call src/app/contact/page.tsx:chat.send
 call src/app/contact/page.tsx:contact.submit
 call src/app/film-fund/page.tsx:filmFund.schedule
 call src/app/film-fund/unsubscribe/page.tsx:filmFundNotifications.unsubscribe
@@ -926,6 +925,7 @@ export convex/emailInbox.ts:markSendFailed
 export convex/emailInbox.ts:prepareQuotedCart
 export convex/emailInbox.ts:recordVerificationNotice
 export convex/emailInbox.ts:replyContext
+export convex/emailInbox.ts:resolvedSummaryContext
 export convex/emailInbox.ts:reserveOwnerReply
 export convex/emailInbox.ts:resolveReplyKey
 export convex/emailInbox.ts:scheduleHumanRequestAlertRetry
@@ -1337,6 +1337,7 @@ export convex/notify.ts:changeEmail
 export convex/notify.ts:contactAlert
 export convex/notify.ts:contactAutoReply
 export convex/notify.ts:emailHumanRequestAlert
+export convex/notify.ts:emailResolvedSummary
 export convex/notify.ts:followUpEmail
 export convex/notify.ts:followUpReplyAlert
 export convex/notify.ts:ownerLead
