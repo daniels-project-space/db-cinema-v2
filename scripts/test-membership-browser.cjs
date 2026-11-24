@@ -510,7 +510,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await until(`document.querySelector('[data-testid="checkout-pay-button"]')?.disabled===true`);
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="checkout-pay-button"]').textContent.includes('temporarily paused')`),true);
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]').checked`),false,'Direct navigation must require fresh membership opt-in');
-    await nativeClick(`document.querySelector('[data-testid="membership-upsell"] h3')`);
+    await nativeClick(`document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')`);
     await until(`document.querySelector('[data-testid="membership-upsell"]')?.dataset.membershipSelected==='true'`);
   }
   await until(

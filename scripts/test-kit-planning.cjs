@@ -53,6 +53,7 @@ const start = londonDay() + 30 * DAY,
   ctx = { db, scheduler: { runAfter: async () => {} } };
 (async () => {
   const booked = put("bookings", {
+    accountId: account._id,
     guestEmail: account.email,
     status: "returned",
     lineItems: [
