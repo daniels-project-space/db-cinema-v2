@@ -15,7 +15,17 @@ ctx.runQuery=async(reference,args)=>bookings[reference.split(".").at(-1)].handle
 ctx.runMutation=async(reference,args)=>bookings[reference.split(".").at(-1)].handler(ctx,args);
 
 (async()=>{
+  process.env.INVOICE_SECRET="fixture-invoice-secret";
+  booking._creationTime=Date.UTC(2029,0,1)+0.5;
+  const firstIssue=await bookings.invoiceData.handler(ctx,{bookingId:booking._id,key:process.env.INVOICE_SECRET});
+  assert.equal(firstIssue.issuedAt,Date.UTC(2029,0,1),"Fractional Convex timestamps must produce a valid invoice timestamp");
+  const serialized={...firstIssue,lineItems:firstIssue.lineItems.map(row=>Object.fromEntries(Object.entries(row).sort(([a],[b])=>a.localeCompare(b))))};
+  await assert.rejects(bookings.saveInitialInvoiceSnapshot.handler(ctx,{bookingId:booking._id,snapshot:{...serialized,lineItems:[{...serialized.lineItems[0],lineTotal:999}]}}),/rental changed/);
+  await bookings.saveInitialInvoiceSnapshot.handler(ctx,{bookingId:booking._id,snapshot:serialized});
+  const originalFetch=global.fetch;
+  global.fetch=async()=>({ok:false});
   const prepared=await invoice.invoiceEmail.handler(ctx,{bookingId:booking._id,prepareOnly:true});
+  global.fetch=originalFetch;
   assert(prepared?.html.includes("Sony FX3"));
   assert.equal(booking.invoiceSnapshot.number,`DBC-${String(booking._id).slice(-8).toUpperCase()}`);
   assert.equal(booking.invoiceSnapshot.email,account.email);

@@ -67,7 +67,7 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
   const confirmationJobs=[];
   const retryMutationCtx={db:{get:async id=>id===retryBooking._id?retryBooking:null,patch:async(_id,patch)=>Object.assign(retryBooking,patch)},scheduler:{runAfter:async(...args)=>confirmationJobs.push(args)}};
   const diditFetch=globalThis.fetch;
-  globalThis.fetch=async()=>({ok:true,status:200,json:async()=>({session_id:'approved-session',session_kind:'user',vendor_data:`dbc-booking-${retryBooking._id}`,contact_details:{email:retryBooking.guestEmail},workflow_id:'workflow-1',status:'Approved',decision_trace:{decided_at:new Date(now*1000).toISOString()}})});
+  globalThis.fetch=async()=>({ok:true,status:200,json:async()=>({session_id:'approved-session',session_kind:'user',vendor_data:`dbc-booking-${retryBooking._id}`,contact_details:{email:retryBooking.guestEmail},workflow_id:'workflow-1',status:'Approved',id_verifications:[{status:'Approved'}],liveness_checks:[{status:'Approved'}],face_matches:[{status:'Approved'}],poa_verifications:[{status:'Approved'}],decision_trace:{decided_at:new Date(now*1000).toISOString()}})});
   try {
     const result=await refreshProgress.handler({runQuery:async()=>retryBooking,runMutation:async(ref,args)=>{
       if(ref==='adminAuth:assertAdminInternal')return true;
@@ -114,8 +114,8 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
   assert.equal(await webhook.handler(ctx, signed({...event, event_id:'event-warning', decision:flagged})), true);
   assert.equal(result.status, 'verified', 'an informational warning does not override Didit approval');
   assert.equal(await webhook.handler(ctx, signed({...event, event_id:'event-approved-feature-review', decision:{...event.decision,id_verifications:[{status:'In Review'}]}})), true);
-  assert.equal(result.status, 'verified', 'Didit’s final Approved session status wins over a stale feature-level review label');
-  assert.deepEqual(result.checks, {identity:'approved',selfie:'approved',address:'approved'}, 'the website does not invent its own review gate after Didit’s final approval');
+  assert.equal(result.status, 'manual_review', 'an unconfirmed required feature cannot be presented as fully verified');
+  assert.deepEqual(result.checks, {identity:'review',selfie:'approved',address:'approved'}, 'the stored checks reflect the provider evidence rather than invented approval');
   const providerReviewEvent = {...event, event_id:'event-provider-review', status:'In Review', decision:{
     ...event.decision,
     warnings:[{feature:'POA',risk:'ADDRESS_MISMATCH',short_description:'Proof of address requires review.',long_description:'Private extended details.',additional_data:{document_number:'must-not-persist'}}],
@@ -143,7 +143,7 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
     liveness_checks:[{status:'Approved'}],face_matches:[{status:'Declined'}],poa_verifications:[{status:'Approved'}],decision_trace:{decided_by:'automatic'},
   }}));
   assert.equal(result.status,'rejected');
-  assert.match(result.note,/could not read your photo ID/i);
+  assert.match(result.note,/could not find a photo on your ID/i);
   assert.equal(result.checks.address,'approved','a failed ID does not erase an independently approved address');
   await webhook.handler(ctx, signed({...event, event_id:'event-other-decline',status:'Declined',decision:{id_verifications:[{status:'Declined',warnings:[{risk:'UNRECOGNIZED_CODE'}]}],decision_trace:{decided_by:'automatic'}}}));
   assert.match(result.note,/contact the team/i,'unknown failure reasons do not expose provider codes or invent a cause');
@@ -163,9 +163,12 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
   const rawSignature = signed({...event, event_id: 'event-raw'});
   assert.equal(await webhook.handler(ctx, {...rawSignature, signature: '0'.repeat(64), rawSignature: createHmac('sha256', process.env.DIDIT_WEBHOOK_SECRET).update(rawSignature.body).digest('hex')}), true,
     'a valid full-body raw signature is accepted when V2 is unavailable');
+  const originalWebhookFetch=global.fetch;
+  ctx.runQuery=async()=>({diditSessionId:event.session_id,guestEmail:'test@example.invalid'});
+  const webhookReport={...event.decision,status:'Approved',session_id:event.session_id,session_kind:'user',vendor_data:event.vendor_data,workflow_id:event.workflow_id,contact_details:{email:'test@example.invalid'}};
+  global.fetch=async()=>new Response(JSON.stringify(webhookReport));
   assert.equal(await webhook.handler(ctx, signed({...event, event_id: 'event-2', decision: {...event.decision, poa_verifications: []}})), true);
-  assert.equal(result.status, 'verified', 'Didit final approval auto-approves even when feature details are omitted');
-  assert.deepEqual(result.checks, {identity:'approved',selfie:'approved',address:'approved'}, 'the final provider approval backs all verification stages');
+  assert.equal(result.status, 'verified', 'a sparse event is checked against the bound provider report');
   const bindingCalls=[];
   const staleBindingCtx={runQuery:async(ref)=>{
     assert.equal(ref,'bookings:verificationAccess');
@@ -194,6 +197,22 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
   assert.equal(await webhook.handler(outOfOrderCtx,signed({...event,event_id:'delayed-in-progress',created_at:now-1,status:'In Progress'})),true,
     'A signed but superseded status event is acknowledged so Didit does not treat normal out-of-order delivery as a rejected webhook');
   assert.equal(staleRejectionAlerted,false,'a superseded event does not create a false webhook-rejection warning');
+  webhookReport.poa_verifications=[];
+  assert.equal(await webhook.handler(ctx, signed({...event, event_id: 'event-3', decision: {...event.decision, poa_verifications: []}})), true);
+  assert.equal(result.status, 'manual_review', 'overall approval cannot substitute for missing address evidence');
+  assert.equal(result.checks.address,'waiting');
+  webhookReport.poa_verifications=event.decision.poa_verifications; webhookReport.face_matches=[];
+  assert.equal(await webhook.handler(ctx, signed({...event, event_id: 'event-4', decision: {...event.decision, face_matches: []}})), true);
+  assert.equal(result.status, 'manual_review'); assert.equal(result.checks.selfie,'waiting','liveness alone does not prove the face match passed');
+  webhookReport.status='Declined'; webhookReport.decision_trace={decided_by:'automatic'}; webhookReport.id_verifications=[{status:'Declined',warnings:[{risk:'PORTRAIT_IMAGE_NOT_DETECTED'}]}];
+  assert.equal(await webhook.handler(ctx,signed({...event,event_id:'event-failure',status:'Declined',decision:{}})),true);
+  assert.equal(result.status,'rejected'); assert.match(result.note,/could not find a photo/i,'sparse failure reads the bound provider result before notifying the renter');
+  const priorResult=result;global.fetch=async()=>{throw Error('provider unavailable')};
+  const failureRef=[];const unavailableCtx={...ctx,runMutation:async(ref,args)=>{failureRef.push(ref);return true}};
+  assert.equal(await webhook.handler(unavailableCtx,signed({...event,event_id:'event-failure-offline',status:'Declined',decision:{}})),'processing_error');
+  assert.deepEqual(failureRef,['bookings:flagDiditProcessingFailure'],'failure detail is not replaced by an irreversible generic email during provider outage');
+  assert.equal(result,priorResult);
+  global.fetch=originalWebhookFetch;
   result = null;
   assert.equal(await webhook.handler(ctx, {...signed(event), signature: '0'.repeat(64)}), false);
   assert.equal(result, null, 'forged callback must not change booking');
@@ -248,7 +267,7 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
     const mutationCtx = { db, scheduler: { runAfter: async () => {} } };
     assert.equal(await setDiditResult.handler(mutationCtx, {
       bookingId: 'booking-1', sessionId: 'session-1', eventId: 'event-1', eventAt: now * 1000,
-      status: 'verified', providerStatus: 'Approved', poaPostcodes: ['SW1A 1AA'],
+      status: 'verified', providerStatus: 'Approved', checks:{identity:'approved',selfie:'approved',address:'approved'}, poaPostcodes: ['SW1A 1AA'],
     }), true);
     assert.equal(patch.idVerifyStatus, expected, billingAddress);
   }
@@ -278,8 +297,8 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
   rentalEmailCalls.length=0;
   await setDiditResult.handler({db:approvedConfirmedDb,scheduler:{runAfter:async()=>{}}},
     {bookingId:approvedConfirmedBooking._id,sessionId:approvedConfirmedBooking.diditSessionId,eventId:'approved-confirmed-event',eventAt:now*1000,decisionAt:now*1000,
-      status:'verified',providerStatus:'Approved',personKey:'a'.repeat(64),checks:{identity:'approved',selfie:'approved',address:'waiting'},poaPostcodes:[]});
-  assert.deepEqual(approvedConfirmedBooking.verificationChecks,{identity:'approved',selfie:'approved',address:'approved'},'top-level Didit approval normalizes stale feature progress at the authoritative transition');
+      status:'verified',providerStatus:'Approved',personKey:'a'.repeat(64),checks:{identity:'approved',selfie:'approved',address:'approved'},poaPostcodes:[]});
+  assert.deepEqual(approvedConfirmedBooking.verificationChecks,{identity:'approved',selfie:'approved',address:'approved'},'complete Didit evidence is persisted at the authoritative transition');
   assert(rentalEmailCalls.some(([, bookingId, kind, detail]) => bookingId === approvedConfirmedBooking._id && kind === 'verification' && detail.verificationStatus === 'verified'),
     'an already-confirmed rental gets the canonical site approval email with its invoice and pickup details');
   const rejectionDb={get:async()=>rejectedPaidBooking,patch:async(_id,value)=>Object.assign(rejectedPaidBooking,value),insert:async()=> 'synthetic-id',query:(table)=>({withIndex:()=>({...queryChain,collect:async()=>{if(table==='reservations'){declinedReservationReads++;return [declinedHold]}return []}}),first:async()=>null})};
@@ -364,7 +383,8 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
   try {
     global.fetch=async url=>{ambiguousGets++;assert.match(String(url),/session-tie-1234\/decision/);
       return new Response(JSON.stringify({...report,session_id:tiedBooking.diditSessionId,
-        vendor_data:`dbc-booking-${tiedBooking._id}`,contact_details:{email:tiedBooking.guestEmail},status:'Approved'}),{status:200});};
+        vendor_data:`dbc-booking-${tiedBooking._id}`,contact_details:{email:tiedBooking.guestEmail},status:'Approved',
+        id_verifications:[{status:'Approved',node_id:'feature_ocr'}]}),{status:200});};
     const reconciled=await reconcileAmbiguousWebhook.handler({
       runQuery:async(ref)=>{assert.equal(ref,'bookings:verificationAccess');return tiedBooking;},
       runMutation:async(ref,args)=>{assert.equal(ref,'bookings:setDiditResult');snapshotMutation=args;return true;},
@@ -695,6 +715,7 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
     assert.equal(calls.filter(x=>x.options?.method==='POST').length,1);
     assert.equal(boundNewSession,false,'reopening an active case preserves its recorded progress');
     report.status = 'Approved';
+    report.id_verifications[0].status = 'Approved';
     report.poa_verifications[0].poa_parsed_address = {postal_code:'SW1A 1AA'};
     const recovered = [];
     const completedCtx = {
@@ -732,8 +753,8 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
     report.poa_verifications = [];
     recovered.length = 0;
     await bookingSession.handler(completedCtx,{bookingId:'booking-1',accountToken:'account-token'});
-    assert.equal(recovered[0].args.status,'verified','a final Didit approval auto-approves when feature details are omitted');
-    assert.deepEqual(recovered[0].args.checks,{identity:'approved',selfie:'approved',address:'approved'});
+    assert.equal(recovered[0].args.status,'manual_review','a final approval with missing address evidence requires review');
+    assert.deepEqual(recovered[0].args.checks,{identity:'approved',selfie:'approved',address:'waiting'});
     report.vendor_data = 'dbc-booking-another';
     recovered.length = 0;
     await assert.rejects(bookingSession.handler(completedCtx,{bookingId:'booking-1',accountToken:'account-token'}),/does not match/);

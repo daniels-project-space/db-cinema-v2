@@ -21,10 +21,12 @@ function client(url,{focused=false,navigable=true,failed=false}={}){const record
 (async()=>{
  const rental=ownerConversationUrl({bookingId:'rental-123',accountId:'account-123'});
  const general=ownerConversationUrl({accountId:'account-123'});
+ const email=ownerConversationUrl({emailThreadId:'thread-123'});assert.equal(email,'/admin?emailThread=thread-123#messages');assert.equal(parseOwnerConversationUrl(email,origin).emailThreadId,'thread-123');assert.equal(parseOwnerConversationUrl('/admin?emailThread=x&account=y#messages',origin),null);
  assert.equal(rental,'/admin?rental=rental-123#messages');
  assert.equal(general,'/admin?account=account-123#messages');
  assert.equal(parseOwnerConversationUrl(general,origin).accountId,'account-123');
  for(const url of ['https://evil.example/admin?rental=x#messages','/account?rental=x','/admin?rental=x&account=y','/admin?rental=x&rental=y','/admin?rental=','javascript:alert(1)'])assert.equal(parseOwnerConversationUrl(url,origin),null);
+ windows=[];await click(email);assert.equal(opened.at(-1),origin+email);
  windows=[];await click(rental);assert.equal(opened.at(-1),origin+rental);
  const shopper=client(origin+'/gear',{focused:true}),owner=client(origin+'/admin');windows=[shopper,owner];await click(general);
  assert.equal(shopper.navigations.length,0,'push must not replace the customer shopping tab');

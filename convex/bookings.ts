@@ -2151,7 +2151,10 @@ export const saveInitialInvoiceSnapshot=internalMutation({
     const confirmedCancelled=booking.status==="cancelled"&&!!(booking.paidConfirmedAt||booking.creditIssuedId||operatorEvidence?.bookingId===booking._id&&operatorEvidence.accountId===booking.accountId);
     if(booking.status==="pending_payment"||(!booking.stripePaymentIntentId&&!(["confirmed","active","returned"].includes(booking.status)||confirmedCancelled)))throw Error("Only a settled rental can issue an invoice snapshot.");
     const sameMoney=(value:any,expected:any)=>Number.isFinite(value)&&Number.isFinite(expected)&&Math.round(value*100)===Math.round(expected*100);
-    if(!snapshot||snapshot.number!==`DBC-${String(booking._id).slice(-8).toUpperCase()}`||!Array.isArray(snapshot.lineItems)||JSON.stringify(snapshot.lineItems)!==JSON.stringify(rentalBillingLines(booking))||!sameMoney(snapshot.subtotal,booking.subtotal)||!sameMoney(snapshot.total,booking.total)||!sameMoney(snapshot.depositAmount,booking.depositAmount)||!Number.isSafeInteger(snapshot.issuedAt))throw Error("The rental changed while its invoice was being prepared. Retry the invoice.");
+    // Convex can return object fields in a different order across calls. Keep
+    // exact line values and array order, while ignoring object key order.
+    const canonicalLines=(rows:any[])=>JSON.stringify(rows.map(row=>row && typeof row==="object" && !Array.isArray(row) ? Object.fromEntries(Object.entries(row).sort(([a],[b])=>a.localeCompare(b))) : row));
+    if(!snapshot||snapshot.number!==`DBC-${String(booking._id).slice(-8).toUpperCase()}`||!Array.isArray(snapshot.lineItems)||canonicalLines(snapshot.lineItems)!==canonicalLines(rentalBillingLines(booking))||!sameMoney(snapshot.subtotal,booking.subtotal)||!sameMoney(snapshot.total,booking.total)||!sameMoney(snapshot.depositAmount,booking.depositAmount)||!Number.isSafeInteger(snapshot.issuedAt))throw Error("The rental changed while its invoice was being prepared. Retry the invoice.");
     await ctx.db.patch(bookingId,{invoiceSnapshot:snapshot});
     return snapshot;
   },
@@ -2290,7 +2293,7 @@ export const invoiceData = query({
       number: `DBC-${String(b._id).slice(-8).toUpperCase()}`,
       agreementSnapshot: readAgreementSnapshot(b.agreementSnapshot),
       acceptedAgreementEvidence: {name:b.agreementName??null,signedAt:b.agreementSignedAt??null,documents:b.agreementDocs??[]},
-      issuedAt: b._creationTime,
+      issuedAt: Math.trunc(b._creationTime),
       supplierName: "DB Cinema Rentals",
       supplierAddress: undefined,
       pickupDetailsVisible,
@@ -2947,9 +2950,7 @@ export const setDiditResult = internalMutation({
     if (status === "verified" && providerStatus !== "Approved") return false;
     if (decisionAt !== undefined && (!Number.isSafeInteger(decisionAt) || decisionAt <= 0 || decisionAt > Date.now())) return false;
     if (requireApplied && (expectedLateBlockedEventId === undefined || expectedLateBlockedEventAt === undefined)) return false;
-    const verificationChecks = status === "verified" && providerStatus === "Approved"
-      ? { identity: "approved", selfie: "approved", address: "approved" }
-      : checks ?? (providerStatus === "Resubmitted" && resubmissionFeatures?.length
+    const verificationChecks = checks ?? (providerStatus === "Resubmitted" && resubmissionFeatures?.length
       ? {
           identity: resubmissionFeatures.includes("identity") ? "requires_input" : b.verificationChecks?.identity ?? "waiting",
           selfie: resubmissionFeatures.includes("selfie") ? "requires_input" : b.verificationChecks?.selfie ?? "waiting",
@@ -3044,9 +3045,10 @@ export const setDiditResult = internalMutation({
       // rewrite or release stock still claimed by an unacknowledged swap.
       await assertSwapStockReconciled(ctx, bookingId);
     }
-    // The admin review queue is reserved for a provider-level manual hold.
-    // Never create that state from an Approved Didit result or missing status.
-    if (status === "manual_review" && providerStatus !== "In Review" && !preservingVerifiedManualDecision) return false;
+    const incompleteApproved = providerStatus === "Approved" && !!checks &&
+      ["identity", "selfie", "address"].some(key => checks[key as "identity" | "selfie" | "address"] !== "approved");
+    if (status === "verified" && ["identity", "selfie", "address"].some(key => verificationChecks?.[key as "identity" | "selfie" | "address"] !== "approved")) return false;
+    if (status === "manual_review" && providerStatus !== "In Review" && !preservingVerifiedManualDecision && !incompleteApproved) return false;
     if (!repeatApprovedIdentityRecovery && (status!=="processing" || providerStatus==="In Progress" || Object.values(checks??{}).some(check=>check!=="waiting"))) {
       const changed=b.idVerifyStatus!==status || (["identity","selfie","address"] as const).some(key=>b.verificationChecks?.[key]!==verificationChecks?.[key]) || (b.documentExpiresAt??null)!==(documentExpiresAt??null);
       await queueVerificationArchive(ctx,b,!reconciliation || changed);

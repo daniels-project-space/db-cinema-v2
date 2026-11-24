@@ -691,7 +691,8 @@ const mocks = {
     assert.equal(await client.evaluate(`!!document.querySelector('[aria-label="Rental verification progress"]')`),false,'Verification controls live in the dedicated profile tab, not duplicated in the collapsed chat controls');
     assert.equal(await client.evaluate(`document.querySelector('[data-testid="admin-account-summary"]')?.textContent.includes('Available credit')`), false, 'The credit balance is not repeated in the summary');
     assert.doesNotMatch(await client.evaluate(`document.querySelector('[data-testid="admin-account-action-rail"]')?.querySelector('[data-testid="admin-account-section-billing"]')?.textContent ?? ''`), /£12\.00/, 'The balance is not repeated beside Billing; it appears in the Credits view only');
-    await client.evaluate(`document.querySelector('[data-testid="admin-verification-review-action"]').click()`); await wait(100);
+    await client.evaluate(`(()=>{window.__mutationCalls=[];document.querySelector('[data-testid="admin-verification-review-action"]').click()})()`); await wait(100);
+    assert.equal(await client.evaluate(`window.__mutationCalls.some(call=>call.ref==='didit.refreshProgress'&&call.args.bookingId==='booking-review'&&call.args.admin===true&&call.args.accountToken==='synthetic-admin')`),true,'Opening a visible verification case starts the authenticated provider refresh');
     assert.equal(await client.evaluate(`document.querySelector('[aria-label="Rental verification progress"]')?.textContent.includes('synthetic-session')`), true, 'The paid pending-verification case shows its Didit session');
     assert.equal(await client.evaluate(`document.querySelectorAll('[aria-label="Rental verification progress"]').length`),1,'The selected Didit case appears once in the dedicated review panel');
     assert.equal(await client.evaluate(`document.querySelector('[aria-label="Rental verification progress"]')?.textContent.includes('A required check did not pass.')`), true, 'The review panel shows the recorded verification reason');
@@ -702,6 +703,9 @@ const mocks = {
     await client.evaluate(`window.__rejectDiditRefresh=true;document.querySelector('[aria-label="Check Didit status"]').click()`);await wait(100);
     assert.equal(await client.evaluate(`document.querySelector('[aria-label="Rental verification progress"]')?.textContent.includes('Simulated uncertain response')`),true,'An uncertain provider response is surfaced without claiming the decision was unchanged');
     await client.evaluate(`window.__rejectDiditRefresh=false`);
+    await client.evaluate(`(()=>{window.__details['account-jordan'].rentals.find(r=>r.id==='booking-review').idVerifyStatus='processing';document.querySelector('[data-testid="admin-verification-review-action"]').click()})()`);await wait(100);
+    assert.equal(await client.evaluate(`!!document.querySelector('[data-testid="admin-verification-review-action"]')`),false,'A processing case without manual review does not show the manual-review-only control');
+    await client.evaluate(`window.__details['account-jordan'].rentals.find(r=>r.id==='booking-review').idVerifyStatus='manual_review'`);
     await client.evaluate(`[...document.querySelectorAll('[aria-label="Customer conversations"] button')].find(button=>button.textContent.includes('Sony FX3 camera')).click()`); await wait(200);
     assert.equal(await client.evaluate(`!!document.querySelector('[data-testid="admin-verification-review-action"]')`), true, 'A review remains visible when a different rental is selected');
     assert.equal(await client.evaluate('document.querySelector("[data-conversation-scope]")?.getAttribute("data-conversation-scope")'), "rental:booking-camera", "Selecting a rental thread keeps its own booking conversation");

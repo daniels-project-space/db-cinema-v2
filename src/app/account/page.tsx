@@ -1,6 +1,7 @@
 "use client";
 import {AccountCreditReceipts} from "@/components/account/AccountCreditReceipts";
 import { REVIEW_PRIZE_GBP } from "../../../shared/reviewPrize";
+import { accountAccessDestination } from "../../../shared/accountAccess";
 import { ReferralPanel } from "@/components/account/ReferralPanel";
 import { EncoreCrest } from "@/components/account/LoyaltyCelebration";
 
@@ -71,6 +72,13 @@ function AuthForm() {
   const [termsNeedReacknowledgement, setTermsNeedReacknowledgement] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [resetHref, setResetHref] = useState("/account/setup?purpose=reset");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const rental = params.get("rental");
+    if (params.get("next") === "verification" && rental)
+      setResetHref(`/account/setup?purpose=reset&next=verification&rental=${encodeURIComponent(rental)}`);
+  }, []);
   const termsConsentCurrent = mode !== "signup" || (!!termsVersion && termsAndPrivacyAcknowledged && acceptedTermsVersion === termsVersion);
 
   function requireCurrentTermsAcknowledgement() {
@@ -93,6 +101,7 @@ function AuthForm() {
     const params = new URLSearchParams(window.location.search);
     const bookingId = params.get("rental");
     if (params.get("review") === "1" && bookingId) return { next: "review" as const, bookingId: bookingId as Id<"bookings"> };
+    if (params.get("next") === "verification" && bookingId) return { next: "verification" as const, bookingId: bookingId as Id<"bookings"> };
     if (window.location.hash.toLowerCase() === "#chat") return bookingId ? {next:"chat" as const,bookingId:bookingId as Id<"bookings">} : {next:"chat" as const};
     return {};
   }
@@ -218,7 +227,7 @@ function AuthForm() {
         {mode === "signup" && linkSent && <p role="status" className="text-xs text-accent-300">Check your email to confirm account creation and activate your password. Private rentals stay locked until then.</p>}
         <GoogleSignIn onError={handleGoogleError} requireTermsAcceptance={mode === "signup"} termsAcceptance={mode === "signup" && termsConsentCurrent ? { termsVersion: termsVersion!, privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION } : null} />
         {mode === "signin" && <>
-          <Link href="/account/setup?purpose=reset" className="text-sm text-accent-300 hover:underline">Forgot password?</Link>
+          <Link href={resetHref} className="text-sm text-accent-300 hover:underline">Forgot password?</Link>
           <div className="mt-2 border-t border-white/10 pt-4 text-xs text-white/50">Booked without a password? Sign in with your rental email.</div>
           <button type="button" className="btn-secondary py-3" disabled={busy || !email.trim()} onClick={async()=>{setBusy(true);setErr(null);setLinkSent(false);try{await requestSignIn({email,...authReturn()});setLinkSent(true);}catch{setErr("Could not request a link. Please try again.");}finally{setBusy(false);}}}>Email me a sign-in link</button>
           {linkSent && <p role="status" className="text-xs text-accent-300">If an account uses this email, a private sign-in link is on its way. It expires in 15 minutes.</p>}
@@ -231,6 +240,12 @@ function AuthForm() {
 function Dashboard() {
   const account = useAccount();
   const me = account.me!;
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const bookingId = params.get("rental");
+    if (params.get("next") === "verification" && bookingId)
+      window.location.replace(accountAccessDestination(bookingId, "verification"));
+  }, []);
   const creditBalance = useCreditBalance(account.token ?? null);
   const [tab, setTab] = useState<"rentals" | "calendar" | "invoices" | "chat" | "profile">("rentals");
   function navigateToTab(nextTab: typeof tab) {

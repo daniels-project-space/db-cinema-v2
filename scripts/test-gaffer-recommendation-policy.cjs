@@ -65,8 +65,10 @@ async function chat(next,message,cart,channel){
  assert(checks.length>0);
  assert.equal(result.cards[0].item.pickupTime,'10:00');assert.equal(result.cards[0].item.returnTime,'17:00');
  assert.equal(result.cards[0].item.available,true);assert.equal(result.cards[0].item.needsTimes,false);
- result=await chat({intent:'availability',subject:'Sony FX3',itemTypes:['camera'],start:'2035-11-20T00:00:00Z',end:'2035-11-21T00:00:00.000Z',pickupTime:'10:00',returnTime:'17:00'},'Is the Sony FX3 free?');
- assert.equal(result.cards[0].item.start,'2035-11-20');assert.equal(result.cards[0].item.end,'2035-11-21');assert.equal(result.cards[0].item.available,true,'timestamp serialization must preserve a complete availability window');
+ const timestampPickup=new Date(Date.now()+30*24*60*60*1000).toISOString().slice(0,10);
+ const timestampReturn=new Date(Date.parse(timestampPickup+'T00:00:00.000Z')+24*60*60*1000).toISOString().slice(0,10);
+ result=await chat({intent:'availability',subject:'Sony FX3',itemTypes:['camera'],start:timestampPickup+'T00:00:00Z',end:timestampReturn+'T00:00:00.000Z',pickupTime:'10:00',returnTime:'17:00'},'Is the Sony FX3 free?');
+ assert.equal(result.cards[0].item.start,timestampPickup);assert.equal(result.cards[0].item.end,timestampReturn);assert.equal(result.cards[0].item.available,true,'timestamp serialization must preserve a complete availability window');
  availability=0;availabilityWithBasket=0;
  result=await chat({intent:'build_kit',itemTypes:['camera','lens'],...window,pickupTime:'10:00',returnTime:'17:00'},'Build a kit for 20–21 November 10am to5pm');
  assert.equal(result.cards.length,0,'do not fall back to unavailable stock while calling it an in-stock kit');

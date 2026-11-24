@@ -258,6 +258,7 @@ export function AccountAdmin({
   // renter's rentals into payment controls under the newly selected profile.
   const paymentRentals = selected && detail?.id === selected.id ? detail.rentals as AccountRentalOption[] : [];
   const reviewQueue = useQuery(api.accountAdmin.verificationReviews, selected && !panelClosed ? {token,accountId:selected.id as any} : "skip");
+  const [verificationSelection, setVerificationSelection] = useState<{accountId:string;bookingId:string} | null>(null);
   const history = useQuery(
     api.accountAdmin.history,
     selected ? { token, accountId: selected.id } : "skip",
@@ -555,7 +556,7 @@ export function AccountAdmin({
     ? `Verification progress · ${reviewRentals.length} manual review${reviewRentals.length === 1 ? "" : "s"} needed`
     : "Verification progress";
   const verificationRentals = reviewRentals;
-  const verificationRental = verificationRentals.find(rental => rental.id === managedRentalSelection?.bookingId && managedRentalSelection?.accountId === selected?.id) ?? verificationRentals[0] ?? null;
+  const verificationRental = verificationRentals.find(rental => rental.id === verificationSelection?.bookingId && verificationSelection?.accountId === selected?.id) ?? verificationRentals[0] ?? null;
   useEffect(() => {
     if (section === "verification" && reviewRentals.length === 0) setSection("closed");
   }, [section, reviewRentals.length]);
@@ -931,7 +932,7 @@ export function AccountAdmin({
                   {billingView === "credits" && <AccountCreditPanel token={token} accountId={selected.id}/>}
                 </>}
                 {section === "verification" && verificationRental && <section className={styles.card}>
-                  {verificationRentals.length > 1 && <label className={styles.paymentRentalSelect}>Rental to check<select aria-label="Rental verification to check" value={verificationRental.id} onChange={event => { if (selected) setManagedRentalSelection({accountId:selected.id,bookingId:event.target.value}); }}>
+                  {verificationRentals.length > 1 && <label className={styles.paymentRentalSelect}>Rental to check<select aria-label="Rental verification to check" value={verificationRental.id} onChange={event => { if (selected) setVerificationSelection({accountId:selected.id,bookingId:event.target.value}); }}>
                     {verificationRentals.map(rental => <option key={rental.id} value={rental.id}>{rental.title} · {date(rental.start)}</option>)}
                   </select></label>}
                   <h3>{verificationRental.title}</h3><p>{date(verificationRental.start)}</p><RentalVerificationSummary key={verificationRental.id} token={token} bookingId={verificationRental.id} admin />

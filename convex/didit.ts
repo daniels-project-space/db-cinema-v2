@@ -1045,18 +1045,18 @@ function mapDecision(rawStatus: unknown, decision: any, eventResubmitInfo?: any)
   // value before enabling it so current person keys continue to match.
   const secret = process.env.RESTRICTED_IDENTITY_HMAC_SECRET || process.env.INVOICE_SECRET;
   const personKey = secret && keys.length && new Set(keys).size === 1 ? createHmac("sha256", secret).update(`dbc-person-v1:${keys[0]}`).digest("hex") : undefined;
-  const checks = rawStatus === "Approved"
-    ? { identity: "approved", selfie: "approved", address: "approved" } as const
-    : rawStatus === "Resubmitted" ? undefined : verificationChecks(decision);
+  const checks = rawStatus === "Resubmitted" ? undefined : verificationChecks(decision);
+  if (rawStatus === "Approved" && (!checks || !["identity", "selfie", "address"].every(key => checks[key as keyof typeof checks] === "approved"))) {
+    status = "manual_review";
+    note = "Your verification needs a team review because one or more required checks could not be confirmed.";
+  }
   const decisionAt = typeof decision?.decision_trace?.decided_at === "string"
     ? Date.parse(decision.decision_trace.decided_at)
     : NaN;
   return { status, note, poaPostcodes, checks, ...(resubmission?.features.length ? { resubmissionFeatures: resubmission.features } : {}), ...(Number.isSafeInteger(decisionAt) && decisionAt > 0 ? { decisionAt } : {}), ...(personKey ? { personKey } : {}), ...(documentExpiresAt ? { documentExpiresAt } : {}) };
 }
 
-/** Didit v3 webhooks sign the complete canonical JSON with X-Signature-V2.
- * Didit's final Approved session status is authoritative even when feature
- * details are absent; In Review is the provider's explicit manual-review state. */
+/** Didit v3 webhooks sign the complete canonical JSON with X-Signature-V2. */
 export const webhook = internalAction({
   args: {
     body: v.string(),
@@ -1105,7 +1105,16 @@ export const webhook = internalAction({
         !Number.isSafeInteger(event.created_at)) return reject("payload",true);
     const bookingId = event.vendor_data.slice("dbc-booking-".length);
     try {
-      const mapped = mapDecision(event.status, event.decision, event.resubmit_info);
+      let decision = event.decision;
+      if (event.status === "Declined" && (!decision?.decision_trace || !["id_verifications", "liveness_checks", "face_matches", "poa_verifications"].some(field => Array.isArray(decision?.[field]) && decision[field].length)) || event.status === "Approved" && !["id_verifications", "liveness_checks", "face_matches", "poa_verifications"].every(field => Array.isArray(decision?.[field]) && decision[field].length)) {
+        const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, {bookingId: bookingId as any});
+        if (!booking || booking.diditSessionId !== event.session_id || !booking.guestEmail) throw Error("Verification case does not match this rental.");
+        const report = await retrieveSession(cfg.apiKey, event.session_id, bookingId, booking.guestEmail);
+        if (report.workflow_id !== cfg.workflowId) throw Error("Verification workflow does not match this rental.");
+        if (report.status !== event.status) return true;
+        decision = report;
+      }
+      const mapped = mapDecision(event.status, decision, event.resubmit_info);
       if (!mapped) throw Error("Unsupported verification status");
       const applied = await ctx.runMutation(internal.bookings.setDiditResult, {
         bookingId: bookingId as any,

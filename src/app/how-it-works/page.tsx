@@ -206,7 +206,7 @@ export default async function HowItWorksPage() {
                   <p className="mt-0.5 text-[10px] text-white/45">Exact meeting details follow confirmation</p>
                 </div>
               </div>
-              <p className="mt-3 text-xs leading-5 text-white/55">Choose courier delivery + collection, or one-way delivery and return the kit to Trafalgar Square. Checkout quotes delivery by postcode and kit size within the available area; timings are estimates.</p>
+              <p className="mt-3 text-xs leading-5 text-white/55">Choose courier delivery + collection, or one-way delivery and return the kit to Trafalgar Square. Checkout quotes delivery by postcode and kit size within the available area. A third-party courier handles delivery; timings are estimates and may be affected by traffic.</p>
             </article>
           </Reveal>
         </section>

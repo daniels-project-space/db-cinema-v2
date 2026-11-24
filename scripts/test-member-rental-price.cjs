@@ -31,6 +31,7 @@ const {londonMonth}=load('convex/lib/memberDelivery.ts');
  assert.equal(price.items[0].total,baseRentalPrice.items[0].total,'legacy Quiet Deal fields cannot reduce the checkout line price');
  assert.equal(price.subtotal,baseRentalPrice.subtotal,'legacy Quiet Deal fields cannot change the rental subtotal');
  assert.equal(price.totalReduction,baseRentalPrice.totalReduction,'retired automatic discounts cannot replace an eligible membership benefit');
+ assert.equal(price.weekendSaving,100,'a legacy Quiet Deal cannot suppress a valid membership weekend benefit');
  camera.quietDeal=5;
  acct.membershipTier='plus';price=await calculateRentalPrice(ctx,input);
  assert.equal(price.subtotal,540,'the ordinary duration quote is used without automatic listing discounts');

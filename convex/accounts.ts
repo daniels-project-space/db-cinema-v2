@@ -248,7 +248,7 @@ export const purgeExpiredRentalVerification = internalMutation({
 
 // ── public actions ───────────────────────────────────────────────
 export const signUp = action({
-  args: { email: v.string(), password: v.string(), name: v.optional(v.string()), next: v.optional(v.union(v.literal("chat"),v.literal("review"))), bookingId: v.optional(v.id("bookings")), termsAndPrivacyAcknowledged: v.boolean(), termsVersion: v.string(), privacyNoticeVersion: v.string() },
+  args: { email: v.string(), password: v.string(), name: v.optional(v.string()), next: v.optional(v.union(v.literal("chat"),v.literal("review"),v.literal("verification"))), bookingId: v.optional(v.id("bookings")), termsAndPrivacyAcknowledged: v.boolean(), termsVersion: v.string(), privacyNoticeVersion: v.string() },
   handler: async (ctx, { email, password, name, next, bookingId, termsAndPrivacyAcknowledged, termsVersion, privacyNoticeVersion }): Promise<{ token: string }> => {
     const e = email.trim().toLowerCase();
     if (!validAccountEmail(e) || password.length < 8 || password.length > 256)

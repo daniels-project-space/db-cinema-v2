@@ -12,6 +12,11 @@ on:
         required: true
         type: boolean
         default: false
+      sync_rmv2_catalog:
+        description: Refresh the Rental Manager catalog immediately after the production deploy
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   actions: read
@@ -159,6 +164,12 @@ jobs:
           CONVEX_DEPLOY_KEY: ${{ secrets.DBCINEMA_CONVEX_DEPLOY_KEY }}
           DEPLOYED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: npx convex deploy --typecheck enable --message "GitHub main ${DEPLOYED_SHA}"
+
+      - name: Refresh the Rental Manager catalog now
+        if: steps.changes.outputs.deploy == 'true' && github.event_name == 'workflow_dispatch' && inputs.sync_rmv2_catalog
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.DBCINEMA_CONVEX_DEPLOY_KEY }}
+        run: npx convex run sync:syncFromRmv2 --prod
 
       - name: Record the successfully deployed source commit
         if: steps.changes.outputs.deploy == 'true'

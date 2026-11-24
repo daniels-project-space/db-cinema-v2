@@ -12,7 +12,7 @@ const confirmationOrder = [];
 const ctx = { db: harness.db, scheduler: { runAfter: async (...args) => { scheduled.push(args); if (String(args[1]).includes('confirmAfterVerification')) confirmationOrder.push({ bookingId: String(args[2]?.bookingId), identityChecked: identityChecks.has(String(args[2]?.bookingId)) }); } } };
 const booking = harness.put('bookings', { status: 'confirmed', checkoutPaidAt: Date.now(), verificationProvider: 'didit', diditSessionId: 'fixture-session', idVerifyStatus: 'processing', guestEmail: 'fixture@example.invalid', lineItems: [] });
 const notices = () => (harness.tables.get('admin_notifications') ?? []).filter(row => row.bookingId === booking._id);
-const update = (eventId, eventAt, status, extra = {}) => bookings.setDiditResult.handler(ctx, { bookingId: booking._id, sessionId: 'fixture-session', eventId, eventAt, status, poaPostcodes: [], ...extra });
+const update = (eventId, eventAt, status, extra = {}) => bookings.setDiditResult.handler(ctx, { bookingId: booking._id, sessionId: 'fixture-session', eventId, eventAt, status, poaPostcodes: [], ...(status==='verified'?{checks:{identity:'approved',selfie:'approved',address:'approved'}}:{}), ...extra });
 
 (async () => {
   await update('approved-1', 100, 'verified', { providerStatus: 'Approved', personKey: 'fixture-person' });
@@ -55,16 +55,17 @@ const update = (eventId, eventAt, status, extra = {}) => bookings.setDiditResult
   const missing = harness.put('bookings', { status:'confirmed',verificationProvider:'didit',diditSessionId:'missing-session',idVerifyStatus:'processing',guestEmail:'missing@example.invalid',lineItems:[] });
   const mismatchedApproval = await bookings.setDiditResult.handler(ctx, { bookingId:missing._id,sessionId:'missing-session',eventId:'missing-address',eventAt:106,status:'manual_review',providerStatus:'Approved',checks:{identity:'approved',selfie:'approved',address:'waiting'},poaPostcodes:[] });
   const missingAlerts = (harness.tables.get('admin_notifications') ?? []).filter(row => row.bookingId === missing._id);
-  assert.equal(mismatchedApproval,false,'a website-side manual hold cannot contradict Didit Approved');
-  assert.equal(missing.idVerifyStatus,'processing','an inconsistent result cannot put the booking in manual review');
-  assert.equal(missingAlerts.length,0,'an inconsistent result cannot create a manual-review alert');
+  assert.equal(mismatchedApproval,true,'an overall approval with a missing required check is recorded for review');
+  assert.equal(missing.idVerifyStatus,'manual_review','missing address evidence cannot be presented as approved');
+  assert.equal(missing.status,'pending_verification','incomplete verification cannot leave the rental confirmed');
+  assert(missingAlerts.some(row=>row.kind==='verification_failure'),'the owner is alerted to the incomplete checks');
   const untrustedApproval = await bookings.setDiditResult.handler(ctx, { bookingId:missing._id,sessionId:'missing-session',eventId:'untrusted-approval',eventAt:107,status:'verified',providerStatus:'In Review',checks:{identity:'approved',selfie:'approved',address:'approved'},poaPostcodes:[] });
   assert.equal(untrustedApproval,false,'the shared booking transition rejects a verified label unless Didit itself reports Approved');
-  assert.equal(missing.idVerifyStatus,'processing','a forged verified label cannot change rental state');
-  assert.equal(missing.diditEventId,undefined,'a rejected transition does not advance the provider replay fence');
+  assert.equal(missing.idVerifyStatus,'manual_review','a forged verified label cannot change rental state');
+  assert.equal(missing.diditEventId,'missing-address','a rejected transition does not advance the provider replay fence');
   const normalizedApproval = await bookings.setDiditResult.handler(ctx, { bookingId:missing._id,sessionId:'missing-session',eventId:'provider-approved',eventAt:108,status:'verified',providerStatus:'Approved',checks:{identity:'approved',selfie:'processing',address:'waiting'},poaPostcodes:[] });
-  assert.equal(normalizedApproval,true,'the provider-level final approval remains authoritative over stale feature progress');
-  assert.deepEqual(missing.verificationChecks,{identity:'approved',selfie:'approved',address:'approved'},'the authoritative mutation stores the complete Didit approval, not partial stale feature labels');
+  assert.equal(normalizedApproval,false,'incomplete provider evidence cannot be normalized to a complete verification');
+  assert.deepEqual(missing.verificationChecks,{identity:'approved',selfie:'approved',address:'waiting'});
   await bookings.flagDiditWebhookRejection.handler(ctx,{reason:'booking_binding',bookingId:booking._id,sessionRef:'0123456789ab',eventRef:'abcdef012345',providerStatus:'Approved'});
   const bindingAlerts=(harness.tables.get('admin_notifications')??[]).filter(row=>row.title==='Didit webhook rejected');
   assert.equal(bindingAlerts.length,1,'A signed callback rejected by the booking/session guard raises an admin alert');
@@ -83,7 +84,7 @@ const update = (eventId, eventAt, status, extra = {}) => bookings.setDiditResult
   await bookings.setDiditResult.handler(ctx, { bookingId:review._id,sessionId:'review-session',eventId:'manual-review-note-refresh',eventAt:108,status:'manual_review',providerStatus:'In Review',note:'Updated provider guidance',poaPostcodes:[] });
   const reviewAlerts = (harness.tables.get('admin_notifications') ?? []).filter(row => row.bookingId === review._id && row.kind === 'verification_failure');
   assert.equal(reviewAlerts.length,1,'A changed Didit note within the same open review does not create another admin alert');
-  assert.equal(scheduled.filter(([, reference]) => String(reference).includes('verificationReviewAlert')).length,1,'The same unresolved Didit review does not queue a duplicate owner email');
+  assert.equal(scheduled.filter(([, reference,args]) => String(reference).includes('verificationReviewAlert')&&args?.bookingId===review._id).length,1,'The same unresolved Didit review does not queue a duplicate owner email');
   assert.equal(review.verificationNote,'Updated provider guidance','The latest Didit note remains available in the booking details');
   assert.equal(presentation.adminPushPresentation(reviewAlert).notice,'verification_action');assert.match(reviewAlert.body,/Didit paused verification/);assert(!reviewAlert.body.includes('Didit requested a manual review'));
   const unrelatedReviewFailure=harness.put('admin_notifications',{eventKey:`didit-declined:${review._id}`,kind:'verification_failure',accountId:reviewAccount._id,bookingId:review._id,title:'Didit verification not approved',body:'Separate final decision',createdAt:109,read:false});
@@ -153,11 +154,11 @@ const update = (eventId, eventAt, status, extra = {}) => bookings.setDiditResult
   assert.equal(replayRisk.read,true);assert.equal(replayFailure.read,true);
   assert.equal(replayJob.state,'pending');assert.equal(replayJob.generation,5);assert.equal(replayJob.attempts,0);
   const firstApproval=harness.put('bookings',{status:'confirmed',verificationProvider:'didit',diditSessionId:'first-approval-session',idVerifyStatus:'processing',guestEmail:'first@example.invalid',lineItems:[]});
-  await bookings.setDiditResult.handler(ctx,{bookingId:firstApproval._id,sessionId:'first-approval-session',eventId:'first-approval-no-id-fields',eventAt:110,status:'verified',providerStatus:'Approved',poaPostcodes:[]});
+  await bookings.setDiditResult.handler(ctx,{bookingId:firstApproval._id,sessionId:'first-approval-session',eventId:'first-approval-no-id-fields',eventAt:110,status:'verified',providerStatus:'Approved',checks:{identity:'approved',selfie:'approved',address:'approved'},poaPostcodes:[]});
   assert.match(firstApproval.identityRiskNotice,/cross-account identity matching is unavailable/,'A first approval without an identity key remains visible for review');
   const existingVerifiedAccount=harness.put('accounts',{email:'repeat@example.invalid',name:'Existing verified renter',renterPersonKey:'b'.repeat(64)});
   const repeatRental=harness.put('bookings',{accountId:existingVerifiedAccount._id,status:'confirmed',verificationProvider:'didit',diditSessionId:'repeat-rental-session',idVerifyStatus:'processing',guestEmail:'repeat@example.invalid',lineItems:[]});
-  await bookings.setDiditResult.handler(ctx,{bookingId:repeatRental._id,sessionId:'repeat-rental-session',eventId:'repeat-approved-without-id-fields',eventAt:111,status:'verified',providerStatus:'Approved',poaPostcodes:[]});
+  await bookings.setDiditResult.handler(ctx,{bookingId:repeatRental._id,sessionId:'repeat-rental-session',eventId:'repeat-approved-without-id-fields',eventAt:111,status:'verified',providerStatus:'Approved',checks:{identity:'approved',selfie:'approved',address:'approved'},poaPostcodes:[]});
   assert.equal(repeatRental.identityRiskNotice,undefined,'A verified account key prevents a false cross-account warning when Didit omits identity fields on a later rental');
   assert.equal((harness.tables.get('admin_notifications')??[]).filter(row=>row.bookingId===repeatRental._id&&row.title==='Booking identity or allocation notice').length,0,'A trusted existing account key avoids a false allocation-review push while keeping the normal Didit approval alert');
   const renterAccount=harness.put('accounts',{email:'pending-renter@example.invalid',name:'Pending renter',emailVerifiedAt:Date.now()});

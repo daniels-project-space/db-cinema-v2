@@ -1,12 +1,13 @@
 const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
 let now=Date.UTC(2030,0,1);Date.now=()=>now;
-const sent=[],scheduled=[];
-h.setMock('./lib/mailer',{sendMail:async m=>(sent.push(m),true),sendBusinessMailTracked:async m=>(sent.push(m),{sent:true,ambiguous:false,resendEmailId:`test-resend-${sent.length}`}),OWNER_EMAIL:()=> 'owner@example.invalid'});
+const sent=[],scheduled=[];let acceptMail=true;
+h.setMock('./lib/mailer',{sendMail:async m=>(sent.push(m),acceptMail),sendBusinessMailTracked:async m=>(sent.push(m),{sent:acceptMail,ambiguous:false,...(acceptMail?{resendEmailId:`test-resend-${sent.length}`}:{})}),OWNER_EMAIL:()=> 'owner@example.invalid'});
 process.env.INBOUND_REPLY_ADDRESS='support@reply.example.invalid';
-const queue=h.load('convex/lib/rentalEmailQueue.ts'),delivery=h.load('convex/rentalEmailDelivery.ts'),worker=h.load('convex/rentalEmailMail.ts'),notify=h.load('convex/notify.ts'),bookings=h.load('convex/bookings.ts'),emailInbox=h.load('convex/emailInbox.ts');
+const queue=h.load('convex/lib/rentalEmailQueue.ts'),delivery=h.load('convex/rentalEmailDelivery.ts'),worker=h.load('convex/rentalEmailMail.ts'),notify=h.load('convex/notify.ts'),bookings=h.load('convex/bookings.ts'),emailInbox=h.load('convex/emailInbox.ts'),claims=h.load('convex/accountClaims.ts');
 const blobs=new Map();let serial=0;
-const ctx={db:h.db,scheduler:{runAfter:async(ms,ref,args)=>scheduled.push({ms,ref,args})},storage:{store:async blob=>{const id=`blob-${++serial}`;blobs.set(id,blob);return id},get:async id=>blobs.get(id),delete:async id=>blobs.delete(id)},runQuery:async(ref,a)=>{if(ref==='rentalEmailDelivery.ready')return delivery.ready.handler(ctx,a);if(ref==='bookings.get')return bookings.get.handler(ctx,a);throw Error(ref)},runMutation:async(ref,a)=>{if(ref==='rentalEmailDelivery.prepare')return delivery.prepare.handler(ctx,a);if(ref==='rentalEmailDelivery.deferReviewIfNotDueForDelivery')return delivery.deferReviewIfNotDueForDelivery.handler(ctx,a);if(ref==='rentalEmailDelivery.finish')return delivery.finish.handler(ctx,a);if(ref==='emailInbox.prepareRentalEmailThread')return emailInbox.prepareRentalEmailThread.handler(ctx,a);if(ref==='emailInbox.finishRentalEmailThread')return emailInbox.finishRentalEmailThread.handler(ctx,a);throw Error(ref)},runAction:async(ref,a)=>{assert.equal(ref,'notify.paidVerificationEmail');return notify.paidVerificationEmail.handler(ctx,a)}};
-const booking=h.put('bookings',{status:'pending_verification',checkoutPaidAt:now,idVerifyStatus:'required',verificationProvider:'didit',guestEmail:'renter@example.invalid',total:65,lineItems:[{title:'Camera',lineTotal:65,start:now+2*86400000,end:now+3*86400000}]});
+const ctx={db:h.db,scheduler:{runAfter:async(ms,ref,args)=>scheduled.push({ms,ref,args})},storage:{store:async blob=>{const id=`blob-${++serial}`;blobs.set(id,blob);return id},get:async id=>blobs.get(id),delete:async id=>blobs.delete(id)},runQuery:async(ref,a)=>{if(ref==='rentalEmailDelivery.ready')return delivery.ready.handler(ctx,a);if(ref==='bookings.get')return bookings.get.handler(ctx,a);throw Error(ref)},runMutation:async(ref,a)=>{if(ref==='rentalEmailDelivery.prepare')return delivery.prepare.handler(ctx,a);if(ref==='rentalEmailDelivery.deferReviewIfNotDueForDelivery')return delivery.deferReviewIfNotDueForDelivery.handler(ctx,a);if(ref==='rentalEmailDelivery.finish')return delivery.finish.handler(ctx,a);if(ref==='emailInbox.prepareRentalEmailThread')return emailInbox.prepareRentalEmailThread.handler(ctx,a);if(ref==='emailInbox.finishRentalEmailThread')return emailInbox.finishRentalEmailThread.handler(ctx,a);if(ref==='accountClaims.preparePendingVerification')return claims.preparePendingVerification.handler(ctx,a);throw Error(ref)},runAction:async(ref,a)=>{assert.equal(ref,'notify.paidVerificationEmail');return notify.paidVerificationEmail.handler(ctx,a)}};
+const seededAccount=h.put('accounts',{email:'renter@example.invalid'});
+const booking=h.put('bookings',{accountId:seededAccount._id,status:'pending_verification',checkoutPaidAt:now,idVerifyStatus:'required',verificationProvider:'didit',guestEmail:'renter@example.invalid',pickupTime:'10:00',total:65,lineItems:[{title:'Camera',lineTotal:65,start:now+2*86400000,end:now+3*86400000}]});
 const get=id=>h.docs.get(id);
 async function run(id){await delivery.dispatchOne.handler(ctx,{deliveryId:id});await worker.deliver.handler(ctx,scheduled.at(-1).args)}
 (async()=>{
@@ -14,8 +15,14 @@ async function run(id){await delivery.dispatchOne.handler(ctx,{deliveryId:id});a
  const reminder=await queue.queueRentalEmail(ctx,booking._id,'verification_reminder',{dueAt:now+12*3600000});
  assert.equal(await queue.queueRentalEmail(ctx,booking._id,'paid_verification'),payment);
  await run(payment);assert.equal(get(payment).state,'sent');assert.match(sent[0].subject,/Payment received/);assert.match(sent[0].html,/verification/i);const paymentOutbox=(h.tables.get('email_messages')??[]).find(row=>row.providerId===`rental-email:${payment}`);assert.equal(paymentOutbox.state,'sent','The paid verification notice also completes its central inbox record');assert.equal(paymentOutbox.bookingId,booking._id);assert.equal(paymentOutbox.recipient,booking.guestEmail);
+ const hash=s=>require('node:crypto').createHash('sha256').update(s).digest('hex');
+ const firstSecret=sent[0].html.match(/account\/access\?next=verification#([A-Za-z0-9_-]{43})/)?.[1];assert(firstSecret,'The paid renter receives a private one-use link');
+ const account=h.docs.get(booking.accountId);assert(account);assert.equal(account.emailVerifiedAt,undefined,'Payment alone does not prove email ownership');
+ assert.equal((await claims.exchange.handler(ctx,{secretHash:hash(firstSecret),sessionToken:'fixture-session'})).bookingId,booking._id);
+ await assert.rejects(claims.exchange.handler(ctx,{secretHash:hash(firstSecret),sessionToken:'replay'}),/already been used/);
  await delivery.dispatchOne.handler(ctx,{deliveryId:reminder});assert.equal(get(reminder).state,'pending');
  now+=12*3600000;await run(reminder);assert.equal(get(reminder).state,'sent');assert.match(sent[1].subject,/Reminder/);
+ const secondSecret=sent[1].html.match(/account\/access\?next=verification#([A-Za-z0-9_-]{43})/)?.[1];assert(secondSecret&&secondSecret!==firstSecret);assert.equal((await claims.exchange.handler(ctx,{secretHash:hash(secondSecret),sessionToken:'fixture-reminder-session'})).bookingId,booking._id);
  const pendingReview=h.put('bookings',{...booking,_id:'bookings-review-pending',idVerifyStatus:'manual_review'});
  const reviewMail=await queue.queueRentalEmail(ctx,pendingReview._id,'paid_verification');await run(reviewMail);assert.equal(get(reviewMail).state,'sent');assert.match(sent.at(-1).subject,/verification in progress/i);assert.match(sent.at(-1).html,/no action is needed/i);assert.match(sent.at(-1).html,/Check verification progress/);assert.doesNotMatch(sent.at(-1).html,/Your booking is confirmed/i);
  const declined=h.put('bookings',{...booking,_id:'bookings-declined',idVerifyStatus:'required'});
@@ -52,6 +59,16 @@ async function run(id){await delivery.dispatchOne.handler(ctx,{deliveryId:id});a
  assert.equal(h.load('shared/verificationProgress.ts').verificationWindowClosed(h.docs.get(latePending._id),now),false);
  assert(await notify.paidVerificationEmail.handler(ctx,{bookingId:latePending._id,reminder:true,prepareOnly:true}),'The scoped admin override keeps verification messaging available for the reopened rental');
  now=preDeadlineNow;
+ const unpaid=h.put('bookings',{guestEmail:'unpaid@example.invalid',status:'pending_verification',verificationProvider:'didit',idVerifyStatus:'required'});
+ assert.equal(await claims.preparePendingVerification.handler(ctx,{bookingId:unpaid._id,secretHash:'a'.repeat(64)}),null);assert.equal(unpaid.accountId,undefined);
+ const blocked=h.put('accounts',{email:'blocked@example.invalid',blockedAt:now});const blockedRental=h.put('bookings',{guestEmail:blocked.email,accountId:blocked._id,status:'pending_verification',verificationProvider:'didit',checkoutPaidAt:now,idVerifyStatus:'required'});
+ assert.equal(await claims.preparePendingVerification.handler(ctx,{bookingId:blockedRental._id,secretHash:'b'.repeat(64)}),null);
+ const retryAccount=h.put('accounts',{email:'retry@example.invalid'}),retryBooking=h.put('bookings',{accountId:retryAccount._id,guestEmail:retryAccount.email,status:'pending_verification',verificationProvider:'didit',checkoutPaidAt:now,idVerifyStatus:'required',pickupTime:'10:00',lineItems:[{title:'Camera',lineTotal:10,start:now+3*86400000,end:now+4*86400000}],total:10});
+ const retryNotice=await queue.queueRentalEmail(ctx,retryBooking._id,'paid_verification');acceptMail=false;await run(retryNotice);const firstPayload=sent.at(-1).html;assert.equal(get(retryNotice).state,'pending');
+ now=get(retryNotice).dueAt;acceptMail=true;await run(retryNotice);assert.equal(get(retryNotice).state,'sent');assert.equal(sent.at(-1).html,firstPayload,'A definite retry retains the original one-use link');assert.equal((h.tables.get('account_access_links')||[]).filter(link=>link.bookingId===retryBooking._id).length,1);
+ const expiryAccount=h.put('accounts',{email:'expiry@example.invalid'});const expiring=h.put('bookings',{accountId:expiryAccount._id,guestEmail:expiryAccount.email,status:'pending_verification',verificationProvider:'didit',checkoutPaidAt:now,idVerifyStatus:'required'});
+ assert(await claims.preparePendingVerification.handler(ctx,{bookingId:expiring._id,secretHash:'c'.repeat(64)}));now+=24*3600000;
+ await assert.rejects(claims.exchange.handler(ctx,{secretHash:'c'.repeat(64),sessionToken:'expired'}),/expired/);
  assert((h.tables.get('admin_notifications')||[]).some(n=>n.kind==='email_sent'),'guest email acceptance is visible to the owner');
  console.log('PASS paid verification email, 12-hour reminder, replay deduplication, verified suppression and guest delivery notification');
 })().catch(e=>{console.error(e);process.exitCode=1});

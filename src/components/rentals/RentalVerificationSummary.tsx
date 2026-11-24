@@ -277,7 +277,7 @@ export function RentalVerificationSummary({ bookingId, token, admin = false }: {
     setChecking(true); setCheckMessage("");
     try {
       const result = await refresh({bookingId:bookingId as any,accountToken:token,admin:true});
-      setCheckMessage(result.status === "confirmation_retry_queued" ? "Didit is approved · paid booking confirmation and live stock are being retried." : result.status === "throttled" ? "A check was recently requested. Try again shortly." : result.status === "late_approved" ? "Didit approved after the cutoff. This rental remains pending unless an admin allows this rental specifically." : result.status === "late" ? "Didit has no approval recorded before the verification deadline. This rental remains pending." : "Didit checked · the latest available stages are shown.");
+      setCheckMessage(result.status === "confirmation_retry_queued" ? "Didit is approved · paid booking confirmation and live stock are being retried." : result.status === "throttled" ? "A check was recently requested. Try again shortly." : result.status === "late_approved" ? "Didit approved after the cutoff. This rental remains pending unless an admin allows this rental specifically." : result.status === "late" ? "Didit has no approval recorded before the verification deadline. This rental remains pending." : result.status === "updated" || result.status === "unchanged" ? "Didit checked · the latest available stages are shown." : "Didit could not be checked for this rental.");
     } catch { setCheckMessage("Could not check Didit. The last confirmed stages are shown; try again."); }
     finally { setChecking(false); }
   }

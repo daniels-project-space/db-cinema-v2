@@ -163,6 +163,7 @@ export default async function GuidePage({
                     ))}
                   </ul>
                 )}
+                {s.links && s.links.length > 0 && <nav aria-label={`Related equipment for ${s.h}`} className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-accent-300">{s.links.map(link => <Link key={link.href} href={link.href} className="hover:underline">{link.label} →</Link>)}</nav>}
               </section>
             </Reveal>
           ))}

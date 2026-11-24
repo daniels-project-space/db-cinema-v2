@@ -11,5 +11,8 @@ export default async function sitemap():Promise<MetadataRoute.Sitemap>{
  const guides=GUIDES.map(g=>({url:`${BASE}/guides/${g.slug}`}));
  const rows=await discoveryListings();
  const categories=HIRE_CATEGORIES.filter(c=>rows.some(r=>r.category===c.category)).map(c=>({url:`${BASE}/hire/${c.slug}`}));
- return [...statics,...guides,...categories,...rows.map(r=>({url:`${BASE}/gear/${r.slug}`,lastModified:new Date(r.lastModified),...(r.image?{images:[sitemapXmlUrl(r.image)]}:{})}))];
+ // Catalogue discovery exposes copy-review/creation time, not the last material
+ // change to the full public listing (for example, price). Omit lastmod until
+ // a reliable page-wide modification timestamp is available.
+ return [...statics,...guides,...categories,...rows.map(r=>({url:`${BASE}/gear/${r.slug}`,...(r.image?{images:[sitemapXmlUrl(r.image)]}:{})}))];
 }

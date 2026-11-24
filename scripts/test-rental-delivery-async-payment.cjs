@@ -119,7 +119,7 @@ stripeSession = {
 const stateContext = { db, scheduler: { runAfter: async () => {} } };
 const actionContext = {
   runMutation: async (reference, args) => {
-    if (String(reference).endsWith("adminAuth.assertAdminInternal")) { if (args.token !== process.env.ADMIN_TOKEN) throw Error("Unauthorized"); return; }
+    if (String(reference).endsWith("adminAuth.assertAdminInternal")) return load("convex/adminAuth.ts").assertAdminInternal.handler({ db }, args);
     if (String(reference).endsWith("rentalDeliveryState.accept")) return await state.accept.handler(stateContext, args);
     if (String(reference).endsWith("rentalDeliveryState.markPaid")) return await state.markPaid.handler(stateContext, args);
     if (String(reference).endsWith("rentalDeliveryState.bindSession")) return await state.bindSession.handler(stateContext, args);
@@ -190,7 +190,7 @@ const actionContext = {
   await assert.rejects(state.expire.handler(stateContext, { id: oldRecovery.quote._id }), /provider reconciliation/, "direct expiry cannot bypass the unknown-provider-outcome guard");
   assert.equal(oldRecovery.booking.activeDeliveryQuoteId, oldRecovery.quote._id);
   const listsBeforeAuth = listCalls;
-  await assert.rejects(delivery.recoverQuotePayment.handler(actionContext, { token: "renter-token", id: oldRecovery.quote._id }), /Unauthorized/);
+  await assert.rejects(delivery.recoverQuotePayment.handler(actionContext, { token: "renter-token", id: oldRecovery.quote._id }), /unauthorized/i);
   assert.equal(listCalls, listsBeforeAuth, "renters cannot search provider payments");
   listedSessions = [];
   assert.equal((await delivery.recoverQuotePayment.handler(actionContext, { token: process.env.ADMIN_TOKEN, id: oldRecovery.quote._id })).status, "needs_review");

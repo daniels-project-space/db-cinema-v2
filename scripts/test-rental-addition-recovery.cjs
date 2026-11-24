@@ -13,13 +13,14 @@ setMock("stripe", { __esModule: true, default: class StripeFixture {
 } });
 setMock("./checkout", { checkoutPaymentIntent: async session => session.payment_intent, syncStripeMembership: async () => {} });
 const state = load("convex/rentalAdditionState.ts"), actions = load("convex/rentalAdditions.ts");
+const adminAuth = load("convex/adminAuth.ts");
 const stateCtx = { db, scheduler: { runAfter: async () => {} } };
 let currentIntentMetadata = {};
 let scheduledRows = [];
 const ctx = {
   runQuery: async (ref, args) => ref === "rentalAdditionState.open" ? scheduledRows : state.context.handler(stateCtx, args),
   runMutation: async (ref, args) => {
-    if (ref === "adminAuth.assertAdminInternal") { if (args.token !== process.env.ADMIN_TOKEN) throw Error("Unauthorized"); return; }
+    if (ref === "adminAuth.assertAdminInternal") return adminAuth.assertAdminInternal.handler(stateCtx, args);
     if (ref === "rentalAdditionState.bindRecoveredSession") return state.bindRecoveredSession.handler(stateCtx, args);
     if (ref === "rentalAdditionState.markSessionRecoveryReview") return state.markSessionRecoveryReview.handler(stateCtx, args);
     if (ref === "rentalAdditionState.touch") return;
@@ -39,7 +40,7 @@ function fixture(suffix, ageHours = 23.75) {
 }
 (async () => {
   const missing = fixture("missing");
-  await assert.rejects(actions.recoverPayment.handler(ctx, { token: "renter", id: missing.addition._id }), /Unauthorized/); assert.equal(lists, 0);
+  await assert.rejects(actions.recoverPayment.handler(ctx, { token: "renter", id: missing.addition._id }), /unauthorized/i); assert.equal(lists, 0);
   assert.equal((await actions.recoverPayment.handler(ctx, { token: process.env.ADMIN_TOKEN, id: missing.addition._id })).status, "needs_review");
   assert.equal(missing.addition.sessionId, undefined);
   sessions = [fixture("other").session]; hasMore = true;

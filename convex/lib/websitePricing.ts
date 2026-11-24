@@ -1,7 +1,8 @@
 import { buildTiers } from "../../shared/rentalPricing";
 
 const LEGACY_WEBSITE_PRICE_INCREASE = 1.227;
-export const WEBSITE_PRICE_POLICY_VERSION = 5;
+export const WEBSITE_PRICE_POLICY_VERSION = 6;
+const DAILY_PRICE_REDUCTION = 0.95;
 export const WEBSITE_PRICE_DISCOUNTS = {
   daily: 0,
   day3: 0.10,
@@ -100,27 +101,34 @@ export function websitePriceFactorsForPolicy(
     return websitePriceFactors(source, savedFactors);
   }
 
+  if (savedPolicyVersion === 5) {
+    throw new Error("Website price policy v5 needs provenance review before applying the daily reduction");
+  }
+
   // A policy migration must not reapply a markup to existing catalog prices.
-  // Keep the current renter-visible daily rate, then normalize only the
-  // duration ladder. New listings (with no visible baseline) get the approved
-  // one-time 22.7% source uplift below.
+  // Version 4 already includes the daily reduction; older policies do not.
   if (currentVisiblePricing) {
     const sourceDaily = effectiveRates(source).daily;
     const visibleDaily = effectiveRates(currentVisiblePricing).daily;
     if (!Number.isFinite(sourceDaily) || sourceDaily < 0 || !Number.isFinite(visibleDaily) || visibleDaily < 0) {
       throw new Error("Invalid daily price while migrating website price policy");
     }
+    const reducedDaily = visibleDaily * (savedPolicyVersion === 4 ? 1 : DAILY_PRICE_REDUCTION);
     const dailyFactor = sourceDaily > 0
-      ? Math.round((visibleDaily / sourceDaily) * 1_000_000_000_000) / 1_000_000_000_000
+      ? Math.round((reducedDaily / sourceDaily) * 1_000_000_000_000) / 1_000_000_000_000
       : LEGACY_WEBSITE_PRICE_INCREASE;
     return websitePriceFactors(source, { daily: dailyFactor }, currentVisiblePricing);
   }
 
-  // Older saved daily factors already encode the approved uplift; preserving
-  // them prevents applying that uplift again when only policy metadata changes.
-  return websitePriceFactors(source, savedFactors?.daily === undefined
+  const previous = websitePriceFactors(source, savedFactors?.daily === undefined
     ? undefined
     : { daily: savedFactors.daily });
+  const sourceDaily = effectiveRates(source).daily;
+  const previousDaily = Math.ceil(roundPenny(sourceDaily * previous.daily!));
+  const dailyFactor = sourceDaily > 0
+    ? previousDaily * (savedPolicyVersion === 4 ? 1 : DAILY_PRICE_REDUCTION) / sourceDaily
+    : previous.daily!;
+  return websitePriceFactors(source, { daily: dailyFactor });
 }
 
 export function applyWebsitePriceFactors(

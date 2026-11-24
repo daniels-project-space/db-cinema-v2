@@ -84,7 +84,7 @@ const {expire:expireCredits}=load('convex/credits.ts');
   assert.deepEqual(mutations.filter(m=>m.ref==='bookings:expireUnpaidPending').map(m=>m.args.bookingId),['expired','open','unbound']);
   assert.ok(!mutations.some(m=>['processing','failed'].includes(m.args.bookingId)));
   await assert.rejects(createPending.handler({db:{get:async()=>({email:'owner@example.invalid'})}},
-    {customerEmail:'other@example.invalid',creditAccountId:'owner-account'}),/different customer/);
+    {customerEmail:'other@example.invalid',creditAccountId:'owner-account',lineItems:[{listingId:'fixture-listing',qty:1,lineTotal:100}]}),/different customer/);
 
   // A credit valid when checkout began remains reserved even when the webhook
   // arrives just after its expiry; it is not silently given away as a discount.
@@ -104,19 +104,20 @@ const {expire:expireCredits}=load('convex/credits.ts');
   const unit={_id:inventoryUnitId,name:'Credit fixture unit',active:true,quantityOwned:1};
   const credit={_id:'credit-1',accountId:'owner-account',createdAt:now-100000,
     expiresAt:now-5000,status:'active',remaining:10};
-  const patches=[],queuedEmails=[],confirmedReservations=[];
+  const patches=[],queuedEmails=[],confirmedReservations=[],reminderPlans=[];
   let holdDeleted=false,reservationSerial=0;
   const account={_id:'owner-account',email:'owner@example.invalid'};
   const db={
     get:async id=>id==='booking-credit'?booking:id==='owner-account'?account:id===listingId?listing:id===inventoryUnitId?unit:id===allocationHold._id?(holdDeleted?null:allocationHold):confirmedReservations.find(row=>row._id===id)??null,
-    query:table=>({withIndex:()=>({collect:async()=>table==='credits'?[credit]:table==='reservations'?[...(holdDeleted?[]:[allocationHold]),...confirmedReservations]:[],first:async()=>table==='accounts'?account:null,unique:async()=>table==='accounts'?account:null,take:async()=>[],order:()=>({take:async()=>[]})})}),
-    patch:async(id,patch)=>{patches.push({id,patch});if(id===booking._id)Object.assign(booking,patch);if(id===credit._id)Object.assign(credit,patch);if(id===allocationHold._id)Object.assign(allocationHold,patch);},
+    query:table=>({withIndex:()=>({collect:async()=>table==='credits'?[credit]:table==='reservations'?[...(holdDeleted?[]:[allocationHold]),...confirmedReservations]:[],first:async()=>table==='accounts'?account:table==='rental_chat_reminder_plans'?reminderPlans[0]??null:null,unique:async()=>table==='accounts'?account:null,take:async()=>[],order:()=>({take:async()=>[]})})}),
+    patch:async(id,patch)=>{patches.push({id,patch});if(id===booking._id)Object.assign(booking,patch);if(id===credit._id)Object.assign(credit,patch);if(id===allocationHold._id)Object.assign(allocationHold,patch);const reminder=reminderPlans.find(row=>row._id===id);if(reminder)Object.assign(reminder,patch);},
     delete:async id=>{if(id===allocationHold._id)holdDeleted=true;},
-    insert:async(table,value)=>{if(table==="admin_notifications")return "notification-fixture";if(table==="rental_email_deliveries"){queuedEmails.push(value);return "delivery-fixture";}assert.equal(table,"reservations");const row={_id:`reservation-${++reservationSerial}`,...value};confirmedReservations.push(row);return row._id;},
+    insert:async(table,value)=>{if(table==="admin_notifications")return "notification-fixture";if(table==="rental_email_deliveries"){queuedEmails.push(value);return "delivery-fixture";}if(table==='rental_chat_reminder_plans'){const row={_id:'reminder-plan-fixture',...value};reminderPlans.push(row);return row._id;}assert.equal(table,"reservations");const row={_id:`reservation-${++reservationSerial}`,...value};confirmedReservations.push(row);return row._id;},
   };
   const bookingCtx={db,scheduler:{runAfter:async()=>{}}};
   await recordPaidCheckoutReceipt.handler(bookingCtx,{bookingId:'booking-credit',sessionId:'cs-booking-credit',paymentIntentId:'pi_paid',amountTotalPence:9000,currency:'GBP',paymentStatus:'paid'});
   await confirm.handler(bookingCtx,{bookingId:'booking-credit',paymentIntentId:'pi_paid'});
+  assert.equal(reminderPlans.length,1,'confirmation queues one durable reminder plan despite repeated sync requests');
   assert.ok(patches.some(p=>p.id==='credit-1'&&p.patch.remaining===0&&p.patch.status==='spent'));
   assert.deepEqual(queuedEmails.map(x=>x.kind),["verification"],
     'A verified paid rental gets one confirmation email carrying invoice/pickup details, not duplicate payment/receipt messages');

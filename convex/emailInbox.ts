@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
+import { queueOwnerNotification } from "./lib/adminPush";
 import { cartLine } from "./checkoutCartData";
 import { action, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -213,7 +214,7 @@ export const prepareRentalEmailThread = internalMutation({
       const replyTo = gafferReplyAddress(thread.replyKey);
       if (!replyTo) throw new Error("Gaffer email reply route is not configured");
       if (existing.state === "sent") {
-        return { ok: true as const, tracked: true as const, alreadySent: true as const, replyTo: gafferReplyAddress(thread.replyKey)! };
+        return { ok: true as const, tracked: true as const, alreadySent: true as const, replyTo: gafferReplyAddress(thread.replyKey)!, ...(existing.resendEmailId ? { resendEmailId: existing.resendEmailId } : {}) };
       }
       if (existing.state === "uncertain") {
         return { ok: true as const, tracked: true as const, uncertain: true as const, replyTo: gafferReplyAddress(thread.replyKey)! };
@@ -229,16 +230,19 @@ export const prepareRentalEmailThread = internalMutation({
       return { ok: true as const, tracked: true as const, replyTo: gafferReplyAddress(thread.replyKey)! };
     }
 
-    const replyKey = makeReplyKey();
-    const replyTo = gafferReplyAddress(replyKey);
-    if (!replyTo) throw new Error("Gaffer email reply route is not configured");
-
     const verifiedAccount = await verifiedAccountForEmail(ctx, recipient);
     const linkedAccount = booking.accountId && verifiedAccount?._id === booking.accountId &&
       belongsToRentalAccount(booking, verifiedAccount) ? verifiedAccount : null;
     const subject = args.subject.trim().slice(0, 500) || "Rental email";
     const text = args.text.trim().slice(0, 12_000) || subject;
-    const threadId = await ctx.db.insert("email_threads", {
+    const recent = await ctx.db.query("email_threads").withIndex("by_email_updated", (q: any) => q.eq("email", recipient)).order("desc").take(20);
+    const candidates = recent.filter((thread: any) => thread.bookingId === booking._id &&
+      (!thread.accountId || thread.accountId === booking.accountId) && !!thread.replyKey);
+    const prior = candidates.length === 1 ? candidates[0] : null;
+    const replyKey = prior?.replyKey ?? makeReplyKey();
+    const replyTo = gafferReplyAddress(replyKey);
+    if (!replyTo) throw new Error("Gaffer email reply route is not configured");
+    const threadId = prior?._id ?? await ctx.db.insert("email_threads", {
       email: recipient,
       name: linkedAccount?.name,
       subject,
@@ -613,6 +617,7 @@ function subjectKey(subject: string) {
   return String(subject ?? "")
     .toLowerCase()
     .replace(/^(\s*(re|fw|fwd)\s*:\s*)+/i, "")
+    .replace(/^(?:payment received — complete your rental checks|reminder: complete your rental checks|your rental verification is still being checked)(?=\s*·\s*dbc-)/, "rental verification")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -899,6 +904,38 @@ async function generalThreadForReplyHeaders(ctx: any, email: string, inReplyTo?:
   return null;
 }
 
+/** Mirror the accepted verification notice without storing its private sign-in link. */
+export const recordVerificationNotice=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),subject:v.string(),messageId:v.optional(v.string()),transport:v.optional(v.union(v.literal("gmail"),v.literal("resend")))},handler:async(ctx,a)=>{
+ const delivery=await ctx.db.get(a.deliveryId);
+ if(!delivery||delivery.state!=="sent"||!["paid_verification","verification_reminder"].includes(delivery.kind)||!delivery.recipientEmail)return false;
+ const central=await ctx.db.query("email_messages").withIndex("by_provider",q=>q.eq("providerId",`rental-email:${delivery._id}`)).first();
+ if(central)return true;
+ const providerId=`rental-notice:${delivery._id}`;
+ if(await ctx.db.query("email_messages").withIndex("by_provider",q=>q.eq("providerId",providerId)).first())return true;
+ const email=delivery.recipientEmail.trim().toLowerCase(),subject=a.subject.trim().slice(0,500);
+ if(!email||!subject)return false;
+ const booking=await ctx.db.get(delivery.bookingId),account=booking?.accountId?await ctx.db.get(booking.accountId):null;
+ const verifiedAccount=account&&belongsToRentalAccount(booking,account)&&account.blockedAt==null&&account.emailVerificationRequired!==true&&typeof account.emailVerifiedAt==="number"&&Number.isFinite(account.emailVerifiedAt)&&account.emailVerifiedAt>0&&account.email.trim().toLowerCase()===email?account:null;
+ const now=Date.now(),sentAt=delivery.sentAt??now,text="Payment was received. The renter was sent a private link to complete identity verification; approval is required before handover.";
+ const recent=await ctx.db.query("email_threads").withIndex("by_email_updated",q=>q.eq("email",email)).order("desc").take(20);
+ const matches=recent.filter(t=>subjectKey(t.subject)===subjectKey(subject)&&now-t.updatedAt<30*86_400_000);
+ let thread=matches.find(t=>t.bookingId===delivery.bookingId);
+ if(!thread&&matches.length===1&&!matches[0].bookingId){thread=matches[0];await ctx.db.patch(thread._id,{bookingId:delivery.bookingId});}
+ if(!thread){
+  const id=await ctx.db.insert("email_threads",{email,bookingId:delivery.bookingId,subject,replyKey:makeReplyKey(),...(verifiedAccount?{accountId:verifiedAccount._id,verifiedRenterEmail:email}:{}),status:"open",createdAt:now,updatedAt:now,lastAt:sentAt,lastDirection:"out",lastText:text,unreadOwner:0});
+  thread=(await ctx.db.get(id))!;
+ }else if(sentAt>thread.lastAt)await ctx.db.patch(thread._id,{updatedAt:now,lastAt:sentAt,lastDirection:"out",lastText:text});
+ const from=a.transport==="gmail"?(process.env.GMAIL_USER??OWNER_EMAIL):a.transport==="resend"?(process.env.RESEND_FROM?.match(/<([^>]+)>/)?.[1]??"bookings@dbcinemarentals.com"):"DB Cinema Rentals";
+ const messageId=delivery.providerRfcMessageId??a.messageId;
+ await ctx.db.insert("email_messages",{threadId:thread._id,direction:"out",sender:from,recipient:email,subject,text,at:sentAt,providerId,...(messageId?{messageId}:{}),state:"sent",humanRequested:false});
+ if(verifiedAccount&&(!thread.accountId||thread.accountId===verifiedAccount._id)){
+  if(!thread.accountId)await ctx.db.patch(thread._id,{accountId:verifiedAccount._id,verifiedRenterEmail:email});
+  await ctx.scheduler.runAfter(0,internal.emailInbox.copyVerifiedHistory,{accountId:verifiedAccount._id,threadId:thread._id,cursor:null});
+ }
+ return true;
+}});
+
+
 export const ingest = mutation({
   args: {
     secret: v.string(),
@@ -970,8 +1007,10 @@ export const ingest = mutation({
           : await verifiedThreadBooking(ctx, replyThread, account);
         messageBookingId = matchedBooking?._id ?? inferredBooking?._id ?? null;
       }
+      const capabilityMatchesReference = hasBookingReference && referencesInMessage.length === 1 && replyThread.bookingId &&
+        String(replyThread.bookingId).slice(-8).toUpperCase() === referencesInMessage[0];
       if (rejectedReplyThreadId == null && threadOwnershipMatches(replyThread, account, email) &&
-        threadBookingMatches(replyThread, messageBookingId, hasBookingReference, true)) {
+        (threadBookingMatches(replyThread, messageBookingId, hasBookingReference, true) || capabilityMatchesReference)) {
         thread = replyThread;
         privateReplyThread = true;
       } else if (rejectedReplyThreadId == null) {
@@ -1093,12 +1132,17 @@ export const claimInbound = mutation({
     if (message.state === "replied" || message.state === "handoff" || message.state === "uncertain") return { state: "done" as const };
     const now = Date.now();
     if (message.state === "processing" && (message.leaseUntil ?? 0) > now) return { state: "busy" as const };
+    const thread = await ctx.db.get(message.threadId);
+    if (!thread) throw new Error("email thread not found");
+    if (thread.status === "human_requested") {
+      await ctx.db.patch(inboundId, { state: "handoff", leaseUntil: undefined, error: undefined, humanRequested: true });
+      await markEmailHumanRequested(ctx, thread, message, inboundId, now);
+      return { state: "human_waiting" as const };
+    }
     if (!["received", "processing", "failed"].includes(message.state)) throw new Error("inbound message cannot be claimed");
     await ctx.db.patch(inboundId, { state: "processing", leaseUntil: now + LEASE_MS, error: undefined, humanRequested });
     const claimed = await ctx.db.get(inboundId);
-    const thread = await ctx.db.get(message.threadId);
     if (!claimed || claimed.state !== "processing" || (claimed.leaseUntil ?? 0) <= now) throw new Error("inbound message claim expired");
-    if (!thread) throw new Error("email thread not found");
     const rentalContext = await rentalContextForClaim(ctx, claimed, thread, now);
     return {
       state: "claimed" as const,
@@ -1189,6 +1233,7 @@ async function markEmailHumanRequested(ctx: any, thread: any, message: any, inbo
     humanNotifiedAt: now,
     humanNotifiedMessageId: inboundId,
   });
+  await queueOwnerNotification(ctx, { eventKey: `email-human-request:${inboundId}`, kind: "human_request", emailThreadId: thread._id, title: "A customer needs your help by email", body: "Open the email conversation to read their message and reply." });
   await ctx.scheduler.runAfter(0, internal.notify.emailHumanRequestAlert, {
     email: thread.email,
     subject: thread.subject,

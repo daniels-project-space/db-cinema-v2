@@ -104,8 +104,8 @@ async function browserRoleCheck() {
     assert.equal(await client.evaluate(`!!document.querySelector('a[href^="https://business.didit.me"]')`), false, "renter cannot see the admin Didit case link");
     assert.equal(await client.evaluate(`!!document.querySelector('a[href^="/account/verification/"]')`), true, "renter still has their own verification/upload route");
     assert.equal(await client.evaluate(`!!document.querySelector('textarea[aria-label="Message"]')`), true, "renter retains the chat composer");
-    for (let attempt = 0; attempt < 100 && !await client.evaluate(`!!document.querySelector('button[aria-label^="Attach a JPG"]:not(:disabled)')`); attempt++) await wait(20);
-    assert.equal(await client.evaluate(`!!document.querySelector('button[aria-label^="Attach a JPG"]:not(:disabled)')`), true, "renter retains image/text attachment control when the synthetic service is available");
+    for (let attempt = 0; attempt < 100 && !await client.evaluate(`!!document.querySelector('[data-testid="chat-attachment-button"]:not(:disabled)')`); attempt++) await wait(20);
+    assert.equal(await client.evaluate(`document.querySelector('[data-testid="chat-attachment-button"]:not(:disabled)')?.getAttribute('aria-label')?.startsWith('Attach JPG')`), true, "renter retains an accessible image/text attachment control when the synthetic service is available");
     for (const [label, description] of [["Request a reschedule", "reschedule"], ["Request a kit change", "kit-change"], ["Request a pickup or return time change", "handover-time"], ["See cancellation options", "cancellation"]])
       assert(renter.labels.some(item => item.label === label), `real RenterChat exposes the renter-only ${description} request control`);
     await client.evaluate(`document.querySelector('[data-testid="renter-request-dates"]').click()`); await wait(60);
@@ -143,9 +143,9 @@ async function browserRoleCheck() {
     assert.equal(await client.evaluate(`document.body.innerText.includes('Synthetic leaked admin identity')`), false, "renter does not see the injected admin profile name");
     await client.cmd("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await client.cmd("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/?attachment-upload=1` }); await wait(180);
-    for (let attempt = 0; attempt < 100 && !await client.evaluate(`!!document.querySelector('button[aria-label^="Attach a JPG"]:not(:disabled)')`); attempt++) await wait(30);
+    for (let attempt = 0; attempt < 100 && !await client.evaluate(`!!document.querySelector('[data-testid="chat-attachment-button"]:not(:disabled)')`); attempt++) await wait(30);
     await client.evaluate(`window.__attachmentResponses=[503,200,422,409,200];window.__holdAttachmentResponse=true;window.__attachmentRequested=false`);
-    const chooseFile = (name, type, body) => client.evaluate(`(()=>{const input=document.querySelector('input[type="file"][aria-label^="Choose a JPG"]');const transfer=new DataTransfer();transfer.items.add(new File([${JSON.stringify(body)}],${JSON.stringify(name)},{type:${JSON.stringify(type)}}));input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    const chooseFile = (name, type, body) => client.evaluate(`(()=>{const input=document.querySelector('input[type="file"][aria-label="Choose a supported chat image or TXT file"]');const transfer=new DataTransfer();transfer.items.add(new File([${JSON.stringify(body)}],${JSON.stringify(name)},{type:${JSON.stringify(type)}}));input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
     await chooseFile("retry-photo.png", "image/png", "synthetic image bytes");
     for (let attempt = 0; attempt < 100 && !await client.evaluate(`window.__attachmentRequested`); attempt++) await wait(20);
     assert.equal(await client.evaluate(`document.querySelector('[data-testid="chat-attachment-upload-status"]')?.textContent.includes('Checking this file securely')`), true, "the renter sees a clear in-progress security check while upload is pending");

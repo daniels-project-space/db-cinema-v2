@@ -9,6 +9,23 @@ const expected = fs.readFileSync(path.join(__dirname, "admin-auth-inventory.txt"
 const actual = inventory();
 const expectedSet = new Set(expected);
 const actualSet = new Set(actual);
+for (const [filename, names, kind] of [
+  ["convex/accountCodeClaims.ts", ["expirePendingAvatar", "releaseAvatar", "reserveAvatar", "stageAvatar"], "internalMutation"],
+  ["convex/accountCodeClaims.ts", ["pendingAvatar"], "internalQuery"],
+  ["convex/componentReplacementPreview.ts", ["resolveForPricing"], "internalQuery"],
+  ["convex/componentReplacementQuote.ts", ["acceptOffer", "issue"], "internalAction"],
+  ["convex/componentReplacementQuoteState.ts", ["acceptOffer", "issue", "purgeExpired"], "internalMutation"],
+  ["convex/delivery.ts", ["quoteResolved"], "internalAction"],
+  ["convex/diditReviewClaims.ts", ["markUnknown", "reconcileConfirmed"], "internalMutation"],
+  ["convex/emailInbox.ts", ["markCheckoutCartEmailUncertain"], "internalMutation"],
+  ["convex/rentalAdditionState.ts", ["bindRecoveredSession", "markSessionCreation", "markSessionRecoveryReview"], "internalMutation"],
+  ["convex/rentalDeliveryState.ts", ["bindRecoveredSession", "markRecoveryNeedsReview"], "internalMutation"],
+  ["convex/rentalChatReminders.ts", ["backfill", "deliver", "executePlan", "purgeMetadata", "recover", "reportFailure", "scheduleBooking"], "internalMutation"],
+  ["convex/rentalExtensions.ts", ["createAdminLateOffer"], "internalMutation"],
+]) {
+  const source = fs.readFileSync(path.join(root, filename), "utf8");
+  for (const name of names) assert.match(source, new RegExp(`export const ${name}\\s*=\\s*${kind}\\s*\\(`), `${filename}:${name} must remain internal-only`);
+}
 const added = actual.filter(entry => !expectedSet.has(entry));
 const removed = expected.filter(entry => !actualSet.has(entry));
 assert.deepEqual({ added, removed }, { added: [], removed: [] }, "Admin migration inventory changed; review and update its baseline before any cutover.");

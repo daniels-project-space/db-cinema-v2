@@ -246,7 +246,7 @@ export const applyCatalog = internalMutation({
     ),
   },
   handler: async (ctx, { items, fingerprint }) => {
-    const stateKey = "catalog-payload-v9-approved-price-ladder";
+    const stateKey = "catalog-payload-v10-reduced-daily-price-ladder";
     const state = fingerprint
       ? await ctx.db
           .query("rmv2_sync_state")

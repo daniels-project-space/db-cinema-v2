@@ -20,6 +20,7 @@ export function adminPushNotice(notification: { kind: string; title?: string }):
   if (kind === "renter_message") return "message";
   if (kind === "human_request") return "team_request";
   if (["gaffer_resumed", "gaffer_handled"].includes(kind)) return "conversation";
+  if (kind === "verification_failure" && title === "Paid booking needs stock review") return "rental_attention";
   if (["verification_failure", "verification_archive"].includes(kind)) return "verification_action";
   if (["verification_update", "drone_document"].includes(kind)) return "verification_update";
   if (kind === "identity_match") return title === "Possible match to a restricted account" ? "account_match" : "verification_action";

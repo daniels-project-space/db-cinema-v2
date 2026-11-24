@@ -11,7 +11,7 @@ export const sendBusinessReply = internalAction({
     to: v.string(),
     subject: v.string(),
     html: v.string(),
-    replyTo: v.string(),
+    replyTo: v.union(v.string(),v.array(v.string())),
     cc: v.optional(v.array(v.string())),
     inReplyTo: v.optional(v.string()),
     references: v.array(v.string()),

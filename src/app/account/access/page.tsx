@@ -28,7 +28,7 @@ export default function AccountAccess() {
       void exchange({ secret }).then(result => {
         if (!mounted.current || handled.current !== fragment) return;
         accept.current(result.token);
-        window.location.replace(accountAccessDestination(next === "review" || next === "chat" ? rental ?? undefined : result.bookingId, next));
+        window.location.replace(accountAccessDestination(next === "chat" || next === "review" ? rental ?? undefined : next === "verification" ? rental ?? result.bookingId : result.bookingId, next));
       }).catch(error => {
         if (mounted.current && handled.current === fragment) setError(accountAccessError(error));
       });

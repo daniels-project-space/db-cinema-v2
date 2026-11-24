@@ -33,9 +33,9 @@ self.addEventListener("notificationclick", event => {
   let target;
   try { target = new URL(event.notification.data?.url || "/admin#messages", self.location.origin); } catch { return; }
   if (target.origin !== self.location.origin || target.pathname !== "/admin") return;
-  const rental = target.searchParams.get("rental"), account = target.searchParams.get("account");
-  if ((rental && account) || target.searchParams.getAll("rental").length > 1 || target.searchParams.getAll("account").length > 1 ||
-    [rental, account].some(id => id !== null && !/^[a-zA-Z0-9_-]{1,128}$/.test(id))) return;
+  const rental = target.searchParams.get("rental"), account = target.searchParams.get("account"), emailThread = target.searchParams.get("emailThread");
+  if ([rental, account, emailThread].filter(Boolean).length > 1 || ["rental", "account", "emailThread"].some(key => target.searchParams.getAll(key).length > 1) ||
+    [rental, account, emailThread].some(id => id !== null && !/^[a-zA-Z0-9_-]{1,128}$/.test(id))) return;
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     const owners = windows.filter(window => {

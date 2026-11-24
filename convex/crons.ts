@@ -25,7 +25,6 @@ crons.interval("reconcile-swap-stock-operations",{minutes:5},internal.swapStockO
 crons.interval("recover-safe-legacy-swap-receipts",{minutes:5},internal.swapStockAudit.recoverSafeLegacyReceipts,{});
 crons.interval("audit-converted-swap-stock",{minutes:5},internal.swapStockAudit.runDue,{});
 crons.interval("backfill-converted-swap-audits",{minutes:5},internal.swapStockAudit.backfill,{});
-crons.interval("retry-owner-phone-alerts", { minutes: 5 }, internal.adminPushDelivery.retryDue, {});
 crons.interval("restricted-identity-alerts", { minutes: 1 }, internal.restrictedIdentityAlerts.dispatchDue, {});
 crons.interval("retry-owner-telegram-alerts", { minutes: 2 }, internal.ownerTelegram.retryDue, {});
 crons.interval("recover-gaffer-inquiry-alerts", { minutes: 5 }, internal.chat.recoverGafferAlerts, {});
@@ -97,7 +96,6 @@ crons.interval("sweep-rate-limits", { hours: 24 }, internal.rateLimit.sweep, {})
 // Notify "tell me when it's free" waiters whose item has opened up for their dates.
 crons.interval("waitlist-check", { minutes: 15 }, internal.waitlist.checkAndNotify, {});
 
-
 crons.interval("automatic-basket-followups", { minutes: 1 }, internal.checkoutRecoveryMail.processDue, {});
 crons.interval("consented-film-fund-opening", { minutes: 15 }, internal.filmFundNotifications.processOpeningAnnouncements, {});
 
@@ -108,5 +106,6 @@ crons.interval("renter-push-recovery", { minutes: 2 }, internal.renterPushDelive
 crons.interval("admin-push-recovery", { minutes: 2 }, internal.adminPushDelivery.retryDue, {});
 crons.interval("sweep-chat-attachment-uploads", { minutes: 5 }, internal.chatAttachments.sweep, {});
 crons.interval("rental-email-recovery", { minutes: 1 }, internal.rentalEmailDelivery.dispatchDue, {});
+crons.interval("rental-email-provider-status", { minutes: 5 }, internal.rentalEmailDelivery.checkProviderDue, {});
 crons.interval("account-restriction-notices", { minutes: 1 }, internal.accountRestrictionNotice.dispatchDue, {});
 export default crons;

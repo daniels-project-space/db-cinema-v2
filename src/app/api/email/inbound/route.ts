@@ -157,6 +157,7 @@ async function processGafferInboundEmail(message: InboundEmail) {
       humanRequested: explicitlyRequestedHuman,
     });
     if (claim.state === "done") return NextResponse.json({ ok: true, duplicate: true });
+    if (claim.state === "human_waiting") return NextResponse.json({ ok: true, humanRequested: true });
     // A 2xx acknowledges the provider event permanently. Keep it retryable
     // while another delivery owns the lease so a crashed worker cannot strand
     // this message in `processing` forever.

@@ -8,6 +8,8 @@ export const deliver=internalAction({args:{deliveryId:v.id("rental_email_deliver
   let row=await ctx.runQuery(internal.rentalEmailDelivery.ready,a);
   if(!row&&await ctx.runMutation(internal.rentalEmailDelivery.deferReviewIfNotDueForDelivery,a))return;
   let result:"sent"|"retry"|"skipped"|"uncertain"="skipped";
+  let providerMessageId:string|undefined;
+  let sendStarted=false;
   if(row)try{
     let storageId=row.payloadStorageId;
     if(!storageId){
@@ -41,16 +43,33 @@ export const deliver=internalAction({args:{deliveryId:v.id("rental_email_deliver
       if(!centralThread?.ok)result="skipped";
       else if(centralThread.busy)return;
       else if(centralThread.uncertain)result="uncertain";
-      else if(centralThread.alreadySent)result="sent";
+      else if("alreadySent" in centralThread && centralThread.alreadySent){result="sent";providerMessageId=centralThread.resendEmailId;}
       else{
         if(centralThread.replyTo)payload.replyTo=centralThread.replyTo;
+        sendStarted=true;
         const sent=await sendBusinessMailTracked(payload);
+        providerMessageId=sent.resendEmailId;
         result=sent.sent?"sent":sent.ambiguous?"uncertain":"retry";
         if(centralThread.tracked)await ctx.runMutation(internal.emailInbox.finishRentalEmailThread,{
           deliveryId:a.deliveryId,generation:a.generation,result:sent.sent?"sent":sent.ambiguous?"uncertain":"failed",resendEmailId:sent.resendEmailId,
         });
       }
     }
-  }catch{result="retry";}
-  await ctx.runMutation(internal.rentalEmailDelivery.finish,{...a,result});
+  }catch{result=sendStarted?"uncertain":"retry";}
+  await ctx.runMutation(internal.rentalEmailDelivery.finish,{...a,result,...(result==="sent"&&providerMessageId?{providerMessageId}:{})});
+}});
+
+export const checkProvider=internalAction({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number()},handler:async(ctx,a):Promise<void>=>{
+ const row=await ctx.runQuery(internal.rentalEmailDelivery.providerCheckContext,a);
+ if(!row)return;
+ let status="unknown";
+ let messageId:string|undefined;
+ try{
+  const key=process.env.RESEND_API_KEY;
+  if(key && /^[a-zA-Z0-9_-]{1,128}$/.test(row.providerMessageId)){
+   const response=await fetch(`https://api.resend.com/emails/${encodeURIComponent(row.providerMessageId)}`,{headers:{authorization:`Bearer ${key}`},signal:AbortSignal.timeout(20_000)});
+   if(response.ok){const body=await response.json() as {last_event?:unknown;message_id?:unknown};if(typeof body.last_event==="string")status=body.last_event;if(typeof body.message_id==="string"&&body.message_id.length<=512&&!/[\r\n]/.test(body.message_id))messageId=body.message_id;}
+  }
+ }catch{/* Retry the provider lookup; a network failure is not a bounce. */}
+ await ctx.runMutation(internal.rentalEmailDelivery.recordProviderStatus,{...a,status,...(messageId?{messageId}:{})});
 }});

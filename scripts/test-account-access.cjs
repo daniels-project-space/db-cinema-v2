@@ -113,6 +113,11 @@ function attachAcceptedTerms(booking){const acceptedAt=Date.now(),signer=booking
   assert.equal(chatLink.searchParams.get('next'),'chat');assert.equal(chatLink.searchParams.get('rental'),paidCaller._id,'Passwordless sign-in retains the requested rental conversation');
   assert.equal(accountAccessDestination(chatLink.searchParams.get('rental'),'chat'),`/account?rental=${paidCaller._id}#chat`);
   assert.equal(accountAccessDestination(undefined,'chat'),'/account?conversation=general#chat','General support still opens general chat');
+  await access.sendSignIn.handler(actionCtx,{email:actualAccount.email,secret:'synthetic-secret',next:'verification',bookingId:paidCaller._id});
+  const verificationLink=new URL(outbox.at(-1).html.match(/href="([^"]*account\/access[^\"]*)"/)[1].replace(/&amp;/g,'&'));
+  assert.equal(verificationLink.searchParams.get('next'),'verification');assert.equal(verificationLink.searchParams.get('rental'),paidCaller._id,'Passwordless sign-in retains the verification target');
+  assert.equal(accountAccessDestination(paidCaller._id,'verification'),`/account/verification/${paidCaller._id}`);
+  assert.equal(accountAccessDestination('//foreign.example/path','verification'),'/account/verification/%2F%2Fforeign.example%2Fpath','an untrusted rental value cannot become an external redirect');
   const reviewSignup=put('accounts',{email:'review-signup@example.invalid',hash:'review-password-hash',salt:'review-salt',emailVerificationRequired:true});
   await access.sendForSignup.handler(actionCtx,{email:reviewSignup.email,credentialHash:reviewSignup.hash,next:'review',bookingId:paidCaller._id});
   const signupLink=new URL(outbox.at(-1).html.match(/href="([^"]*account\/access[^\"]*)"/)[1].replace(/&amp;/g,'&'));
@@ -122,6 +127,10 @@ function attachAcceptedTerms(booking){const acceptedAt=Date.now(),signer=booking
   const chatSignupHref=outbox.at(-1).html.split('href="')[1].split('"')[0].replace(/&amp;/g,'&');
   const chatSignupLink=new URL(chatSignupHref);
   assert.equal(chatSignupLink.searchParams.get('next'),'chat');assert.equal(chatSignupLink.searchParams.get('rental'),paidCaller._id,'New-account confirmation retains the rental chat target without granting ownership');
+  const verificationSignup=put('accounts',{email:'verification-signup@example.invalid',hash:'verification-hash',salt:'verification-salt',emailVerificationRequired:true});
+  await access.sendForSignup.handler(actionCtx,{email:verificationSignup.email,credentialHash:verificationSignup.hash,next:'verification',bookingId:paidCaller._id});
+  const verificationSignupLink=new URL(outbox.at(-1).html.match(/href="([^"]*account\/access[^\"]*)"/)[1].replace(/&amp;/g,'&'));
+  assert.equal(verificationSignupLink.searchParams.get('next'),'verification');assert.equal(verificationSignupLink.searchParams.get('rental'),paidCaller._id,'New-account confirmation keeps the verification target');
  }finally{Date.now=realNow;}
  console.log('Account email access: paid account/basket ownership, private correspondence, secure exact-rental link, expiry/replay and durable email retry passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

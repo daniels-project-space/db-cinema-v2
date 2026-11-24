@@ -178,8 +178,8 @@ const {customerReviewGate,reviewSuppressed}=load('convex/lib/reviewEligibility.t
    const original=provider[field];provider[field]=bad;mutations=[];
    await assert.rejects(refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'}),/does not match/);assert(!mutations.some(([ref])=>ref==='bookings.setDiditResult'));provider[field]=original;
   }
-  provider.status='Approved';provider.decision_trace={decided_at:'2026-11-05T16:41:24.177118Z',decided_by:'manual',automatic_status:'In Review'};provider.id_verifications=[{status:'In Review'}];provider.liveness_checks=[{status:'Approved'}];provider.face_matches=[{status:'Approved'}];provider.poa_verifications=[{status:'Approved'}];mutations=[];
-  await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'verified','Didit’s final manual approval is authoritative even when the automatic feature status was In Review');assert.deepEqual(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].checks,{identity:'approved',selfie:'approved',address:'approved'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].decisionAt,Date.parse(provider.decision_trace.decided_at),'the provider decision time is retained separately from the later refresh time');
+  provider.status='Approved';provider.decision_trace={decided_at:'2026-11-05T16:41:24.177118Z',decided_by:'manual',automatic_status:'In Review'};provider.id_verifications=[{status:'Approved'}];provider.liveness_checks=[{status:'Approved'}];provider.face_matches=[{status:'Approved'}];provider.poa_verifications=[{status:'Approved'}];mutations=[];
+  await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'verified','Didit approval with all required checks passes');assert.deepEqual(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].checks,{identity:'approved',selfie:'approved',address:'approved'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].decisionAt,Date.parse(provider.decision_trace.decided_at),'the provider decision time is retained separately from the later refresh time');
   Object.assign(booking,{status:'pending_verification',idVerifyStatus:'manual_review',lineItems:[{start:Date.UTC(2026,10,6),end:Date.UTC(2026,10,7),pickupTime:'16:00'}],pickupTime:'16:00'});mutations=[];
   const delayedFinalApproval=await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});const delayedApprovalArgs=mutations.find(([ref])=>ref==='bookings.setDiditResult')[1];
   assert.equal(delayedFinalApproval.status,'updated','an existing session can reconcile an approval made before the deadline after the rental window closes');assert.equal(delayedApprovalArgs.status,'verified');assert.ok(delayedApprovalArgs.decisionAt<verificationDeadlineAt(booking)&&delayedApprovalArgs.eventAt>verificationDeadlineAt(booking),'the provider decision time, not delayed delivery time, determines eligibility');
@@ -187,6 +187,8 @@ const {customerReviewGate,reviewSuppressed}=load('convex/lib/reviewEligibility.t
   const lateFinalApproval=await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});const lateApprovalArgs=mutations.find(([ref])=>ref==='bookings.setDiditResult')[1];
   assert.equal(lateFinalApproval.status,'late_approved','a final Didit approval after the cutoff is reported distinctly from a provider manual review');assert.equal(lateApprovalArgs.status,'verified');
   provider.decision_trace={decided_at:'2026-11-05T16:41:24.177118Z',decided_by:'manual',automatic_status:'In Review'};mutations=[];
+  provider.status='Approved';provider.face_matches=[{status:'Approved'}];provider.poa_verifications=[];mutations=[];
+  await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'manual_review','an overall approval cannot replace missing address evidence');assert.deepEqual(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].checks,{identity:'approved',selfie:'approved',address:'waiting'});
   provider.poa_verifications=[{status:'Approved'}];mutations=[];
   await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});assert.equal(mutations.find(([ref])=>ref==='bookings.setDiditResult')[1].status,'verified','Didit approval is not blocked by unavailable cross-account matching');
   provider.id_verifications=[{status:'Approved',full_name:'Test Rental Customer',date_of_birth:'1990-01-01'}];mutations=[];
@@ -259,6 +261,10 @@ const {customerReviewGate,reviewSuppressed}=load('convex/lib/reviewEligibility.t
  assert.equal(await claimDiditProgressRefresh.handler(ctx,{bookingId:row._id,sessionId:'changed-session'}),false);
  await ctx.db.patch(row._id,{status:'cancelled',diditReconciledAt:0});assert.equal(await claimDiditProgressRefresh.handler(ctx,{bookingId:row._id,sessionId:row.diditSessionId}),false);
  const ready={status:'confirmed',idVerifyStatus:'verified',idVerifiedAt:Date.now(),depositHoldAmount:100,depositHoldStatus:'held',verificationChecks:{identity:'approved',selfie:'approved',address:'approved'}};
+  const paidPending={...ready,status:'pending_verification'};
+  assert.equal(rentalProgress(paidPending).index,1,'Paid pending verification is past the payment stage');
+  assert.match(rentalProgress(paidPending).caption,/Verification passed.*confirming/,'A paid and verified rental reports confirmation in progress');
+  assert.doesNotMatch(rentalStageLabel(paidPending),/payment/i,'Paid renters must not be told to pay again');
  assert.equal(rentalStageLabel({...ready,idVerifyStatus:'processing'}),'Awaiting verification');
  assert.equal(rentalStageLabel({...ready,verificationChecks:{...ready.verificationChecks,address:'review'}}),'Awaiting verification');
  assert.equal(rentalStageLabel({...ready,verificationArchiveReady:false}),'Document storage not confirmed');

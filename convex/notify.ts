@@ -1,6 +1,6 @@
 "use node";
 
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {rentalEmail,emailRows,emailMoney,emailEscape} from "../shared/rentalEmail";
 import { CONTACT_EMAIL } from "../src/lib/site";
 import { rentalSecurityEmailRows, rentalSecurityEmailNote } from "../shared/rentalSecurityEmail";
@@ -42,7 +42,7 @@ async function email(
   html: string,
   attachments?: Array<{ filename: string; path: string }>,
   /** Overrides the owner address — used to thread Gaffer follow-up replies. */
-  replyToOverride?: string,
+  replyToOverride?: string | string[],
   deliveryKey?: string,
   prepareOnly=false,
 ) {
@@ -72,8 +72,12 @@ export const paidVerificationEmail = internalAction({
   handler: async (ctx,{bookingId,deliveryKey,prepareOnly,reminder}) => {
     const b:any=await ctx.runQuery(internal.bookings.get,{bookingId});
     if(!b?.guestEmail || b.status!=="pending_verification" || !b.checkoutPaidAt || ["verified","rejected"].includes(b.idVerifyStatus) || b.cancellationDecision || b.returnDecision || verificationWindowClosed(b))return null;
-    const app=process.env.APP_URL??"https://dbcinemarentals.com";
-    const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
+    const secret=randomBytes(32).toString("base64url");
+    const secretHash=createHash("sha256").update(secret).digest("hex");
+    const claim:any=await ctx.runMutation(internal.accountClaims.preparePendingVerification,{bookingId,secretHash});
+    if(!claim)return null;
+    const app=new URL(process.env.APP_URL??"https://dbcinemarentals.com").origin;
+    const url=`${app}/account/access?next=verification#${encodeURIComponent(secret)}`;
     const reviewPending=["manual_review","processing"].includes(b.idVerifyStatus);
     const title=reviewPending
       ? reminder?"Your rental verification is still being checked":"Payment received — verification in progress"
@@ -83,7 +87,7 @@ export const paidVerificationEmail = internalAction({
     const body=reviewPending
       ? "Payment received. Your checks are in review; no action is needed unless we contact you."
       : "Payment received. Complete verification before handover; this rental is not confirmed yet.";
-    return email(b.guestEmail,title,rentalEmail({title,preview:reviewPending?"Your verification is still in progress.":"Your rental still needs verification and approval.",url,button:reviewPending?"Check verification progress":"Complete verification",body:`<p>${body}</p>${emailRows(rows)}<p>If asked to sign in, use the email address from checkout.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
+    return email(claim.email,`${title} · DBC-${String(bookingId).slice(-8).toUpperCase()}`,rentalEmail({title,preview:reviewPending?"Your verification is still in progress.":"Your rental still needs verification and approval.",url,button:reviewPending?"Check verification progress":"Complete verification",body:`<p>${body}</p>${emailRows(rows)}<p>This private link works once and expires in 24 hours. Please do not forward it.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
   },
 });
 

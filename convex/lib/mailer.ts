@@ -36,7 +36,7 @@ export type MailInput = {
   html: string;
   text?: string;
   /** Defaults to the configured central inbound route, then the monitored owner inbox. */
-  replyTo?: string;
+  replyTo?: string | string[];
   inReplyTo?: string;
   references?: string[];
   attachments?: MailAttachment[];
