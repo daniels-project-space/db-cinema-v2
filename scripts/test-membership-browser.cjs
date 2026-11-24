@@ -486,9 +486,15 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="checkout-paused-notice"]').textContent.includes('temporarily paused')`),true);
     await navigate(root + "/checkout");
   }
-  await until(
-    `location.pathname==='/checkout'&&!!document.querySelector('#co-email')&&!!document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')`,
-  );
+  try {
+    await until(
+      `location.pathname==='/checkout'&&!!document.querySelector('#co-email')&&!!document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')`,
+    );
+  } catch (error) {
+    const diagnostic = await c.evaluate(`(()=>{let cart=null;try{cart=JSON.parse(localStorage.getItem('dbc_cart_v1')||'null')}catch{}return {url:location.href,title:document.title,readyState:document.readyState,cartItemCount:Array.isArray(cart)?cart.length:null,bodyText:document.body?.innerText?.slice(0,500),emailField:!!document.querySelector('#co-email'),membershipCard:!!document.querySelector('[data-testid="membership-upsell"]')}})()`).catch(() => null);
+    console.error({ checkoutNavigationDiagnostic: diagnostic });
+    throw error;
+  }
   if (!checkoutEnabled) {
     await until(`document.querySelector('[data-testid="checkout-pay-button"]')?.disabled===true`);
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="checkout-pay-button"]').textContent.includes('temporarily paused')`),true);
