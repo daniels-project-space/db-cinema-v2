@@ -177,6 +177,12 @@
 .kitStrip { padding-bottom:0; }
 .kitImage { height:98px; }
 
+.workspace { display:block; }
+
+@media(min-width:1101px) {
+  .toolbar { position:static; margin:0 0 14px; justify-content:flex-end; }
+}
+
 .toolbar nav button,
 .toolbar nav a {
   display:inline-flex;

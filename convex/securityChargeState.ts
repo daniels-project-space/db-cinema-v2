@@ -8,8 +8,15 @@ import { assertSavedCardCollection, retainedDepositPence, isSavedCardRental, SEC
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { queueOwnerNotification } from './lib/adminPush';
+import { archiveCaseConversation } from './lib/chatCaseArchive';
+import { queueRmv2Sync } from './lib/rmv2SyncQueue';
+import { CHAT_ATTACHMENT_LIMIT } from '../shared/chatAttachmentPolicy';
 const released = (state:string) => ['failed','voided'].includes(state);
 const idArgs={id:v.id('rental_security_charges')};
+function latePaidContributionPence(charge:any,netPaidPence:number){
+ if(charge.returnAssessment){const damageCardPence=Math.max(0,charge.returnAssessment.damageAmountPence-charge.returnAssessment.damageOffsetPence);return Math.min(charge.returnAssessment.lateAmountPence,Math.max(0,netPaidPence-damageCardPence));}
+ return charge.kind==='late'?netPaidPence:0;
+}
 async function authorizePaymentRead(ctx:QueryCtx|MutationCtx,token:string){
  if(process.env.ADMIN_SESSION_BILLING_PORTAL_V2==='enabled'){
   if(!adminSessionMigrationReady())throw Error('Admin session migration is not ready.');
@@ -36,16 +43,32 @@ export const list = query({args:{token:v.string(),bookingId:v.id('bookings'),adm
  const gross=b!.savedCardChargePaidPence??0,refunded=rows.reduce((n,r)=>n+(r.refundedPence??0),0);
  return {depositPaid:b!.depositAmount??0,depositRetained:retainedDepositPence(b)/100,depositRefunded:b!.depositRefundAmount??0,remaining:b!.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?null:Math.max(0,Math.round((b!.savedCardLimit??0)*100)-gross-(b!.savedCardChargeReservedPence??0)-retainedDepositPence(b))/100,limit:b!.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?null:b!.savedCardLimit??0,used:gross/100,paid:Math.max(0,gross-refunded)/100,reserved:(b!.savedCardChargeReservedPence??0)/100,cardStatus:b!.savedCardStatus??'awaiting_payment',
   damageAssessed:b!.savedCardDamageAssessed??b!.returnDecision?.damageKept??0,lateAssessed:b!.lateFeeAmount??0,returnedAt:b!.actualReturnedAt??null,
-  securityPolicyVersion:b!.securityPolicyVersion??null,rows:rows.map(r=>({id:r._id,kind:r.kind,claimBasis:r.claimBasis??null,amount:r.amountPence/100,reason:r.reason,state:r.state,paid:(r.paidPence??0)/100,createdAt:r.createdAt,noticeAt:r.noticeAt??null,collectAfter:r.collectAfter??null,disputeReason:r.disputeReason??null,disputeResolution:r.disputeResolution??null,disputeResolvedAt:r.disputeResolvedAt??null,refunded:(r.refundedPence??0)/100,refundStatus:r.refundReceipt?.status??null,refundReason:r.refundReason??null,refundEmailStatus:r.refundEmailStatus??null,...(a.admin?{refundApprovalUrl:r.refundReceipt?.approvalUrl??null,receiptNoticeAt:r.receiptNoticeAt??null,refundEmailAt:r.refundEmailAt??null,refundEmailError:r.refundEmailError??null}:{}),error:r.error??null}))};
+  securityPolicyVersion:b!.securityPolicyVersion??null,requireClaimEvidence:isSavedCardRental(b),damageItems:(b!.returnDecision?.inspection??[]).filter((item:any)=>item.condition!=='good').map((item:any)=>({key:item.key,title:item.title,details:item.details})),rows:rows.map(r=>({id:r._id,kind:r.kind,claimBasis:r.claimBasis??null,amount:r.amountPence/100,reason:r.reason,...(r.returnAssessment?{returnAssessment:r.returnAssessment}:{}),...(a.admin?{evidenceIds:r.evidenceIds??[]}:{evidenceCount:r.evidenceIds?.length??0}),state:r.state,paid:(r.paidPence??0)/100,createdAt:r.createdAt,noticeAt:r.noticeAt??null,collectAfter:r.collectAfter??null,disputeReason:r.disputeReason??null,disputeResolution:r.disputeResolution??null,disputeResolvedAt:r.disputeResolvedAt??null,refunded:(r.refundedPence??0)/100,refundStatus:r.refundReceipt?.status??null,refundReason:r.refundReason??null,refundEmailStatus:r.refundEmailStatus??null,...(a.admin?{refundApprovalUrl:r.refundReceipt?.approvalUrl??null,receiptNoticeAt:r.receiptNoticeAt??null,refundEmailAt:r.refundEmailAt??null,refundEmailError:r.refundEmailError??null}:{}),error:r.error??null}))};
 }});
-const prepareArgs={bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),amount:v.number(),reason:v.string(),immediate:v.optional(v.boolean())};
-type PrepareArgs={bookingId:Id<'bookings'>;requestId:string;kind:'damage'|'late';claimBasis?:'loss'|'severe_cosmetic_damage';amount:number;reason:string;immediate?:boolean};
+export const evidenceOptions = query({args:{token:v.string(),bookingId:v.id('bookings')},handler:async(ctx,{token,bookingId})=>{
+ await authorizePaymentRead(ctx,token);
+ const booking=await ctx.db.get(bookingId);if(!booking||!['confirmed','active','returned'].includes(booking.status)||!booking.accountId)return [];
+ const rows=await ctx.db.query('chat_attachment_attempts').withIndex('by_booking_created',q=>q.eq('bookingId',bookingId)).order('desc').take(50);
+ const options:any[]=[];
+ for(const row of rows){
+  if(row.status!=='published'||!row.storageId||!row.messageId||!row.name||!row.contentType||!row.sha256||!row.size||row.accountId!==booking.accountId||!['image/jpeg','image/png','image/webp','text/plain'].includes(row.contentType))continue;
+  const message=await ctx.db.get(row.messageId);
+  if(!message||message.accountId!==booking.accountId||message.bookingId!==bookingId||message.meta?.attachmentId!==row._id)continue;
+  options.push({id:row._id,name:row.name,contentType:row.contentType,size:row.size,createdAt:row.createdAt,uploadedBy:row.admin?'team':'renter'});
+ }
+ return options;
+}});
+const returnAssessmentArg=v.optional(v.object({damageAmountPence:v.number(),damageOffsetPence:v.number(),damageReason:v.string(),lateAmountPence:v.number(),lateReason:v.string()}));
+const prepareArgs={bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),itemKey:v.optional(v.string()),evidenceIds:v.optional(v.array(v.id('chat_attachment_attempts'))),returnAssessment:returnAssessmentArg,amount:v.number(),reason:v.string(),immediate:v.optional(v.boolean())};
+type ReturnAssessment={damageAmountPence:number;damageOffsetPence:number;damageReason:string;lateAmountPence:number;lateReason:string};
+type PrepareArgs={bookingId:Id<'bookings'>;requestId:string;kind:'damage'|'late';claimBasis?:'loss'|'severe_cosmetic_damage';itemKey?:string;evidenceIds?:Id<'chat_attachment_attempts'>[];returnAssessment?:ReturnAssessment;amount:number;reason:string;immediate?:boolean};
 async function prepareClaim(ctx:MutationCtx,a:PrepareArgs){
  if(!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId)||!Number.isFinite(a.amount)||a.amount<=0||Math.round(a.amount*100)/100!==a.amount||a.reason.trim().length<10||a.reason.length>4000)throw Error('Enter a positive penny-accurate amount and itemised evidence/reason.');
  const amountPence=Math.round(a.amount*100),reason=a.reason.trim();
  const previous=await ctx.db.query('rental_security_charges').withIndex('by_request',q=>q.eq('bookingId',a.bookingId).eq('requestId',a.requestId)).unique();
- if(previous){if(previous.kind!==a.kind||previous.claimBasis!==a.claimBasis||previous.amountPence!==amountPence||previous.reason!==reason)throw Error('This request belongs to a different assessment.');return previous._id;}
+ if(previous){const priorEvidence=[...(previous.evidenceIds??[])].map(String).sort(),newEvidence=[...(a.evidenceIds??[])].map(String).sort();if(previous.kind!==a.kind||previous.claimBasis!==a.claimBasis||previous.itemKey!==(a.itemKey??previous.itemKey)||JSON.stringify(priorEvidence)!==JSON.stringify(newEvidence)||JSON.stringify(previous.returnAssessment??null)!==JSON.stringify(a.returnAssessment??null)||previous.amountPence!==amountPence||previous.reason!==reason)throw Error('This request belongs to a different assessment.');return previous._id;}
  const b=await ctx.db.get(a.bookingId);assertSavedCardCollection(b);
+ if(b!.status==='returned'&&b!.returnDecision?.ownerClaimAuthorizedAt&&!a.returnAssessment)throw Error('Returned rentals require one combined, frozen itemised damage-and-late assessment.');
  const immediatePolicy=isImmediateClaimSecurityPolicy(b!.securityPolicyVersion);
  if(immediatePolicy!==!!a.immediate)throw Error(immediatePolicy?"Use the immediate claim action for this rental; a notice-only preparation is not available under its accepted terms.":"Immediate collection is not permitted by this rental's accepted agreement.");
  if(isSetupIntentSecurityPolicy(b!.securityPolicyVersion)&&(a.kind==='damage'&&!a.claimBasis||a.kind==='late'&&a.claimBasis))throw Error('Choose the recorded loss or severe cosmetic-damage basis for this saved-card claim.');
@@ -53,21 +76,58 @@ async function prepareClaim(ctx:MutationCtx,a:PrepareArgs){
  if(!immediatePolicy&&Date.now()+SECURITY_COLLECTION_NOTICE_HOURS*3600000>b!.actualReturnedAt!+SECURITY_COLLECTION_DAYS*86400000)throw Error('There is insufficient time for the notice period within the agreed collection window.');
  if(!b!.accountId)throw Error('A permanent rental account is required.');
  const account=await ctx.db.get(b!.accountId);if(!account||account.blockedAt!=null||!account.email)throw Error('The rental account is unavailable.');
+ const issueItems=(b!.returnDecision?.inspection??[]).filter((item:any)=>item.condition!=='good');
+ if(a.kind==='damage'&&!issueItems.length)throw Error('An item-specific inspected issue is required for a damage charge.');
+ const itemKey=a.itemKey??(a.kind==='damage'?issueItems[0]?.key:undefined);
+ const inspectedItem=a.kind==='damage'?issueItems.find((item:any)=>item.key===itemKey):undefined;
+ if(a.kind==='damage'&&!inspectedItem)throw Error('Select the inspected item that supports this damage or loss assessment.');
+ const evidenceIds=[...new Set(a.evidenceIds??[])];
+ if(evidenceIds.length>5)throw Error('Attach no more than five relevant evidence files.');
+ if(a.kind==='damage'&&!b!.returnDecision?.inspection?.some(i=>i.condition!=='good'))throw Error('An item-specific inspected issue is required for a damage charge.');
+ if(isSavedCardRental(b)&&!evidenceIds.length)throw Error('Attach at least one relevant supporting evidence file from this rental chat before sending the itemised invoice.');
+ let totalEvidenceBytes=0;
+ for(const evidenceId of evidenceIds){
+  const file=await ctx.db.get(evidenceId);
+  if(!file||file.status!=='published'||file.accountId!==b!.accountId||file.bookingId!==b!._id||!file.storageId||!file.messageId||!file.name||!file.sha256||!file.size||!['image/jpeg','image/png','image/webp','text/plain'].includes(file.contentType??''))throw Error('A selected evidence file is unavailable or not attached to this rental conversation.');
+  const message=await ctx.db.get(file.messageId);if(!message||message.accountId!==b!.accountId||message.bookingId!==b!._id||message.meta?.attachmentId!==file._id)throw Error('A selected evidence file no longer matches this rental conversation.');
+  totalEvidenceBytes+=file.size;if(file.size>CHAT_ATTACHMENT_LIMIT||totalEvidenceBytes>12*1024*1024)throw Error('Keep the supporting files under 12 MB in total.');
+ }
  const rows=await ctx.db.query('rental_security_charges').withIndex('by_booking',q=>q.eq('bookingId',a.bookingId)).take(100);
  if(rows.length>=100)throw Error('Charge history requires manual review.');
- if(a.kind==='damage'&&!b!.returnDecision?.inspection?.some(i=>i.condition!=='good'))throw Error('An item-specific inspected issue is required for a damage charge.');
- const firstPendingQuote=a.kind==='damage'&&!b!.returnDecision?.damageKept&&!b!.savedCardDamageAssessed&&!rows.some(r=>r.kind==='damage'&&r.state!=='voided');
- const assessed=firstPendingQuote?amountPence:Math.round((a.kind==='damage'?(b!.savedCardDamageAssessed??b!.returnDecision?.damageKept??0):(b!.lateFeeAmount??0))*100);
  const retainedCashPence=retainedDepositPence(b);
+ const isReturnAssessment=!!a.returnAssessment;
+ if(isReturnAssessment&&(!Number.isSafeInteger(a.returnAssessment!.damageAmountPence)||!Number.isSafeInteger(a.returnAssessment!.damageOffsetPence)||!Number.isSafeInteger(a.returnAssessment!.lateAmountPence)||a.returnAssessment!.damageAmountPence<0||a.returnAssessment!.damageOffsetPence<0||a.returnAssessment!.damageOffsetPence>a.returnAssessment!.damageAmountPence||a.returnAssessment!.lateAmountPence<0||a.returnAssessment!.damageAmountPence-a.returnAssessment!.damageOffsetPence+a.returnAssessment!.lateAmountPence!==amountPence||a.kind!==(a.returnAssessment!.damageAmountPence>0?'damage':'late')))throw Error('The combined return assessment does not match its itemised amounts.');
+ if(isReturnAssessment&&rows.some(r=>r.returnAssessment))throw Error('A combined return assessment already exists for this rental; resume or reconcile that exact record.');
+ if(isReturnAssessment&&rows.some(r=>!released(r.state)||r.attemptedAt||r.intentId||r.state==='paid'))throw Error('An existing security assessment must be reconciled before a combined return assessment can be prepared.');
+ if(!isReturnAssessment&&rows.some(r=>r.returnAssessment))throw Error('This rental already has its single combined return assessment.');
+ const firstPendingQuote=a.kind==='damage'&&!b!.returnDecision?.damageKept&&!b!.savedCardDamageAssessed&&!rows.some(r=>r.kind==='damage'&&r.state!=='voided');
+ const assessed=isReturnAssessment
+  ?Math.round(((b!.savedCardDamageAssessed??b!.returnDecision?.damageKept??0)+(b!.lateFeeAmount??0))*100)
+  :firstPendingQuote?amountPence:Math.round((a.kind==='damage'?(b!.savedCardDamageAssessed??b!.returnDecision?.damageKept??0):(b!.lateFeeAmount??0))*100);
+ if(isReturnAssessment&&amountPence>assessed-retainedCashPence)throw Error('The combined return claim exceeds assessed damage and late fees after retained deposit is applied.');
  const allocated=(a.kind==='damage'?retainedCashPence:0)+rows.filter(r=>r.kind===a.kind&&!released(r.state)).reduce((n,r)=>n+(r.state==='paid'?(r.paidPence??0):r.amountPence),0);
- if(amountPence>assessed-allocated)throw Error('The amount exceeds the remaining recorded assessment; do not charge the same loss twice.');
+ if(!isReturnAssessment&&amountPence>assessed-allocated)throw Error('The amount exceeds the remaining recorded assessment; do not charge the same loss twice.');
  const reserved=b!.savedCardChargeReservedPence??0,paid=b!.savedCardChargePaidPence??0,limit=Math.round(b!.savedCardLimit!*100);
  if(b!.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION && amountPence>limit-reserved-paid-retainedCashPence)throw Error('The combined damage and late-fee card limit would be exceeded. Request separate payment consent for any further amount.');
  if(firstPendingQuote)await ctx.db.patch(b!._id,{savedCardDamageAssessed:a.amount});
- const now=Date.now(),id=await ctx.db.insert('rental_security_charges',{bookingId:a.bookingId,accountId:b!.accountId,requestId:a.requestId,kind:a.kind,...(a.claimBasis?{claimBasis:a.claimBasis}:{}),amountPence,reason,customerId:b!.savedCardCustomerId!,paymentMethodId:b!.savedCardPaymentMethodId!,consentSnapshot:b!.agreementSnapshot!,state:'notice_pending',createdAt:now,updatedAt:now});
+ const now=Date.now();
+ let caseId:Id<'rental_damage_cases'>|undefined;
+ if(a.kind==='damage'&&inspectedItem){
+  const caseRows=await ctx.db.query('rental_damage_cases').withIndex('by_booking_item',q=>q.eq('bookingId',b!._id).eq('itemKey',inspectedItem.key)).take(101);
+  if(caseRows.length>100)throw Error('The item case history needs review before preparing another damage assessment.');
+  caseId=caseRows.find(row=>row.status==='open')?._id;
+  if(!caseId){
+   const openedAt=now;caseId=await ctx.db.insert('rental_damage_cases',{bookingId:b!._id,accountId:b!.accountId,itemKey:inspectedItem.key,title:inspectedItem.title,...(inspectedItem.inventoryUnitId?{inventoryUnitId:inspectedItem.inventoryUnitId}:{}),caseType:a.claimBasis==='loss'?'loss':'damage',details:reason,status:'open',openedAt,requestId:`security-${a.requestId}`});
+   await queueRmv2Sync(ctx,b!._id);
+  }
+  const caseRecord=await ctx.db.get(caseId);if(!caseRecord)throw Error('The damage case could not be archived with the assessment.');
+  await archiveCaseConversation(ctx,caseRecord);
+ }
+ const id=await ctx.db.insert('rental_security_charges',{bookingId:a.bookingId,accountId:b!.accountId,requestId:a.requestId,kind:a.kind,...(a.claimBasis?{claimBasis:a.claimBasis}:{}),...(itemKey?{itemKey}:{}),...(evidenceIds.length?{evidenceIds}:{}),...(caseId?{caseId}:{}),...(a.returnAssessment?{returnAssessment:a.returnAssessment}:{}),amountPence,reason,customerId:b!.savedCardCustomerId!,paymentMethodId:b!.savedCardPaymentMethodId!,consentSnapshot:b!.agreementSnapshot!,state:'notice_pending',createdAt:now,updatedAt:now});
  await ctx.db.patch(b!._id,{savedCardChargeReservedPence:reserved+amountPence});
  const basisText=a.claimBasis==='loss'?' · lost or unreturned item':a.claimBasis==='severe_cosmetic_damage'?' · severe, permanent cosmetic damage':'';
- await postRentalMessage(ctx,{accountId:b!.accountId,bookingId:b!._id,sender:'system',text:`An itemised ${a.kind==='late'?'late-return':'damage/loss'} assessment${basisText} of £${a.amount.toFixed(2)} has been prepared. No payment has been taken. You will receive the evidence and proposed collection date before any card collection. ${reason}`});
+ const renterNotice=immediatePolicy?`The itemised claim invoice and selected supporting evidence will be emailed before one saved-card attempt.`:`The itemised claim invoice and selected supporting evidence will be emailed with at least seven days to query or dispute before any collection attempt.`;
+ await postRentalMessage(ctx,{accountId:b!.accountId,bookingId:b!._id,sender:'system',text:`An itemised ${a.returnAssessment?'return':a.kind==='late'?'late-return':'damage/loss'} assessment${basisText} of £${a.amount.toFixed(2)} has been prepared. No payment has been taken. ${renterNotice} ${reason}`});
  if(!immediatePolicy)await ctx.scheduler.runAfter(0,internal.securityCharges.sendNotice,{id});return id;
 }
 // Claim creation is an internal state operation. Public callers must pass
@@ -82,20 +142,42 @@ export const prepareFromFrozenReturnDecision=internalMutation({args:prepareArgs,
  const b=await ctx.db.get(a.bookingId),d=b?.returnDecision;
  if(!b||b.status!=='returned'||b.actualReturnedAt!==d?.actualReturnedAt||!d||typeof d.ownerClaimAuthorizedAt!=='number'||!Number.isSafeInteger(d.ownerClaimAuthorizedAt)||d.ownerClaimAuthorizedAt<=0)throw Error('A frozen owner-authorized returned decision is required.');
  const safeBookingId=String(a.bookingId).replace(/[^A-Za-z0-9-]/g,'-').slice(-36);
+ if(a.returnAssessment){
+  const assessment=a.returnAssessment,damageAmountPence=Math.round(d.damageKept*100),damageOffsetPence=Math.round((d.depositKept??0)*100),lateAmountPence=d.chargeLate?Math.round((b.lateFeeAmount??0)*100):0;
+  const savedEvidence=[...(d.claimEvidenceIds??[])].map(String).sort(),providedEvidence=[...(a.evidenceIds??[])].map(String).sort();
+  const expectedReason=[...(assessment.damageAmountPence?[`Damage/loss ${(assessment.damageAmountPence/100).toFixed(2)}: ${assessment.damageReason.trim()}`,...(assessment.damageOffsetPence?[`Deposit retained: -${(assessment.damageOffsetPence/100).toFixed(2)}`]:[])]:[]),...(assessment.lateAmountPence?[`Late fee ${(assessment.lateAmountPence/100).toFixed(2)}: ${assessment.lateReason.trim()}`]:[])].join('\n');
+  if(a.requestId!==`return-${safeBookingId}-${Math.trunc(d.actualReturnedAt)}-combined`||assessment.damageAmountPence!==damageAmountPence||assessment.damageOffsetPence!==damageOffsetPence||assessment.lateAmountPence!==lateAmountPence||assessment.damageReason.trim()!==(d.damageNote??'').trim()||assessment.lateReason.trim()!==(d.lateClaimReason??'').trim()||a.amount!==(damageAmountPence-damageOffsetPence+lateAmountPence)/100||a.reason.trim()!==expectedReason||JSON.stringify(savedEvidence)!==JSON.stringify(providedEvidence)||damageAmountPence>0&&(!d.claimBasis||a.claimBasis!==d.claimBasis||a.itemKey!==(d.claimItemKey??undefined))||damageAmountPence===0&&a.claimBasis!==undefined)
+   throw Error('The combined claim does not match the frozen owner-authorized return decision.');
+  return prepareClaim(ctx,a);
+ }
  const expectedRequestId=`return-${safeBookingId}-${Math.trunc(d.actualReturnedAt)}-${a.kind}`;
  if(a.requestId!==expectedRequestId)throw Error('This request does not match the frozen return claim.');
  const amountPence=Math.round(a.amount*100),reason=a.reason.trim();
  if(a.kind==='late'){
-  if(!d.chargeLate||a.claimBasis!==undefined||reason!==(d.lateClaimReason??'').trim()||amountPence!==Math.round((b.lateFeeAmount??0)*100)||amountPence<=0)
+  const savedEvidence=[...(d.claimEvidenceIds??[])].map(String).sort(),providedEvidence=[...(a.evidenceIds??[])].map(String).sort();
+  if(!d.chargeLate||a.claimBasis!==undefined||reason!==(d.lateClaimReason??'').trim()||amountPence!==Math.round((b.lateFeeAmount??0)*100)||amountPence<=0||JSON.stringify(savedEvidence)!==JSON.stringify(providedEvidence))
    throw Error('The late charge does not match the frozen owner-authorized return decision.');
  }else{
   const expectedAmount=Math.max(0,Math.round(d.damageKept*100)-Math.round((d.depositKept??0)*100));
-  if(d.damageKept<=0||amountPence!==expectedAmount||reason!==(d.damageNote??'').trim()||a.claimBasis!==d.claimBasis||
+  const savedEvidence=[...(d.claimEvidenceIds??[])].map(String).sort(),providedEvidence=[...(a.evidenceIds??[])].map(String).sort();
+  if(d.damageKept<=0||amountPence!==expectedAmount||reason!==(d.damageNote??'').trim()||a.claimBasis!==d.claimBasis||a.itemKey!==(d.claimItemKey??undefined)||JSON.stringify(savedEvidence)!==JSON.stringify(providedEvidence)||
    !d.inspection?.some((item:any)=>item.condition!=='good'))throw Error('The damage charge does not match the frozen owner-authorized return decision.');
  }
  return prepareClaim(ctx,{...a,immediate:true});
 }});
 export const context=internalQuery({args:idArgs,handler:async(ctx,{id})=>{const charge=await ctx.db.get(id);if(!charge)return null;const booking=await ctx.db.get(charge.bookingId),account=await ctx.db.get(charge.accountId);const rows=await ctx.db.query('rental_security_charges').withIndex('by_booking',q=>q.eq('bookingId',charge.bookingId)).take(100);return {charge,booking,account,collectionPaused:rows.some(r=>r.disputedAt&&!r.disputeResolvedAt)||!!booking?.cancellationDecision||!account||account.blockedAt!=null};}});
+export const noticeEvidence=internalQuery({args:idArgs,handler:async(ctx,{id})=>{
+ const charge=await ctx.db.get(id);if(!charge)return [];
+ const files=[];
+ for(const evidenceId of charge.evidenceIds??[]){
+  const file=await ctx.db.get(evidenceId);
+  if(!file||file.status!=='published'||file.accountId!==charge.accountId||file.bookingId!==charge.bookingId||!file.storageId||!file.messageId||!file.name||!file.sha256||!file.size||!file.contentType)throw Error('A saved assessment evidence file is no longer available.');
+  const message=await ctx.db.get(file.messageId);if(!message||message.accountId!==charge.accountId||message.bookingId!==charge.bookingId||message.meta?.attachmentId!==file._id)throw Error('A saved assessment evidence file no longer matches its rental conversation.');
+  const url=await ctx.storage.getUrl(file.storageId);if(!url)throw Error('A saved assessment evidence file cannot be opened.');
+  files.push({name:file.name,contentType:file.contentType,size:file.size,sha256:file.sha256,url});
+ }
+ return files;
+}});
 export const claimNotice=internalMutation({args:{...idArgs,receipt:v.optional(v.boolean())},handler:async(ctx,{id,receipt})=>{
  const r=await ctx.db.get(id);if(!r)return false;const now=Date.now();
  if(receipt){if(r.state!=='paid'||r.receiptNoticeAt||(r.receiptLeaseUntil??0)>now)return false;await ctx.db.patch(id,{receiptLeaseUntil:now+120000});}
@@ -112,6 +194,7 @@ export const noticeResult=internalMutation({args:{...idArgs,sent:v.boolean(),rec
 export const claim=internalMutation({args:idArgs,handler:async(ctx,{id})=>{
  const r=await ctx.db.get(id);if(!r)throw Error('Charge not found.');
  const b=await ctx.db.get(r.bookingId);assertSavedCardCollection(b);
+ if(!(r.evidenceIds??[]).length)throw Error('Supporting evidence is required before collection. Withdraw this assessment and prepare a new one with evidence from the rental chat.');
  if(b!.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION && (b!.savedCardChargeReservedPence??0)+(b!.savedCardChargePaidPence??0)+retainedDepositPence(b)>Math.round(b!.savedCardLimit!*100))throw Error('The deposit and later card collections exceed the combined accepted limit.');
  const account=await ctx.db.get(r.accountId);if(!account||account.blockedAt!=null)throw Error('The account requires review before collection.');
  if(r.consentSnapshot!==b!.agreementSnapshot||r.accountId!==b!.accountId)throw Error('The retained rental/account consent changed.');
@@ -138,7 +221,8 @@ export const record=internalMutation({args:{...idArgs,intentId:v.optional(v.stri
  const next=close?undefined:a.state==='requires_action'?Math.max(Date.now()+300000,(b.actualReturnedAt??Date.now())+SECURITY_COLLECTION_DAYS*86400000+1000):count>=20?undefined:Date.now()+Math.min(6*3600000,300000*2**Math.min(count,7));
  await ctx.db.patch(a.id,{state:a.state,intentId:a.intentId??r.intentId,paidPence:a.paidPence,leaseUntil:undefined,updatedAt:Date.now(),error:a.error,reconcileCount:count,reconcileFailures:0,reconcileNextAt:next});
  if(a.state==='paid'){
-  if(r.kind==='late')await ctx.db.patch(b._id,{lateFeePaidFromCard:(b.lateFeePaidFromCard??0)+a.paidPence/100,lateFeeStatus:(b.lateFeePaidFromCard??0)+a.paidPence/100>= (b.lateFeeAmount??0)?'paid':'partial'});
+  const latePaidPence=latePaidContributionPence(r,a.paidPence);
+  if(latePaidPence>0)await ctx.db.patch(b._id,{lateFeePaidFromCard:(b.lateFeePaidFromCard??0)+latePaidPence/100,lateFeeStatus:(b.lateFeePaidFromCard??0)+latePaidPence/100>= (b.lateFeeAmount??0)?'paid':'partial'});
   if(await ctx.db.get(r.accountId)){
    await postRentalMessage(ctx,{accountId:r.accountId,bookingId:r.bookingId,sender:'system',text:`Stripe confirmed a £${(a.paidPence/100).toFixed(2)} ${r.kind==='late'?'late-return':'damage/loss'} payment. Assessment reference ${String(r._id).slice(-8)}. This is a separate payment, not a captured deposit or hold.`});
    await ctx.scheduler.runAfter(0,internal.securityCharges.sendReceipt,{id:r._id});
@@ -233,9 +317,9 @@ export const recordRefund=internalMutation({args:{...idArgs,receipt:refundReceip
  const refundNoticeSequence=delta>0?(r.refundNoticeSequence??0)+1:r.refundNoticeSequence;
  await ctx.db.patch(r._id,{refundReceipt:a.receipt,refundedPence:a.refundedPence,refundLeaseUntil:undefined,updatedAt:Date.now(),refundReconcileCount:count,refundReconcileAt:finished||count>=12?undefined:Date.now()+Math.min(6*3600000,300000*2**Math.min(count,7)),...(delta>0?{refundNoticeSequence,refundEmailStatus:'queued' as const,refundEmailError:undefined}:{})});
  if(delta>0)await enqueueRefundNotice(ctx,r,refundNoticeSequence!,delta,a.refundedPence,r.refundReason??'Refund confirmed by Stripe.');
- if(delta!==0&&r.kind==='late'){
+ if(delta!==0&&(r.kind==='late'||r.returnAssessment)){
   const b=await ctx.db.get(r.bookingId);
-  if(b){const net=Math.max(0,(b.lateFeePaidFromCard??0)-delta/100);await ctx.db.patch(b._id,{lateFeePaidFromCard:net,lateFeeStatus:net>=(b.lateFeeAmount??0)?'paid':net>0?'partial':'refunded'});}
+  if(b){const priorLate=latePaidContributionPence(r,(r.paidPence??0)-previous),nextLate=latePaidContributionPence(r,(r.paidPence??0)-a.refundedPence),net=Math.max(0,(b.lateFeePaidFromCard??0)-(priorLate-nextLate)/100);await ctx.db.patch(b._id,{lateFeePaidFromCard:net,lateFeeStatus:net>=(b.lateFeeAmount??0)?'paid':net>0?'partial':'refunded'});}
  }
  if(await ctx.db.get(r.accountId)){
   if(a.refundedPence>previous)await postRentalMessage(ctx,{accountId:r.accountId,bookingId:r.bookingId,sender:'system',text:`Stripe confirmed £${((a.refundedPence-previous)/100).toFixed(2)} refunded to the original payment method for assessment ${String(r._id).slice(-8)}. Reason: ${r.refundReason}. This is a cash refund, not account credit.`});
@@ -249,7 +333,7 @@ export const externalRefund=internalMutation({args:{...idArgs,refundedPence:v.nu
  const previous=r.refundedPence??0,delta=a.refundedPence-previous,refundNoticeSequence=delta>0?(r.refundNoticeSequence??0)+1:r.refundNoticeSequence;
  await ctx.db.patch(r._id,{refundedPence:a.refundedPence,updatedAt:Date.now(),...(delta>0?{refundNoticeSequence,refundEmailStatus:'queued' as const,refundEmailError:undefined}:{})});
  if(delta>0)await enqueueRefundNotice(ctx,r,refundNoticeSequence!,delta,a.refundedPence,r.refundReason??'Refund confirmed directly in Stripe.');
- if(delta!==0){const b=await ctx.db.get(r.bookingId);if(b&&r.kind==='late'){const net=Math.max(0,(b.lateFeePaidFromCard??0)-delta/100);await ctx.db.patch(b._id,{lateFeePaidFromCard:net,lateFeeStatus:net>=(b.lateFeeAmount??0)?'paid':net>0?'partial':'refunded'});}
+ if(delta!==0){const b=await ctx.db.get(r.bookingId);if(b&&(r.kind==='late'||r.returnAssessment)){const priorLate=latePaidContributionPence(r,(r.paidPence??0)-previous),nextLate=latePaidContributionPence(r,(r.paidPence??0)-a.refundedPence),net=Math.max(0,(b.lateFeePaidFromCard??0)-(priorLate-nextLate)/100);await ctx.db.patch(b._id,{lateFeePaidFromCard:net,lateFeeStatus:net>=(b.lateFeeAmount??0)?'paid':net>0?'partial':'refunded'});}
   if(delta>0&&await ctx.db.get(r.accountId))await postRentalMessage(ctx,{accountId:r.accountId,bookingId:r.bookingId,sender:'system',text:`Stripe confirmed £${(delta/100).toFixed(2)} refunded to the original payment method for assessment ${String(r._id).slice(-8)}. Reason: ${r.refundReason??'Refund confirmed directly in Stripe.'} This is a cash refund, not account credit.`});
  }
 }});

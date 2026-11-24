@@ -4,6 +4,9 @@ import React, {useSyncExternalStore} from 'react';
 import {createRoot} from 'react-dom/client';
 import {options} from '../../convex/liveRecommendations';
 import {forContext} from '../../convex/recommendations';
+import {forCart as availabilityForCart} from '../../convex/availability';
+import {quote as rentalQuote} from '../../shared/rentalPricing';
+import {rentalPricingDays} from '../../shared/rentalDuration';
 import {Recommendations} from '../../src/components/Recommendations';
 import {BotBubble} from '../../src/components/BotBubble';
 import {OpenGafferChat} from '../../src/components/gaffer/OpenGafferChat';
@@ -39,18 +42,39 @@ class Rows{
  async collect(){return this.rows;}async first(){return this.rows[0]??null;}async take(n:number){return this.rows.slice(0,n);}order(){return this;}
 }
 const ctx={db:{get:async(id:any)=>records.get(String(id))??null,query:(table:string)=>new Rows(table)}};
-let queryDelay=0;
+put('rmv2_sync_state',{key:'shared-stock-v1',status:'ok',cursor:JSON.stringify({checkedAt:Date.now()}),lastSyncedAt:Date.now()});
+let queryDelay=0,extensionUnavailable=false,availabilityVersion=0;
+async function runFixtureQuery(path:any,args:any){
+ if(String(path)==='availability.forCart'&&extensionUnavailable&&args.items.some((item:any)=>item.end>Date.parse(end+'T00:00:00Z')))
+  return Object.fromEntries(args.items.map((item:any)=>[String(item.listingId),{available:0,demanded:1,ok:false}]));
+ const handler=String(path)==='liveRecommendations.options'?(options as any).handler:String(path)==='recommendations.forContext'?(forContext as any).handler:String(path)==='availability.forCart'?(availabilityForCart as any).handler:null;
+ if(!handler)throw Error('Unexpected fixture query '+String(path));
+ return handler(ctx,args);
+}
 export function useFixtureQuery(path:any,args:any){
  useSyncExternalStore(subscribe,()=>version,()=>version);
  if(args==='skip')return undefined;
- const key=String(path)+JSON.stringify(args)+':'+dbVersion;
+ const versionKey=String(path)==='availability.forCart'?availabilityVersion:dbVersion;
+ const key=String(path)+JSON.stringify(args)+':'+versionKey;
  if(!cache.has(key)){
   cache.set(key,{value:undefined});
-  const handler=String(path)==='liveRecommendations.options'?(options as any).handler:String(path)==='recommendations.forContext'?(forContext as any).handler:null;
-  if(!handler)throw Error('Unexpected fixture query '+String(path));
-  Promise.resolve(handler(ctx,args)).then(value=>new Promise(resolve=>setTimeout(()=>resolve(value),queryDelay))).then(value=>{cache.set(key,{value});notify();}).catch(error=>{console.error(error);(window as any).fixture.error=String(error);});
+  Promise.resolve(runFixtureQuery(path,args)).then(value=>new Promise(resolve=>setTimeout(()=>resolve(value),queryDelay))).then(value=>{cache.set(key,{value});notify();}).catch(error=>{console.error(error);(window as any).fixture.error=String(error);});
  }
  return cache.get(key).value;
+}
+export function useFixtureConvex(){return {query:runFixtureQuery};}
+export function useFixtureAction(path:any){
+ if(String(path)!=='checkout.priceQuote')throw Error('Unexpected fixture action '+String(path));
+ return async(args:any)=>{
+  const items=args.items.map((item:any)=>{
+   const listing=records.get(String(item.listingId));
+   if(!listing)throw Error('Fixture listing disappeared.');
+   const days=rentalPricingDays(item.start,item.end,item.pickupTime,item.returnTime);
+   const priced=rentalQuote(listing.pricing,days);
+   return {title:listing.title,total:priced.total,dailyRate:priced.perDay};
+  });
+  return {items};
+ };
 }
 export function useFixtureCart(){
  useSyncExternalStore(subscribe,()=>version,()=>version);
@@ -70,6 +94,9 @@ const requestCounts={model:0};const originalFetch=window.fetch;window.fetch=(inp
  hold:(id:string,ms:number)=>{const l=records.get(id);put('reservations',{inventoryUnitId:l.components[0].inventoryUnitId,start:Date.parse(start+'T00:00:00Z'),end:Date.parse(end+'T00:00:00Z'),qty:1,status:'hold',holdExpiresAt:Date.now()+ms});dbVersion++;notify();},
  release:()=>{tables.set('reservations',[]);dbVersion++;notify();},
  reset:()=>{tables.set('reservations',[]);basket=[cartItem(ef),cartItem(bag)];localStorage.clear();dbVersion++;mode='recommendations';notify();},
+ setExtensionUnavailable:(value:boolean)=>{extensionUnavailable=value;availabilityVersion++;notify();},
+ expected:(id:string,days:number)=>{const l=records.get(id);return rentalQuote(l.pricing,days);},
+ period:{start,end},
  ids:{ef:ef._id,e:sony._id,light:light._id,spare:spare._id,efLens:efLens._id,eLens:eLens._id},
 };
 function App(){useSyncExternalStore(subscribe,()=>version,()=>version);return mode.startsWith('assembly')?<Assemble key={mode}/>:mode==='chat'?<><OpenGafferChat/><BotBubble/></>:<Recommendations start={start} end={end} days={2}/>;}

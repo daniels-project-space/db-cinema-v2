@@ -9,7 +9,7 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { useGafferFocus } from "@/components/gaffer/GafferFocus";
 import { SmartImage } from "@/components/SmartImage";
 import { IconHeart, IconCheck } from "@/components/icons";
-import { money } from "@/lib/pricing";
+import { formatRate, quote } from "@/lib/pricing";
 import { getSessionId } from "@/lib/session";
 
 export type GearListing = {
@@ -19,20 +19,18 @@ export type GearListing = {
   category: string;
   itemType?: string | null;
   isPackage?: boolean | null;
+  marketingOnly?: boolean | null;
   heroImage: string | null;
   imageSources?: string[];
   pricing: { daily: number; day3?: number; day7?: number };
   depositAmount: number;
   minimumRentalDays: number;
-  quietDeal?: number | null;
   displayOnly?: boolean | null;
   bookable?: boolean;
 };
 
-const off = (n: number, pct: number) => Math.round(n * (1 - pct / 100));
-
 export function GearCard({ listing, mobileCompact = false, priorityImage = false }: { listing: GearListing; mobileCompact?: boolean; priorityImage?: boolean }) {
-  const { slug, title, category, heroImage, pricing, quietDeal, displayOnly } = listing;
+  const { slug, title, category, heroImage, pricing, displayOnly } = listing;
   const account = useAccount();
   const router = useRouter();
   const track = useMutation(api.analytics.track);
@@ -108,14 +106,6 @@ export function GearCard({ listing, mobileCompact = false, priorityImage = false
           <span className="absolute left-2.5 top-2.5 z-10 rounded-full bg-sky-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
             Display only
           </span>
-        ) : listing.bookable === false ? (
-          <span className="absolute left-2.5 top-2.5 z-10 rounded-full border border-amber-300/30 bg-black/70 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-100 shadow-lg backdrop-blur">
-            Request to confirm
-          </span>
-        ) : quietDeal ? (
-          <span className="absolute left-2.5 top-2.5 z-10 rounded-full bg-emerald-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
-            −{quietDeal}% quiet deal
-          </span>
         ) : null}
         <SmartImage fit="contain"
           src={heroImage}
@@ -134,25 +124,22 @@ export function GearCard({ listing, mobileCompact = false, priorityImage = false
         <h3 className="line-clamp-2 flex-1 text-sm leading-snug text-white/85 transition-colors group-hover:text-white">
           {title}
         </h3>
-        {displayOnly ? <span className="mt-1 text-xs text-sky-200/80">Available by request</span> : (
+        {!displayOnly ? (
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <div className="flex items-baseline gap-1">
+            <div className="flex flex-wrap items-baseline gap-x-1">
               <span className="font-display text-xl font-bold text-accent-400 sm:text-2xl">
-              £{money(quietDeal ? off(pricing.daily, quietDeal) : pricing.daily)}
+              £{formatRate(pricing.daily)}
             </span>
             <span className="text-sm text-white/40">/day</span>
-            {quietDeal ? (
-              <span className="text-xs text-white/30 line-through">£{money(pricing.daily)}</span>
-            ) : null}
             {pricing.day7 ? (
               <span className="ml-auto font-mono text-[11px] text-white/35">
-                £{money(quietDeal ? off(pricing.day7, quietDeal) : pricing.day7)}/d · 7+
+                7-day £{formatRate(quote(pricing, 7).total)}
               </span>
             ) : null}
             </div>
-            <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-white/50 sm:text-xs">Choose dates <span aria-hidden="true" className="text-accent-300">→</span></span>
+            <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-white/50 sm:text-xs">{listing.bookable === false ? "View details" : "Choose dates"} <span aria-hidden="true" className="text-accent-300">→</span></span>
           </div>
-        )}
+        ) : null}
       </div>
       </Link>
       {displayOnly && <button

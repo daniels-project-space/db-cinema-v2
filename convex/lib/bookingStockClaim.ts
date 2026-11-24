@@ -1,6 +1,7 @@
 import { bookingStockLines, rentalWindow } from "../../shared/rentalWindow";
 import { stockTimePrecision } from "./stockWindows";
 import { verificationValidUntil } from "../../shared/verificationProgress";
+import { storedBookingComponents } from "./bookingComponentAllocation";
 
 export function bookingReadyForStockClaim(booking:any,sessionId:string,paymentIntentId?:string) {
   if(!booking || !["pending_payment","pending_verification"].includes(booking.status) || booking.cancellationDecision || booking.returnDecision || booking.stripeCheckoutSessionId!==sessionId || booking.stripePaymentIntentId && booking.stripePaymentIntentId!==paymentIntentId) return false;
@@ -12,9 +13,10 @@ export async function bookingClaimItems(ctx:any,booking:any) {
   for(const line of bookingStockLines(booking) as any[]){
     if(!Number.isSafeInteger(line.qty)||line.qty<1)throw Error("Booking stock quantity needs review.");
     const listing=await ctx.db.get(line.listingId);
-    if(!listing?.components?.length)throw Error("Booking equipment mapping needs review.");
+    const components = await storedBookingComponents(ctx,line,booking._id) ?? listing?.components;
+    if(!components?.length)throw Error("Booking equipment mapping needs review.");
     const window=rentalWindow(line,precision);
-    for(const component of listing.components){
+    for(const component of components){
       const unit=await ctx.db.get(component.inventoryUnitId),itemId=unit?.rmv2ItemId,quantity=component.qty*line.qty;
       if(typeof itemId!=="string"||!itemId||itemId.length>255||!Number.isSafeInteger(component.qty)||component.qty<1||!Number.isSafeInteger(quantity)||quantity<1||quantity>100||unitIds.has(itemId)&&unitIds.get(itemId)!==String(component.inventoryUnitId))throw Error("Booking manager stock mapping needs review.");
       unitIds.set(itemId,String(component.inventoryUnitId));

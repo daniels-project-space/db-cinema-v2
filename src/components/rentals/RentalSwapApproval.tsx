@@ -5,12 +5,14 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { formatGbp } from "@/lib/pricing";
 import { SmartImage } from "@/components/SmartImage";
+import { approvedStripeCheckoutUrl } from "@/lib/chatLinks";
+import { renterFacingError } from "@/lib/renterFacingError";
 
 export function RentalSwapApproval({token,bookingId,swapId}:{token:string;bookingId:string;swapId:string}) {
   const proposal=useQuery(api.rentalSwapState.customerProposal,{token,bookingId:bookingId as any,id:swapId as any});
   const accept=useAction(api.rentalSwapPayments.accept);
   const decline=useMutation(api.rentalSwapState.customerDecline);
-  const [confirmed,setConfirmed]=useState(false),[busy,setBusy]=useState(false),[notice,setNotice]=useState("");
+  const [confirmed,setConfirmed]=useState(false),[useAccountCredit,setUseAccountCredit]=useState(false),[busy,setBusy]=useState(false),[notice,setNotice]=useState("");
   if(proposal===undefined)return <p className="mt-3 text-xs text-white/60">Loading equipment proposal…</p>;
   if(proposal===null)return <p className="mt-3 text-xs text-white/60">This equipment proposal is unavailable for this account.</p>;
 
@@ -35,6 +37,9 @@ export function RentalSwapApproval({token,bookingId,swapId}:{token:string;bookin
     pending?"Your rental dates stay the same.":"Continue below to finish this change.";
   const amountLabel=proposal.deltaPence>0?"Additional payment":proposal.deltaPence<0?"Refund to original card":"No card difference";
   const amount=proposal.deltaPence===0?formatGbp(0):`${proposal.deltaPence>0?"+":"−"}${formatGbp(Math.abs(proposal.deltaPence)/100)}`;
+  const availableCreditPence=Math.max(0,proposal.availableAccountCreditPence??0);
+  const creditToApplyPence=pending&&useAccountCredit&&proposal.deltaPence>0?Math.min(proposal.deltaPence,availableCreditPence):proposal.creditAppliedPence??0;
+  const cardDuePence=proposal.deltaPence>0?Math.max(0,proposal.deltaPence-creditToApplyPence):0;
 
   return <section aria-label="Equipment change proposal" data-testid="rental-swap-approval" className="relative isolate mt-3 w-full max-w-[680px] overflow-hidden rounded-[18px] border border-[#d3ac7a]/25 bg-[linear-gradient(145deg,rgba(52,43,32,.72),rgba(26,27,27,.94)_48%,rgba(19,20,20,.96))] p-3 text-xs text-[#f5eee4] shadow-[0_16px_42px_rgba(0,0,0,.28)] backdrop-blur-xl sm:p-4">
     <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-14 h-36 w-36 rounded-full bg-[#d8ae7a]/[0.07] blur-3xl"/>
@@ -47,33 +52,46 @@ export function RentalSwapApproval({token,bookingId,swapId}:{token:string;bookin
     </header>
 
     <div className="relative mt-3 grid gap-2">
-      {changes.map((change:any,index:number)=><article key={`${change.oldTitle}:${index}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)_22px_minmax(0,1fr)] items-center gap-2 rounded-2xl border border-white/[0.09] bg-black/20 p-2.5 sm:gap-3 sm:p-3">
+      {changes.map((change:any,index:number)=>{const lineTotals=proposal.lineRentalTotals?.[index];return <article key={`${change.oldTitle}:${index}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)_22px_minmax(0,1fr)] items-center gap-2 rounded-2xl border border-white/[0.09] bg-black/20 p-2.5 sm:gap-3 sm:p-3">
         <div className="min-w-0">
           <p className="mb-1 text-[9px] font-medium uppercase tracking-[0.14em] text-white/45">Current</p>
           <SmartImage fit="contain" src={change.oldImageSources?.[0]} fallbackSources={change.oldImageSources?.slice(1)} alt={`${change.oldTitle} listing photo`} className="h-[68px] w-full rounded-xl border border-white/[0.08] bg-black/25 object-contain sm:h-[82px]"/>
           <p className="mt-1.5 line-clamp-2 min-h-8 break-words text-[10px] font-medium leading-4 text-white/80">{change.quantity} × {change.oldTitle}</p>
+          {lineTotals&&<p className="mt-1 text-[9px] tabular-nums text-white/50">Rental subtotal · {formatGbp(lineTotals.oldTotalPence/100)}</p>}
         </div>
-        <span aria-hidden="true" className="grid h-7 w-7 place-items-center rounded-full border border-[#d8ae7a]/20 bg-[#d8ae7a]/[0.08] text-sm text-[#e5bd91]">→</span>
-        <div className="min-w-0">
+        {change.action === "remove" ? <span aria-hidden="true" className="grid h-7 w-7 place-items-center rounded-full border border-rose-200/15 bg-rose-200/[0.04] text-sm text-rose-100/70">−</span> : <span aria-hidden="true" className="grid h-7 w-7 place-items-center rounded-full border border-[#d8ae7a]/20 bg-[#d8ae7a]/[0.08] text-sm text-[#e5bd91]">→</span>}
+        {change.action === "remove" ? <div data-testid="renter-equipment-removal" className="flex min-h-[103px] min-w-0 flex-col justify-center rounded-xl border border-rose-200/10 bg-rose-200/[0.025] px-2.5 sm:min-h-[119px]">
+          <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-rose-100/55">Remove</p>
+          <p className="mt-1 break-words text-[11px] font-medium leading-4 text-white/80">{change.quantity} × {change.oldTitle}</p>
+          {lineTotals&&<p className="mt-1 text-[9px] tabular-nums text-white/50">New subtotal · {formatGbp(lineTotals.newTotalPence/100)}</p>}
+          <p className="mt-1.5 text-[9px] leading-3 text-white/45">{proposal.status === "applied" && !proposal.stockPending ? "Removed from this rental." : "Stays on your rental until the change completes."}</p>
+        </div> : <div className="min-w-0">
           <p className="mb-1 text-[9px] font-medium uppercase tracking-[0.14em] text-[#e4bd91]/70">New</p>
           <SmartImage fit="contain" src={change.newImageSources?.[0]} fallbackSources={change.newImageSources?.slice(1)} alt={`${change.newTitle} listing photo`} className="h-[68px] w-full rounded-xl border border-white/[0.08] bg-black/25 object-contain sm:h-[82px]"/>
           <p className="mt-1.5 line-clamp-2 min-h-8 break-words text-[10px] font-medium leading-4 text-white/90">{change.quantity} × {change.newTitle}</p>
-        </div>
-      </article>)}
+          {lineTotals&&<p className="mt-1 text-[9px] tabular-nums text-white/50">Rental subtotal · {formatGbp(lineTotals.newTotalPence/100)}</p>}
+        </div>}
+      </article>})}
     </div>
 
     <div className="relative mt-2.5 flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[#d8ae7a]/20 bg-[#d8ae7a]/[0.06] px-3 py-2.5">
-      <span className="min-w-0 text-[10px] font-medium uppercase tracking-[0.12em] text-white/55">{amountLabel}</span>
+      <div className="min-w-0"><p className="text-[9px] font-semibold uppercase tracking-[0.13em] text-white/50">Whole-basket difference</p><p className="mt-0.5 text-[10px] text-white/75">{amountLabel}{proposal.deltaPence>0&&creditToApplyPence>0?` · ${formatGbp(cardDuePence/100)} due by card`:""}</p></div>
       <strong className="shrink-0 text-lg font-semibold tabular-nums text-[#f3d0a2]">{amount}</strong>
     </div>
+    {pending&&proposal.deltaPence>0&&availableCreditPence>0&&<label className="relative mt-2 flex cursor-pointer items-start gap-2.5 rounded-xl border border-emerald-200/15 bg-emerald-200/[0.035] p-2.5 text-[11px] leading-4 text-white/80">
+      <input type="checkbox" checked={useAccountCredit} disabled={busy} onChange={event=>setUseAccountCredit(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-300"/>
+      <span className="min-w-0 flex-1">Use account credit <strong className="font-semibold tabular-nums">up to {formatGbp(Math.min(proposal.deltaPence,availableCreditPence)/100)}</strong>{useAccountCredit&&<span className="block mt-1 text-[10px] text-white/55">{formatGbp(creditToApplyPence/100)} credit · {formatGbp(cardDuePence/100)} by card</span>}</span>
+    </label>}
+    {proposal.lineRentalTotals?.length>0&&<p className="relative mt-1.5 text-[9px] leading-3 text-white/45">Item subtotals are before shared discounts and credits. This is one net card adjustment for the full basket.</p>}
     {proposal.restoreCreditPence>0&&<p className="relative mt-2 text-[10px] text-white/65">Credit restored <strong className="ml-1 font-semibold tabular-nums text-white/85">{formatGbp(proposal.restoreCreditPence/100)}</strong></p>}
     <p className="relative mt-2 text-[11px] leading-4 text-white/65">{statusCopy}</p>
+    {pending&&!expired&&<p className="relative mt-2 rounded-xl border border-white/[0.08] bg-black/15 px-3 py-2 text-[10px] leading-4 text-white/60">Nothing is charged or refunded until you accept.</p>}
 
     <details className="relative mt-2.5 rounded-xl border border-white/[0.08] bg-black/15 px-3 py-2 text-[10px] text-white/65">
       <summary className="cursor-pointer list-none font-medium text-white/80 marker:hidden">Terms & timing <span aria-hidden="true" className="float-right text-white/45">⌄</span></summary>
       <div className="mt-2 space-y-1.5 leading-4">
         <p>Your existing rental dates stay the same.</p>
-        {proposal.deltaPence>0&&<p>Accept to continue to secure Stripe checkout. The additional payment is shown above.</p>}
+        {proposal.deltaPence>0&&<p>Accept to continue. Any selected account credit is reserved now; the remainder opens secure Stripe checkout.</p>}
         {proposal.deltaPence<0&&<p>If accepted, the refund goes to your original card and may take time to appear.</p>}
         {proposal.deltaPence===0&&<p>No extra card payment or refund is due for this change.</p>}
         <p>The equipment update is applied through the rental change process.</p>
@@ -84,8 +102,8 @@ export function RentalSwapApproval({token,bookingId,swapId}:{token:string;bookin
       <input type="checkbox" checked={confirmed} disabled={busy} onChange={event=>setConfirmed(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[#d5aa7c]"/>
       <span>I accept this equipment change and the amount shown.</span>
     </label>}
-    {pending&&!expired&&<button type="button" disabled={busy} onClick={async()=>{setBusy(true);setNotice("");try{const result=await decline({token,id:proposal.id});setNotice(result.expired?"This proposal expired. Your existing kit and rental dates stay the same.":"Change declined. Your existing kit and rental dates stay the same.");}catch(error){setNotice(error instanceof Error?error.message:"The change could not be declined. Please contact the team.");}finally{setBusy(false);}}} className="relative mt-3 inline-flex min-h-10 w-full items-center justify-center rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-[12px] font-medium text-white/80 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40 sm:ml-2 sm:w-auto">Decline change</button>}
-    {canContinue&&<button type="button" disabled={busy||pending&&!confirmed} onClick={async()=>{setBusy(true);setNotice("");try{const result=await accept({token,id:proposal.id,expectedDeltaPence:proposal.deltaPence,confirmed:true});if(result.url){const url=new URL(result.url);if(url.protocol!=="https:"||url.hostname!=="checkout.stripe.com")throw Error("The payment link could not be verified. Please contact the team.");window.location.assign(url.toString());}else setNotice(result.applied?"The change is being processed. Check this conversation for confirmation.":result.refunded?"The additional payment was refunded.":result.status==="awaiting_review"?"The refund needs team approval; we will update you here.":result.status==="needs_review"?"The refund needs team review; we will update you here.":"The change is being processed. Please check back here.");}catch(error){setNotice(error instanceof Error?error.message:"The change could not be continued. Please contact the team.");}finally{setBusy(false);}}} className="relative mt-3 inline-flex min-h-10 w-full items-center justify-center rounded-xl border border-[#e3c39e]/50 bg-[linear-gradient(130deg,#d9b084,#bd8a65)] px-4 py-2.5 text-[12px] font-semibold text-[#21180f] shadow-[0_8px_20px_rgba(169,119,78,.18)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:min-w-44">{busy?"Checking…":pending?"Accept equipment change":proposal.status==="awaiting_payment"?"Continue to secure payment":"Check progress"}</button>}
+    {pending&&!expired&&<button type="button" disabled={busy} onClick={async()=>{setBusy(true);setNotice("");try{const result=await decline({token,id:proposal.id});setNotice(result.expired?"This proposal expired. Your existing kit and rental dates stay the same.":"Change declined. Your existing kit and rental dates stay the same.");}catch(error){setNotice(renterFacingError(error,"The change could not be declined. Your existing kit and dates stay the same."));}finally{setBusy(false);}}} className="relative mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-[12px] font-medium text-white/80 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40 sm:ml-2 sm:w-auto">Decline change</button>}
+    {canContinue&&<button type="button" disabled={busy||pending&&!confirmed} onClick={async()=>{setBusy(true);setNotice("");try{const result=await accept({token,id:proposal.id,expectedDeltaPence:proposal.deltaPence,confirmed:true,useAccountCredit:pending?useAccountCredit:!!proposal.creditOptIn});if(result.url){const paymentUrl=approvedStripeCheckoutUrl(result.url);if(!paymentUrl)throw Error("The payment link could not be verified. Please contact the team.");window.location.assign(paymentUrl);}else setNotice(result.applied?"The change is being processed. Check this conversation for confirmation.":result.refunded?"The additional payment was refunded.":result.status==="awaiting_review"?"The refund needs team approval; we will update you here.":result.status==="needs_review"?"The refund needs team review; we will update you here.":"The change is being processed. Please check back here.");}catch(error){setNotice(renterFacingError(error,"The change could not be continued. Your original kit and dates stay in place."));}finally{setBusy(false);}}} className="relative mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-[#e3c39e]/50 bg-[linear-gradient(130deg,#d9b084,#bd8a65)] px-4 py-2.5 text-[12px] font-semibold text-[#21180f] shadow-[0_8px_20px_rgba(169,119,78,.18)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:min-w-44">{busy?"Checking…":pending?"Accept equipment change":proposal.status==="awaiting_payment"?"Continue to secure payment":"Check progress"}</button>}
     {notice&&<p role="status" className="relative mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] leading-4 text-white/75">{notice}</p>}
   </section>;
 }

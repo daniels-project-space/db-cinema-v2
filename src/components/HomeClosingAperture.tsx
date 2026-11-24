@@ -136,7 +136,6 @@ export function HomeClosingAperture() {
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerCancel={release}
-        onFocus={start}
         onBlur={release}
         onClick={() => openNow(apertureButton.current)}
       >

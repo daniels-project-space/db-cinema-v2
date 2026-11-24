@@ -38,6 +38,12 @@ async function main() {
   const renter = await pair('renter', 100);
   for (const through of [renter.newer, renter.older]) await client.mutation(ref('rentalChat:markRead'), { token: 'synthetic-admin', admin: true, accountId: fixture.accountId, through });
   assert.equal((await client.query(ref('chat_read_qualify:thread'), { threadId: fixture.threadId })).unreadOwner, 0);
+  const emailRead = await client.mutation(ref('chat_read_qualify:linkedEmailReadState'), { accountId: fixture.accountId, bookingId: fixture.bookingId });
+  await client.mutation(ref('rentalChat:markRead'), { token: 'synthetic-admin', admin: true, accountId: fixture.accountId, bookingId: fixture.bookingId, through: emailRead.read.profileMessageId });
+  const emailThreadIds = [emailRead.read, emailRead.newer, emailRead.general, emailRead.otherBooking, emailRead.otherAccount].map(row => row.emailThreadId);
+  assert.deepEqual(await client.query(ref('chat_read_qualify:emailReadStates'), { threadIds: emailThreadIds }), [0, 2, 2, 2, 2], 'only the exact account-and-booking email thread is marked read; newer, general, other-booking, and other-account mail stays unread');
+  await client.mutation(ref('rentalChat:markRead'), { token: 'synthetic-admin', admin: true, accountId: fixture.accountId, bookingId: fixture.bookingId, through: emailRead.read.profileMessageId });
+  assert.deepEqual(await client.query(ref('chat_read_qualify:emailReadStates'), { threadIds: emailThreadIds }), [0, 2, 2, 2, 2], 'retrying the same rental read marker is idempotent and does not affect adjacent email threads');
   const owner = await pair('owner', 101);
   for (const through of [owner.newer, owner.older]) await client.mutation(ref('rentalChat:markRead'), { token: 'synthetic-chat-owner', through });
   assert.equal((await client.query(ref('chat_read_qualify:thread'), { threadId: fixture.threadId })).unreadRenter, 0);

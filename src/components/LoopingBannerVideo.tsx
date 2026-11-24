@@ -7,7 +7,6 @@ export function LoopingBannerVideo({ src, mobileSrc, poster, mobileAutoplay = fa
   const userRequestedPlayback = useRef(false);
   const playbackWatchdog = useRef<number | null>(null);
   const [playbackBlocked, setPlaybackBlocked] = useState(false);
-  const [mobileViewport, setMobileViewport] = useState(false);
 
   const ensureViewportSource = useCallback((video: HTMLVideoElement) => {
     const nextSrc = window.matchMedia("(max-width: 767px)").matches ? mobileSrc ?? src : src;
@@ -25,7 +24,6 @@ export function LoopingBannerVideo({ src, mobileSrc, poster, mobileAutoplay = fa
     const viewport = window.matchMedia("(max-width: 767px)");
     let visible = false;
     let canPlayRetryRegistered = false;
-    setMobileViewport(viewport.matches);
     const clearPlaybackWatchdog = () => {
       if (playbackWatchdog.current !== null) {
         window.clearTimeout(playbackWatchdog.current);
@@ -34,6 +32,11 @@ export function LoopingBannerVideo({ src, mobileSrc, poster, mobileAutoplay = fa
     };
     const playbackStarted = () => {
       clearPlaybackWatchdog();
+      if (motion.matches && !userRequestedPlayback.current) {
+        video.pause();
+        setPlaybackBlocked(true);
+        return;
+      }
       setPlaybackBlocked(false);
     };
     const playbackFailed = () => {
@@ -42,14 +45,14 @@ export function LoopingBannerVideo({ src, mobileSrc, poster, mobileAutoplay = fa
     };
     const retryAfterCanPlay = () => {
       canPlayRetryRegistered = false;
-      if (!visible || document.hidden || !video.paused) return;
+      if (!visible || document.hidden || !video.paused || (motion.matches && !userRequestedPlayback.current)) return;
       void video.play().then(playbackStarted).catch(playbackFailed);
     };
     const playVisibleVideo = () => {
       video.muted = true;
       video.playsInline = true;
       video.setAttribute("webkit-playsinline", "true");
-      video.autoplay = viewport.matches && mobileAutoplay || userRequestedPlayback.current;
+      video.autoplay = !motion.matches && viewport.matches && mobileAutoplay || userRequestedPlayback.current;
       if (!video.paused && !video.ended) {
         playbackStarted();
         return;
@@ -71,23 +74,25 @@ export function LoopingBannerVideo({ src, mobileSrc, poster, mobileAutoplay = fa
       });
     };
     const sync = () => {
-      const mobileViewport = viewport.matches;
-      if (visible && !document.hidden && (!motion.matches || userRequestedPlayback.current || (mobileViewport && mobileAutoplay))) {
+      if (visible && !document.hidden && (!motion.matches || userRequestedPlayback.current)) {
         ensureViewportSource(video);
         playVisibleVideo();
       } else {
         video.pause();
-        if (visible && motion.matches && !(mobileViewport && mobileAutoplay)) setPlaybackBlocked(true);
+        if (visible && motion.matches && !userRequestedPlayback.current) setPlaybackBlocked(true);
       }
+    };
+    const onMotionChange = () => {
+      if (motion.matches) userRequestedPlayback.current = false;
+      sync();
     };
     const observer = new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; sync(); }, { threshold: 0.05 });
     const onError = playbackFailed;
     observer.observe(video);
     video.addEventListener("error", onError);
     video.addEventListener("playing", playbackStarted);
-    motion.addEventListener("change", sync);
+    motion.addEventListener("change", onMotionChange);
     const onViewportChange = () => {
-      setMobileViewport(viewport.matches);
       sync();
     };
     viewport.addEventListener("change", onViewportChange);
@@ -98,7 +103,7 @@ export function LoopingBannerVideo({ src, mobileSrc, poster, mobileAutoplay = fa
       video.removeEventListener("canplay", retryAfterCanPlay);
       video.removeEventListener("error", onError);
       video.removeEventListener("playing", playbackStarted);
-      motion.removeEventListener("change", sync);
+      motion.removeEventListener("change", onMotionChange);
       viewport.removeEventListener("change", onViewportChange);
       document.removeEventListener("visibilitychange", sync);
       video.pause();
@@ -118,7 +123,7 @@ export function LoopingBannerVideo({ src, mobileSrc, poster, mobileAutoplay = fa
 
   return (
     <>
-      <video ref={ref} className="absolute inset-0 h-full w-full object-cover object-center" poster={poster} autoPlay={mobileAutoplay && mobileViewport} muted loop playsInline preload="none" aria-hidden="true" />
+      <video ref={ref} className="absolute inset-0 h-full w-full object-cover object-center" poster={poster} muted loop playsInline preload="none" aria-hidden="true" />
       {playbackBlocked && (
         <button
           type="button"

@@ -1,4 +1,4 @@
-import { unlockLoyalty, encoreGate } from "./lib/loyalty";
+import { encoreGate, loyaltyProgress, unlockLoyalty } from "./lib/loyalty";
 import { REVIEW_PRIZE_GBP } from "../shared/reviewPrize";
 import {
   query,
@@ -217,6 +217,7 @@ export const submit = mutation({
       .first();
     if (review && review.authorAccountId !== account._id)
       throw Error("Review ownership mismatch.");
+    const beforeEncore = await loyaltyProgress(ctx, account);
     let reviewId = review?._id;
     if (!reviewId)
       reviewId = await ctx.db.insert("reviews", {
@@ -228,11 +229,17 @@ export const submit = mutation({
         product: b.lineItems[0]?.title,
         verifiedBookingId: b._id,
         date: Date.now(),
-        published: true,
-        incentivized: true,prizeEntry:true,encoreReward:!encoreGate(b),
+        published: false,
+        moderationStatus: "pending",
+        moderationAt: undefined,
+        moderationNote: undefined,
+        incentivized: true,prizeEntry:true,encoreReward:false,
       });
-    else await ctx.db.patch(reviewId, { incentivized: true,prizeEntry:true,encoreReward:review?.encoreReward||!encoreGate(b) });
-    await unlockLoyalty(ctx,account);
+    else await ctx.db.patch(reviewId, { incentivized: true,prizeEntry:true,encoreReward:review?.encoreReward??false });
+    const afterEncore = await unlockLoyalty(ctx,account);
+    const encoreReward = review?.encoreReward === true ||
+      (encoreGate(await reviewContext(ctx, b)) === null && afterEncore.level > beforeEncore.level);
+    if (encoreReward) await ctx.db.patch(reviewId, { incentivized: true, encoreReward: true });
     const patch = {
       accountId: account._id,
       bookingId: b._id,

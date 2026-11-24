@@ -2,7 +2,7 @@ export type MembershipSelection = {
   tier: string;
   intro: "trial" | "none";
   termsAccepted: boolean;
-  /** Versions visible at the instant a guest accepts account creation terms. */
+  /** Current account Terms and Privacy versions accepted with the rental consent. */
   accountTermsAcceptedVersion?: string;
   privacyNoticeAcceptedVersion?: string;
 };

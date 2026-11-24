@@ -1,5 +1,8 @@
-import { SINGLE_BENEFIT_VERSION } from "../../shared/rentalBenefits";
+import { CREDIT_FUNDING_VERSION, SINGLE_BENEFIT_VERSION } from "../../shared/rentalBenefits";
 import { checkoutCreditSources, checkoutLineAllocation } from "../../shared/checkoutLineAllocation";
+import { weekendDays } from "../../shared/membership";
+import { rentalPricingDays } from "../../shared/rentalDuration";
+import { quote as pricingQuote } from "./pricing";
 
 type Source = { creditId: any; amountPence: number; kind: "refund" | "earned"; membershipGrantId?: any; membershipInvoiceId?: string };
 type Restore = Source | { amountPence: number; kind: "membership"; membershipGrantId: any; membershipInvoiceId: string };
@@ -24,12 +27,33 @@ function pence(value: unknown): number {
   return Math.round(value * 100);
 }
 
+const WEEKEND_BENEFIT_CAP_PENCE = 10_000;
+
+async function weekendSavingForLine(ctx: any, line: any) {
+  if (!Number.isSafeInteger(line?.qty) || line.qty < 1 || !Number.isSafeInteger(line.start) || !Number.isSafeInteger(line.end))
+    throw Error("The weekend benefit cannot be safely repriced; manual settlement review is required.");
+  if (!weekendDays(line.start, line.end)) return 0;
+  const listing = await ctx.db.get(line.listingId);
+  if (!listing?.pricing) throw Error("The weekend benefit cannot be safely repriced; manual settlement review is required.");
+  const days = rentalPricingDays(line.start, line.end, line.pickupTime, line.returnTime);
+  const grossPence = pence(pricingQuote(listing.pricing, days).total * line.qty);
+  if (grossPence !== pence(line.lineTotal))
+    throw Error("The catalog price changed since this rental was agreed; manual weekend-benefit review is required.");
+  const saving = Math.max(0, pricingQuote(listing.pricing, days).total - pricingQuote(listing.pricing, days - 1).total);
+  return pence(saving * line.qty);
+}
+
+async function weekendDiscountForLines(ctx: any, lines: any[]) {
+  const savings = await Promise.all(lines.map(line => weekendSavingForLine(ctx, line)));
+  return Math.min(WEEKEND_BENEFIT_CAP_PENCE, savings.reduce((sum, saving) => sum + saving, 0));
+}
+
 /** Derive a one-item quote only from checkout's exact funding snapshot. */
 export async function quoteSwapFunding(ctx: any, booking: any, lineIndex: number, replacement: any) {
   const line = booking.lineItems?.[lineIndex], funding = booking.checkoutLineFunding?.[lineIndex];
   if (!Number.isSafeInteger(lineIndex) || lineIndex < 0 || !line || !funding || booking.checkoutLineFunding.length !== booking.lineItems.length)
     throw Error("The original item funding is unavailable; manual settlement review is required.");
-  if (booking.pricingVersion !== SINGLE_BENEFIT_VERSION)
+  if (![SINGLE_BENEFIT_VERSION,CREDIT_FUNDING_VERSION].includes(booking.pricingVersion))
     throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
   if (String(line.listingId) !== String(funding.listingId) || line.start !== funding.start || line.end !== funding.end || line.qty !== funding.qty || !Number.isSafeInteger(line.qty) || line.qty < 1 || pence(line.lineTotal) !== pence(funding.gross))
     throw Error("The original item no longer matches its funding snapshot; manual settlement review is required.");
@@ -37,19 +61,21 @@ export async function quoteSwapFunding(ctx: any, booking: any, lineIndex: number
     throw Error("A replacement must retain the original item's dates and quantity.");
   const gross = pence(funding.gross), discount = pence(funding.discount), membership = pence(funding.membershipCredit), accountCredit = pence(funding.accountCredit), card = pence(funding.card), nextGross = pence(replacement.lineTotal);
   let nextDiscount = 0;
-  if (booking.benefitKind === "loyalty" || booking.benefitKind === "earned_credit" && booking.lineItems.length > 1 || booking.benefitKind === "referral_reward") {
+  if (booking.benefitKind === "weekend" || booking.benefitKind === "loyalty" || booking.benefitKind === "earned_credit" && booking.lineItems.length > 1 || booking.benefitKind === "referral_reward") {
     const earnedBenefit=booking.benefitKind === "earned_credit",referralBenefit=booking.benefitKind === "referral_reward";
+    const weekendBenefit=booking.benefitKind === "weekend";
     const rule = earnedBenefit ? {version:"encore-percent-v1",percent:0} : referralBenefit
       ? {version:"encore-percent-v1",percent:await referralRewardPercent(ctx,booking,pence(booking.subtotal),pence(booking.discount))}
-      : booking.swapBenefitRule;
+      : weekendBenefit ? {version:"weekend-cap-v1",percent:0} : booking.swapBenefitRule;
     const validPercent = earnedBenefit ? rule?.percent === 0 : referralBenefit
       ? Number.isSafeInteger(rule?.percent) && rule.percent >= 1 && rule.percent <= 100
+      : weekendBenefit ? rule?.version === "weekend-cap-v1"
       : [2,4,10].includes(rule?.percent);
-    if (rule?.version !== "encore-percent-v1" || !validPercent || pence(booking.membershipSignupOfferSaving ?? 0) !== 0)
+    if ((!weekendBenefit && rule?.version !== "encore-percent-v1") || !validPercent || pence(booking.membershipSignupOfferSaving ?? 0) !== 0)
       throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
     if (booking.lineItems.length > 1) {
       const memberCredit=pence(booking.membershipCreditApplied ?? 0),refundCredit=pence(booking.refundCreditApplied ?? 0),earnedCredit=pence(booking.earnedCreditApplied ?? 0),creditTotal=refundCredit+earnedCredit,delivery=pence(booking.deliveryFee ?? 0);
-      if (!Number.isSafeInteger(creditTotal+memberCredit) || pence(booking.creditApplied ?? 0)!==creditTotal+memberCredit || !earnedBenefit&&(memberCredit!==0||earnedCredit!==0) || !Array.isArray(booking.creditAllocations) || !Array.isArray(booking.checkoutLineCreditSources))
+      if (!Number.isSafeInteger(creditTotal+memberCredit) || pence(booking.creditApplied ?? 0)!==creditTotal+memberCredit || booking.pricingVersion!==CREDIT_FUNDING_VERSION&&!earnedBenefit&&(memberCredit!==0||earnedCredit!==0) || !Array.isArray(booking.creditAllocations) || !Array.isArray(booking.checkoutLineCreditSources))
         throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
       const rows = booking.checkoutLineFunding.map((row:any,index:number)=>{
         const item=booking.lineItems[index],rowGross=pence(row.gross),rowDiscount=pence(row.discount),rowMember=pence(row.membershipCredit),rowCredit=pence(row.accountCredit),rowCard=pence(row.card);
@@ -58,14 +84,15 @@ export async function quoteSwapFunding(ctx: any, booking: any, lineIndex: number
         return {row,gross:rowGross,discount:rowDiscount,member:rowMember,credit:rowCredit,card:rowCard};
       });
       const originalGross=rows.reduce((sum:number,row:any)=>sum+row.gross,0),originalDiscount=rows.reduce((sum:number,row:any)=>sum+row.discount,0);
-      if(!Number.isSafeInteger(originalGross) || !Number.isSafeInteger(originalDiscount) || !Number.isSafeInteger(originalGross*rule.percent) || pence(booking.subtotal)!==originalGross || pence(booking.discount)!==originalDiscount || originalDiscount!==Math.round(originalGross*rule.percent/100))
+      const expectedOriginalDiscount=weekendBenefit?await weekendDiscountForLines(ctx,booking.lineItems):Math.round(originalGross*rule.percent/100);
+      if(!Number.isSafeInteger(originalGross) || !Number.isSafeInteger(originalDiscount) || !Number.isSafeInteger(originalGross*rule.percent) || pence(booking.subtotal)!==originalGross || pence(booking.discount)!==originalDiscount || originalDiscount!==expectedOriginalDiscount || weekendBenefit&&pence(booking.weekendSaving??0)!==expectedOriginalDiscount)
         throw Error("The original basket discount does not balance; manual settlement review is required.");
       let originalRemaining=originalDiscount;
       for(const row of rows){const expected=Math.min(row.gross,originalRemaining);originalRemaining-=expected;if(row.discount!==expected)throw Error("The original basket discount allocation cannot be verified.");}
       const sourceRows:Source[]=[],sourceAmounts=new Map<string,{allocated:number;original:number}>();
       for(const allocation of booking.creditAllocations){
         const amount=pence(allocation.amount),credit=await ctx.db.get(allocation.creditId);
-        if(!booking.accountId || !["refund","earned"].includes(allocation.kind) || !earnedBenefit&&allocation.kind!=="refund" || !credit || String(credit.accountId)!==String(booking.accountId) || (credit.kind??"earned")!==allocation.kind || (credit.currency??"GBP").toUpperCase()!=="GBP")throw Error("An original credit source cannot be verified.");
+        if(!booking.accountId || !["refund","earned"].includes(allocation.kind) || booking.pricingVersion!==CREDIT_FUNDING_VERSION&&!earnedBenefit&&allocation.kind!=="refund" || !credit || String(credit.accountId)!==String(booking.accountId) || (credit.kind??"earned")!==allocation.kind || (credit.currency??"GBP").toUpperCase()!=="GBP")throw Error("An original credit source cannot be verified.");
         const grant=credit.membershipGrantId?await ctx.db.get(credit.membershipGrantId):null;
         if(credit.membershipGrantId&&(!grant || String(grant.accountId)!==String(booking.accountId) || grant.invoiceId!==credit.membershipInvoiceId))throw Error("An original membership grant cannot be verified.");
         const key=String(allocation.creditId),previous=sourceAmounts.get(key),allocated=(previous?.allocated??0)+amount,original=pence(credit.amount);
@@ -83,7 +110,8 @@ export async function quoteSwapFunding(ctx: any, booking: any, lineIndex: number
       if(totals(originalSources)!==totals(booking.checkoutLineCreditSources))throw Error("The original basket credit sources cannot be verified.");
       const nextSubtotal=originalGross-gross+nextGross;
       if(!Number.isSafeInteger(nextSubtotal) || !Number.isSafeInteger(nextSubtotal*rule.percent))throw Error("The replacement basket total is invalid.");
-      const nextTotalDiscount=Math.round(nextSubtotal*rule.percent/100);
+      const nextLines=booking.lineItems.map((item:any,index:number)=>index===lineIndex?replacement:item);
+      const nextTotalDiscount=weekendBenefit?await weekendDiscountForLines(ctx,nextLines):Math.round(nextSubtotal*rule.percent/100);
       const nextMember=Math.min(memberCredit,nextSubtotal-nextTotalDiscount),creditCapacity=nextSubtotal-nextTotalDiscount-nextMember+delivery;
       if(!Number.isSafeInteger(creditCapacity) || !Number.isSafeInteger(originalGross-originalDiscount+delivery))throw Error("The basket funding total is invalid.");
       const nextCredit=Math.min(creditTotal,creditCapacity),nextAllocation=checkoutLineAllocation(rows.map((entry:any,index:number)=>(index===lineIndex?nextGross:entry.gross)/100),[delivery/100],nextTotalDiscount/100,nextMember/100,nextCredit/100);
@@ -98,9 +126,17 @@ export async function quoteSwapFunding(ctx: any, booking: any, lineIndex: number
       });
       return {lineIndex,original:{listingId:line.listingId,start:line.start,end:line.end,qty:line.qty,grossPence:gross},replacement:{listingId:replacement.listingId,start:replacement.start,end:replacement.end,qty:replacement.qty,grossPence:nextGross},deltaPence:nextSubtotal-nextTotalDiscount-nextMember-nextCredit-(originalGross-originalDiscount-memberCredit-creditTotal),restore,nextFunding:nextAllFunding[lineIndex],nextAllFunding,nextCreditSources:nextAllCreditSources.filter(row=>row.lineIndex===lineIndex),nextAllCreditSources};
     }
-    if (!Number.isSafeInteger(gross * rule.percent) || !Number.isSafeInteger(nextGross * rule.percent) || pence(booking.subtotal) !== gross || pence(booking.discount) !== discount || discount !== Math.round(gross * rule.percent / 100))
-      throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
-    nextDiscount = Math.round(nextGross * rule.percent / 100);
+    if (weekendBenefit) {
+      const originalWeekendDiscount=await weekendDiscountForLines(ctx,booking.lineItems);
+      if (pence(booking.subtotal)!==gross || pence(booking.discount)!==discount || discount!==originalWeekendDiscount || pence(booking.weekendSaving??0)!==originalWeekendDiscount)
+        throw Error("This booking's weekend benefit cannot be safely repriced automatically; manual settlement review is required.");
+      const nextLines=booking.lineItems.map((item:any,index:number)=>index===lineIndex?replacement:item);
+      nextDiscount=await weekendDiscountForLines(ctx,nextLines);
+    } else {
+      if (!Number.isSafeInteger(gross * rule.percent) || !Number.isSafeInteger(nextGross * rule.percent) || pence(booking.subtotal) !== gross || pence(booking.discount) !== discount || discount !== Math.round(gross * rule.percent / 100))
+        throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
+      nextDiscount = Math.round(nextGross * rule.percent / 100);
+    }
   } else if (!["none", "delivery", "earned_credit"].includes(booking.benefitKind) || discount !== 0) {
     throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
   }
@@ -162,7 +198,7 @@ export async function quoteSwapBasketFunding(ctx: any, booking: any, changes: { 
   const rows = booking.lineItems, funding = booking.checkoutLineFunding;
   if (!Array.isArray(rows) || !rows.length || rows.length > 100 || !Array.isArray(funding) || funding.length !== rows.length || !Array.isArray(changes) || changes.length < 1 || changes.length > 16)
     throw Error("The equipment change basket needs manual settlement review.");
-  if (booking.pricingVersion !== SINGLE_BENEFIT_VERSION || pence(booking.membershipSignupOfferSaving ?? 0) !== 0)
+  if (![SINGLE_BENEFIT_VERSION,CREDIT_FUNDING_VERSION].includes(booking.pricingVersion) || pence(booking.membershipSignupOfferSaving ?? 0) !== 0)
     throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
 
   const indices = new Set<number>();
@@ -200,15 +236,20 @@ export async function quoteSwapBasketFunding(ctx: any, booking: any, changes: { 
     throw Error("The original basket total does not reconcile; manual settlement review is required.");
 
   let percent = 0;
+  const weekendBenefit=booking.benefitKind === "weekend";
   if (booking.benefitKind === "loyalty") {
     const rule = booking.swapBenefitRule;
-    if (rule?.version !== "encore-percent-v1" || ![2, 4, 10].includes(rule.percent) || membership !== 0 || earnedCredit !== 0 || originalDiscount !== Math.round(originalSubtotal * rule.percent / 100))
+    if (rule?.version !== "encore-percent-v1" || ![2, 4, 10].includes(rule.percent) || booking.pricingVersion!==CREDIT_FUNDING_VERSION && (membership !== 0 || earnedCredit !== 0) || originalDiscount !== Math.round(originalSubtotal * rule.percent / 100))
       throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
     percent = rule.percent;
   } else if (booking.benefitKind === "referral_reward") {
-    if (membership !== 0 || earnedCredit !== 0)
+    if (booking.pricingVersion!==CREDIT_FUNDING_VERSION && (membership !== 0 || earnedCredit !== 0))
       throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
     percent = await referralRewardPercent(ctx, booking, originalSubtotal, originalDiscount);
+  } else if (weekendBenefit) {
+    const expectedWeekendDiscount=await weekendDiscountForLines(ctx,rows);
+    if (pence(booking.weekendSaving ?? 0) !== expectedWeekendDiscount || originalDiscount !== expectedWeekendDiscount || pence(booking.membershipSignupOfferSaving ?? 0) !== 0)
+      throw Error("This booking's weekend benefit cannot be safely repriced automatically; manual settlement review is required.");
   } else if (!["none", "delivery", "earned_credit"].includes(booking.benefitKind) || originalDiscount !== 0) {
     throw Error("This booking's selected benefit cannot be safely repriced automatically; manual settlement review is required.");
   }
@@ -218,7 +259,7 @@ export async function quoteSwapBasketFunding(ctx: any, booking: any, changes: { 
   const sourceRows: Source[] = [], originalSources = new Map<string, number>();
   for (const allocation of booking.creditAllocations) {
     const amountPence = pence(allocation.amount), credit = await ctx.db.get(allocation.creditId);
-    if (!booking.accountId || !["refund", "earned"].includes(allocation.kind) || booking.benefitKind === "loyalty" && allocation.kind !== "refund" || !credit || String(credit.accountId) !== String(booking.accountId) || (credit.kind ?? "earned") !== allocation.kind || (credit.currency ?? "GBP").toUpperCase() !== "GBP")
+    if (!booking.accountId || !["refund", "earned"].includes(allocation.kind) || booking.pricingVersion!==CREDIT_FUNDING_VERSION && booking.benefitKind === "loyalty" && allocation.kind !== "refund" || !credit || String(credit.accountId) !== String(booking.accountId) || (credit.kind ?? "earned") !== allocation.kind || (credit.currency ?? "GBP").toUpperCase() !== "GBP")
       throw Error("An original credit source cannot be verified.");
     const grant = credit.membershipGrantId ? await ctx.db.get(credit.membershipGrantId) : null;
     if (credit.membershipGrantId && (!grant || String(grant.accountId) !== String(booking.accountId) || grant.invoiceId !== credit.membershipInvoiceId))
@@ -264,7 +305,9 @@ export async function quoteSwapBasketFunding(ctx: any, booking: any, changes: { 
   const nextGross = nextLines.map((line: any) => pence(line.lineTotal));
   const nextSubtotal = nextGross.reduce((sum: number, amount: number) => sum + amount, 0);
   if (!Number.isSafeInteger(nextSubtotal) || !Number.isSafeInteger(nextSubtotal * percent)) throw Error("The replacement basket total is invalid.");
-  const nextDiscount = Math.round(nextSubtotal * percent / 100);
+  const nextDiscount = weekendBenefit
+    ? await weekendDiscountForLines(ctx, nextLines)
+    : Math.round(nextSubtotal * percent / 100);
   const nextMembership = Math.min(membership, nextSubtotal - nextDiscount);
   const nextAccountCredit = Math.min(accountCredit, nextSubtotal - nextDiscount - nextMembership + delivery);
   const allocation = checkoutLineAllocation(nextGross.map((amount: number) => amount / 100), [delivery / 100], nextDiscount / 100, nextMembership / 100, nextAccountCredit / 100);

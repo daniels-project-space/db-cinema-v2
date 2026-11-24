@@ -2,7 +2,7 @@
 import { SmartImage } from "@/components/SmartImage";
 
 import Link from "next/link";
-import { useCheckoutStatus, CheckoutPauseNotice } from "@/components/cart/CheckoutStatus";
+import { useCheckoutStatus, CheckoutPauseNotice, CancellationProtectionSummary } from "@/components/cart/CheckoutStatus";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { ReplacementSets } from "@/components/cart/ReplacementSets";
 import { useCartStockCheck } from "@/components/cart/useCartStockCheck";
@@ -19,6 +19,7 @@ import { formatGbp } from "@/lib/pricing";
 import { CheckoutMembership } from "@/components/CheckoutMembership";
 import { useBasketPrice } from "@/components/cart/useBasketPrice";
 import { CartItemDates } from "@/components/cart/CartItemDates";
+import { CartThirdDayOffer } from "@/components/cart/CartThirdDayOffer";
 import { IconX, IconArrowRight, IconLock } from "@/components/icons";
 
 
@@ -120,7 +121,7 @@ export default function CartPage() {
                   const over = a && !a.ok && a.available > 0;
                   const dim = unavailable || over;
                   return (
-                    <Fragment key={it.key}>
+                    <Fragment key={`${it.listingId}|${it.start}|${idx}`}>
                     <div
                       className={`spot grid grid-cols-[64px_minmax(0,1fr)] gap-x-3 rounded-2xl p-3 sm:grid-cols-[80px_minmax(0,1fr)_auto] sm:p-4 ${dim ? "opacity-50 ring-1 ring-rec-500/40" : ""}`}
                       style={{
@@ -155,9 +156,7 @@ export default function CartPage() {
                         ) : null}
                       </div>
                       <div className="col-start-2 row-start-2 flex flex-row items-center justify-end gap-3 sm:col-start-auto sm:row-start-auto sm:flex-col sm:items-end sm:justify-between">
-                        <div className="whitespace-nowrap font-display text-lg font-bold text-accent-400">
-                          {formatGbp(quote?.items[idx]?.total ?? it.total)}
-                        </div>
+                        <div className="min-w-0 w-full sm:w-auto sm:max-w-[17rem]"><CartThirdDayOffer item={it} currentTotal={quote?.items[idx]?.total ?? it.total}/></div>
                         <button
                           onClick={() => remove(it.key)}
                           className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full text-white/30 transition-colors hover:bg-white/5 hover:text-rec-500 sm:h-7 sm:w-7"
@@ -262,6 +261,7 @@ export default function CartPage() {
                       {quoteError}
                     </p>
                   )}
+                  <CancellationProtectionSummary enabled={checkout.cancellationProtection} version={checkout.cancellationPolicyVersion} testId="basket-free-cancellation" />
                   <div className="flex justify-between font-display text-lg font-bold text-white">
                     <span>Estimated basket total</span>
                     <span data-testid="basket-due" className="font-mono">{basketDue}</span>

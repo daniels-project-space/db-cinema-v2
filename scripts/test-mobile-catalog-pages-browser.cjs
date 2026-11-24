@@ -12,6 +12,7 @@ const connect = new Function("require", membershipSource.slice(0, membershipSour
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
 const aliases = new Map([
+  ["next/image", `import React from "react"; export default function Image({priority,sizes,fill,placeholder,...props}){return <img {...props} data-priority={priority?"true":undefined}/>}`],
   ["next/link", `import React from "react"; export default function Link({href,children,...props}){return <a href={href} {...props}>{children}</a>}`],
   ["next/navigation", `export function useRouter(){return {push(){}}}`],
   ["@/components/gaffer/GafferFocus", `export function useGafferFocus(){return {focusedId:window.location.pathname==="/card"?"synthetic-arri-alexa-mini-lf":null,suggestedIds:[]}}`],
@@ -20,13 +21,14 @@ const aliases = new Map([
   ["@/components/booking/BookingPanel", `export function BookingPanel({listing}){return <section data-testid="fixture-booking-panel" className="spot gradient-border rounded-2xl p-4 sm:p-6"><p className="hud-label text-accent-300">Your rental</p><h2 className="mt-2 font-display text-xl font-semibold text-white">Choose dates</h2><p className="mt-2 text-sm text-white/55">{listing.title}</p><div className="mt-5 grid grid-cols-2 gap-2"><button className="glass min-h-11 rounded-xl">Start date</button><button className="glass min-h-11 rounded-xl">End date</button></div><button className="btn-primary mt-4 min-h-11 w-full">Add to your kit</button></section>}`],
   ["@/components/booking/RentalContentsList", `export function RentalContentsList(){return null}`],
   ["@/components/Recommendations", `export function Recommendations(){return null}`],
-  ["@/components/booking/Calendar", `export function addDaysIso(value){const date=new Date(value+"T00:00:00Z");date.setUTCDate(date.getUTCDate()+1);return date.toISOString().slice(0,10)} export function daysInclusive(start,end){return start&&end?Math.floor((Date.parse(end)-Date.parse(start))/86400000)+1:0}`],
+  ["@/components/booking/Calendar", `export function addDaysIso(value){const date=new Date(value+"T00:00:00Z");date.setUTCDate(date.getUTCDate()+1);return date.toISOString().slice(0,10)} export function daysInclusive(start,end){return start&&end?Math.floor((Date.parse(end)-Date.parse(start))/86400000)+1:0} export function Calendar(){return null}`],
   ["@/lib/dateSelection", `export function pickRentalDates(start,end,iso){return !start||end?{start:iso,end:null}:{start,end:iso}}`],
   ["@/lib/session", `export function getSessionId(){return "synthetic-catalog-visual-audit"}`],
-  ["@/lib/pricing", `export function money(value){return Number(value).toFixed(2)}`],
+  ["@/lib/pricing", `export { quote } from "./shared/rentalPricing.ts"; export function money(value){return Number(value).toFixed(2)}export function formatRate(value){const rounded=Math.round(value*100)/100;return new Intl.NumberFormat('en-GB',{minimumFractionDigits:0,maximumFractionDigits:2}).format(rounded)} export function formatGbp(value){return new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format(value)}`],
   ["@/lib/pageMetadata", `export function publicPageMetadata(){return {}}`],
+  ["@/lib/currentLegalVersion", `export async function currentLegalVersion(){return "2026-11-v31"}`],
   ["@/lib/site", `export const HOURS_WINDOWS=[{opens:"10:00",closes:"13:00"},{opens:"16:00",closes:"20:00"}]`],
-  ["convex/react", `export function useQuery(reference){const key=String(reference);return key==="catalog.getListingBySlug"?window.__listing:key==="reviews.stats"?{average:"4.9",count:128}:undefined} export function useMutation(){return async()=>null}`],
+  ["convex/react", `export function useQuery(reference){const key=String(reference);return key==="catalog.getListingBySlug"?window.__listing:key==="reviews.stats"?{average:"4.9",count:128}:undefined} export function useMutation(){return async()=>null} export function useConvex(){return {query:async()=>[]}}`],
   ["@cvx/_generated/api", `export const api=new Proxy({}, {get:(_,namespace)=>new Proxy({}, {get:(_,name)=>String(namespace)+"."+String(name)})})`],
 ]);
 
@@ -54,6 +56,7 @@ async function main() {
   const assets = new Map([
     ["/arri-deconstruct-poster.jpg", ["image/jpeg", path.join(root, "public/arri-deconstruct-poster.jpg")]],
     ["/images/home/maintained-cinema-gear-20261028.webp", ["image/webp", path.join(root, "public/images/home/maintained-cinema-gear-20261028.webp")]],
+    ["/images/home/rental-flow-atlas-20261103-fixed.webp", ["image/webp", path.join(root, "public/images/home/rental-flow-atlas-20261103-fixed.webp")]],
   ]);
   const server = http.createServer((request, response) => {
     if (request.url === "/bundle.js") { response.setHeader("content-type", "text/javascript"); return response.end(js); }
@@ -85,7 +88,7 @@ async function main() {
         for (let attempt = 0; attempt < 80 && !await browser.evaluate(`document.querySelector("main")?.children.length>0`); attempt++) await wait(50);
         for (let attempt = 0; attempt < 30 && !await browser.evaluate(`(() => [...document.querySelectorAll("img")].length>0 && [...document.querySelectorAll("img")].every(image=>image.complete&&image.naturalWidth>0))()`); attempt++) await wait(50);
         if (pathname === "/detail") await wait(900);
-        const metrics = await browser.evaluate(`(()=>{const main=document.querySelector("main"),images=[...document.querySelectorAll("img")],textNodes=[...document.querySelectorAll("h1,h2,p,button")],card=document.querySelector(".gear-card"),link=card?.querySelector("a"),booking=document.querySelector("[data-testid='fixture-booking-panel']"),picture=images.find(img=>img.alt.includes("ARRI Alexa")),title=document.querySelector("h1"),steps=[...document.querySelectorAll("h2")].filter(h=>/^Browse|^Pick your dates|^Book & pay securely|^Pickup or delivery/.test(h.textContent));const r=e=>{const x=e?.getBoundingClientRect();return x&&{left:x.left,right:x.right,top:x.top,bottom:x.bottom,width:x.width,height:x.height}};return{width:innerWidth,scrollWidth:document.documentElement.scrollWidth,main:r(main),card:r(card),cardImage:r(picture),cardImageLoaded:!!picture&&picture.complete&&picture.naturalWidth>0,cardImageSrc:picture?.currentSrc,cardTitle:r(card?.querySelector("h3")),cardPrice:r(card?.querySelector(".text-accent-400")),favorite:r(card?.querySelector("button[aria-label='Add favourite']")),nestedButtons:link?.querySelectorAll("button").length??0,chooseDates:link?.textContent?.includes("Choose dates")??false,gafferBadge:r(card?.querySelector(".gaffer-pick-badge")),detailTitle:r(title),booking:r(booking),steps:steps.map(r),textOutside:[...textNodes].filter(e=>{const b=e.getBoundingClientRect();return getComputedStyle(e).display!=="none"&&(b.left < -1||b.right > innerWidth+1)}).map(e=>e.textContent.trim().slice(0,48))}})()`);
+        const metrics = await browser.evaluate(`(()=>{const main=document.querySelector("main"),images=[...document.querySelectorAll("img")],textNodes=[...document.querySelectorAll("h1,h2,h3,p,button")],card=document.querySelector(".gear-card"),link=card?.querySelector("a"),booking=document.querySelector("[data-testid='fixture-booking-panel']"),picture=images.find(img=>img.alt.includes("ARRI Alexa")),flowImage=images.find(img=>img.alt.includes("camera team prepares")),title=document.querySelector("h1"),steps=[...document.querySelectorAll("h2,h3")].filter(h=>/^Browse|^Pick your dates|^Book & pay securely|^Pickup or delivery/.test(h.textContent)),stepCards=[...document.querySelectorAll("[data-testid='how-it-works-step']")],stepBackgrounds=stepCards.map(item=>getComputedStyle(item.firstElementChild.firstElementChild).backgroundImage),stepPositions=stepCards.map(item=>getComputedStyle(item.firstElementChild.firstElementChild).backgroundPosition);const r=e=>{const x=e?.getBoundingClientRect();return x&&{left:x.left,right:x.right,top:x.top,bottom:x.bottom,width:x.width,height:x.height}};const pageText=main?.innerText??"";return{width:innerWidth,scrollWidth:document.documentElement.scrollWidth,main:r(main),card:r(card),cardImage:r(picture),cardImageLoaded:!!picture&&picture.complete&&picture.naturalWidth>0,cardImageSrc:picture?.currentSrc,howImageLoaded:!!flowImage&&flowImage.complete&&flowImage.naturalWidth>0,howImageSrc:flowImage?.currentSrc,stepBackgrounds,stepPositions,cardTitle:r(card?.querySelector("h3")),cardPrice:r(card?.querySelector(".text-accent-400")),favorite:r(card?.querySelector("button[aria-label='Add favourite']")),nestedButtons:link?.querySelectorAll("button").length??0,chooseDates:link?.textContent?.includes("Choose dates")??false,gafferBadge:r(card?.querySelector(".gaffer-pick-badge")),detailTitle:r(title),booking:r(booking),steps:steps.map(r),hasCheckoutTimes:pageText.includes("Set exact pickup and return times at checkout."),paidBookingReserves:pageText.includes("your paid booking reserves the items while it is pending"),confirmationGate:pageText.includes("The rental is confirmed once payment and any required verification pass."),verificationDeadline:pageText.includes("by two hours after the earliest scheduled London pickup"),currentCancellationRanges:["7+ days before first item starts","More than 48 hours before pickup","48 hours or less before pickup"].every(range=>pageText.includes(range)),currentCompanyCancellation:pageText.includes("If DB Cinema cancels"),policyVisible:!!document.querySelector("#cancellation-quick-guide-title"),textOutside:[...textNodes].filter(e=>{const b=e.getBoundingClientRect();return getComputedStyle(e).display!=="none"&&(b.left < -1||b.right > innerWidth+1)}).map(e=>e.textContent.trim().slice(0,48))}})()`);
         console.log(`AUDIT ${pathname} ${width}px ${JSON.stringify(metrics)}`);
         assert(metrics.scrollWidth <= width, `${pathname} stays inside ${width}px: ${JSON.stringify(metrics)}`);
         assert.deepEqual(metrics.textOutside, [], `${pathname} has no clipped or overflowing text at ${width}px: ${JSON.stringify(metrics.textOutside)}`);
@@ -171,10 +174,34 @@ async function main() {
         if (pathname === "/how-it-works") {
           assert.equal(metrics.steps.length, 4, `The mobile how-it-works page keeps all four steps at ${width}px`);
           assert(metrics.steps.every(box => box.left >= 0 && box.right <= width), `Every how-it-works step fits at ${width}px`);
-          assert(await browser.evaluate(`document.body.innerText.includes("Waterstones bookstore at Trafalgar Square")`), `The pickup instructions name the actual Trafalgar Square meeting point at ${width}px`);
+          assert(metrics.howImageLoaded, `The real camera-team hero image loads at ${width}px: ${metrics.howImageSrc}`);
+          assert(metrics.hasCheckoutTimes, `The page explains that exact handover times are selected at checkout at ${width}px`);
+          assert(metrics.paidBookingReserves && metrics.confirmationGate, `Payment and any required verification gate confirmation at ${width}px`);
+          assert(metrics.verificationDeadline, `The current verification deadline is clear at ${width}px`);
+          assert(await browser.evaluate(`(()=>{const text=document.body.innerText;return text.includes("one-way delivery and return the kit to Trafalgar Square")&&text.includes("quotes delivery by postcode and kit size")&&!text.includes("within about 30 km")})()`), `Delivery options are accurate without a hard-coded service radius at ${width}px`);
+          assert.equal(metrics.stepBackgrounds.length, 4, `All four process cards include real photographic panels at ${width}px`);
+          assert(metrics.stepBackgrounds.every(source => source.includes("rental-flow-atlas-20261103-fixed.webp")), `Each process card uses the real production photo atlas at ${width}px`);
+          assert.equal(new Set(metrics.stepPositions).size, 4, `Each process card shows its own image crop at ${width}px`);
+          assert(metrics.policyVisible && metrics.currentCancellationRanges && metrics.currentCompanyCancellation, `The current three-window cancellation guide and company cancellation rule remain visible at ${width}px`);
+          assert(await browser.evaluate(`document.body.innerText.includes("Trafalgar Square") && !/Waterstones|Grand Building|WC2N\\s*5EJ/i.test(document.body.innerText)`), `The pickup area is shown without the private meeting point at ${width}px`);
         }
         const screenshot = await browser.cmd("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
         fs.writeFileSync(path.join(out, `${pathname.slice(1)}-${width}.png`), Buffer.from(screenshot.data, "base64"));
+        if (pathname === "/how-it-works" && (width === 390 || width === 1440)) {
+          const contentHeight = await browser.evaluate("document.documentElement.scrollHeight");
+          for (let top = 0; top < contentHeight; top += 600) {
+            await browser.evaluate(`window.scrollTo({top: ${top}, behavior: "instant"})`);
+            await wait(120);
+          }
+          await wait(500);
+          assert.equal(await browser.evaluate(`document.querySelectorAll('[data-reveal-pending="true"]').length`), 0, `Every reveal section becomes visible after a full scroll pass at ${width}px`);
+          await browser.evaluate("window.scrollTo({top: 0, behavior: 'instant'})");
+          await wait(250);
+          const layout = await browser.cmd("Page.getLayoutMetrics");
+          const size = layout.cssContentSize;
+          const fullPage = await browser.cmd("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { x: 0, y: 0, width: size.width, height: size.height, scale: 1 } });
+          fs.writeFileSync(path.join(out, `how-it-works-${width}-full.png`), Buffer.from(fullPage.data, "base64"));
+        }
         console.log(`${pathname} ${width}px ${JSON.stringify({ scrollWidth: metrics.scrollWidth, cardImageLoaded: metrics.cardImageLoaded, card: metrics.card, booking: metrics.booking, steps: metrics.steps.length })}`);
       }
     }

@@ -6,7 +6,8 @@ const availability=load('convex/availability.ts'),bookings=load('convex/bookings
 const day=86400000,date=Date.UTC(2030,5,8),ctx={db,scheduler:{runAfter:async()=>{}}};
 const unit=put('inventory_units',{name:'Physical lens',quantityOwned:1,active:true});
 const listing=put('listings',{title:'Lens',active:true,components:[{inventoryUnitId:unit._id,qty:1}],unavailableDates:[]});
-const state=put('rmv2_sync_state',{key:'shared-stock-v1',status:'ok',cursor:JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()})});
+const initialStockSyncAt=Date.now();
+const state=put('rmv2_sync_state',{key:'shared-stock-v1',status:'ok',lastSyncedAt:initialStockSyncAt,cursor:JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:initialStockSyncAt})});
 const occupied=put('reservations',{source:'hygglo',stockWindowVersion:2,turnaroundBufferMinutes:60,inventoryUnitId:unit._id,start:londonRentalInstant(date,'09:00'),end:londonRentalInstant(date,'19:00'),qty:1,status:'confirmed',endExclusive:true});
 const line=(pickupTime,returnTime,extra={})=>({listingId:listing._id,start:date,end:date,pickupTime,returnTime,...extra});
 const fit=items=>availability.forCart.handler(ctx,{items});
@@ -19,11 +20,12 @@ const fit=items=>availability.forCart.handler(ctx,{items});
  try {
   Date.now=()=>now;
   for(let cycle=0;cycle<3;cycle++){
+   state.lastSyncedAt=now;
    state.cursor=JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:now});
    now+=2*refreshMs-1; // One missed refresh must not invalidate the last successful feed.
    assert.equal(await stockTimePrecision(ctx),true,'Scheduled source refresh must occur before precise stock expires, even after one missed cycle');
   }
- }finally{Date.now=originalNow;state.cursor=JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()});}
+ }finally{Date.now=originalNow;state.lastSyncedAt=Date.now();state.cursor=JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()});}
  assert.equal((await fit([line('19:00','22:00')]))[listing._id].ok,true,'Confirmed return frees pool at exact instant, after the one-hour turnaround');
  assert.equal((await fit([line('17:00','22:00')]))[listing._id].ok,false,'Overlap cannot be crossed');
  let slots=await availability.forTimeSlots.handler(ctx,{...line(undefined,undefined),items:[]});assert.deepEqual(slots.pickupSlots,['19:00','20:00','21:00']);
@@ -40,7 +42,7 @@ const fit=items=>availability.forCart.handler(ctx,{items});
  unit.quantityOwned=1;occupied.end=londonRentalInstant(date,'19:00');occupied.start=londonRentalInstant(date,'09:00');occupied.stockWindowVersion=1;
  assert.equal((await fit([line('19:00','22:00')]))[listing._id].ok,false,'V1 wall labels never support exact release');
  occupied.stockWindowVersion=2;state.cursor=JSON.stringify({version:1,checkedAt:Date.now()});assert.equal((await fit([line('19:00','22:00')]))[listing._id].ok,false,'Unqualified reader precision is conservative');
- state.cursor=JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()-360000});assert.equal((await fit([line('19:00','22:00')]))[listing._id].ok,false,'Stale precision is conservative');
+ state.cursor=JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()-360000});const staleResult=(await fit([line('19:00','22:00')]))[listing._id];assert.equal(staleResult.ok,null,'Stale stock is unknown rather than a definite shortage');assert.equal(staleResult.stockStatus,'refresh_required','A stale stock response tells callers to refresh before using availability');
  state.cursor=JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()});occupied.status='cancelled';
  const booking=put('bookings',{status:'pending_payment',lineItems:[line('09:00','12:00',{qty:1})]});
  assert.equal((await bookings.placeHolds.handler(ctx,{bookingId:booking._id,ttlMs:60000})).created,1);

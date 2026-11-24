@@ -1,5 +1,5 @@
 /** Replacement value, in pennies, over inclusive rental days. */
-export const RENTAL_VALUE_CAP_PENCE = 1_500_000;
+export const RENTAL_VALUE_CAP_PENCE = 1_200_000;
 export type ValueInterval = { start: number; end: number; valuePence: number };
 export function peakRentalValue(intervals: ValueInterval[], at?: number) {
   const events = new Map<number, number>();

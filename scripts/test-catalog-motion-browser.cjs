@@ -61,8 +61,16 @@ const connect = new Function('require', source.slice(0, source.indexOf('const { 
     assert.equal(normalTickerBefore.name, 'hygglo-marquee-x', 'The review rail animation is installed without reduced motion');
     assert.equal(normalTickerBefore.state, 'running', 'The review rail runs without hover');
     assert(normalTickerAfter < normalTickerBefore.x, 'The review rail moves on mobile without reduced motion');
+    const tickerBeforeVisibility = await browser.evaluate(`new DOMMatrix(getComputedStyle(document.querySelector('.hygglo-review-track')).transform).m41`);
+    await browser.evaluate(`Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'))`); await wait(200);
+    assert(await browser.evaluate(`[...document.querySelectorAll('video')].every(v=>v.paused)`), 'Visible banner videos pause while the document is hidden');
+    await browser.evaluate(`Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'))`); await wait(300);
+    assert(await browser.evaluate(`[...document.querySelectorAll('video')].every(v=>!v.paused)`), 'Visible banner videos resume when the document becomes visible');
+    assert(await browser.evaluate(`getComputedStyle(document.querySelector('.hygglo-review-track')).animationPlayState==='running'`), 'The review rail remains active after returning to the page');
+    const tickerAfterVisibility = await browser.evaluate(`new DOMMatrix(getComputedStyle(document.querySelector('.hygglo-review-track')).transform).m41`);
+    assert(tickerAfterVisibility < tickerBeforeVisibility, 'The review rail continues moving after returning to the page');
     await browser.cmd('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] }); await wait(300);
-    assert(await browser.evaluate(`document.querySelectorAll('video')[0].currentTime>.15 && !document.querySelectorAll('video')[0].paused`), 'The requested gear film continues playing on mobile');
+    assert(await browser.evaluate(`document.querySelectorAll('video')[0].paused && !!document.querySelector('[data-testid="gear-video-play"]')`), 'Reduced motion pauses mobile gear autoplay and offers deliberate playback');
     assert(await browser.evaluate(`document.querySelectorAll('video')[1].paused`), 'Checkout film respects reduced motion unless explicitly requested');
     assert(await browser.evaluate(`document.querySelectorAll('video')[0].currentSrc.endsWith('/gear-loop-mobile.mp4')`), 'The mobile gear video source is selected');
     const tickerBefore = await browser.evaluate(`(() => { const t=document.querySelector('.hygglo-review-track');return {name:getComputedStyle(t).animationName,state:getComputedStyle(t).animationPlayState,duration:getComputedStyle(t).animationDuration,x:new DOMMatrix(getComputedStyle(t).transform).m41}; })()`);

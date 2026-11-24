@@ -29,10 +29,11 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
     for(const device of [{name:'desktop',width:1440,height:1000,mobile:false},{name:'mobile',width:390,height:844,mobile:true}]){
       await client.cmd('Emulation.setDeviceMetricsOverride',{...device,deviceScaleFactor:1});
       await client.cmd('Page.navigate',{url:origin});
-      for(let attempts=0;attempts<100 && !(await client.evaluate(`!![...document.querySelectorAll('button')].find(button=>button.textContent==='Verification')`));attempts++)await wait(100);
-      await client.evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent==='Verification').click()`); await wait(100);
+      for(let attempts=0;attempts<100 && !(await client.evaluate(`!![...document.querySelectorAll('summary')].find(summary=>summary.textContent==='Verification files & controls')`));attempts++)await wait(100);
+      await client.evaluate(`[...document.querySelectorAll('summary')].find(summary=>summary.textContent==='Verification files & controls').click()`); await wait(100);
+      await client.evaluate(`[...document.querySelectorAll('summary')].find(summary=>summary.textContent==='Verification controls').click()`); await wait(100);
       assert.equal(await client.evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent==='Suspend verification reuse').disabled`),true);
-      assert.equal(await client.evaluate(`document.body.textContent.includes('It does not delete documents or complete an erasure request.')`),true);
+      assert.equal(await client.evaluate(`document.body.textContent.includes('Stops reuse for future rentals; it does not delete saved documents.')`),true);
       await client.evaluate(`(()=>{const element=document.querySelector('textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(element,'Privacy request received');element.dispatchEvent(new Event('input',{bubbles:true}))})()`); await wait(100);
       assert.equal(await client.evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent==='Suspend verification reuse').disabled`),false);
       await client.evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent==='Suspend verification reuse').scrollIntoView({block:'center'})`); await wait(100);

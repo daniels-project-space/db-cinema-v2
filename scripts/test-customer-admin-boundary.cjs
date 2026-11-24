@@ -8,6 +8,8 @@ process.env.ADMIN_TOKEN = "fixture-admin-boundary";
 
 const customerAdmin = load("convex/accountAdmin.ts");
 const rentalChat = load("convex/rentalChat.ts");
+const reviews = load("convex/reviews.ts");
+const securityChargeState = load("convex/securityChargeState.ts");
 const account = put("accounts", {
   email: "boundary-customer@example.invalid",
   name: "Synthetic customer",
@@ -64,6 +66,19 @@ const ctx = { db };
     token: customerToken,
     accountId: account._id,
   }), /unauthorized/);
+  assert.deepEqual(await reviews.adminPendingNative.handler(ctx, { token: customerToken }), {
+    authorized: false,
+    items: [],
+  }, "A renter session cannot read the admin review moderation queue.");
+  await assert.rejects(reviews.moderateNative.handler(ctx, {
+    token: customerToken,
+    reviewId: "synthetic-review",
+    decision: "approve",
+  }), /unauthorized/, "A renter session cannot approve or reject a submitted review.");
+  await assert.rejects(securityChargeState.evidenceOptions.handler(ctx, {
+    token: customerToken,
+    bookingId: "synthetic-booking",
+  }), /unauthorized/, "A renter session cannot enumerate files for an admin card-claim assessment.");
 
   const beforeAccount = structuredClone(tables.get("accounts").find(row => row._id === account._id));
   const beforeAudits = (tables.get("account_admin_changes") ?? []).length;
@@ -110,7 +125,7 @@ const ctx = { db };
     text: "Forged admin reply",
   }), /unauthorized/);
 
-  console.log("PASS customer/admin boundary: a valid customer session cannot read account insights, verify cases or invoke profile/access/restriction/note writes, directory queries or admin rental-chat actions; no account or audit rows changed.");
+  console.log("PASS customer/admin boundary: a valid customer session cannot read account insights, verification or review queues, moderate reviews, invoke profile/access/restriction/note writes, directory queries or admin rental-chat actions; no account or audit rows changed.");
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

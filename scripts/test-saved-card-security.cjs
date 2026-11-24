@@ -22,7 +22,14 @@ function rental(overrides={}) {
 }
 const state=load('convex/securityChargeState.ts');
 const cards=load('convex/savedCardState.ts');
-async function prepare(b, kind, amount, suffix, claimBasis) {return state.prepare.handler(ctx,{token:owner,bookingId:b._id,requestId:'assessment-request-'+suffix,kind,...(claimBasis?{claimBasis}:{}),amount,reason:'Documented inspected issue or late time; evidenced actual cost.'});}
+const evidenceForClaim=new Map();
+async function makeEvidence(b,suffix){
+ const cacheKey=`${b._id}:${suffix}`;if(evidenceForClaim.has(cacheKey))return evidenceForClaim.get(cacheKey);
+ const file=await db.insert('chat_attachment_attempts',{accountId:b.accountId,bookingId:b._id,admin:true,requestKey:`request-${suffix}`,marker:`application/vnd.dbcinema.chat-${suffix.padEnd(32,'0').slice(0,32)}`,createdAt:Date.now(),status:'published',sha256:'a'.repeat(64),contentType:'image/jpeg',size:128,storageId:`storage-${suffix}`,name:`evidence-${suffix}.jpg`});
+ const message=await db.insert('messages',{accountId:b.accountId,bookingId:b._id,sender:'owner',text:`Evidence ${suffix}`,meta:{kind:'attachment',attachmentId:file,name:`evidence-${suffix}.jpg`,contentType:'image/jpeg'}});
+ await db.patch(file,{messageId:message});evidenceForClaim.set(cacheKey,file);return file;
+}
+async function prepare(b, kind, amount, suffix, claimBasis) {const evidenceId=await makeEvidence(b,suffix);return state.prepare.handler(ctx,{token:owner,bookingId:b._id,requestId:'assessment-request-'+suffix,kind,...(claimBasis?{claimBasis}:{}),evidenceIds:[evidenceId],amount,reason:'Documented inspected issue or late time; evidenced actual cost.'});}
 async function notified(id) {await state.noticeResult.handler(ctx,{id,sent:true,recipient:account.email,subject:'Evidence',html:'Retained delivered evidence'});}
 let createCalls=0, refundCalls=0, bankMode='paid';
 const provider = new Map();
@@ -114,6 +121,8 @@ const actionCtx={runQuery:async(ref,args)=>{
  await state.recordRefund.handler(ctx,{id:late,receipt:{...frozen.receipt,stripeRefundId:'re_fixture',status:'failed'},refundedPence:0});assert.equal(b.lateFeePaidFromCard,50,'Refund reversals update net paid from the bank receipt');
  await assert.rejects(prepare(b,'late',1,'after-refund'),/combined/);
  const unknown=rental();const u=await prepare(unknown,'damage',10,'unknown-001');await notified(u);await db.patch(u,{state:'uncertain',collectAfter:Date.now()-1,attemptedAt:Date.now()-24*3600000});await assert.rejects(state.claim.handler(ctx,{id:u}),/second payment/);assert.equal(createCalls,2);
+ const legacyNoEvidence=rental(),legacyNoEvidenceRow=put('rental_security_charges',{bookingId:legacyNoEvidence._id,accountId:legacyNoEvidence.accountId,requestId:'legacy-no-evidence-claim-0001',kind:'late',amountPence:10000,reason:'Recorded late-return assessment without attached evidence.',customerId:legacyNoEvidence.savedCardCustomerId,paymentMethodId:legacyNoEvidence.savedCardPaymentMethodId,consentSnapshot:legacyNoEvidence.agreementSnapshot,state:'notice_sent',createdAt:Date.now()-9*86400000,updatedAt:Date.now()-9*86400000,noticeAt:Date.now()-8*86400000,collectAfter:Date.now()-1}),legacyNoEvidenceId=legacyNoEvidenceRow._id;
+ const beforeLegacyNoEvidenceCollection=createCalls;await assert.rejects(actions.collect.handler(actionCtx,{token:owner,id:legacyNoEvidenceId}),/Supporting evidence is required/,'a previously prepared notice without evidence is blocked before creating a bank request');assert.equal(createCalls,beforeLegacyNoEvidenceCollection,'evidence-less historic rows never reach Stripe collection');
  await db.patch(damage,{refundReceipt:{paymentIntentId:d.intentId,amountPence:20000,attemptedAt:Date.now(),status:'unknown'}});await actions.reconcileRefund.handler(actionCtx,{id:damage});assert.equal(refundCalls,0,'Read-only recovery never initiates financial execution');
  await assert.rejects(actions.reconcileReference.handler(actionCtx,{token:owner,id:u,paymentIntentId:d.intentId}),/does not match/);await assert.rejects(state.record.handler(ctx,{id:u,intentId:d.intentId,state:'paid',paidPence:1000}),/another assessment/);
  for(const mode of ['lost','auth','decline']){
@@ -154,7 +163,9 @@ const actionCtx={runQuery:async(ref,args)=>{
  assert.match(terms,/£100 per rental/);assert.match(terms,/actually incurred and evidenced/);assert.match(terms,/age, condition and depreciation/);assert.match(terms,/separate payment approval/);
  const checkout=fs.readFileSync('src/app/checkout/page.tsx','utf8');
  assert(checkout.includes("DB may choose whether and how much to claim for an evidenced amount actually due. Before one card attempt, we send a final itemised invoice with the damage or repair/replacement description, calculation and evidence."),'Checkout permits only a supported claim and sends its itemised invoice and evidence before the one card attempt');
- assert(checkout.includes("Notice and a seven-day query period apply before collection"),'Historic v1 agreement wording remains explicit');
+ const historicSecurityTerms=JSON.stringify(legal.LEGAL_ARCHIVE['2026-11-v20']);
+ assert.match(historicSecurityTerms,/allow at least seven days to query or dispute/,'Historic signed agreements retain their original query period');
+ assert.doesNotMatch(JSON.stringify(legal.LEGAL_DOCS),/allow at least seven days to query or dispute/,'Current agreements use the latest approved collection wording');
  assert(checkout.includes("This checkbox does not authorise later off-session charges"),'Card Hold wording remains distinct');
  const holdDocs=setupLegal.agreementsForSecurityPolicy(policy.CARD_HOLD_SECURITY_POLICY_VERSION);
  assert.doesNotThrow(()=>agreement.assertCurrentAgreement({name:'Card Owner',securityHoldConsent:true,laterChargeConsent:false,documents:holdDocs,securityPolicyVersion:policy.CARD_HOLD_SECURITY_POLICY_VERSION},'pickup'));

@@ -35,23 +35,26 @@ process.env.ADMIN_TOKEN = "legacy-attachment-fixture";
   await sessions.createSession.handler(ctx, { tokenDigest: hash(reviewToken), principalId: `admin:${hash(identity)}`, scopes: ["verification:write"], expiresAt: Date.now() + 60_000 });
   const originalFetch = global.fetch;
   try {
-    let providerCalls = 0, websiteDecision, providerBookingId = booking._id;
+    let providerCalls = 0, resubmissionDetailsReads = 0, websiteDecision, providerBookingId = booking._id;
     let providerStatus = "In Review", conflictNextPatch = false;
     global.fetch = async (_url, options = {}) => {
       providerCalls++;
+      if (String(_url).endsWith("/decision/?include=resubmissions")) resubmissionDetailsReads++;
       if (String(_url).endsWith("/decision-email-preview/")) return new Response(JSON.stringify({ recipient: account.email, language: "en", will_be_sent: true, preview_token: "fixture-preview-token" }), { status: 200 });
-      if (String(_url).endsWith("/resubmission-preview/")) return new Response(JSON.stringify({ recipient: account.email, language: "en", will_be_sent: true, preview_token: "fixture-resubmit-token", nodes_to_resubmit: [{ node_id: "feature_poa_1", feature: "POA" }] }), { status: 200 });
+      if (String(_url).endsWith("/resubmission-preview/")) return new Response(JSON.stringify({ recipient: account.email, requires_user_action: true, language: "en", will_be_sent: true, preview_token: "fixture-resubmit-token", nodes_to_resubmit: [{ node_id: "feature_poa_1", feature: "POA" }] }), { status: 200 });
       if (options.method === "PATCH") {
         const body = JSON.parse(options.body);
-        assert.equal(body.send_email, true);
-        assert.equal(body.email_address, account.email);
-        assert.equal(body.email_preview_token, body.new_status === "Resubmitted" ? "fixture-resubmit-token" : "fixture-preview-token");
-        if (body.new_status === "Resubmitted") assert.deepEqual(body.nodes_to_resubmit, [{ node_id: "feature_poa_1", feature: "POA" }]);
+        if (body.new_status === "Resubmitted") {
+          assert.deepEqual(body.nodes_to_resubmit, [{ node_id: "feature_poa_1", feature: "POA" }]);
+        }
+        assert.equal(body.send_email, false, "the website owns post-decision renter email to avoid a duplicate Didit email");
+        assert.equal(body.email_address, undefined);
+        assert.equal(body.email_preview_token, undefined);
         if (conflictNextPatch) { conflictNextPatch = false; return new Response("stale preview", { status: 409 }); }
         providerStatus = body.new_status;
         return new Response(JSON.stringify({ session_id: String(_url).includes("fixture-resubmit-session") ? "fixture-resubmit-session" : "fixture-session" }), { status: 200 });
       }
-      return new Response(JSON.stringify({ session_id: String(_url).includes("fixture-resubmit-session") ? "fixture-resubmit-session" : "fixture-session", session_kind: "user", workflow_id: "fixture-workflow", vendor_data: `dbc-booking-${providerBookingId}`, contact_details: { email: account.email }, status: providerStatus }), { status: 200 });
+      return new Response(JSON.stringify({ session_id: String(_url).includes("fixture-resubmit-session") ? "fixture-resubmit-session" : "fixture-session", session_kind: "user", workflow_id: "fixture-workflow", vendor_data: `dbc-booking-${providerBookingId}`, contact_details: { email: account.email }, status: providerStatus, poa_verifications: [{ node_id: "feature_poa_1", status: "Declined" }] }), { status: 200 });
     };
     const actionCtx = { ...ctx,
       runQuery: async ref => { if (String(ref).replaceAll(":", ".") === "bookings.verificationAccess") return booking; throw Error(`unexpected query ${ref}`); },
@@ -60,6 +63,7 @@ process.env.ADMIN_TOKEN = "legacy-attachment-fixture";
         if (name === "adminAccountSessionV2.authorizeDiditReview") return access.authorizeDiditReview.handler(ctx, args);
         if (name === "diditReviewClaims.claim") return reviewClaims.claim.handler(ctx, args);
         if (name === "diditReviewClaims.release") return reviewClaims.release.handler(ctx, args);
+        if (name === "bookings.claimDiditProgressRefresh") return true;
         if (name === "bookings.setDiditResult") { websiteDecision = args; return true; }
         throw Error(`unexpected mutation ${ref}`);
       },
@@ -73,7 +77,7 @@ process.env.ADMIN_TOKEN = "legacy-attachment-fixture";
     assert.equal(websiteDecision, undefined, "a stale preview cannot issue rental confirmation/rejection effects");
     const result = await didit.adminReview.handler(actionCtx, { token: reviewToken, bookingId: booking._id, decision: "approve", note: "Reviewed provider decision", requestId: "verification-review-write-0001" });
     assert.deepEqual(result, { status: "verified", providerStatus: "Approved" });
-    assert.equal(providerCalls, 7, "authorized review reads, conditionally previews/updates and confirms Didit");
+    assert.equal(providerCalls, 6, "stale 409 decisions are re-read, and approval updates Didit once then verifies its final decision without duplicate provider email");
     assert.equal(websiteDecision?.providerStatus, "Approved", "the confirmed Didit result uses the normal website verification mutation");
     const resubmitBooking = harness.put("bookings", { accountId: account._id, guestEmail: account.email, verificationProvider: "didit", diditSessionId: "fixture-resubmit-session", idVerifyStatus: "manual_review", status: "confirmed" });
     providerBookingId = resubmitBooking._id;
@@ -82,8 +86,18 @@ process.env.ADMIN_TOKEN = "legacy-attachment-fixture";
     const resubmitCtx = { ...actionCtx, runQuery: async ref => { if (String(ref).replaceAll(":", ".") === "bookings.verificationAccess") return resubmitBooking; throw Error(`unexpected query ${ref}`); } };
     const resubmitted = await didit.adminReview.handler(resubmitCtx, { token: reviewToken, bookingId: resubmitBooking._id, decision: "resubmit", note: "Please send a clearer proof of address", requestId: "verification-resubmit-0001" });
     assert.deepEqual(resubmitted, { status: "requires_input", providerStatus: "Resubmitted" });
-    assert.equal(providerCalls, 11, "resubmission previews exact failed steps before the conditional Didit update");
+    assert.equal(providerCalls, 11, "resubmission previews exact failed steps, conditionally updates Didit and verifies the final decision");
+    assert.equal(resubmissionDetailsReads, 1, "a Resubmitted decision without details is re-read with Didit's resubmission data enabled");
     assert.equal(websiteDecision?.status, "requires_input", "resubmission returns the rental to the renter's verification step");
+    providerBookingId = booking._id;
+    providerStatus = "In Review";
+    websiteDecision = undefined;
+    const callsBeforeRefresh = providerCalls;
+    await assert.rejects(didit.refreshProgress.handler(actionCtx, { bookingId: booking._id, accountToken: readToken, admin: true }), /unauthorized/);
+    assert.equal(providerCalls, callsBeforeRefresh, "read-only sessions cannot refresh a provider decision");
+    const refresh = await didit.refreshProgress.handler(actionCtx, { bookingId: booking._id, accountToken: reviewToken, admin: true });
+    assert.deepEqual(refresh, { status: "updated" }, "verification-write sessions can refresh Didit status through the V2 authorization contract");
+    assert.equal(websiteDecision?.providerStatus, "In Review", "authorized refresh syncs the current Didit state to the rental");
   } finally { global.fetch = originalFetch; }
-  console.log("PASS scoped attachment access and Didit manual review: read-only sessions denied, verification-write session updates Didit and syncs the rental.");
+  console.log("PASS scoped attachment access and Didit review/refresh: read-only sessions denied, verification-write session updates Didit and syncs the rental.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -44,7 +44,10 @@ export async function ensurePaidBookingAccount(ctx: any, booking: any) {
   if(seeded)await ctx.db.patch(booking._id,{accountCreatedAtCheckout:true});
   account=await ctx.db.get(account._id);
  }
+ const accountLinkChanged=booking.accountId!==account._id;
  await ctx.db.patch(booking._id,{accountId:account._id});
+ if(accountLinkChanged&&account.emailVerifiedAt&&!account.emailVerificationRequired)
+  await ctx.scheduler.runAfter(0,internal.emailInbox.linkVerifiedHistory,{accountId:account._id,cursor:null});
  await linkVerificationCopies(ctx,booking._id,account._id);
  return account;
 }
@@ -102,6 +105,9 @@ export const exchange=internalMutation({args:{secretHash:v.string(),sessionToken
  }
  const needsVerificationRecovery=!account.emailVerifiedAt||account.emailVerificationRequired;
  await ctx.db.patch(account._id,{emailVerifiedAt:Date.now(),emailVerificationRequired:false});
- if(needsVerificationRecovery)await ctx.scheduler.runAfter(0,internal.verificationArchive.linkVerifiedAccount,{accountId:account._id,cursor:null});
+ if(needsVerificationRecovery){
+  await ctx.scheduler.runAfter(0,internal.verificationArchive.linkVerifiedAccount,{accountId:account._id,cursor:null});
+  await ctx.scheduler.runAfter(0,internal.emailInbox.linkVerifiedHistory,{accountId:account._id,cursor:null});
+ }
  await ctx.db.patch(link._id,{usedAt:Date.now()});await ctx.db.insert("sessions",{accountId:account._id,token:a.sessionToken,createdAt:Date.now(),expiresAt:Date.now()+90*86400000});return{token:a.sessionToken,bookingId:link.bookingId};
 }});

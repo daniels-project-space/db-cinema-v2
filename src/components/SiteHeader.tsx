@@ -9,6 +9,7 @@ import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
 import { IconArrowRight, IconCart, IconMenu, IconUser, IconX } from "@/components/icons";
@@ -22,7 +23,6 @@ type NavItem = { href: string; label: string; external?: boolean };
 // Membership / How it works move into the profile dropdown(s) instead.
 const NAV: NavItem[] = [
   { href: "/gear", label: "Gear" },
-  { href: "/#reviews", label: "Reviews" },
   { href: "/membership", label: "Subscriptions" },
   { href: "/how-it-works", label: "How it works" },
   { href: "/guides", label: "Guides" },
@@ -32,7 +32,7 @@ const NAV: NavItem[] = [
 ];
 
 const DESKTOP_NAV = NAV.filter(
-  (n) => n.href !== "/#reviews" && n.href !== "/membership" && n.href !== "/how-it-works" && n.href !== "/about" && n.href !== "/join"
+  (n) => n.href !== "/membership" && n.href !== "/how-it-works" && n.href !== "/about" && n.href !== "/join"
 );
 
 export function SiteHeader() {
@@ -47,6 +47,7 @@ export function SiteHeader() {
   const pathname = usePathname();
   const [menu, setMenu] = useState(false);
   const [mobile, setMobile] = useState(false);
+  const [menuPortalTarget, setMenuPortalTarget] = useState<HTMLElement | null>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const mobileMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const [scrolled, setScrolled] = useState(false);
@@ -107,6 +108,8 @@ export function SiteHeader() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  useEffect(() => setMenuPortalTarget(document.body), []);
 
   // close the mobile sheet on navigation + lock body scroll while open
   useEffect(() => setMobile(false), [pathname]);
@@ -459,13 +462,13 @@ export function SiteHeader() {
       </header>
 
       {/* mobile menu — full-screen sheet with staggered links */}
-      <div
+      {menuPortalTarget && createPortal(<div
         ref={mobileMenuRef}
         /* No md:hidden here. The button that opens this is visible at every
            width, so hiding the sheet above md meant a desktop click set the
            state and then rendered display:none — the menu appeared to do
            nothing at all. */
-        className={`fixed inset-0 z-50 flex flex-col overflow-y-auto overscroll-contain bg-[#060608]/[0.985] px-6 transition-opacity duration-300 ${
+        className={`fixed inset-0 z-[70] overflow-y-auto overscroll-contain bg-[#060608] px-5 transition-opacity duration-300 sm:px-8 ${
           mobile ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
         style={{
@@ -480,7 +483,8 @@ export function SiteHeader() {
         tabIndex={-1}
         data-testid="mobile-site-menu"
       >
-        <div className="flex items-center justify-between">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col">
+        <div className="sticky top-0 z-10 flex items-center justify-between bg-[#060608] pb-3">
           <span id="mobile-site-menu-title" className="font-display text-lg font-bold">
             <span className="text-white">DB</span> <span className="gradient-text">CINEMA</span>
           </span>
@@ -494,12 +498,13 @@ export function SiteHeader() {
           </button>
         </div>
 
-        <nav className="mt-10 flex flex-col">
+        <nav className="mt-5 grid grid-cols-1 gap-x-10 sm:grid-cols-2">
           {mobileLinks.map((n, i) => {
-            const style = mobile ? { animation: `stage-in 0.5s var(--ease-out-expo) ${80 + i * 55}ms both` } : undefined;
+            const style = mobile ? { animationDelay: `${80 + i * 55}ms` } : undefined;
+            const enterClass = mobile ? " mobile-site-menu-link-enter" : "";
             const content = (
               <>
-                <span className="font-display text-2xl font-semibold text-white/85 transition-colors group-hover:text-white">
+                <span className="font-display text-xl font-semibold text-white/85 transition-colors group-hover:text-white sm:text-2xl">
                   {n.label}
                 </span>
                 <IconArrowRight className="h-5 w-5 text-white/25 transition-transform group-hover:translate-x-1 group-hover:text-accent-400" />
@@ -513,7 +518,7 @@ export function SiteHeader() {
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => closeMobileMenu()}
-                  className="group flex items-center justify-between border-b border-white/[0.06] py-4"
+                  className={`group flex min-h-14 items-center justify-between gap-4 border-b border-white/[0.08] py-3${enterClass}`}
                   style={style}
                 >
                   {content}
@@ -525,7 +530,7 @@ export function SiteHeader() {
                 key={n.href + n.label}
                 href={n.href}
                 onClick={() => closeMobileMenu()}
-                className="group flex items-center justify-between border-b border-white/[0.06] py-4"
+                className={`group flex min-h-14 items-center justify-between gap-4 border-b border-white/[0.08] py-3${enterClass}`}
                 style={style}
               >
                 {content}
@@ -540,9 +545,9 @@ export function SiteHeader() {
             closeMobileMenu();
             window.dispatchEvent(new CustomEvent("dbc:open-gaffer-chat"));
           }}
-          className="group flex items-center justify-between border-b border-white/[0.06] py-4 text-left"
+          className="group flex min-h-14 items-center justify-between gap-4 border-b border-white/[0.08] py-3 text-left"
         >
-          <span className="font-display text-2xl font-semibold text-accent-200/90 transition-colors group-hover:text-accent-100">
+          <span className="font-display text-xl font-semibold text-accent-200/90 transition-colors group-hover:text-accent-100 sm:text-2xl">
             Chat with Gaffer
           </span>
           <IconArrowRight className="h-5 w-5 text-accent-300/50 transition-transform group-hover:translate-x-1 group-hover:text-accent-200" />
@@ -557,12 +562,13 @@ export function SiteHeader() {
           }}
         />
 
-        <div className="mt-auto">
+        <div className="mt-auto pt-5">
           <span className="hud-label">
             London cinema rental <span className="tick">/</span> open daily
           </span>
         </div>
-      </div>
+        </div>
+      </div>, menuPortalTarget)}
 
       <SignatureProductionsOverlay open={signatureOpen} onClose={() => setSignatureOpen(false)} />
     </>

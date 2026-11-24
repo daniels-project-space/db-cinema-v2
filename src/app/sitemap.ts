@@ -6,6 +6,7 @@ import {discoveryListings} from "@/lib/discovery";
 import {sitemapXmlUrl} from "@/lib/sitemapXml";
 export const dynamic="force-dynamic";
 export default async function sitemap():Promise<MetadataRoute.Sitemap>{
+ if(process.env.NEXT_PUBLIC_SITE_LIVE!=="true")return [];
  const statics=["","/gear","/rental-stories","/membership","/guides","/faq","/how-it-works","/about","/contact","/film-fund","/join","/assemble","/hire/sony-fx3-hire-london"].map(path=>({url:`${BASE}${path}`}));
  const guides=GUIDES.map(g=>({url:`${BASE}/guides/${g.slug}`}));
  const rows=await discoveryListings();

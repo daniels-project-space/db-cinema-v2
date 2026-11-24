@@ -45,7 +45,7 @@ function load(file) {
 }
 process.env.STRIPE_SECRET_KEY='sk_test_inert';
 const {reconcilePendingPayments}=load('convex/checkout.ts');
-const {createPending,confirm,expireUnpaidPending,releaseExpiredHolds}=load('convex/bookings.ts');
+const {createPending,recordPaidCheckoutReceipt,confirm,expireUnpaidPending,releaseExpiredHolds}=load('convex/bookings.ts');
 const {expire:expireCredits}=load('convex/credits.ts');
 
 (async()=>{
@@ -88,19 +88,34 @@ const {expire:expireCredits}=load('convex/credits.ts');
 
   // A credit valid when checkout began remains reserved even when the webhook
   // arrives just after its expiry; it is not silently given away as a discount.
-  const booking={_id:'booking-credit',_creationTime:now-10000,status:'pending_payment',verificationProvider:'didit',
-    idVerifyStatus:'verified',idVerifiedAt:now-1000,
-    guestEmail:'owner@example.invalid',subtotal:100,total:90,depositAmount:0,creditApplied:10,lineItems:[]};
+  const booking={_id:'booking-credit',_creationTime:now-10000,status:'pending_payment',verificationProvider:'didit',stripeCheckoutSessionId:'cs-booking-credit',checkoutExpectedAmountPence:9000,
+    idVerifyStatus:'verified',idVerificationSource:'didit',idVerifiedAt:now-1000,diditDecisionAt:now-1000,verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},
+    guestEmail:'owner@example.invalid',subtotal:100,total:90,depositAmount:0,creditApplied:10,pickupTime:'10:00',returnTime:'17:00'};
+  const listingId='listing-credit',inventoryUnitId='unit-credit';
+  const start=Math.floor((now+3*86400000)/86400000)*86400000,end=start+86400000;
+  const line={listingId,qty:1,start,end,pickupTime:'10:00',returnTime:'17:00'};
+  booking.lineItems=[line];
+  const stockWindow=load('convex/lib/stockWindows.ts').stockWindow(line,true);
+  const allocationHold={_id:'hold-credit',bookingId:booking._id,listingId,inventoryUnitId,qty:1,status:'hold',source:'site',...stockWindow};
+  const physicalFingerprint=JSON.stringify([String(inventoryUnitId),String(listingId),allocationHold.start,allocationHold.end,allocationHold.qty,true,allocationHold.turnaroundBufferMinutes??0]);
+  const lineFingerprint=JSON.stringify([String(listingId),start,end,'10:00','17:00',1]);
+  booking.stockHoldFingerprint=JSON.stringify({lines:[lineFingerprint],physical:[physicalFingerprint]});
+  const listing={_id:listingId,title:'Credit fixture listing',active:true,components:[{inventoryUnitId,qty:1}]};
+  const unit={_id:inventoryUnitId,name:'Credit fixture unit',active:true,quantityOwned:1};
   const credit={_id:'credit-1',accountId:'owner-account',createdAt:now-100000,
     expiresAt:now-5000,status:'active',remaining:10};
-  const patches=[],queuedEmails=[];
+  const patches=[],queuedEmails=[],confirmedReservations=[];
+  let holdDeleted=false,reservationSerial=0;
+  const account={_id:'owner-account',email:'owner@example.invalid'};
   const db={
-    get:async id=>id==='booking-credit'?booking:id==='owner-account'?{_id:'owner-account',email:'owner@example.invalid'}:null,
-    query:table=>({withIndex:()=>({collect:async()=>table==='credits'?[credit]:[],first:async()=>table==='accounts'?{_id:'owner-account'}:null,unique:async()=>table==='accounts'?{_id:'owner-account'}:null,take:async()=>[],order:()=>({take:async()=>[]})})}),
-    patch:async(id,patch)=>patches.push({id,patch}),
-    insert:async(table,value)=>{if(table==="admin_notifications")return "notification-fixture";assert.equal(table,"rental_email_deliveries");queuedEmails.push(value);return "delivery-fixture";},
+    get:async id=>id==='booking-credit'?booking:id==='owner-account'?account:id===listingId?listing:id===inventoryUnitId?unit:id===allocationHold._id?(holdDeleted?null:allocationHold):confirmedReservations.find(row=>row._id===id)??null,
+    query:table=>({withIndex:()=>({collect:async()=>table==='credits'?[credit]:table==='reservations'?[...(holdDeleted?[]:[allocationHold]),...confirmedReservations]:[],first:async()=>table==='accounts'?account:null,unique:async()=>table==='accounts'?account:null,take:async()=>[],order:()=>({take:async()=>[]})})}),
+    patch:async(id,patch)=>{patches.push({id,patch});if(id===booking._id)Object.assign(booking,patch);if(id===credit._id)Object.assign(credit,patch);if(id===allocationHold._id)Object.assign(allocationHold,patch);},
+    delete:async id=>{if(id===allocationHold._id)holdDeleted=true;},
+    insert:async(table,value)=>{if(table==="admin_notifications")return "notification-fixture";if(table==="rental_email_deliveries"){queuedEmails.push(value);return "delivery-fixture";}assert.equal(table,"reservations");const row={_id:`reservation-${++reservationSerial}`,...value};confirmedReservations.push(row);return row._id;},
   };
   const bookingCtx={db,scheduler:{runAfter:async()=>{}}};
+  await recordPaidCheckoutReceipt.handler(bookingCtx,{bookingId:'booking-credit',sessionId:'cs-booking-credit',paymentIntentId:'pi_paid',amountTotalPence:9000,currency:'GBP',paymentStatus:'paid'});
   await confirm.handler(bookingCtx,{bookingId:'booking-credit',paymentIntentId:'pi_paid'});
   assert.ok(patches.some(p=>p.id==='credit-1'&&p.patch.remaining===0&&p.patch.status==='spent'));
   assert.deepEqual(queuedEmails.map(x=>x.kind),["verification"],

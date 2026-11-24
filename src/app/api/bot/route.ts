@@ -42,9 +42,9 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     console.error("[bot] handleChat failed:", e);
     return NextResponse.json({
-      reply: "Sorry, I'm having a moment — please try again, or reach us via the contact page.",
+      reply: "Sorry, I couldn't finish that answer just now. Please try again. If you still need the team, [open the contact form](/contact).",
       cards: [],
-      suggestions: [],
+      suggestions: ["Try again"],
     });
   }
 }

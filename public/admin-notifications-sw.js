@@ -1,11 +1,29 @@
 /* No fetch handler or page caching: this worker only delivers owner notifications. */
 self.addEventListener("install", event => { event.waitUntil(self.skipWaiting()); });
 self.addEventListener("activate", event => { event.waitUntil(self.clients.claim()); });
+const notificationCopy = {
+  message: { title: "New renter message", body: "Open Messages to read and reply." },
+  team_request: { title: "Renter needs the team", body: "Open Messages to continue the conversation." },
+  conversation: { title: "Conversation update", body: "Open Messages for the latest context." },
+  verification_action: { title: "Verification needs attention", body: "Open the rental to review." },
+  verification_update: { title: "Verification update", body: "Open the rental for current status." },
+  account_match: { title: "Possible account match", body: "Compare records in the admin panel." },
+  payment_received: { title: "Payment received", body: "Open Admin to see the rental’s current status." },
+  rental_attention: { title: "Rental needs attention", body: "Open the rental to review the next step." },
+  cancellation_update: { title: "Cancellation update", body: "Open the rental for current status." },
+  payment_attention: { title: "Payment needs attention", body: "Open the rental to check status." },
+  refund_attention: { title: "Refund needs attention", body: "Open the rental to review it." },
+  dispute_update: { title: "Payment dispute update", body: "Open the admin panel to review." },
+  email_attention: { title: "Email needs attention", body: "Open the admin panel to check delivery." },
+  email_update: { title: "Email update", body: "Open the admin panel for status." },
+  team_update: { title: "Team update", body: "Open the admin panel for details." },
+};
 self.addEventListener("push", event => {
   let payload = {};
   try { payload = event.data?.json() ?? {}; } catch {}
-  event.waitUntil(self.registration.showNotification(payload.title || "DB Cinema Rentals", {
-    body: payload.body || "A rental conversation needs your attention.",
+  const copy = Object.prototype.hasOwnProperty.call(notificationCopy, payload.notice) ? notificationCopy[payload.notice] : notificationCopy.team_update;
+  event.waitUntil(self.registration.showNotification(copy.title, {
+    body: copy.body,
     icon: "/db-cinema-logo-512.png", badge: "/db-cinema-logo.png",
     tag: payload.tag || "dbc-rental-message", data: { url: payload.url || "/admin#messages" },
   }));

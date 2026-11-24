@@ -1,8 +1,8 @@
 const assert=require('node:assert/strict');
-const {load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
+const {load,db,put,tables,putFreshSharedStock}=require('./lib/rentalTestHarness.cjs');
 const availability=load('convex/availability.ts'),sync=load('convex/sync.ts');
 const day=86400000,monthStart=Date.UTC(2030,0,1),ctx={db};
-put("rmv2_sync_state",{key:"shared-stock-v1",status:"ok",cursor:JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()})});
+putFreshSharedStock();
 const unit=put('inventory_units',{name:'PavoTube',quantityOwned:4,active:true});
 const make=(qty,title='Kit')=>put('listings',{title,slug:title+qty,active:true,components:[{inventoryUnitId:unit._id,qty}],unavailableDates:[]});
 const single=make(1),pair=make(2),four=make(4);

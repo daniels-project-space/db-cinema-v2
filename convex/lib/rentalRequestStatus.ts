@@ -8,9 +8,34 @@ export type RentalRequestStatusRow = {
   execution?: { status?: string };
 };
 
+export type RentalExtensionRequestStatusRow = {
+  status?: string;
+};
+
+export const RENTAL_EXTENSION_REQUEST_OPEN_STATUSES = ["pending", "approved", "awaiting_payment", "refund_pending"] as const;
+
+export function summarizeBookingChangeRequests(
+  renterRequests: RentalRequestStatusRow[],
+  extensionRequests: RentalExtensionRequestStatusRow[],
+  ignoreRequestId?: string,
+) {
+  if (renterRequests.length > RENTAL_REQUEST_HISTORY_LIMIT || extensionRequests.length > RENTAL_REQUEST_HISTORY_LIMIT) {
+    return { ready: false, any: true, dates: true, cancel: true, handover: true, other: true };
+  }
+  const renterSummary = summarizeRentalRequests(renterRequests, ignoreRequestId);
+  const hasOpenExtension = extensionRequests.some(request =>
+    RENTAL_EXTENSION_REQUEST_OPEN_STATUSES.includes(request.status as typeof RENTAL_EXTENSION_REQUEST_OPEN_STATUSES[number]),
+  );
+  return {
+    ...renterSummary,
+    any: renterSummary.any || hasOpenExtension,
+    other: renterSummary.other || hasOpenExtension,
+  };
+}
+
 export function rentalRequestStillOpen(request: RentalRequestStatusRow) {
   return (request.status ?? "pending") === "pending" || request.status === "approved" &&
-    !((request.kind === "items" || request.kind === "extension") && !request.execution) &&
+    !((request.kind === "items" || request.kind === "extension" || request.kind === "refund" || request.kind === "delivery") && !request.execution) &&
     request.execution?.status !== "applied";
 }
 
@@ -22,6 +47,6 @@ export function summarizeRentalRequests(rows: RentalRequestStatusRow[], ignoreId
   const dates = open.some(request => request.kind === "dates");
   const cancel = open.some(request => request.kind === "cancel");
   const handover = open.some(request => request.kind === "handover");
-  const other = open.some(request => request.kind === "items" || request.kind === "extension");
+  const other = open.some(request => request.kind === "items" || request.kind === "extension" || request.kind === "refund" || request.kind === "delivery");
   return { ready: true, any: dates || cancel || handover || other, dates, cancel, handover, other };
 }

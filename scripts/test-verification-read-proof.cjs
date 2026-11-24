@@ -96,6 +96,6 @@ const workerContext={storage:{get:async id=>stored.get(id)??null},runQuery:async
  taskIndex=tasks.length;await archive.resumeReuses.handler(context,pendingContinuation.args);
  const activeContinuation=tasks.slice(taskIndex).find(task=>task.ref==='verificationArchive.resumeReuses');assert.ok(activeContinuation);
  await archive.resumeReuses.handler(context,activeContinuation.args);
- assert.equal(tasks.filter(task=>task.ref==='didit.reuseVerification').length,25,'all eligible rentals, including a failed repeat session, eventually resume');assert(tasks.some(task=>task.ref==='didit.reuseVerification'&&task.args.bookingId===failedRepeat._id),'a prior complete pass recovers a later provider-review state');
+ assert.equal(tasks.filter(task=>task.ref==='didit.reuseVerification').length,24,'all eligible rentals without an active provider session eventually resume');assert(!tasks.some(task=>task.ref==='didit.reuseVerification'&&task.args.bookingId===failedRepeat._id),'a prior account pass never replaces an active Didit review session');
  console.log('PASS verification byte proof: freshness, bounded scheduled refresh, stale-worker fence and unreadable-byte invalidation.');
 })().catch(error=>{console.error(error);process.exitCode=1});

@@ -22,7 +22,7 @@ import { CONTACT_EMAIL } from "@/lib/site";
  */
 const FALLBACK_MS = 700;
 
-export function EmailLink({ className = "", label }: { className?: string; label?: string }) {
+export function EmailLink({ className = "", label, ariaLabel, subject }: { className?: string; label?: string; ariaLabel?: string; subject?: string }) {
   const [copied, setCopied] = useState(false);
   const timers = useRef<number[]>([]);
 
@@ -56,6 +56,10 @@ export function EmailLink({ className = "", label }: { className?: string; label
     return true;
   }
 
+  const safeSubject = typeof subject === "string" && subject.length <= 120 && !/[\r\n]/.test(subject)
+    ? `?subject=${encodeURIComponent(subject)}`
+    : "";
+
   function onClick() {
     clearTimers();
     let left = false;
@@ -78,7 +82,7 @@ export function EmailLink({ className = "", label }: { className?: string; label
 
   return (
     <span className="relative inline-block">
-      <a href={`mailto:${CONTACT_EMAIL}`} onClick={onClick} className={className}>
+      <a href={`mailto:${CONTACT_EMAIL}${safeSubject}`} aria-label={ariaLabel} onClick={onClick} className={className}>
         {label ?? CONTACT_EMAIL}
       </a>
       <span

@@ -8,6 +8,8 @@ import { automaticMarketingFields } from "./lib/marketingInventory";
 import { inventoryCapacity } from "./lib/inventoryCapacity";
 import { CART_STOCK_SYNC_MAX_AGE_MS, isSharedStockSnapshotFresh, isSharedStockSyncFresh } from "./lib/shared_stock_sync";
 import { bumpCatalogRevision } from "./lib/catalogRevision";
+import { applyWebsitePriceFactors, websitePriceFactorsForPolicy, WEBSITE_PRICE_POLICY_VERSION } from "./lib/websitePricing";
+import { validatedComponentReplacementEvidence } from "./lib/componentReplacementEvidence";
 
 /**
  * Canonical camera-MODEL identity for inventory reconciliation against the rental
@@ -119,6 +121,7 @@ type RawProduct = {
   listings?: { slug?: string; publicUrl?: string }[];
   masterItemId?: string;
   stockMapping?: {version:number;complete:boolean;owned:boolean|null;components:{masterItemId:string;name:string;qty:number;quantityOwned:number;active:boolean;replacementCost:number}[];inventoryFacts?:{version:1;contents:string[];optionalContents:string[];reviewRequired:boolean;owned:boolean|null}};
+  componentReplacementEvidence?: unknown;
 };
 
 export const syncFromRmv2 = internalAction({
@@ -159,12 +162,14 @@ export const syncFromRmv2 = internalAction({
       const unavailable = (p.unavailableDates ?? []).map((d) =>
         typeof d === "string" ? d : JSON.stringify(d),
       );
+      const componentReplacementEvidence = validatedComponentReplacementEvidence(p.componentReplacementEvidence, mapping.components);
       const itemType = deriveItemType(title);
       const spec = DELIVERY_BY_TYPE[itemType];
       return {
         hyggloProductId: p.productId,
         copySourceFingerprint: p.copySourceFingerprint,
         stockComponents: mapping.components,
+        ...(componentReplacementEvidence ? { componentReplacementEvidence } : {}),
         ...(mapping.inventoryFacts?{inventoryFacts:mapping.inventoryFacts}:{}),
         stockMappingStatus: mapping.complete && mapping.owned === true && mapping.components.length > 0 ? "complete" as const : mapping.owned === false ? "not_owned" as const : "incomplete" as const,
         marketingOnly: p.isMarketingOnly,
@@ -182,6 +187,7 @@ export const syncFromRmv2 = internalAction({
           daily,
           day3: pick(3),
           day7: pick(7),
+          day14: pick(14),
           day30: pick(30),
         },
         depositAmount: p.valuation ?? 0,
@@ -212,6 +218,7 @@ export const applyCatalog = internalMutation({
         inventoryFacts: v.optional(v.object({version:v.literal(1),contents:v.array(v.string()),optionalContents:v.array(v.string()),reviewRequired:v.boolean(),owned:v.union(v.boolean(),v.null())})),
         stockMappingStatus: v.union(v.literal("complete"),v.literal("incomplete"),v.literal("not_owned")),
         stockComponents: v.array(v.object({masterItemId:v.string(),name:v.string(),qty:v.number(),quantityOwned:v.number(),active:v.boolean(),replacementCost:v.number()})),
+        componentReplacementEvidence: v.optional(v.object({version:v.literal(1),checkoutAvailable:v.literal(false),reviewedSubstitutions:v.array(v.object({originalMasterItemId:v.string(),replacementMasterItemId:v.string(),declaredMissingOriginal:v.optional(v.object({descriptorId:v.string(),label:v.string(),quantityPerKit:v.number(),sourceUrl:v.string(),sourceExcerpt:v.string()})),quantityPerKit:v.number(),priceAdjustmentPence:v.number(),extensionAdjustmentPence:v.optional(v.array(v.number())),replacementSizeScore:v.number(),reviewedAt:v.number(),weights:v.array(v.object({masterItemId:v.string(),weightGrams:v.number()})),replacementInventory:v.object({masterItemId:v.string(),active:v.literal(true),quantityOwned:v.number(),replacementCost:v.number()})}))})),
         marketingOnly: v.optional(v.boolean()),
         marketingOnlyMode: v.optional(v.union(v.literal("automatic"),v.literal("manual"))),
         marketingOnlyUpdatedAt: v.optional(v.number()),
@@ -227,6 +234,7 @@ export const applyCatalog = internalMutation({
           daily: v.number(),
           day3: v.optional(v.number()),
           day7: v.optional(v.number()),
+          day14: v.optional(v.number()),
           day30: v.optional(v.number()),
         }),
         depositAmount: v.number(),
@@ -238,7 +246,7 @@ export const applyCatalog = internalMutation({
     ),
   },
   handler: async (ctx, { items, fingerprint }) => {
-    const stateKey = "catalog-payload-v5-seller-copy-identity";
+    const stateKey = "catalog-payload-v9-approved-price-ladder";
     const state = fingerprint
       ? await ctx.db
           .query("rmv2_sync_state")
@@ -335,6 +343,12 @@ export const applyCatalog = internalMutation({
         .query("listings")
         .withIndex("by_slug", (q) => q.eq("slug", it.slug))
         .first();
+      const priceFactors = websitePriceFactorsForPolicy(
+        it.pricing,
+        (existing as any)?.websitePriceFactors,
+        (existing as any)?.websitePricePolicyVersion,
+        (existing as any)?.pricing,
+      );
 
       // shared fields synced from RMv2 every run
       const synced = {
@@ -350,9 +364,13 @@ export const applyCatalog = internalMutation({
         sizeScore: it.sizeScore,
         weightKg: it.weightKg,
         sourceImages: it.sourceImages,
-        pricing: it.pricing,
+        pricing: applyWebsitePriceFactors(it.pricing, priceFactors),
+        websitePriceFactors: priceFactors,
+        websitePricePolicyVersion: WEBSITE_PRICE_POLICY_VERSION,
+        quietDeal: undefined,
         depositAmount: it.depositAmount,
         components,
+        componentReplacementEvidence: validatedComponentReplacementEvidence(it.componentReplacementEvidence, it.stockComponents),
         stockMappingStatus: it.stockMappingStatus,
         ...(typeof it.marketingOnly === "boolean" && it.marketingOnlyMode && it.marketingOnlyUpdatedAt !== undefined ? {
           marketingOnly: it.marketingOnly,
@@ -604,7 +622,13 @@ export const refreshCartStock = action({
     try {
       const stock = await ctx.runAction(internal.sync.syncHyggloReservations,{force:false});
       const availability=await ctx.runQuery(api.availability.forCart,{items});
-      return {checkedAt:stock.checkedAt,availability};
+      const confirmedAvailability: Record<string,{available:number;demanded:number;ok:boolean}> = {};
+      for (const [listingId, item] of Object.entries(availability)) {
+        if (typeof item.ok !== "boolean" || item.stockStatus === "refresh_required")
+          throw Error("Rental Manager stock is not fresh enough to confirm availability");
+        confirmedAvailability[listingId] = { available: item.available, demanded: item.demanded, ok: item.ok };
+      }
+      return {checkedAt:stock.checkedAt,availability:confirmedAvailability};
     } catch {
       throw new ConvexError({code:"STOCK_CHECK_UNAVAILABLE",message:"We couldn't check equipment availability. Please try again before checkout."});
     }

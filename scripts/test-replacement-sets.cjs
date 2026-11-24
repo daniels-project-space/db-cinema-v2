@@ -1,10 +1,11 @@
 const assert=require('node:assert/strict');
-const {load,db,put}=require('./lib/rentalTestHarness.cjs');
+const {load,db,put,putFreshSharedStock}=require('./lib/rentalTestHarness.cjs');
 const {sets}=load('convex/cartReplacements.ts');
 const {switchCartSet,addCartReplacement}=load('shared/cartReplacementSet.ts');
 const start=Date.UTC(2030,1,1),end=start+2*86400000,ctx={db};
 function make(title,capacity=1,extra={}){const unit=put('inventory_units',{name:title,quantityOwned:capacity});return put('listings',{title,slug:title,active:true,category:'Cameras',itemType:'camera-body',components:[{inventoryUnitId:unit._id,qty:1}],pricing:{daily:40},depositAmount:1000,...extra});}
 (async()=>{
+ putFreshSharedStock();
  const source=make('Unavailable camera',0),a=make('Camera A'),b=make('Camera B'),c=make('Camera C');
  const items=Array.from({length:3},(_,i)=>({key:'request-'+i,listingId:source._id,start,end}));
  let result=await sets.handler(ctx,{items,sourceKey:items[0].key});

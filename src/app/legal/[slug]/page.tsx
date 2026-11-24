@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import {currentLegalVersion} from "@/lib/currentLegalVersion";
 import { CancellationPolicyQuickGuide } from "@/components/CancellationPolicyQuickGuide";
+import { CancellationExplainerPage } from "@/components/legal/CancellationExplainerPage";
 export const dynamic="force-dynamic";
 import { LEGAL_VERSION,CANCELLATION_PROTECTION_LEGAL_VERSION,SETUP_INTENT_LEGAL_VERSION,IMMEDIATE_CLAIM_LEGAL_VERSIONS } from "@/lib/legal";
 
@@ -31,6 +32,22 @@ export default async function LegalPage({
     ? { title: "Delivery arrangements", updated: "October 2026", sections: [{ h: "Delivery", p: DELIVERY_ACCEPTANCE_TEXT }] }
     : version === LEGAL_VERSION ? DOCS[slug] : LEGAL_ARCHIVE[version]?.[slug];
   if (!doc) notFound();
+  const showCancellationGuide = ["cancellation", "terms"].includes(slug)
+    && ["2026-10-v16", CANCELLATION_PROTECTION_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSION, ...IMMEDIATE_CLAIM_LEGAL_VERSIONS].includes(version);
+
+  if (slug === "cancellation") {
+    return (
+      <>
+        <SiteHeader />
+        <CancellationExplainerPage
+          doc={doc}
+          version={version}
+          showQuickGuide={showCancellationGuide}
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <SiteHeader />
@@ -42,7 +59,7 @@ export default async function LegalPage({
           </h1>
           <p className="mt-2 font-mono text-xs text-white/30">Last updated {doc.updated} · {isPrivacyPage ? `Privacy notice ${currentPrivacy ? CURRENT_PRIVACY_NOTICE_VERSION : version}` : `Agreement version ${version}`}</p>
         </div>
-{["cancellation", "terms"].includes(slug) && ["2026-10-v16",CANCELLATION_PROTECTION_LEGAL_VERSION,SETUP_INTENT_LEGAL_VERSION,...IMMEDIATE_CLAIM_LEGAL_VERSIONS].includes(version) && <CancellationPolicyQuickGuide version={version} />}
+{showCancellationGuide && <CancellationPolicyQuickGuide version={version} />}
         <div className="mt-10 flex flex-col gap-7">
           {doc.sections.map((s, i) => (
             <section key={i} className="relative border-l border-white/[0.07] pl-5">

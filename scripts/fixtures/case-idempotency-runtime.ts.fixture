@@ -4,13 +4,16 @@ import { internal } from './_generated/api';
 import { archiveRetention } from './verificationArchive';
 export const seed=mutation({args:{},handler:async ctx=>{
  const now=Date.now(),accountId=await ctx.db.insert('accounts',{email:`case-${now}-${Math.random()}@example.invalid`,createdAt:now});
+ const supportThreadId=await ctx.db.insert('chat_threads',{accountId,escalated:false,updatedAt:now,closedAt:now-90*86400000});
  const unit=await ctx.db.insert('inventory_units',{sku:`case-${now}-${Math.random()}`,name:'Synthetic camera',quantityOwned:1,replacementCost:100,active:true});
  const listing=await ctx.db.insert('listings',{slug:`case-${now}-${Math.random()}`,title:'Synthetic camera',category:'camera',active:true,components:[{inventoryUnitId:unit,qty:1}],pricing:{daily:10},depositAmount:0});
  const bookingId=await ctx.db.insert('bookings',{accountId,status:'active',lineItems:[{listingId:listing,title:'Synthetic camera',start:now,end:now+86400000,qty:1,lineTotal:10}],fulfilment:'pickup',deliveryFee:0,subtotal:10,discount:0,depositAmount:0,total:10,currency:'GBP'});
+ const rentalThreadId=await ctx.db.insert('chat_threads',{accountId,bookingId,escalated:false,updatedAt:now});
  await ctx.db.insert('reservations',{bookingId,listingId:listing,inventoryUnitId:unit,start:now,end:now+86400000,qty:1,source:'site',status:'active'});
- return {bookingId,itemKey:`${unit}:0`};
+ return {bookingId,itemKey:`${unit}:0`,rentalThreadId,supportThreadId};
 }});
 export const inspect=query({args:{bookingId:v.id('bookings')},handler:async(ctx,{bookingId})=>ctx.db.query('rental_damage_cases').withIndex('by_booking',q=>q.eq('bookingId',bookingId)).collect()});
+export const inspectChatArchive=query({args:{bookingId:v.id('bookings'),rentalThreadId:v.id('chat_threads'),supportThreadId:v.id('chat_threads')},handler:async(ctx,args)=>({archives:await ctx.db.query('chat_case_archives').withIndex('by_booking',q=>q.eq('bookingId',args.bookingId)).collect(),rentalThread:await ctx.db.get(args.rentalThreadId),supportThread:await ctx.db.get(args.supportThreadId)})});
 export const seedRetention=mutation({args:{},handler:async ctx=>{
  const now=Date.now(),old=now-120*86400000,accountId=await ctx.db.insert('accounts',{email:`retention-${now}@example.invalid`,createdAt:now});
  const bookingId=await ctx.db.insert('bookings',{accountId,status:'returned',returnedAt:old,lineItems:[],fulfilment:'pickup',deliveryFee:0,subtotal:0,discount:0,depositAmount:0,total:0,currency:'GBP'});

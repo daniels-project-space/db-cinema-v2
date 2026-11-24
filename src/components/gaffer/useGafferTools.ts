@@ -2,7 +2,7 @@
 import { listingMentions, createSpokenListingTracker, type Alignment } from "./spokenListings";
 import { contentsText } from "../../../shared/rentalContents";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useConvex, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -11,8 +11,7 @@ import { asksForBetterPrice } from "./priceRequest";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
 import {useCreditBalance} from "@/components/account/useCreditBalance";
-import { quote } from "@/lib/pricing";
-import { refundableDepositFor, assessmentDepositFor, cardHoldFor, savedCardChargeLimit, setupIntentSecurityLimit } from "../../../shared/rentalSecurity";
+import { refundableDepositFor, assessmentDepositFor, cardHoldFor, savedCardChargeLimit, immediateClaimSecurityLimit } from "../../../shared/rentalSecurity";
 import { resolveDate, inclusiveDays, londonToday } from "@/lib/voiceDates";
 import { dayMs } from "@/lib/dates";
 import { rentalPricingDays } from "../../../shared/rentalDuration";
@@ -65,13 +64,21 @@ function instant() {
   }, 1200);
 }
 
+function secureCartShareKey() {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(32));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
 /**
  * The compat engine reports three levels; "info" is for the page, not a
  * phone call — a fixed-lens note or a redundant-lens heads-up reads as
  * competent on screen but as filler out loud. Only error/warn get said.
  */
-function speakCompat(warnings: { level: string; text: string }[]): string {
-  const said = warnings.filter((w) => w.level === "error" || w.level === "warn");
+function speakCompat(result: { warnings?: { level: string; text: string }[]; unknown?: boolean }): string {
+  if (result.unknown) return " I couldn't verify kit compatibility just now, so please check the fit before booking.";
+  const said = (result.warnings ?? []).filter((w) => w.level === "error" || w.level === "warn");
   if (!said.length) return "";
   return " Compatibility check: " + said.map((w) => w.text).join(" ");
 }
@@ -88,12 +95,26 @@ export function useGafferTools() {
   const account = useAccount();
   const accountCredit=useCreditBalance(account.token);
   const convex = useConvex();
-  const emailedCart = useRef<{email:string;shareKey:string;signature:string}|null>(null);
+  const catalogOnlyLines = useRef<Array<{ listingId: string; title: string; slug: string; heroImage: string | null }>>([]);
+  const [catalogOnlyLinesView, setCatalogOnlyLinesView] = useState(catalogOnlyLines.current);
+  const emailedCart = useRef<{email:string;shareKey:string;signature:string;expiresAt:number}|null>(null);
+  const pendingEmailedCart = useRef<{email:string;shareKey:string;signature:string}|null>(null);
+  const emailCartLink = async (email:string, signature:string, lines:Array<{listingId:any;start?:number;end?:number;pickupTime?:string;returnTime?:string}>, token?:string) => {
+    const sent = emailedCart.current;
+    if (sent?.email === email && sent.signature === signature && sent.expiresAt > Date.now()) return {shareKey:sent.shareKey,alreadySent:true};
+    const pending = pendingEmailedCart.current;
+    const shareKey = pending?.email === email && pending.signature === signature ? pending.shareKey : secureCartShareKey();
+    pendingEmailedCart.current = {email,shareKey,signature};
+    const result = await convex.action(api.checkoutCarts.email,{email,token,shareKey,lines});
+    emailedCart.current = {email,shareKey:result.shareKey,signature,expiresAt:Date.now()+7*86400000};
+    if (pendingEmailedCart.current?.shareKey === shareKey) pendingEmailedCart.current = null;
+    return {shareKey:result.shareKey,alreadySent:false};
+  };
   const cartAlternatives = useQuery(api.cartReplacements.forCart, cart.items.length ? {items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),limit:6} : "skip");
   const replacementBrief = useCallback(async()=>{
-    if (cart.items.some(item => !item.pickupTime || !item.returnTime)) return "Choose pickup and return times before checking availability or replacements.";
     const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),limit:6});
-    return cart.items.filter(i=>Object.prototype.hasOwnProperty.call(rows,i.key)).map(i=>`${i.title} is unavailable for ${i.start} to ${i.end}. Available replacements for those same dates: ${(rows[i.key]??[]).map(c=>`${c.title} (£${c.total})`).join("; ")||"none found"}. The cart shows two initially; Show more replacements reveals more. Ask before changing their selection.`).join(" ");
+    if(rows.status!=="ready")return "Rental Manager stock is refreshing, so I cannot confirm current availability or replacements yet. Keep the original items and return times unchanged until the check completes.";
+    return cart.items.filter(i=>Object.prototype.hasOwnProperty.call(rows.results,i.key)).map(i=>`${i.title} is unavailable for ${i.start} to ${i.end}. Available replacements for those same dates: ${(rows.results[i.key]??[]).map(c=>`${c.title} (£${c.total})`).join("; ")||"none found"}. The cart shows two initially; Show more replacements reveals more. Ask before changing their selection.`).join(" ");
   },[cart.items,convex]);
   const { focus, suggest, suggestedIds, focusedId } = useGafferFocus();
   const catalog = useQuery(api.catalog.listListings, {});
@@ -126,6 +147,23 @@ export function useGafferTools() {
   const reviewed = useRef<string | null>(null);
   const currentCart = useRef(cart);
   currentCart.current = cart;
+  const cartShareSnapshot = (items: typeof cart.items) => {
+    const cartListingIds = new Set(items.map(item => item.listingId));
+    const shareItems = [
+      ...items.map(item => ({ listingId: item.listingId, start: item.start, end: item.end, pickupTime: item.pickupTime, returnTime: item.returnTime })),
+      ...catalogOnlyLines.current.filter(item => !cartListingIds.has(item.listingId)).map(item => ({ listingId: item.listingId, start: "", end: "", pickupTime: undefined, returnTime: undefined })),
+    ];
+    return {
+      signature: voiceCartShareSignature(shareItems),
+      lines: shareItems.map(item => ({
+        listingId: item.listingId as any,
+        ...(item.start && item.end ? { start: dayMs(item.start), end: dayMs(item.end) } : {}),
+        ...(item.start && item.end && item.pickupTime && item.returnTime ? { pickupTime: item.pickupTime, returnTime: item.returnTime } : {}),
+      })),
+      items: shareItems,
+    };
+  };
+  const currentCartShareSignature = () => cartShareSnapshot(currentCart.current.items).signature;
   const reviewContext = {
     accountId: account.me?._id ?? null, email: account.me?.email ?? null,
     membershipTier: account.me?.membershipTier ?? null, membershipActive: account.me?.membershipActive ?? null,
@@ -159,32 +197,37 @@ export function useGafferTools() {
   );
 
   /**
-   * Real stock for a window, from the same query the basket page uses
-   * (`availability.forListing`) — which nets off Hygglo's own bookings, mirrored
-   * into the reservations ledger every 15 minutes by the sync-hygglo-reservations
-   * cron. So "is it free?" means free across both the site and Hygglo, not just
-   * free here.
+   * Check the whole proposed basket, including this candidate, against shared
+   * inventory. Exact pickup and return times are deliberately omitted here;
+   * checkout collects them and runs the final authoritative stock check.
    *
-   * `unknown` on a query failure, deliberately distinct from `available: 0`: a
-   * flaky query should not tell a customer their kit is booked out.
+   * `unknown` on a query failure is distinct from `available: 0`: a flaky
+   * query should not tell a customer their kit is booked out.
    */
   const availabilityFor = useCallback(
     async (listingId: string, startIso: string, endIso: string) => {
-      const lines = cart.items.filter(item => item.start === startIso && item.end === endIso);
-      const window = lines[0];
-      if (!window?.pickupTime || !window?.returnTime || lines.some(item => item.pickupTime !== window.pickupTime || item.returnTime !== window.returnTime))
-        return { available: 0, blocked: false, unknown: true, needsTimes: true, pickupTime: undefined, returnTime: undefined };
       try {
-        const r: any = await convex.query(api.availability.forListing, {
-          listingId: listingId as any,
-          start: dayMs(startIso),
-          end: dayMs(endIso),
-          pickupTime: window.pickupTime, returnTime: window.returnTime,
-        });
-        if (!r || typeof r.available !== "number" || !Number.isFinite(r.available) || r.available < 0) return { available: 0, blocked: false, unknown: true, needsTimes: false, pickupTime: window.pickupTime, returnTime: window.returnTime };
-        return { available: r.available, blocked: !!r.blocked, unknown: false, needsTimes: false, pickupTime: window.pickupTime, returnTime: window.returnTime };
+        const proposedItems = [
+          ...cart.items.map(item => ({
+            listingId: item.listingId as any,
+            start: dayMs(item.start),
+            end: dayMs(item.end),
+            pickupTime: item.pickupTime,
+            returnTime: item.returnTime,
+          })),
+          { listingId: listingId as any, start: dayMs(startIso), end: dayMs(endIso) },
+        ];
+        const r: any = await convex.query(api.availability.forCart, { items: proposedItems });
+        const uniqueListingIds = [...new Set(proposedItems.map(item => String(item.listingId)))];
+        const unknownBasket = uniqueListingIds.some(id => !r?.[id] || typeof r[id].ok !== "boolean" ||
+          typeof r[id].available !== "number" || !Number.isFinite(r[id].available) || r[id].available < 0);
+        const unavailableBasket = uniqueListingIds.filter(id => r?.[id]?.ok === false);
+        const candidate = r?.[listingId];
+        if (!candidate || typeof candidate.ok !== "boolean" || typeof candidate.available !== "number" || !Number.isFinite(candidate.available) || candidate.available < 0)
+          return { available: 0, blocked: false, unknown: true, needsTimes: false, unknownBasket, unavailableBasket };
+        return { available: candidate.ok ? candidate.available : 0, blocked: false, unknown: false, needsTimes: false, unknownBasket, unavailableBasket };
       } catch {
-        return { available: 0, blocked: false, unknown: true, needsTimes: false, pickupTime: window.pickupTime, returnTime: window.returnTime };
+        return { available: 0, blocked: false, unknown: true, needsTimes: false, unknownBasket: true, unavailableBasket: [] as string[] };
       }
     },
     [convex, cart.items],
@@ -193,22 +236,28 @@ export function useGafferTools() {
   /** Resolve only the dates and times the customer selected; never lengthen them to meet a listing minimum. */
   const resolveWindow = useCallback((start?: string, end?: string) => {
     const today = londonToday();
-    const s = resolveDate(start, today);
-    // No usable date yet? Pencil it in for tomorrow so the basket is real,
-    // and say so — the customer can change dates in the basket.
-    const fallback = resolveDate("tomorrow", today);
-    const startIso = s.ok ? s.date : fallback.ok ? fallback.date : today;
-    const e = end ? resolveDate(end, today) : null;
-    const endIso = e?.ok ? e.date : startIso;
+    const requestedStart = String(start ?? "").trim();
+    const requestedEnd = String(end ?? "").trim();
+    const s = requestedStart ? resolveDate(requestedStart, today) : null;
+    const e = requestedEnd ? resolveDate(requestedEnd, today) : null;
+    const first = cart.items[0];
+    const oneBasketWindow = first && first.start && first.end && cart.items.every(line =>
+      line.start === first.start && line.end === first.end,
+    ) ? first : null;
+    const inheritBasketWindow = !requestedStart && !requestedEnd && !!oneBasketWindow;
+    const invalidDate = (!!requestedStart && !s?.ok) || (!!requestedEnd && !e?.ok);
+    const startIso = invalidDate ? "" : s?.ok ? s.date : inheritBasketWindow ? oneBasketWindow!.start : "";
+    const endIso = invalidDate ? "" : e?.ok ? e.date : inheritBasketWindow ? oneBasketWindow!.end : "";
+    const needsDates = !startIso || !endIso;
     const matching = cart.items.filter(line => line.start === startIso && line.end === endIso);
     const selected = matching[0];
     const timesAgree = !!selected?.pickupTime && !!selected?.returnTime && matching.every(line =>
       line.pickupTime === selected.pickupTime && line.returnTime === selected.returnTime,
     );
-    const days = timesAgree
+    const days = needsDates ? 0 : timesAgree
       ? rentalPricingDays(dayMs(startIso), dayMs(endIso), selected.pickupTime, selected.returnTime)
       : inclusiveDays(startIso, endIso);
-    return { startIso, endIso, days, pencilled: !s.ok };
+    return { startIso, endIso, days, needsDates, inheritedDates: inheritBasketWindow && !needsDates };
   }, [cart.items]);
 
   /**
@@ -262,24 +311,36 @@ export function useGafferTools() {
    */
   const alternativesFor = useCallback(
     async (hit: any, startIso: string, endIso: string, limit = 3) => {
-      if (!hit?.category) return [];
-      const rows: any[] = (await convex.query(api.voiceCatalog.byCategory, { category: hit.category, limit: 12 })) ?? [];
+      if (!hit?.category) return { items: [], unknown: true };
+      let rows: any[];
+      try {
+        const result: any = await convex.query(api.voiceCatalog.byCategory, { category: hit.category, limit: 12 });
+        if (!Array.isArray(result)) return { items: [], unknown: true };
+        rows = result;
+      } catch {
+        return { items: [], unknown: true };
+      }
       const out: { title: string; daily: number }[] = [];
+      let unknown = false;
       for (const r of rows) {
         const id = String(r.id);
         if (id === hit.id || cart.has(id)) continue;
         const a = await availabilityFor(id, startIso, endIso);
+        if (a.unknown) {
+          unknown = true;
+          continue;
+        }
         if (a.available >= 1) out.push({ title: r.title, daily: r.daily ?? 0 });
         if (out.length >= limit) break;
       }
-      return out;
+      return { items: out, unknown };
     },
     [convex, cart, availabilityFor],
   );
 
   /** Availability across every basket line, unit-aware (shared inventory included). */
   const basketProblems = useCallback(async () => {
-    if (!cart.items.length || cart.items.some(item => !item.pickupTime || !item.returnTime)) return null;
+    if (!cart.items.length) return null;
     try {
       const res: any = await convex.query(api.availability.forCart, {
         items: cart.items.map((i) => ({ listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime })),
@@ -310,16 +371,20 @@ export function useGafferTools() {
           items: cart.items.map((i) => ({ listingId: i.listingId, title: i.title, total: i.total, start: i.start, end: i.end, pickupTime: i.pickupTime, returnTime: i.returnTime })),
         }),
       });
-      return await r.json();
+      if (!r.ok) return { warnings: [], upgrades: [], unknown: true };
+      const result = await r.json();
+      if (!result || result.unknown || result.error || !Array.isArray(result.warnings) || !Array.isArray(result.upgrades))
+        return { warnings: [], upgrades: [], unknown: true };
+      return result;
     } catch {
-      return { warnings: [], upgrades: [] };
+      return { warnings: [], upgrades: [], unknown: true };
     }
   }, [cart]);
 
   const securitySummary = useCallback(() => {
     const credit=accountCredit&&accountCredit.accountId===account.me?._id?` Available account credit is £${accountCredit.available.toFixed(2)}. ${accountCredit.available>0?"Choose Use account credit at checkout to apply it; the checkbox is hidden without an available balance.":"No account credit is currently available for this checkout."} Credit cannot pay separately quoted security amounts or membership fees and cannot be withdrawn as cash; the account receipts show its expiry.`:" Account credit is selected at checkout only when an available signed-in balance exists.";
     const protection=checkoutSettings?.cancellationProtectionEnabled?` The free cancellation-protection shield card opens the policy. If DB cancels before pickup, all accounts can receive a refund. Accounts not rejected or restricted for a terms violation may receive private email choices after the one-hour decision: original-payment refund or 130% rental credit valid 365 days; rejected or restricted accounts receive the refund only.${checkoutSettings?.setupIntentSecurityEnabled?" No security funds are held.":checkoutSettings?.cardHoldSecurityEnabled?" The uncaptured card hold is cancelled separately.":" Deposits are returned separately."} Opening an email link does not execute a choice.`:"";
-    if(checkoutSettings?.setupIntentSecurityEnabled) return `No security deposit or card hold is charged or reserved. Stripe saves the card for a combined post-return claim ceiling of £${setupIntentSecurityLimit(cart.depositTotal).toFixed(2)} based on equipment value. A team member records evidence and sends an itemised notice before one immediate attempt; no automatic charge on an on-time return without a reported issue. The bank may decline it or require authentication. Insurance is separate.${credit}${protection}`;
+    if(checkoutSettings?.setupIntentSecurityEnabled) return `No security deposit or card hold is charged or reserved. Stripe saves the card for a combined post-return claim ceiling of £${immediateClaimSecurityLimit(cart.depositTotal).toFixed(2)} based on equipment value. A team member records evidence and sends an itemised notice before one immediate attempt; no automatic charge on an on-time return without a reported issue. The bank may decline it or require authentication. Insurance is separate.${credit}${protection}`;
     if(checkoutSettings?.cardHoldSecurityEnabled) return `The temporary card hold is £${cardHoldFor(cart.depositTotal).toFixed(2)} based on equipment replacement value. A £0 exemption applies only below £4,000 after the same account completes a clean rental with settled security and has a paid active subscription after its first recurring payment or the final Encore tier; first rentals and free trials never qualify. The hold is not a payment, but your bank may reduce available balance. If pickup is over seven days away, the hold may expire; we request a replacement five hours before pickup and release the old hold only after the new one succeeds. An issue-free return cancels the uncaptured hold; the bank controls release timing. Any claim needs a specific recorded reason and evidence.${credit}${protection}`;
     if(checkoutSettings?.assessmentSecurityEnabled) return `The refundable deposit is £20 below £1,000 equipment value, £50 from £1,000 and £100 from £4,000. A £0 waiver applies only below £4,000 after the same account completes a clean rental with settled security, and has either a paid active subscription after its first recurring payment or final Encore tier. First rentals and free trials do not qualify. Stripe saves a card for evidenced claims; any retained deposit reduces that same assessment. Collection needs itemised notice and review.${credit}${protection}`;
     const cash = checkoutSettings?.refundableDepositEnabled === true ? refundableDepositFor(cart.depositTotal) : null;
@@ -411,6 +476,10 @@ export function useGafferTools() {
         }
 
         const w = resolveWindow(start, end);
+        if (w.needsDates) {
+          const options = hits.map(h => `${h.title} at £${h.daily} a day${h.minDays > 1 ? ` (${h.minDays}-day minimum)` : ""}`).join("; ");
+          return `${shown ? "Catalogue options are on screen." : "Catalogue results are not finished loading on screen."} ${options}. Tell me the hire dates to check availability. Exact times are selected at checkout.`;
+        }
         const free: string[] = [];
         const unconfirmed: string[] = [];
         const taken: string[] = [];
@@ -418,20 +487,19 @@ export function useGafferTools() {
         for (const h of hits) {
           const minimumDays = Number.isSafeInteger(h.minDays) && h.minDays > 0 ? h.minDays : 1;
           if (w.days < minimumDays) {
-            minimumPeriod.push(w.pencilled
-              ? `${h.title} has a ${minimumDays}-day minimum; send the dates and I'll check a qualifying rental.`
-              : `${h.title} has a ${minimumDays}-day minimum; these dates cover ${w.days} rental day${w.days === 1 ? "" : "s"}. Stock for a longer rental hasn't been checked.`);
+            minimumPeriod.push(`${h.title} has a ${minimumDays}-day minimum; these dates cover ${w.days} rental day${w.days === 1 ? "" : "s"}. Stock for a longer rental hasn't been checked.`);
             continue;
           }
           const a = await availabilityFor(h.id, w.startIso, w.endIso);
           (a.unknown ? unconfirmed : a.available >= 1 ? free : taken).push(`${h.title} at £${h.daily} a day. ${contentsText(h)}`);
         }
-        if (unconfirmed.length) return `${shown ? "On screen now." : "Found options, but the catalogue has not finished loading on screen."} Catalogue options: ${unconfirmed.join("; ")}. Availability is unconfirmed. Choose pickup and return dates and times in the basket before checking stock.${minimumPeriod.length ? ` ${minimumPeriod.join(" ")}` : ""}`;
+        if (unconfirmed.length) return `${shown ? "On screen now." : "Found options, but the catalogue has not finished loading on screen."} Catalogue options: ${unconfirmed.join("; ")}. Availability could not be confirmed just now. Exact times are selected at checkout, where stock is checked again.${minimumPeriod.length ? ` ${minimumPeriod.join(" ")}` : ""}`;
         if (!free.length && minimumPeriod.length && !taken.length) return `For ${w.startIso} to ${w.endIso}, ${minimumPeriod.join(" ")} Would you like to choose dates that meet the minimum?`;
         if (!free.length) return `Nothing matching ${q} is free ${w.startIso} to ${w.endIso}.${taken.length ? ` Booked: ${taken.join("; ")}.` : ""}${minimumPeriod.length ? ` ${minimumPeriod.join(" ")}` : ""}`;
         return (
           `${shown ? "On screen now." : "Found these options, but the catalogue has not finished loading on screen."} Free ${w.startIso} to ${w.endIso}: ${free.join("; ")}.` +
           (taken.length ? ` Already booked: ${taken.join("; ")}.` : "") +
+          ` Exact pickup and return times are selected at checkout; availability is rechecked then.` +
           (minimumPeriod.length ? ` ${minimumPeriod.join(" ")} Would you like to check a longer period?` : "")
         );
       },
@@ -441,21 +509,23 @@ export function useGafferTools() {
         const hits = await findMany(item, 3);
         if (!hits.length) return `Nothing in the catalogue matches ${item}.`;
         const w = resolveWindow(start, end);
+        if (w.needsDates) {
+          const options = hits.map(h => `${h.title}, £${h.daily} a day${h.minDays > 1 ? ` (${h.minDays}-day minimum)` : ""}`).join("; ");
+          return `I need the rental dates to check availability. Options: ${options}. What dates should I check? Exact pickup and return times are chosen at checkout.`;
+        }
         const lines: string[] = [];
         for (const h of hits) {
           const minimumDays = Number.isSafeInteger(h.minDays) && h.minDays > 0 ? h.minDays : 1;
           if (w.days < minimumDays) {
-            lines.push(w.pencilled
-              ? `${h.title}, £${h.daily} a day — ${minimumDays}-day minimum; send dates for a stock check.`
-              : `${h.title}, £${h.daily} a day — ${minimumDays}-day minimum; your dates cover ${w.days} day${w.days === 1 ? "" : "s"}. Availability for the longer period hasn't been checked.`);
+            lines.push(`${h.title}, £${h.daily} a day — ${minimumDays}-day minimum; your dates cover ${w.days} day${w.days === 1 ? "" : "s"}. Availability for the longer period hasn't been checked.`);
             continue;
           }
           const a = await availabilityFor(h.id, w.startIso, w.endIso);
           lines.push(
             a.unknown
-              ? `${h.title}, £${h.daily} a day (${a.needsTimes ? "choose pickup and return dates and times in the basket before checking availability" : "could not confirm stock just now"})`
+              ? `${h.title}, £${h.daily} a day (could not confirm stock just now; exact times are selected at checkout)`
               : a.available >= 1
-                ? `${h.title}, £${h.daily} a day — ${a.available} free`
+                ? `${h.title}, £${h.daily} a day — ${a.available} free for those dates; final stock is rechecked at checkout`
                 : `${h.title} — booked out for those dates`,
           );
         }
@@ -572,28 +642,96 @@ export function useGafferTools() {
                 `${lens.wanted} as a separate hire alongside it, or this bundle as it is.`;
         }
 
-        const { startIso, endIso, days, pencilled } = resolveWindow(start, end);
+        const { startIso, endIso, days, needsDates, inheritedDates } = resolveWindow(start, end);
+        if (needsDates) {
+          if (String(start ?? "").trim() || String(end ?? "").trim())
+            return `I need both the first and return dates for ${hit.title}; I haven't added it or checked stock. Exact pickup and return times are selected at checkout.`;
+          if (catalogOnlyLines.current.some(line => line.listingId === hit.id)) return `${hit.title} is already in the proposed kit; it has no dates or availability check yet.`;
+          const next = [...catalogOnlyLines.current, {
+            listingId: hit.id,
+            title: hit.title,
+            slug: hit.slug,
+            heroImage: hit.heroImage ?? null,
+          }];
+          catalogOnlyLines.current = next;
+          setCatalogOnlyLinesView(next);
+          return `Added ${hit.title} to a proposed kit. It has no dates yet, so I haven't checked availability or quoted a price. I can email a private link with the real listing photo; checkout will collect dates before checking stock and price.`;
+        }
         const minimumDays = Number.isSafeInteger(hit.minDays) && hit.minDays > 0 ? hit.minDays : 1;
         if (days < minimumDays) {
-          return pencilled
-            ? `${hit.title} has a ${minimumDays}-day minimum. I haven't added it or pencilled in dates; what dates should I check for at least ${minimumDays} days?`
-            : `${hit.title} has a ${minimumDays}-day minimum. These dates cover ${days} rental day${days === 1 ? "" : "s"}, so I haven't added it or changed your dates. Would you like to choose dates covering at least ${minimumDays} days?`;
+          return `${hit.title} has a ${minimumDays}-day minimum. These dates cover ${days} rental day${days === 1 ? "" : "s"}, so I haven't added it or changed your dates. Would you like to choose dates covering at least ${minimumDays} days?`;
         }
         const stock = await availabilityFor(hit.id, startIso, endIso);
 
+        if (stock.unknown || stock.unknownBasket)
+          return "I couldn't confirm availability for every item in the proposed basket, so I haven't added anything. Please try again.";
+
+        if (stock.unavailableBasket?.some(id => id !== hit.id))
+          return "At least one item already in the basket is unavailable for its selected dates, so I haven't added anything. Please review the basket first.";
+
         if (!stock.unknown && stock.available < 1) {
-          const alts = await alternativesFor(hit, startIso, endIso);
+          const alternatives = await alternativesFor(hit, startIso, endIso);
           const line = `${hit.title} is booked out ${startIso} to ${endIso}, so I haven't added it.`;
-          return alts.length
-            ? `${line} Free instead: ${alts.map((a) => `${a.title} at £${a.daily} a day`).join("; ")}. Want one of those?`
-            : `${line} Nothing else in ${hit.category} is free then either — shall I try different dates?`;
+          return alternatives.items.length
+            ? `${line} Free instead: ${alternatives.items.map((a) => `${a.title} at £${a.daily} a day`).join("; ")}. ${alternatives.unknown ? "I couldn't confirm other alternatives just now." : "Want one of those?"}`
+            : `${line} ${alternatives.unknown ? "I couldn't confirm whether any other items are free just now — shall I try different dates?" : `Nothing else in ${hit.category} is free then either — shall I try different dates?`}`;
         }
 
-        if (!hit.pricing || !Number.isFinite(hit.pricing.daily) || hit.pricing.daily <= 0 || hit.deal != null && (!Number.isFinite(hit.deal) || hit.deal < 0 || hit.deal > 100))
+        if (!hit.pricing || !Number.isFinite(hit.pricing.daily) || hit.pricing.daily <= 0)
           return "I couldn't confirm the current rental price for " + hit.title + ", so I haven't added it. Please try again.";
-        const baseQuote = quote(hit.pricing, days);
-        const total = hit.deal ? Math.round(baseQuote.total * (1 - hit.deal / 100)) : baseQuote.total;
-        const q = { total, perDay: Math.round(total / days * 100) / 100 };
+        let quotedLineTotal: number;
+        let basketRentalTotal: number;
+        let sameDayFee = 0;
+        try {
+          const proposedItems = [
+            ...cart.items.map(item => ({
+              listingId: item.listingId as any,
+              title: item.title,
+              start: dayMs(item.start),
+              end: dayMs(item.end),
+              pickupTime: item.pickupTime || undefined,
+              returnTime: item.returnTime || undefined,
+              qty: 1,
+              total: item.total,
+              deposit: item.deposit,
+              offerType: item.offerType,
+            })),
+            {
+              listingId: hit.id as any,
+              title: hit.title,
+              start: dayMs(startIso),
+              end: dayMs(endIso),
+              qty: 1,
+              total: 0,
+              deposit: hit.deposit ?? 0,
+            },
+          ];
+          const quoteResult = await convex.action(api.checkout.priceQuote, {
+            items: proposedItems,
+            token: account.token && account.me ? account.token : undefined,
+            customerEmail: account.me?.email ?? "",
+            selectedMembership: cart.membership
+              ? { tier: cart.membership.tier, intro: cart.membership.intro }
+              : undefined,
+            useAccountCredit: false,
+            fulfilment: "pickup",
+            promoCode: cart.promo ?? undefined,
+            protection: "verify",
+          });
+          const candidateLine = quoteResult.items?.[proposedItems.length - 1];
+          quotedLineTotal = Number(candidateLine?.total);
+          const subtotal = Number(quoteResult.subtotal);
+          const totalReduction = Number(quoteResult.totalReduction);
+          sameDayFee = Number(quoteResult.sameDayFee ?? 0);
+          basketRentalTotal = (Math.round(subtotal * 100) - Math.round(totalReduction * 100) + Math.round(sameDayFee * 100)) / 100;
+          if (quoteResult.items?.length !== proposedItems.length || !Number.isFinite(quotedLineTotal) || quotedLineTotal < 0 ||
+              !Number.isFinite(subtotal) || subtotal < 0 || !Number.isFinite(totalReduction) || totalReduction < 0 ||
+              !Number.isFinite(sameDayFee) || sameDayFee < 0 || !Number.isFinite(basketRentalTotal) || basketRentalTotal < 0)
+            throw new Error("Invalid complete basket quote.");
+        } catch {
+          return "I couldn't confirm the complete basket price, so I haven't added anything. Please try again.";
+        }
+        const q = { total: quotedLineTotal, perDay: Math.round((quotedLineTotal / days) * 100) / 100 };
 
         // the pick lands on screen first, the basket a moment later
         focus(hit.id);
@@ -606,12 +744,16 @@ export function useGafferTools() {
           heroImage: hit.heroImage ?? null,
           start: startIso,
           end: endIso,
-          pickupTime: stock.pickupTime, returnTime: stock.returnTime,
           days,
           perDay: q.perDay,
           total: q.total,
           deposit: hit.deposit ?? 0,
         });
+        if (catalogOnlyLines.current.some(line => line.listingId === hit.id)) {
+          const next = catalogOnlyLines.current.filter(line => line.listingId !== hit.id);
+          catalogOnlyLines.current = next;
+          setCatalogOnlyLinesView(next);
+        }
         /**
          * The drawer's backdrop is a full-screen black/65 overlay — opening it
          * right on top of the add covered the highlighted, dimmed-around card
@@ -624,29 +766,29 @@ export function useGafferTools() {
         return (
           `Added ${hit.title}` +
           (hit.includesLens && hit.lensFocal ? ` (includes the ${hit.lensFocal} lens)` : "") +
-          `, ${startIso} to ${endIso}, ${days} day${days > 1 ? "s" : ""}, £${q.total}. ` +
+          `, ${startIso} to ${endIso}, ${days} day${days > 1 ? "s" : ""}. ` +
+          `The complete basket rental subtotal after current pricing and any valid promo is £${basketRentalTotal.toFixed(2)}${sameDayFee > 0 ? `, including a £${sameDayFee.toFixed(2)} same-day booking fee` : ""} before optional account credit, security, delivery, or a separate membership fee. ` +
           `Basket is now ${cart.count + 1} item${cart.count ? "s" : ""}. ` +
           // Say the dates back. A misheard date is the single most expensive
           // thing to get wrong here and the least likely to be noticed.
-          `Read the dates back to them to confirm. ${stock.unknown ? "This is a draft basket; availability is not confirmed. Choose pickup and return times in the basket." : ""}` +
-          (pencilled
-            ? ` NOTE: I could not understand the date you passed, so this is pencilled in for ` +
-              `${startIso}. Ask them for the dates and add it again with them.`
-            : "")
+          `${inheritedDates ? "I used the same dates already in the basket. " : ""}Read the dates back to them to confirm. Exact pickup and return times are selected at checkout. ` +
+          (stock.unknown ? "Date availability could not be confirmed just now; checkout will recheck stock before payment. " : "Availability was checked for those dates; checkout will recheck stock for the selected times. ")
         );
       },
 
       /** Same-category substitutes that are genuinely free for those dates. */
       suggest_alternatives: async ({ item, start, end }: { item: string; start?: string; end?: string }) => {
         const basketItem=cart.items.find(i=>i.title.toLowerCase()===String(item).trim().toLowerCase());
-        if (basketItem && (!basketItem.pickupTime || !basketItem.returnTime)) return "Choose this item’s pickup and return times before checking alternatives.";
-        if(basketItem){const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),limit:10});const alts=rows[basketItem.key];return alts?`${basketItem.title} is unavailable for ${basketItem.start} to ${basketItem.end}. Available alternatives: ${alts.map(c=>`${c.title} (£${c.total})`).join("; ")||"none"}. Use Show more replacements on the cart or ask which they prefer before switching.`:"This basket item is currently available. Ask before changing it.";}
+        if(basketItem){const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),limit:10});if(rows.status!=="ready")return "Rental Manager stock is refreshing, so I cannot confirm whether this item is available. Keep the original item and return time unchanged for now.";const alts=rows.results[basketItem.key];return alts?`${basketItem.title} is unavailable for ${basketItem.start} to ${basketItem.end}. Available alternatives: ${alts.map(c=>`${c.title} (£${c.total})`).join("; ")||"none"}. Use Show more replacements on the cart or ask which they prefer before switching.`:"This basket item is currently available. Ask before changing it.";}
         const hit = await findOne(item);
         if (!hit) return `Couldn't find ${item} to match against.`;
         const { startIso, endIso } = resolveWindow(start, end);
-        const alts = await alternativesFor(hit, startIso, endIso);
-        if (!alts.length) return `Nothing else in ${hit.category} is free ${startIso} to ${endIso}.`;
-        return `Instead of ${hit.title}: ${alts.map((a) => `${a.title} at £${a.daily} a day`).join("; ")}.`;
+        if (!startIso || !endIso) return `What hire dates should I check for ${hit.title}? I haven't checked availability yet.`;
+        const alternatives = await alternativesFor(hit, startIso, endIso);
+        if (!alternatives.items.length) return alternatives.unknown
+          ? `I couldn't confirm whether other ${hit.category} items are free ${startIso} to ${endIso}. Please try checking again.`
+          : `Nothing else in ${hit.category} is free ${startIso} to ${endIso}.`;
+        return `Instead of ${hit.title}: ${alternatives.items.map((a) => `${a.title} at £${a.daily} a day`).join("; ")}.${alternatives.unknown ? " I couldn't confirm other alternatives just now." : ""}`;
       },
 
       remove_from_basket: async ({ item }: { item: string }) => {
@@ -654,7 +796,14 @@ export function useGafferTools() {
         const line = cart.items.find(
           (i) => i.title.toLowerCase().includes(needle) || i.slug.includes(needle),
         );
-        if (!line) return `Nothing matching ${item} in the basket.`;
+        if (!line) {
+          const proposed = catalogOnlyLines.current.find(i => i.title.toLowerCase().includes(needle) || i.slug.includes(needle));
+          if (!proposed) return `Nothing matching ${item} in the basket.`;
+          const next = catalogOnlyLines.current.filter(i => i.listingId !== proposed.listingId);
+          catalogOnlyLines.current = next;
+          setCatalogOnlyLinesView(next);
+          return `Removed ${proposed.title} from the proposed kit.`;
+        }
         cart.remove(line.key);
         return `Removed ${line.title}. Basket is now ${cart.count - 1} items.`;
       },
@@ -738,31 +887,36 @@ export function useGafferTools() {
       email_checkout_cart: async ({email}:{email?:string}) => {
         const to=(email??account.me?.email??"").trim().toLowerCase();
         if(!to)return "Ask for their email address and permission to email the discussed cart.";
-        try{const signature=voiceCartShareSignature(cart.items);const result=await convex.action(api.checkoutCarts.email,{email:to,token:account.me?.email===to?account.token??undefined:undefined,lines:cart.items.map(i=>({listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime}))});
-          emailedCart.current={email:to,shareKey:result.shareKey,signature};
-          if(voiceCartShareSignature(currentCart.current.items)!==signature)return "The earlier basket was emailed, but the basket changed while sending. Review the current basket before sending another link.";
-          return `The discussed cart was emailed to ${to}. Its private link restores the items and selected dates; availability is rechecked and unavailable items show replacements. It does not reserve gear or take payment.`;
+        const snapshot=cartShareSnapshot(cart.items);
+        if(!snapshot.items.length)return "The basket is empty. Add the selected catalogue items first.";
+        try{const result=await emailCartLink(to,snapshot.signature,snapshot.lines,account.me?.email===to?account.token??undefined:undefined);
+          if(currentCartShareSignature()!==snapshot.signature)return "The earlier kit was emailed, but its selection changed while sending. Review the current kit before sending another link.";
+          if(result.alreadySent)return `That kit was already emailed to ${to}; I’ve avoided sending a duplicate. I can send an updated kit if you change the basket.`;
+          const hasUndated = snapshot.items.some(line => !line.start || !line.end);
+          return hasUndated
+            ? `The private kit link was emailed to ${to}. It includes ${snapshot.items.length} selected item${snapshot.items.length === 1 ? "" : "s"} with real listing photos. The link asks for dates before checking price or availability; it does not reserve gear or take payment.`
+            : `The discussed cart was emailed to ${to}. Its private link restores the items and selected dates; availability is rechecked and unavailable items show replacements. It does not reserve gear or take payment.`;
         }catch(e){return e instanceof Error?e.message:"The cart email could not be sent.";}
       },
       switch_unavailable: async ({item,replacement}:{item:string;replacement:string}) => {
         const source=cart.items.find(i=>i.title.toLowerCase()===String(item).trim().toLowerCase());
         if(!source)return "Name the exact unavailable basket item before switching it.";
         const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),limit:100});
-        const choice=rows[source.key]?.find(i=>i.title.toLowerCase()===String(replacement).trim().toLowerCase());
+        if(rows.status!=="ready")throw new Error("Rental Manager stock is refreshing. Try the replacement again once availability has refreshed.");
+        const choice=rows.results[source.key]?.find(i=>i.title.toLowerCase()===String(replacement).trim().toLowerCase());
         if(!choice)return "That replacement is not currently available for this basket. Use check_basket for the current alternatives.";
         cart.switchItem(source.key,{...choice,start:source.start,end:source.end,pickupTime:source.pickupTime,returnTime:source.returnTime});return `Switched ${source.title} to ${choice.title}, keeping ${source.start} to ${source.end}. Recheck the basket before checkout.`;
       },
       setup_account: async ({email,name,phone}:{email:string;name:string;phone:string}) => {
         if(!email?.trim()||!name?.trim()||!phone?.trim())return "Ask for their name, phone number and email address, and confirm they want an account.";
-        try{const to=email.trim().toLowerCase(),signature=voiceCartShareSignature(cart.items);
-          if(cart.count&&(!emailedCart.current||emailedCart.current.email!==to||emailedCart.current.signature!==signature)){
-            const result=await convex.action(api.checkoutCarts.email,{email:to,lines:cart.items.map(i=>({listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime}))});emailedCart.current={email:to,shareKey:result.shareKey,signature};
-          }
-          if(voiceCartShareSignature(currentCart.current.items)!==signature)return "Your basket changed while preparing the account. Please review it and ask me to continue again.";
-          const result=await convex.action(api.accountCodes.request,{email:to,name,phone,purpose:"setup",cartKey:cart.count&&emailedCart.current?.email===to?emailedCart.current.shareKey:undefined});
+        try{const to=email.trim().toLowerCase(),snapshot=cartShareSnapshot(cart.items),signature=snapshot.signature;
+          if(snapshot.items.length)await emailCartLink(to,signature,snapshot.lines);
+          if(currentCartShareSignature()!==signature)return "Your kit changed while preparing the account. Please review it and ask me to continue again.";
+          const cartKey=snapshot.items.length&&emailedCart.current?.email===to?emailedCart.current.shareKey:undefined;
+          const result=await convex.action(api.accountCodes.request,{email:to,name,phone,purpose:"setup",cartKey});
           router.push(`/account/setup?challenge=${result.challenge}`);
-          if(voiceCartShareSignature(currentCart.current.items)!==signature)return "The email code entry page is open. The basket changed while the code was requested; review the basket after signing in. Never share the code or password.";
-          return `The email code entry page is open. Ask them to enter the one-time code themselves, then choose a new password. Never ask them to say or send you the code or password.${cart.count ? " Their saved cart will reopen after setup." : ""} An existing profile is preserved.`;
+          if(currentCartShareSignature()!==signature)return "The email code entry page is open. The kit changed while the code was requested; review it after signing in. Never share the code or password.";
+          return `The email code entry page is open. Ask them to enter the one-time code themselves, then choose a new password. Never ask them to say or send you the code or password.${cartKey ? " Their saved kit will reopen after setup." : ""} An existing profile is preserved.`;
         }catch(e){return e instanceof Error?e.message:"Account setup could not start.";}
       },
       reset_password: async ({email}:{email:string}) => {
@@ -795,7 +949,9 @@ export function useGafferTools() {
       /** Quick peek — the drawer, without leaving the page. */
       show_basket: async () => {
         cart.open();
-        if (!cart.count) return "Basket is empty.";
+        if (!cart.count) return catalogOnlyLines.current.length
+          ? `The dated basket is empty. Proposed kit: ${catalogOnlyLines.current.map(item => item.title).join(", ")}. Dates, prices and availability are not set; email_checkout_cart can send a private link to complete those details.`
+          : "Basket is empty.";
         return `Basket: ${cart.items.map((i) => i.title).join(", ")}. Rental total ${await rentalSummary()}.`;
       },
 
@@ -805,7 +961,9 @@ export function useGafferTools() {
        * confirmation — don't jump straight there.
        */
       review_basket: async () => {
-        if (!cart.count) return "Basket is empty — nothing to review yet.";
+        if (!cart.count) return catalogOnlyLines.current.length
+          ? "These items are only a proposed kit, not a dated basket. I haven't checked price or availability; use email_checkout_cart to send a private link where dates can be added."
+          : "Basket is empty — nothing to review yet.";
         instant();
         cart.close();
         router.push("/cart");
@@ -813,21 +971,21 @@ export function useGafferTools() {
         const summary =
           `Basket breakdown is on screen: ${cart.items.length} line${cart.items.length > 1 ? "s" : ""}, ` +
           `${await rentalSummary()}. ${securitySummary()}` +
-          speakCompat(compat.warnings ?? []);
-        if (cart.items.some(item => !item.pickupTime || !item.returnTime)) return `${summary} Choose pickup and return times for every line before confirming availability.`;
+          speakCompat(compat);
         if (!bad) return summary + " Availability could not be confirmed just now. Please try again before checkout.";
         return bad.length
           ? `${summary} ${await replacementBrief()}`
-          : `${summary} Happy to go through to checkout?`;
+          : `${summary} Availability looks clear for the selected dates. Exact pickup and return times are selected at checkout, where stock is checked again. Happy to go through to checkout?`;
       },
 
       /** "Is everything in there actually available?" — unit-aware, shared stock included. */
       check_basket: async () => {
-        if (!cart.count) return "Basket is empty.";
-        if (cart.items.some(item => !item.pickupTime || !item.returnTime)) return "Choose pickup and return times for every basket line before confirming availability.";
+        if (!cart.count) return catalogOnlyLines.current.length
+          ? "The proposed kit has no dates, so I can't check availability or quote a total yet. Use email_checkout_cart to send a private link for date selection."
+          : "Basket is empty.";
         const bad = await basketProblems();
         if (!bad) return "Availability could not be confirmed just now. Please try again; nothing has been marked unavailable.";
-        if (!bad.length) return `All ${cart.items.length} line${cart.items.length > 1 ? "s are" : " is"} available. Good to check out.`;
+        if (!bad.length) return `All ${cart.items.length} line${cart.items.length > 1 ? "s look" : " looks"} available for the selected dates. Exact times are selected at checkout and stock is rechecked before payment.`;
         return (
           `${bad.map((b) => `${b.title} (${b.start} to ${b.end})`).join(" and ")} ` +
           `${bad.length > 1 ? "aren't" : "isn't"} available for those dates. ` +
@@ -905,26 +1063,24 @@ export function useGafferTools() {
       /** "Just take the ones that aren't available off." */
       remove_unavailable: async () => {
         const bad = await basketProblems();
-        if (!bad) return "Availability could not be confirmed, so nothing was removed. Choose dates and times and try again.";
-        if (!bad.length) return "Nothing in the basket needs removing — it's all available.";
+        if (!bad) return "Availability could not be confirmed, so nothing was removed. Check the selected dates again; exact times are selected at checkout.";
+        if (!bad.length) return "Nothing in the basket needs removing — it looks available for the selected dates.";
         for (const line of bad) cart.remove(line.key);
         const left = cart.items.length - bad.length;
         return (
           `Took ${bad.map((b) => b.title).join(" and ")} off. ` +
-          (left > 0 ? `${left} line${left > 1 ? "s" : ""} left. Check the selected dates and times in your basket.` : "That empties the basket.")
+          (left > 0 ? `${left} line${left > 1 ? "s" : ""} left. Exact times are selected at checkout and stock is rechecked then.` : "That empties the basket.")
         );
       },
 
       go_to_checkout: async () => {
-        if (!cart.count) return "Basket is empty — nothing to check out yet.";
+        if (!cart.count) return catalogOnlyLines.current.length
+          ? "These items are a proposed kit, not in the dated basket. I haven't checked price or availability; send the private date-entry link with email_checkout_cart before checkout."
+          : "Basket is empty — nothing to check out yet.";
         const signature = voiceCartReviewSignature(cart, reviewContext);
-        if (cart.items.some(item => !item.pickupTime || !item.returnTime)) { router.push("/cart"); return "Your basket is on screen. Choose pickup and return times for every line before checking availability and continuing to payment."; }
-        // Don't walk them into a checkout that will reject the basket: the page
-        // gates on this same data, so catch it here where Gaffer can still help.
         const bad = await basketProblems();
-        if (!bad) { router.push("/cart"); return "Availability could not be confirmed just now. Your basket is unchanged; please try again before checkout."; }
         if (voiceCartReviewSignature(currentCart.current, currentReviewContext.current) !== signature) return "Your basket changed while I checked it. Please review it and ask me to check again.";
-        if (bad.length)
+        if (bad?.length)
           return (
             `Can't check out yet — ${bad.map((b) => b.title).join(" and ")} ` +
             `${bad.length > 1 ? "aren't" : "isn't"} available for those dates. ` +
@@ -932,7 +1088,8 @@ export function useGafferTools() {
           );
 
         /**
-         * First ask shows the breakdown; only a second one goes to payment.
+         * First ask shows the breakdown; only a second one goes to checkout.
+         * Time-specific stock is checked there after the renter chooses times.
          *
          * Enforced here rather than in the agent's instructions because the
          * agent has no review_basket tool registered — it only knows
@@ -953,8 +1110,8 @@ export function useGafferTools() {
           if (voiceCartReviewSignature(currentCart.current, currentReviewContext.current) !== signature) { reviewed.current = null; return "Your basket changed while I prepared the breakdown. Please review it and ask me to check again."; }
           reviewed.current = signature;
           return (
-            `Full breakdown is on screen and everything in it is available.${speakCompat(compat.warnings ?? [])} ${lines}. ` +
-            `That's ${summary}. ${securitySummary()} ` +
+            `Full breakdown is on screen.${bad?.length === 0 ? " Availability looks clear for the selected dates." : " I couldn't confirm date availability just now."}${speakCompat(compat)} ${lines}. ` +
+            `That's ${summary}. ${securitySummary()} Exact pickup and return times are selected at checkout; stock is rechecked for those times before payment. ` +
             `Read it back to them, then ask if they're happy to go through to payment — ` +
             `call go_to_checkout again only once they say yes.`
           );
@@ -965,10 +1122,10 @@ export function useGafferTools() {
         instant();
         cart.close();
         router.push("/checkout");
-        return `Taking them to checkout, ${summary}. ${securitySummary()}`;
+        return `Taking them to checkout, ${summary}. ${securitySummary()} Choose exact pickup and return times there; stock and the final price are rechecked before payment.`;
       },
     }),
-    [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems, lensMismatch, suggest, rentalSummary, replacementBrief, securitySummary],
+    [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems, lensMismatch, suggest, rentalSummary, replacementBrief, securitySummary, catalogOnlyLinesView],
   );
 
   /**
@@ -988,11 +1145,12 @@ export function useGafferTools() {
       membership_tier: me?.membershipActive ? (me?.membershipTier ?? "") : "",
       basket_count: String(cart.count),
       basket_items: cart.items.map((i) => `${i.title} (${i.days}d, £${i.total})`).join("; "),
-      basket_availability: cartAlternatives===undefined&&cart.count ? "checking" : cart.items.map(i=>!i.pickupTime||!i.returnTime?`${i.title}: times needed; availability unconfirmed`:cartAlternatives&&Object.prototype.hasOwnProperty.call(cartAlternatives,i.key)?`${i.title}: availability unconfirmed; possible alternatives: ${cartAlternatives[i.key].map(c=>`${c.title} £${c.total}`).join(", ")||"none"}`:`${i.title}: availability unconfirmed; use check_basket`).join("; "),
+      proposed_kit_items: catalogOnlyLinesView.map(item => item.title).join("; "),
+      basket_availability: cartAlternatives===undefined&&cart.count ? "checking" : cartAlternatives?.status==="refresh_required" ? "Rental Manager stock is refreshing; availability is unknown. Do not claim any basket item is available or unavailable yet." : cart.items.map(i=>!i.pickupTime||!i.returnTime?`${i.title}: exact times chosen at checkout; final availability check pending`:cartAlternatives?.status==="ready"&&Object.prototype.hasOwnProperty.call(cartAlternatives.results,i.key)?`${i.title}: availability unconfirmed; possible alternatives: ${cartAlternatives.results[i.key].map(c=>`${c.title} £${c.total}`).join(", ")||"none"}`:`${i.title}: availability unconfirmed; use check_basket`).join("; "),
       basket_subtotal: String(cart.subtotal),
       current_page: typeof window !== "undefined" ? window.location.pathname : "",
     };
-  }, [account, cart, cartAlternatives]);
+  }, [account, cart, cartAlternatives, catalogOnlyLinesView]);
 
   return { clientTools, dynamicVariables, noteCustomerMessage, resetPriceRequest, noteAgentAlignment, noteAgentMessage, resetSpokenFocus };
 }

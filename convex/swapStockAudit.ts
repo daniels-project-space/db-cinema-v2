@@ -5,7 +5,7 @@ import { queueOwnerNotification } from "./lib/adminPush";
 import { swapAuthorityAvailable } from "./lib/rentalSwapAuthority";
 import { postRentalMessage } from "./lib/rentalChat";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
-import { verificationValidUntil } from "../shared/verificationProgress";
+import { bookingVerificationExpired } from "../shared/verificationProgress";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
@@ -184,7 +184,7 @@ export const record = internalMutation({args:{id:v.id("swap_stock_applied_receip
   const canFence=(risk||attempts>=3)&&!changed&&!held&&booking.status==="confirmed"&&!booking.activeItemSwapId&&!booking.activeAdditionId&&!booking.activeDeliveryQuoteId&&!booking.activeExtensionId&&!booking.activePriceAdjustmentId&&!booking.cancellationDecision&&!booking.returnDecision;
   if(canFence)await ctx.db.patch(booking._id,{activeItemSwapId:swap._id});
   const heldAfter=held||canFence;
-  const clear=!changed&&!risk&&args.result?.status==="confirmed"&&args.result.result?.stockRisk===false&&held&&swap.status==="applied"&&booking.status==="confirmed"&&booking.idVerifyStatus==="verified"&&(verificationValidUntil(booking)??0)>now&&!booking.cancellationDecision&&!booking.returnDecision&&!!account&&account.blockedAt==null&&belongsToRentalAccount(booking,account);
+  const clear=!changed&&!risk&&args.result?.status==="confirmed"&&args.result.result?.stockRisk===false&&held&&swap.status==="applied"&&booking.status==="confirmed"&&booking.idVerifyStatus==="verified"&&!bookingVerificationExpired(booking,now)&&!booking.cancellationDecision&&!booking.returnDecision&&!!account&&account.blockedAt==null&&belongsToRentalAccount(booking,account);
   if(changed||risk||attempts>=3){
     await queueOwnerNotification(ctx,{eventKey:`swap-stock-audit:${args.id}:${changed?"changed":risk?"risk":"unavailable"}`,kind:"checkout_failure",accountId:swap.accountId,bookingId:booking._id,title:"Equipment stock needs checking",body:changed?"The rental changed during a stock check. Check current inventory before handover.":risk?heldAfter?"A possible external booking conflicts with this equipment swap. The rental is locked until stock is checked.":"A possible external booking conflicts with this equipment swap. Another rental operation may be in progress; check it before handover.":"Rental Manager could not confirm this equipment swap's availability. Check stock before handover."});
   }

@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const Module = require("node:module");
 const ts = require("typescript");
-const { load, db, put, setMock } = require("./lib/rentalTestHarness.cjs");
+const { load, db, put, tables, setMock } = require("./lib/rentalTestHarness.cjs");
 const { swapAdjustmentDocumentIdentity } = load("shared/swapAdjustmentDocument.ts");
 
 const nodeInvoiceSource = fs.readFileSync(path.join(__dirname, "../convex/invoice.ts"), "utf8");
@@ -24,13 +24,20 @@ global.fetch=async(url,options={})=>{
   pdfRequests.push({url:String(url),options});
   return new Response(Buffer.from("%PDF-1.4\nsynthetic adjustment PDF\n%%EOF"),{status:200,headers:{"content-type":"application/pdf"}});
 };
-setMock("./lib/mailer",{sendMail:async payload=>{sent.push(payload);return true;}});
+process.env.INBOUND_REPLY_ADDRESS="support@resend-inbox.example.invalid";
+const trackedMailer={
+  sendMail:async payload=>{sent.push(payload);return true;},
+  sendBusinessMailTracked:async payload=>{sent.push(payload);return {sent:true,ambiguous:false,resendEmailId:`resend-${payload.deliveryKey}`};},
+};
+setMock("./lib/mailer",trackedMailer);
+setMock("./mailer",trackedMailer);
 const invoice=load("convex/invoice.ts");
 const invoiceAdjustments=load("convex/invoiceAdjustments.ts");
+const emailInbox=load("convex/emailInbox.ts");
 const bookings=load("convex/bookings.ts");
-const invoiceHandlers={...invoice,...invoiceAdjustments};
-const account=put("accounts",{email:"renter@example.invalid"});
-const booking=put("bookings",{accountId:account._id,status:"confirmed"});
+const invoiceHandlers={...invoice,...invoiceAdjustments,...emailInbox};
+const account=put("accounts",{email:"renter@example.invalid",emailVerifiedAt:Date.now()});
+const booking=put("bookings",{accountId:account._id,guestEmail:account.email,status:"confirmed"});
 const swap=put("rental_item_swaps",{bookingId:booking._id,accountId:account._id,status:"applied"});
 booking.activeItemSwapId=swap._id;
 const stock=put("swap_stock_applied_receipts",{swapId:swap._id,bookingId:booking._id,deliveryState:"pending",stockRisk:false});
@@ -77,7 +84,15 @@ const ctx={db,scheduler:{runAfter:async()=>{}},runMutation:async(reference,args)
   assert.equal(receipt.emailState,"sent");
   assert.equal(sent.length,1);
   assert.equal(sent[0].to,account.email);
-  assert.equal(sent[0].deliveryKey,`swap-adjustment-${receipt._id}`);
+  assert.equal(sent[0].deliveryKey,`rental-context:rental-return:swap-${receipt._id}`);
+  assert.match(sent[0].replyTo,/^gaffer\+[a-f0-9]{24}@resend-inbox\.example\.invalid$/);
+  const trackedMessage=tables.get("email_messages").find(row=>row.providerId===sent[0].deliveryKey);
+  const trackedThread=trackedMessage&&await db.get(trackedMessage.threadId);
+  assert.ok(trackedMessage,"adjustment invoice email is recorded in the centralized inbox");
+  assert.equal(trackedMessage.bookingId,booking._id);
+  assert.equal(trackedMessage.state,"sent");
+  assert.equal(trackedThread.bookingId,booking._id);
+  assert.equal(trackedThread.accountId,account._id);
   assert.match(sent[0].subject,/supplementary invoice/i);
   assert.match(sent[0].subject,/DBC-SI-/);
   assert.equal(sent[0].attachments.length,1);
@@ -91,6 +106,8 @@ const ctx={db,scheduler:{runAfter:async()=>{}},runMutation:async(reference,args)
   assert.equal(pdfRequests.length,1);
   assert.match(pdfRequests[0].url,/phase=swap-adjustment/);
   assert.match(pdfRequests[0].url,/receiptId=/);
+  await invoice.swapAdjustmentEmail.handler(ctx,{receiptId:receipt._id});
+  assert.equal(sent.length,1,"a retried adjustment invoice remains idempotent");
   assert.equal(pdfRequests[0].options.headers["x-invoice-key"],process.env.INVOICE_SECRET);
   assert.deepEqual(await invoiceAdjustments.dueSwapAdjustmentEmails.handler(ctx,{}),[],"A sent adjustment is not retried");
   assert.deepEqual(await invoice.swapAdjustmentEmail.handler(ctx,{receiptId:receipt._id}),{sent:false,waiting:true});
@@ -114,6 +131,26 @@ const ctx={db,scheduler:{runAfter:async()=>{}},runMutation:async(reference,args)
   assert.match(sent[1].html,/£24\.00/);
   assert.equal(pdfRequests.length,2);
 
+  const walletSwap=put("rental_item_swaps",{bookingId:booking._id,accountId:account._id,status:"applied"});
+  const walletAdjustment=put("rental_swap_adjustment_receipts",{
+    swapId:walletSwap._id,bookingId:booking._id,accountId:account._id,recipientEmail:account.email,
+    originalInvoiceNumber:"DBC-12345678",issuedAt:Date.now(),currency:"GBP",
+    changes:[{lineIndex:0,oldTitle:"Camera kit",newTitle:"Prime lens",oldQty:1,newQty:1,oldLineTotalPence:2000,newLineTotalPence:3000}],
+    cardChargePence:0,cardRefundPence:0,accountCreditRestoredPence:0,accountCreditAppliedPence:1000,requiresStockAck:false,
+    emailState:"pending",lastAttemptAt:0,
+  });
+  const walletData=await invoiceAdjustments.swapAdjustmentInvoiceData.handler(ctx,{receiptId:walletAdjustment._id,bookingId:booking._id,key:process.env.INVOICE_SECRET});
+  assert.equal(walletData.documentType,"supplementary_invoice","account credit pays part or all of a new adjustment invoice");
+  assert.match(walletData.documentNumber,/^DBC-SI-/);
+  assert.equal(walletData.accountCreditAppliedPence,1000);
+  assert.equal(swapAdjustmentDocumentIdentity(String(walletSwap._id),0,0,1000).documentType,"supplementary_invoice");
+  await invoice.swapAdjustmentEmail.handler(ctx,{receiptId:walletAdjustment._id});
+  assert.match(sent[2].subject,/supplementary invoice/i);
+  assert.match(sent[2].html,/Account credit applied/);
+  assert.match(sent[2].html,/£10\.00/);
+  assert.equal(sent[2].attachments.length,1);
+  assert.equal(pdfRequests.length,3);
+
   const documentPath=path.join(__dirname,"../src/lib/invoice/SwapAdjustmentDocument.tsx");
   const compiled=ts.transpileModule(fs.readFileSync(documentPath,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
   const componentModule=new Module(documentPath,module);
@@ -132,7 +169,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}},runMutation:async(reference,args)
   const React=require("react");
   const {renderToBuffer}=require("@react-pdf/renderer");
   const {SwapAdjustmentDocument}=componentModule.exports;
-  for(const data of [adjustmentData,creditData]){
+  for(const data of [adjustmentData,creditData,walletData]){
     const rendered=await renderToBuffer(React.createElement(SwapAdjustmentDocument,{data}));
     assert.equal(rendered.subarray(0,5).toString(),"%PDF-","Both adjustment types render as real PDFs");
     assert.ok(rendered.length>1000);

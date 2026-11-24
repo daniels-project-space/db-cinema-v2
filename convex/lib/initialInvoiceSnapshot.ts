@@ -12,7 +12,7 @@ export function initialInvoiceSnapshot(booking:any,customerName?:string|null,cus
     email:customerEmail??booking.guestEmail??null,
     fulfilment:booking.fulfilment,address:booking.address??null,currency:booking.currency??"GBP",
     equipmentImages:[],lineItems:rentalBillingLines(booking),
-    subtotal:booking.subtotal,discount:booking.discount??0,deliveryFee:booking.deliveryFee??0,
+    subtotal:booking.subtotal,discount:booking.discount??0,deliveryFee:booking.deliveryFee??0,sameDayFee:booking.sameDayFee??0,
     creditApplied:booking.creditApplied??0,membershipCreditApplied:booking.membershipCreditApplied??0,
     depositAmount:booking.depositAmount,depositHoldAmount:booking.depositHoldAmount??0,depositHoldStatus:booking.depositHoldStatus??null,
     securityPolicyVersion:booking.securityPolicyVersion??null,savedCardStatus:booking.savedCardStatus??null,savedCardLimit:booking.savedCardLimit??null,

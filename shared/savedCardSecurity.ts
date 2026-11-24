@@ -1,6 +1,6 @@
 import { ASSESSMENT_SECURITY_POLICY_VERSION, depositForBookingPolicy, hasCashDepositPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit, setupIntentSecurityLimit, immediateClaimSecurityLimit, SETUP_INTENT_SECURITY_POLICY_VERSION, PREVIOUS_IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION, IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION, isImmediateClaimSecurityPolicy, isScaledImmediateClaimSecurityPolicy } from "./rentalSecurity";
 import { readAgreementSnapshot } from "./rentalAgreement";
-import { ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS, IMMEDIATE_CLAIM_LEGAL_VERSION, IMMEDIATE_CLAIM_LEGAL_VERSIONS, PREVIOUS_IMMEDIATE_CLAIM_LEGAL_VERSIONS } from "../src/lib/legal";
+import { ASSESSMENT_DEPOSIT_LEGAL_VERSION, CANCELLATION_PROTECTION_LEGAL_VERSION, SETUP_INTENT_LEGAL_VERSIONS, IMMEDIATE_CLAIM_LEGAL_VERSION, IMMEDIATE_CLAIM_LEGAL_VERSIONS, PREVIOUS_IMMEDIATE_CLAIM_LEGAL_VERSIONS, SCALED_IMMEDIATE_CLAIM_LEGAL_VERSIONS } from "../src/lib/legal";
 
 export const SECURITY_COLLECTION_NOTICE_HOURS = 7 * 24;
 export const SECURITY_COLLECTION_DAYS = 30;
@@ -17,7 +17,7 @@ export function setupIntentConsentText(limit: number) {
 }
 export function immediateClaimConsentText(limit:number,legalVersion=IMMEDIATE_CLAIM_LEGAL_VERSION) {
  if(!Number.isSafeInteger(Math.round(limit*100))||limit<50||!(IMMEDIATE_CLAIM_LEGAL_VERSIONS as readonly string[]).includes(legalVersion))throw Error("Invalid future security payment limit.");
- if(legalVersion!==IMMEDIATE_CLAIM_LEGAL_VERSION){
+ if(!(SCALED_IMMEDIATE_CLAIM_LEGAL_VERSIONS as readonly string[]).includes(legalVersion)){
   if(![50,100,200].includes(limit))throw Error("Invalid historical future security payment limit.");
   return `I authorise DB Cinema Rentals to save my card through Stripe for later off-session, one-time payments for itemised and evidenced late-return charges or material, permanent cosmetic damage or loss beyond fair wear, up to £${limit.toFixed(2)} combined for this rental. No security deposit is charged and no funds are reserved at checkout or pickup. A saved card is not a bank hold or a guarantee that a later payment will be approved; my bank may decline it or require authentication. No amount is automatically charged on an on-time return without a reported issue. If an authorised team member records a permitted amount, reason and supporting evidence after return, DB Cinema will send an itemised notice and may attempt that amount immediately using this saved card. Fair wear, pre-existing defects, minor removable marks and damage attributable to DB are excluded. Insurance claims or excess are separate under the insurance terms and are not charged under this permission. Any amount above this limit requires a separate agreement; statutory and bank dispute rights remain unchanged.`;
  }
@@ -67,7 +67,7 @@ export function assertSavedCardConsent(b:any) {
     if(!snapshot||!b.laterChargeConsentAt||!b.agreementSignedAt||snapshot.acceptedAt!==b.agreementSignedAt||snapshot.signer!==b.agreementName||snapshot.particulars.securityPolicyVersion!==b.securityPolicyVersion||(b.depositAmount??0)!==0||(b.depositHoldAmount??0)!==0||(b.securityAmendments??[]).length)return fail();
     const legalVersion=String(snapshot.version??"");
     const immediateClaim=isImmediateClaimSecurityPolicy(b.securityPolicyVersion),scaledImmediateClaim=isScaledImmediateClaimSecurityPolicy(b.securityPolicyVersion);
-    const allowedImmediateLegalVersions=scaledImmediateClaim?[IMMEDIATE_CLAIM_LEGAL_VERSION]:PREVIOUS_IMMEDIATE_CLAIM_LEGAL_VERSIONS;
+    const allowedImmediateLegalVersions=scaledImmediateClaim?SCALED_IMMEDIATE_CLAIM_LEGAL_VERSIONS:PREVIOUS_IMMEDIATE_CLAIM_LEGAL_VERSIONS;
     if(immediateClaim?!(allowedImmediateLegalVersions as readonly string[]).includes(legalVersion):!SETUP_INTENT_LEGAL_VERSIONS.includes(legalVersion))return fail();
     const limit=snapshot.particulars.savedCardLimit;
     if(typeof limit!=="number"||!Number.isSafeInteger(Math.round(limit*100))||limit<50)return fail();

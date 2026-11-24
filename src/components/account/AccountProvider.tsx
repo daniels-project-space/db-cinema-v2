@@ -30,6 +30,7 @@ type Me = {
   storeCredit: number;
   earnedCredit:number;refundCredit:number;referralCode:string|null;
   loyaltyLevel:number;loyaltyPercent:number;loyaltyCelebratedLevel:number;
+  loyaltyHistoricalLevel:number;
   membershipTier: string | null;
   membershipActive: boolean;
   membershipAdminGranted?: boolean;
@@ -37,7 +38,8 @@ type Me = {
   membershipHasBillingSubscription?: boolean;
   membershipPerksPending: boolean;
   loyaltyEligible: boolean;
-  loyaltyCompleted: number;
+  loyaltyCompleted: number | null;
+  loyaltyAdminAssigned?: boolean;
   loyaltyCelebrated: boolean;
   membershipStatus: string | null;
   membershipPaidThrough: number | null;
@@ -81,7 +83,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const meRes = useQuery(api.accounts.me, token ? { token } : "skip");
-  const verificationFresh=useFreshVerification(meRes?.verificationReadyUntil);
+  const verificationFresh=useFreshVerification(meRes?.verificationValidUntil);
   const me=useMemo(()=>meRes ? {...meRes,idVerified:meRes.idVerified&&verificationFresh} : null,[meRes,verificationFresh]);
   const signUpA = useAction(api.accounts.signUp);
   const signInA = useAction(api.accounts.signIn);
@@ -177,7 +179,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     >
       {children}
       {token && meRes && <PrivatePortraitOnboarding key={token} token={token} />}
-      {token && meRes?.loyaltyEligible && !meRes.loyaltyCelebrated && <LoyaltyCelebration level={meRes.loyaltyLevel} subscriptionActive={meRes.membershipActive} onAcknowledge={()=>acknowledgeLoyalty({token,level:meRes.loyaltyLevel})}/> }
+      {token && meRes?.loyaltyCompleted != null && meRes.loyaltyCompleted > 0 && !meRes.loyaltyCelebrated && <LoyaltyCelebration level={meRes.loyaltyCompleted} subscriptionActive={meRes.membershipActive} onAcknowledge={()=>acknowledgeLoyalty({token,level:meRes.loyaltyCompleted!})}/> }
     </Ctx.Provider>
   );
 }

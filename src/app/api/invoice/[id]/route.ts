@@ -72,7 +72,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   const isReturn = sp.get("phase") === "return";
   const isAssessment = sp.get("phase") === "assessment";
-  const assessment = isAssessment ? data.assessmentPayments?.find((row: {id:string}) => row.id === sp.get("assessment")) : null;
+  const assessment = isAssessment ? (data.assessmentClaims ?? data.assessmentPayments)?.find((row: {id:string}) => row.id === sp.get("assessment")) : null;
   if (isAssessment && !assessment) return new Response("Assessment payment not found", { status: 404 });
   if (isReturn && !data.returnStatement) return new Response("Return statement not issued", { status: 404 });
 

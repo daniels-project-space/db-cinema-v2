@@ -2,13 +2,15 @@
 import { SmartImage } from "@/components/SmartImage";
 
 import Link from "next/link";
-import { useCheckoutStatus, CheckoutPauseNotice } from "./CheckoutStatus";
+import { useCheckoutStatus, CheckoutPauseNotice, CancellationProtectionSummary } from "./CheckoutStatus";
 import { useCart } from "./CartProvider";
 import { IconX, IconArrowRight } from "@/components/icons";
 import { formatGbp } from "@/lib/pricing";
 import { CheckoutMembership } from "../CheckoutMembership";
 import { useBasketPrice } from "./useBasketPrice";
 import { CartItemDates } from "./CartItemDates";
+import { CartThirdDayOffer } from "./CartThirdDayOffer";
+import { BasketRecoveryConsent } from "./BasketRecoveryConsent";
 
 export function CartDrawer() {
   const { items, remove, clear, isOpen, close, membership, setMembership } = useCart();
@@ -92,9 +94,7 @@ export function CartDrawer() {
                     <div className="mt-0.5 font-mono text-[11px] text-white/40">
                       {it.start} → {it.end} · {it.days}d
                     </div>
-                    <div className="mt-1 text-sm text-accent-400">
-                      {formatGbp(quote?.items[i]?.total ?? it.total)}
-                    </div>
+                    <div className="mt-1 min-w-0"><CartThirdDayOffer item={it} currentTotal={quote?.items[i]?.total ?? it.total}/></div>
                   </div>
                   <button
                     onClick={() => remove(it.key)}
@@ -115,6 +115,7 @@ export function CartDrawer() {
                   onChange={setMembership}
                 />
               )}
+              <BasketRecoveryConsent />
 
             </div>
           )}
@@ -122,12 +123,6 @@ export function CartDrawer() {
 
         {items.length > 0 && (
           <div className="shrink-0 border-t border-white/5 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <div className="flex justify-between text-sm text-white/60">
-              <span>Estimated basket total</span>
-              <span className="font-mono text-white/90">
-                {quote ? formatGbp(Math.round((quote.combinedTotalDue - quote.depositAmount) * 100) / 100) : "Calculating…"}
-              </span>
-            </div>
             {!!quote?.membershipSignupOfferSaving && <p data-testid="joining-credit-applied" className="mt-1 text-xs text-emerald-300">One-time joining credit · −{formatGbp(quote.membershipSignupOfferSaving)}</p>}
             {!!quote?.membershipCreditApplied && <p className="mt-1 text-xs text-emerald-300">Subscription credit applied · −{formatGbp(quote.membershipCreditApplied)}</p>}
             {!!quote && quote.totalReduction - quote.membershipSignupOfferSaving > 0 && (
@@ -136,10 +131,18 @@ export function CartDrawer() {
                 {formatGbp(quote.totalReduction - quote.membershipSignupOfferSaving)}
               </p>
             )}
+            {!!quote?.sameDayFee && <p className="mt-1 text-xs text-white/45">Same-day booking fee · {formatGbp(quote.sameDayFee)}</p>}
             {!!membership && <div className="mt-2 flex justify-between gap-3 text-[11px] text-white/40"><span>{membership.intro === "trial" ? "Subscription · first 7 days free" : "First subscription month"}</span><span className="font-mono">{quote ? formatGbp(quote.membershipFee) : "…"}</span></div>}
             <p className="mt-1 text-[11px] leading-snug text-white/35">
               Delivery and saved-card permission are calculated at checkout.
             </p>
+            <CancellationProtectionSummary enabled={checkout.cancellationProtection} version={checkout.cancellationPolicyVersion} testId="basket-drawer-free-cancellation" />
+            <div className="flex justify-between text-sm text-white/60">
+              <span>Estimated basket total</span>
+              <span className="font-mono text-white/90">
+                {quote ? formatGbp(Math.round((quote.combinedTotalDue - quote.depositAmount) * 100) / 100) : "Calculating…"}
+              </span>
+            </div>
             {error && (
               <p role="alert" className="mt-1 text-xs text-red-300">
                 {error}

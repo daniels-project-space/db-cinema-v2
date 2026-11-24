@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { publicListing } from "@/lib/discovery";
 import GearDetailClient from "./GearDetailClient";
 import { SITE_URL as BASE } from "@/lib/site";
+import { rentalProductJsonLd } from "@/../shared/rentalProductJsonLd";
 
 export const dynamic = "force-dynamic";
 
@@ -17,12 +18,12 @@ export async function generateMetadata({
     if (!l) return { title: "Gear not found",robots:{index:false,follow:true} };
     const daily = l.pricing?.daily;
     const title = `Rent ${l.title} in London`;
-    const description = `Hire the ${l.title}${daily ? ` from £${daily}/day` : ""} in London — daily, 3-day & weekly rates, delivered. Verified gear from Db Cinema Rentals.`;
+    const description = `Rent ${l.title} in London. Check dates and current rental rates; collection and local delivery options are shown during booking.`;
     const images = l.heroImage ? [l.heroImage] : [];
     return {
       title,
       description,
-      robots:{index:l.bookable,follow:true},
+      robots:{index:process.env.NEXT_PUBLIC_SITE_LIVE === "true" && !!l.bookable,follow:process.env.NEXT_PUBLIC_SITE_LIVE === "true"},
       alternates: { canonical: `/gear/${slug}` },
       openGraph: {
         title: `${title} | Db Cinema Rentals`,
@@ -34,7 +35,7 @@ export async function generateMetadata({
       twitter: { card: "summary_large_image", title, description, images },
     };
   } catch {
-    return { title: "Cinema gear rental in London" };
+    return { title: "Cinema gear rental in London", robots: { index: false, follow: false } };
   }
 }
 
@@ -46,38 +47,7 @@ export default async function Page({
   const { slug } = await params;
   const l=await publicListing(slug);
   if(!l)notFound();
-  const jsonLd = {
-        "@context": "https://schema.org",
-        "@graph": [
-          {
-            "@type": "Product",
-            name: l.title,
-            sku: slug,
-            category: l.category,
-            image: l.gallery?.length ? l.gallery : l.heroImage ? [l.heroImage] : [],
-            description: l.description ?? l.knowledge?.summary ?? `Hire ${l.title} in London. Select your dates for rental availability.`,
-
-            offers: {
-              "@type": "Offer",
-              priceCurrency: "GBP",
-              price: l.pricing?.daily ?? undefined,
-              businessFunction: "http://purl.org/goodrelations/v1#LeaseOut",
-              seller:{"@id":`${BASE}/#organization`},
-              priceSpecification:{"@type":"UnitPriceSpecification",price:l.pricing.daily,priceCurrency:"GBP",unitCode:"DAY"},
-              url: `${BASE}/gear/${slug}`,
-
-            },
-          },
-          {
-            "@type": "BreadcrumbList",
-            itemListElement: [
-              { "@type": "ListItem", position: 1, name: "Home", item: BASE },
-              { "@type": "ListItem", position: 2, name: "Gear", item: `${BASE}/gear` },
-              { "@type": "ListItem", position: 3, name: l.title, item: `${BASE}/gear/${slug}` },
-            ],
-          },
-        ],
-  };
+  const jsonLd = rentalProductJsonLd(l, BASE);
   return (
     <>
       {jsonLd && (

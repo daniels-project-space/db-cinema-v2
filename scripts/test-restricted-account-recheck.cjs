@@ -1,4 +1,5 @@
-const assert=require('node:assert/strict'),{load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
+const assert=require('node:assert/strict'),{load,db,put:rawPut,tables}=require('./lib/rentalTestHarness.cjs');
+const put=(table,record)=>rawPut(table,table==='bookings'&&record.idVerifyStatus==='verified'&&record.idVerifiedAt==null&&record.verificationExpiresAt==null?{...record,idVerifiedAt:Date.now()}:record);
 process.env.ADMIN_TOKEN='recheck-admin';delete process.env.RMV2_WEBHOOK_URL;
 const admin=load('convex/accountAdmin.ts'),jobs=load('convex/restrictedIdentityAlerts.ts');
 const expected=value=>({blockedAt:value.blockedAt??null,restrictionClass:value.restrictionClass??null,noticeId:value.restrictionNoticeId??null,reason:value.blockedReason??'',revision:value.restrictionRevision??0});

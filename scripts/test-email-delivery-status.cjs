@@ -32,6 +32,7 @@ async function testReceiptAndRace() {
     eventType: "delivered",
     recipients: [thread.email],
     from: "DB Cinema Rentals <bookings@dbcinemarentals.com>",
+    messageId: "<resend-actual-before-finalize@example.invalid>",
     occurredAt: 1_700_000_000_000,
   };
 
@@ -44,11 +45,12 @@ async function testReceiptAndRace() {
 
   await inbox.finishAutomaticReply.handler(ctx, {
     threadId: thread._id, inboundId: inbound._id, outboundId: outbound._id,
-    text: "Answer", messageId: "<fixture@example.invalid>", resendEmailId: deliveryEvent.resendEmailId,
+    text: "Answer", resendEmailId: deliveryEvent.resendEmailId,
     humanRequested: false,
   });
   let stored = await db.get(outbound._id);
   assert.equal(stored.resendEmailId, deliveryEvent.resendEmailId);
+  assert.equal(stored.messageId, deliveryEvent.messageId, "an early provider receipt supplies the real RFC Message-ID");
   assert.equal(stored.state, "sent", "provider acceptance remains separate from recipient delivery state");
   assert.deepEqual(stored.recipientDeliveryStatuses, [{
     recipient: thread.email, status: "delivered", at: deliveryEvent.occurredAt,
@@ -58,6 +60,18 @@ async function testReceiptAndRace() {
 
   const duplicateAfterLink = await inbox.recordResendDeliveryEvent.handler(ctx, deliveryEvent);
   assert.equal(duplicateAfterLink.updated, false, "replayed event after reconciliation does not change status");
+  const sentReceipt = await inbox.recordResendDeliveryEvent.handler(ctx, {
+    ...deliveryEvent,
+    webhookEventId: "evt-sent-rfc-id",
+    eventType: "sent",
+    occurredAt: deliveryEvent.occurredAt + 1,
+  });
+  assert.deepEqual(sentReceipt, { ok: true, matched: true, updated: false }, "email.sent captures threading metadata without inventing a delivery status");
+  await assert.rejects(inbox.recordResendDeliveryEvent.handler(ctx, {
+    ...deliveryEvent,
+    webhookEventId: "evt-conflicting-rfc-id",
+    messageId: "<different-provider-id@example.invalid>",
+  }), /Message-ID does not match/);
 
   const sendEvent = async (webhookEventId, eventType, recipient, occurredAt, reason) => inbox.recordResendDeliveryEvent.handler(ctx, {
     ...deliveryEvent,
@@ -125,6 +139,7 @@ async function testSignedWebhookRoute() {
     created_at: "2026-11-12T10:00:00.000Z",
     data: {
       email_id: "resend-email-route-fixture",
+      message_id: "<resend-route-message@example.invalid>",
       created_at: "2026-11-12T10:00:00.000Z",
       from: "DB Cinema Rentals <bookings@dbcinemarentals.com>",
       to: ["renter@example.invalid"],
@@ -151,12 +166,32 @@ async function testSignedWebhookRoute() {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].ref, "emailInbox.recordResendDeliveryEvent");
   assert.equal(calls[0].args.eventType, "bounced");
+  assert.equal(calls[0].args.messageId, "<resend-route-message@example.invalid>");
   assert.deepEqual(calls[0].args.recipients, ["renter@example.invalid"]);
   assert.equal(calls[0].args.reason, "Test mailbox rejected");
 
+  const sentEvent = { ...event, type: "email.sent", data: { ...event.data, email_id: "resend-email-sent-route-fixture" } };
+  const sentRaw = JSON.stringify(sentEvent);
+  const sentWebhookId = "msg_email_sent_fixture";
+  const sentSignature = crypto.createHmac("sha256", key).update(`${sentWebhookId}.${timestamp}.${sentRaw}`).digest("base64");
+  const sentHeaders = new Map([
+    ["svix-id", sentWebhookId],
+    ["svix-timestamp", timestamp],
+    ["svix-signature", `v1,${sentSignature}`],
+  ]);
+  const sentResponse = await route.POST({
+    text: async () => sentRaw,
+    headers: { get: name => sentHeaders.get(name.toLowerCase()) ?? null },
+    nextUrl: { searchParams: new URLSearchParams() },
+  });
+  assert.equal(sentResponse.status, 200);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].args.eventType, "sent");
+  assert.equal(calls[1].args.messageId, "<resend-route-message@example.invalid>");
+
   const invalid = await route.POST({ ...request, headers: { get: name => name === "svix-id" ? webhookId : null } });
   assert.equal(invalid.status, 401, "unsigned status events cannot mutate the central inbox");
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
 }
 
 (async () => {

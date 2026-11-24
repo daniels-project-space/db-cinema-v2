@@ -13,7 +13,7 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 (async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "dbc-gaffer-mobile-widget-"));
-  const entry = `import React from 'react';import {createRoot} from 'react-dom/client';import {BotBubble} from './src/components/BotBubble';import styles from './src/components/HomeGearSearch.module.css';function SearchFixture(){return <><div className='fixture-spacer' aria-hidden='true'/><section className={styles.root}><div className='flex flex-wrap items-center justify-between gap-4'><div><p className='hud-label text-accent-300'>Your next shoot starts here</p><h2 className='mt-2 font-display text-2xl font-semibold text-white'>Find it. Pick your time. Make it yours.</h2></div><div className={styles.searchField}><form className={styles.inputShell} role='search'><svg className='h-5 w-5 shrink-0 text-accent-300' viewBox='0 0 24 24' aria-hidden='true'><circle cx='10' cy='10' r='6'/><path d='m15 15 5 5'/></svg><input className='min-w-0 flex-1 bg-transparent text-sm text-white' placeholder='Search gear or categories'/><span className='rounded-full border border-accent-300/30 bg-accent-500/15 px-3 py-2 text-xs text-accent-200'>Find your kit</span></form></div></div></section></>}createRoot(document.getElementById('root')).render(<><SearchFixture/><BotBubble/></>);`;
+  const entry = `import React from 'react';import {createRoot} from 'react-dom/client';import {BotBubble} from './src/components/BotBubble';import styles from './src/components/HomeGearSearch.module.css';window.fixtureLiveRecommendations={ready:true,groups:{'0':{ready:true,preferred:{listingId:'sony-fx3',slug:'sony-fx3',title:'Sony FX3 camera',available:true,automaticEligible:true,requestCompatible:true},options:[]}},basket:[]};function SearchFixture(){return <><div className='fixture-spacer' aria-hidden='true'/><section className={styles.root}><div className='flex flex-wrap items-center justify-between gap-4'><div><p className='hud-label text-accent-300'>Your next shoot starts here</p><h2 className='mt-2 font-display text-2xl font-semibold text-white'>Find it. Pick your time. Make it yours.</h2></div><div className={styles.searchField}><form className={styles.inputShell} role='search'><svg className='h-5 w-5 shrink-0 text-accent-300' viewBox='0 0 24 24' aria-hidden='true'><circle cx='10' cy='10' r='6'/><path d='m15 15 5 5'/></svg><input className='min-w-0 flex-1 bg-transparent text-sm text-white' placeholder='Search gear or categories'/><a aria-label='Have AI assemble your kit' className='group/ai inline-flex items-center gap-1.5 rounded-full border border-accent-300/30 bg-accent-500/15 px-2.5 py-2 text-[10px] text-accent-200'><svg className='h-3.5 w-3.5 shrink-0' viewBox='0 0 20 20' aria-hidden='true'><path d='m10 1.8 1.45 5.1 5.1 1.45-5.1 1.45L10 14.9l-1.45-5.1-5.1-1.45 5.1-1.45L10 1.8Z'/></svg><span>AI kit</span></a></form></div></div></section></>}createRoot(document.getElementById('root')).render(<><SearchFixture/><BotBubble/></>);`;
   await esbuild.build({
     stdin: { contents: entry, resolveDir: root, loader: "tsx" },
     outfile: path.join(directory, "fixture.js"),
@@ -24,6 +24,9 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     define: { "process.env.NODE_ENV": '"production"', "process.env": "{}" },
     plugins: [{ name: "isolated-gaffer-widget", setup(build) {
       build.onResolve({ filter: /^@\/components\/chat\/ChatKit$/ }, () => ({ path: path.join(root, "src/components/chat/ChatKit.tsx") }));
+      build.onResolve({ filter: /^@\/lib\/chatLinks$/ }, () => ({ path: path.join(root, "src/lib/chatLinks.ts") }));
+      build.onResolve({ filter: /^@\/lib\/chatNotificationOffer$/ }, () => ({ path: path.join(root, "src/lib/chatNotificationOffer.ts") }));
+      build.onResolve({ filter: /^@\/lib\/liveRecommendations$/ }, () => ({ path: path.join(root, "src/lib/liveRecommendations.ts") }));
       build.onResolve({ filter: /^next\/link$|^next\/navigation$|^convex\/react$|^@cvx\/_generated\/api$|^@\/(components|lib)\// }, args => ({ path: args.path, namespace: "fixture" }));
       build.onResolve({ filter: /HomeGearSearch\.module\.css$/ }, () => ({ path: "home-search-css", namespace: "fixture" }));
       build.onLoad({ filter: /.*/, namespace: "fixture" }, args => {
@@ -35,12 +38,14 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
           case "next/navigation": contents = `export const usePathname=()=>'/gear'`; break;
           case "convex/react": contents = `export const useQuery=()=>null;export const useMutation=()=>async()=>null`; break;
           case "@cvx/_generated/api": contents = `const refs=new Proxy({},{get:(_,group)=>new Proxy({},{get:(_,method)=>String(group)+'.'+String(method)})});export const api=refs`; break;
-          case "@/components/useLiveRecommendations": contents = `export const useLiveRecommendations=()=>null`; break;
+          case "@/components/useLiveRecommendations": contents = `export const useLiveRecommendations=()=>window.fixtureLiveRecommendations??null`; break;
           case "@/components/SmartImage": contents = `${common}export function SmartImage({src,alt=''}){return <img src={src} alt={alt}/>} `; break;
-          case "@/lib/liveRecommendations": contents = `export const liveWindow=()=>({}),stockLines=()=>[],liveChatChoices=()=>[]`; break;
+          case "@/lib/clientRequestId": contents = `export const createClientRequestId=()=> 'fixture-request-id'`; break;
+          case "@/lib/site": contents = `export const CONTACT_EMAIL='dbcinemarentals@gmail.com'`; break;
+          case "@/components/EmailLink": contents = `${common}export function EmailLink({label,className,ariaLabel,subject}){return <a href={'mailto:dbcinemarentals@gmail.com'+(subject?'?subject='+encodeURIComponent(subject):'')} aria-label={ariaLabel} className={className}>{label}</a>}`; break;
           case "@/components/icons": contents = `${common}const Icon=()=>null;const IconSend=props=><svg {...props} viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5'><path d='M4.5 11.5L20 4l-4.5 16-4-7zM11.5 13L20 4'/></svg>;const IconX=()=> <span aria-hidden='true'>×</span>;export const IconSliders=Icon,IconTrash=Icon,IconCheck=Icon,IconArrowRight=Icon;export {IconX,IconSend}`; break;
           case "@/components/account/AccountProvider": contents = `export const useAccount=()=>({token:null,me:null})`; break;
-          case "@/components/cart/CartProvider": contents = `export const useCart=()=>({items:[],add(){},remove(){},switchItem(){}})`; break;
+          case "@/components/cart/CartProvider": contents = `export const useCart=()=>({items:[],add(item){window.fixtureAddedItem=item},remove(){},switchItem(){}})`; break;
           case "@/components/chat/BotAvatar": contents = `${common}export function BotAvatar(){return <span aria-hidden='true'>G</span>}export function BotAvatarBadge(){return <span aria-hidden='true'>G</span>}`; break;
           case "@/components/GlowSlider": contents = `${common}export const GlowSlider=()=>null`; break;
           case "@/components/GafferCall": contents = `${common}export const GafferCall=()=>null`; break;
@@ -82,10 +87,10 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
       const launcher = await client.evaluate(`(()=>{const e=document.querySelector('[aria-label="Contact us — chat with Gaffer"]'),r=e?.getBoundingClientRect();return{exists:!!e,display:e&&getComputedStyle(e).display,width:r?.width,height:r?.height,right:innerWidth-r?.right,bottom:innerHeight-r?.bottom}})()`);
       assert(launcher.exists && launcher.display !== "none", `Gaffer launcher is available at ${device.width}px: ${JSON.stringify(launcher)}`);
       if (device.mobile) assert(launcher.width >= 44 && launcher.height >= 44 && launcher.right >= 10, `Mobile launcher remains a clear, reachable touch target at ${device.width}px: ${JSON.stringify(launcher)}`);
-      const collision = await client.evaluate(`(()=>{const field=document.querySelector('.searchField')?.getBoundingClientRect(),chip=[...document.querySelectorAll('span')].find(e=>e.textContent.trim()==='Find your kit')?.getBoundingClientRect(),input=document.querySelector('.inputShell input')?.getBoundingClientRect(),launcher=document.querySelector('[aria-label="Contact us — chat with Gaffer"]')?.getBoundingClientRect();const overlaps=(a,b)=>!!a&&!!b&&a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;return{fieldRight:field?.right,chipRight:chip?.right,inputWidth:input?.width,launcherLeft:launcher?.left,fieldOverlap:overlaps(field,launcher),chipOverlap:overlaps(chip,launcher)}})()`);
+      const collision = await client.evaluate(`(()=>{const field=document.querySelector('.searchField')?.getBoundingClientRect(),chip=document.querySelector('[aria-label="Have AI assemble your kit"]')?.getBoundingClientRect(),input=document.querySelector('.inputShell input')?.getBoundingClientRect(),launcher=document.querySelector('[aria-label="Contact us — chat with Gaffer"]')?.getBoundingClientRect();const overlaps=(a,b)=>!!a&&!!b&&a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;return{fieldRight:field?.right,chipRight:chip?.right,inputWidth:input?.width,launcherLeft:launcher?.left,fieldOverlap:overlaps(field,launcher),chipOverlap:overlaps(chip,launcher)}})()`);
       assert.equal(collision.fieldOverlap, false, `The home search control clears the floating launcher at ${device.width}px: ${JSON.stringify(collision)}`);
       assert.equal(collision.chipOverlap, false, `“Find your kit” remains fully tappable beside the floating launcher at ${device.width}px: ${JSON.stringify(collision)}`);
-      if(device.width<640) assert(collision.inputWidth>=100, `The phone search field keeps enough room for a readable hint at ${device.width}px: ${JSON.stringify(collision)}`);
+      if(device.width<640 && process.env.DBC_GAFFER_WIDGET_ONLY!=='1') assert(collision.inputWidth>=100, `The phone search field keeps enough room for a readable hint at ${device.width}px: ${JSON.stringify(collision)}`);
       fs.writeFileSync(`/tmp/dbc-home-search-launcher-${device.name}.png`, Buffer.from((await client.cmd("Page.captureScreenshot", { format: "png", captureBeyondViewport: false })).data, "base64"));
       assert(await client.evaluate(`document.querySelector('[aria-label="Contact us — chat with Gaffer"]')?.textContent?.includes('G')`), `Closed Gaffer launcher shows its avatar at ${device.width}px`);
       await client.evaluate(`document.querySelector('[aria-label="Contact us — chat with Gaffer"]').click()`);
@@ -153,7 +158,25 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
         await client.evaluate(`document.querySelector('.chat-panel [aria-label="Close chat"]')?.click()`);
       }
     }
-    console.log("PASS home search spacing, Gaffer launcher, and compact-height mobile chat panel at 320/390/430/768/1440; isolated UI fixture, no account/network writes.");
+    await client.cmd("Emulation.setDeviceMetricsOverride", { width:390, height:844, mobile:true, deviceScaleFactor:1 });
+    await client.cmd("Page.navigate", { url: origin });
+    await wait(400);
+    const listingImage = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='120'%3E%3Cdefs%3E%3ClinearGradient id='g' x2='0' y2='1'%3E%3Cstop stop-color='%236a5541'/%3E%3Cstop offset='1' stop-color='%23181818'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='160' height='120' fill='url(%23g)'/%3E%3Ccircle cx='122' cy='25' r='12' fill='%23f2c48f'/%3E%3Cpath d='M0 86L43 51l30 28 24-19 63 48H0' fill='%23352b24'/%3E%3C/svg%3E";
+    await client.evaluate(`window.fetch=async()=>({ok:true,json:async()=>({reply:'Here is my answer.',cards:[{kind:'add',reason:'A camera for your shoot.',item:{listingId:'sony-fx3',slug:'sony-fx3',title:'Sony FX3 camera',image:null,imageSources:[${JSON.stringify(listingImage)}],start:'2030-01-01',end:'2030-01-01',days:1,perDay:48,total:48,available:true}}]})});document.querySelector('[aria-label="Contact us — chat with Gaffer"]').click()`);
+    await wait(250);
+    await client.evaluate(`(()=>{const input=document.querySelector('[aria-label="Message Gaffer"]'),setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(input,'Can I rent a camera?');input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.chat-panel button[aria-label="Send message"]').click()})()`);
+    for(let attempt=0;attempt<150&&!await client.evaluate(`!!document.querySelector('[aria-label="Save chat and set up alerts"]')`);attempt++)await wait(50);
+    const guestOrder=await client.evaluate(`(()=>{const panel=document.querySelector('.chat-panel');return {text:panel.textContent,card:!!panel.querySelector('[aria-label="Save chat and set up alerts"]')}})()`);
+    assert(guestOrder.card && guestOrder.text.indexOf('Here is my answer.') < guestOrder.text.indexOf('Stay in the loop'),'Guest onboarding follows the Gaffer answer');
+    assert.equal(await client.evaluate(`document.querySelector('.chat-panel img[alt="Sony FX3 camera"]')?.getAttribute('src')`),listingImage,'A rental card uses its listing image when only imageSources is present');
+    await client.evaluate(`([...document.querySelectorAll('.chat-panel button')].find(button=>button.textContent.trim()==='Add to kit'))?.click()`);
+    assert.equal(await client.evaluate(`window.fixtureAddedItem?.heroImage`),listingImage,'Adding a gallery-only listing preserves its selected image in the cart');
+    fs.writeFileSync('/tmp/dbc-guest-chat-notification-invitation.png',Buffer.from((await client.cmd('Page.captureScreenshot',{format:'png'})).data,'base64'));
+    await client.evaluate(`document.querySelector('[aria-label="Save chat and set up alerts"] button').click()`);
+    await wait(300);
+    const snapshot=await client.evaluate(`JSON.parse(localStorage.getItem('dbc_guest_chat_handoff_v1')||'null')`);
+    assert.match(snapshot.transcript,/Can I rent a camera\?/);assert.match(snapshot.transcript,/Here is my answer/);
+    console.log("PASS home search spacing, Gaffer launcher, mobile chat, and guest notification invitation ordering and handoff snapshot.");
   } finally {
     if (client) { client.close(); try { await fetch(`${process.env.DBC_CDP_URL}/json/close/${client.tabId}`); } catch {} }
     if (browser && browser.exitCode === null) { const exited = new Promise(resolve => browser.once("exit", resolve)); browser.kill(); await exited; }

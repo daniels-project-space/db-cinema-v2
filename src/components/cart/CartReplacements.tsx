@@ -14,13 +14,14 @@ export function CartReplacements({ item }: { item: CartItem }) {
   const track = useMutation(api.analytics.track);
   const [visible, setVisible] = useState(2);
   const args = { items: cart.items.map(i => ({ key: i.key, listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime })), limit: visible + 1 };
-  const choices = useQuery(api.cartReplacements.forCart, args)?.[item.key];
+  const replacementData = useQuery(api.cartReplacements.forCart, args);
+  const choices = replacementData?.status === "ready" ? replacementData.results[item.key] : undefined;
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   async function switchTo(listingId: string) {
     setBusy(true); setError(null);
     try {
       const current = await convex.query(api.cartReplacements.forCart, args);
-      const choice = current[item.key]?.find(c => c.listingId === listingId);
+      const choice = current.status === "ready" ? current.results[item.key]?.find(c => c.listingId === listingId) : undefined;
       if (!choice) throw Error("That alternative is no longer available. Choose another option.");
       cart.switchItem(item.key, { ...choice, start: item.start, end: item.end, pickupTime:item.pickupTime,returnTime:item.returnTime });
       recordReplacement(track,item,[choice]);
@@ -30,7 +31,7 @@ export function CartReplacements({ item }: { item: CartItem }) {
   return <div data-testid="cart-replacements" className="rounded-2xl border border-accent-400/20 bg-accent-500/[0.04] p-4" aria-busy={busy}>
     <p className="text-sm font-medium text-white/85">Available alternatives for your dates</p>
     <p className="mt-1 text-xs text-white/50">{item.start}{item.pickupTime?` at ${item.pickupTime}`:""} → {item.end}{item.returnTime?` at ${item.returnTime}`:""} · {item.days}d · dates stay selected</p>
-    {choices === undefined ? <p role="status" className="mt-3 text-sm text-white/50">Checking alternatives…</p> : choices.length === 0 ? <p className="mt-3 text-sm text-white/60">No suitable replacement is available for this period. Change dates or remove this item.</p> : <div className="mt-3 flex flex-col gap-3">{choices.slice(0, visible).map((choice, index) => <div key={choice.listingId} data-testid="replacement-card" className="grid grid-cols-[56px_minmax(0,1fr)] gap-3 rounded-xl border border-white/10 bg-charcoal-900 p-3 sm:grid-cols-[64px_minmax(0,1fr)_auto]">
+    {replacementData?.status === "refresh_required" ? <p role="status" className="mt-3 text-sm text-white/50">Refreshing shared stock before showing alternatives…</p> : choices === undefined ? <p role="status" className="mt-3 text-sm text-white/50">Checking alternatives…</p> : choices.length === 0 ? <p className="mt-3 text-sm text-white/60">No suitable replacement is available for this period. Change dates or remove this item.</p> : <div className="mt-3 flex flex-col gap-3">{choices.slice(0, visible).map((choice, index) => <div key={choice.listingId} data-testid="replacement-card" className="grid grid-cols-[56px_minmax(0,1fr)] gap-3 rounded-xl border border-white/10 bg-charcoal-900 p-3 sm:grid-cols-[64px_minmax(0,1fr)_auto]">
       <Link href={`/gear/${choice.slug}`} className="h-14 w-14 overflow-hidden rounded-lg bg-charcoal-800 sm:h-16 sm:w-16"><SmartImage fit="contain" src={choice.heroImage} fallbackSources={choice.imageSources} alt={choice.title} className="h-full w-full" /></Link>
       <div className="min-w-0"><p className="text-[11px] text-accent-300">{index === 0 ? "Closest available match" : "Another available option"}</p><Link href={`/gear/${choice.slug}`} className="mt-1 block text-sm text-white/90">{choice.title}</Link><p className="mt-1 text-xs text-emerald-300">Available · {formatGbp(choice.total)} for {choice.days} days</p>{[...new Set([...(choice.included??[]),...(choice.verifiedComponentContents??[])])].length>0&&<p className="mt-1 line-clamp-2 text-[10px] leading-4 text-white/45">Includes: {[...new Set([...(choice.included??[]),...(choice.verifiedComponentContents??[])])].slice(0,3).join(" · ")}</p>}</div>
       <button type="button" disabled={busy} onClick={() => switchTo(choice.listingId)} className="btn-primary col-span-2 px-4 py-2 text-sm disabled:opacity-50 sm:col-span-1 sm:self-center" aria-label={`Switch ${item.title} to ${choice.title}`}>Switch to this</button>

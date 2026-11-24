@@ -50,6 +50,9 @@ assert.match(renterReviewSource, /aria-label="Your rental review"/, "the renter 
     await client.evaluate("window.fixtureState='not_settled';window.fixture.setState('not_settled')"); await wait(80);
     assert.match(await client.evaluate('document.querySelector("[data-testid=admin-review-request]").textContent'), /settlement must be complete/i);
     assert.equal(await client.evaluate('document.querySelectorAll("[data-testid=admin-review-request] button").length'), 0);
+    await client.evaluate("window.fixtureState='delivery_uncertain';window.fixture.setState('delivery_uncertain')"); await wait(80);
+    assert.match(await client.evaluate('document.querySelector("[data-testid=admin-review-request]").textContent'), /email delivery could not be confirmed/i);
+    assert.equal(await client.evaluate('document.querySelectorAll("[data-testid=admin-review-request] button").length'), 0, "uncertain email delivery cannot be blindly followed by another review request");
     await client.evaluate("window.fixtureState='ready';window.fixture.setState('ready')"); await wait(80);
     await click("Send review request");
     await client.evaluate("window.fixture.setBooking('rental-two')"); await wait(80);
@@ -74,9 +77,9 @@ assert.match(renterReviewSource, /aria-label="Your rental review"/, "the renter 
     await client.evaluate('document.querySelector("button[aria-label=\\\"5 stars\\\"]").click()');
     await client.evaluate(`(()=>{const field=document.querySelector("textarea[aria-label=\\\"Your rental review\\\"]");const setter=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,"value").set;setter.call(field,"A clear native review card with a smooth rental experience.");field.dispatchEvent(new Event("input",{bubbles:true}));field.dispatchEvent(new Event("change",{bubbles:true}));})()`); await wait(80);
     const cardPreview = await client.cmd("Page.captureScreenshot", { format: "png" }); fs.writeFileSync("/tmp/dbc-rental-review-card-320.png", Buffer.from(cardPreview.data, "base64"));
-    await click("Publish review");
+    await click("Submit review");
     assert.deepEqual(await client.evaluate("window.submissions[0]"), { token: "different-admin", bookingId: "rental-two", rating: 5, text: "A clear native review card with a smooth rental experience.", showProfilePhoto: false });
-    assert.match(await client.evaluate('document.querySelector("[role=status]").textContent'), /Reviewed — thank you/i);
+    assert.match(await client.evaluate('document.querySelector("[role=status]").textContent'), /Review received\. It will appear after a team review/i);
     assert.equal(await client.evaluate("document.documentElement.scrollWidth > innerWidth"), false, "320px must not overflow horizontally");
     const screenshot = await client.cmd("Page.captureScreenshot", { format: "png" }); fs.writeFileSync("/tmp/dbc-review-request-320.png", Buffer.from(screenshot.data, "base64"));
     console.log("PASS admin review invitation and native renter card: confirmation, eligibility/dedup path, animated eye, five-star input, review text submission and 320px layout; synthetic data only.");

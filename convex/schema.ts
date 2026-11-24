@@ -3,6 +3,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { inspectionRecord } from "./lib/returnInspectionFields";
 import { cancellationReceipt } from "./lib/cancellationFields";
+import { replacementCatalogItems, replacementStockSelection, replacementCustomerOffer } from "./lib/componentReplacementQuoteFields";
 
 /**
  * Db Cinema Rentals v2 — standalone storefront schema.
@@ -18,6 +19,11 @@ import { cancellationReceipt } from "./lib/cancellationFields";
  * Trigger sync job through an httpAction bridge. `rmv2_sync_state` tracks it.
  */
 export default defineSchema({
+  rental_chat_reminders: defineTable({bookingId:v.id("bookings"),key:v.string(),kind:v.union(v.literal("pickup"),v.literal("halfway"),v.literal("return")),dueAt:v.number(),createdAt:v.number(),state:v.union(v.literal("scheduled"),v.literal("sent"),v.literal("suppressed"),v.literal("failed")),recoverAt:v.optional(v.number()),attempts:v.optional(v.number()),finishedAt:v.optional(v.number()),messageId:v.optional(v.id("messages"))}).index("by_booking_key",["bookingId","key"]).index("by_booking_kind_state",["bookingId","kind","state"]).index("by_state_due",["state","dueAt"]).index("by_state_recover",["state","recoverAt"]).index("by_state_finished",["state","finishedAt"]),
+  rental_chat_reminder_migrations: defineTable({key:v.string(),status:v.union(v.literal("confirmed"),v.literal("active"),v.literal("complete")),cursor:v.union(v.string(),v.null())}).index("by_key",["key"]),
+  rental_chat_reminder_plans: defineTable({bookingId:v.id("bookings"),state:v.union(v.literal("pending"),v.literal("done"),v.literal("failed")),recoverAt:v.number(),attempts:v.number(),finishedAt:v.optional(v.number())}).index("by_booking",["bookingId"]).index("by_state_recover",["state","recoverAt"]).index("by_state_finished",["state","finishedAt"]),
+  component_replacement_quotes: defineTable({ ownerKey: v.string(), requestId: v.string(), pricingDigest: v.string(), offer: v.optional(replacementCustomerOffer), acceptedAt: v.optional(v.number()), acceptedOfferFingerprint: v.optional(v.string()), acceptedAllocation: v.optional(v.object({ version: v.literal("component-allocation-v1"), id: v.string(), replacementValuePence: v.number(), extensionAdjustmentPence: v.optional(v.array(v.number())), components: v.array(v.object({ inventoryUnitId: v.id("inventory_units"), qty: v.number() })) })), stockInput: replacementStockSelection, stockFingerprint: v.string(), catalogItems: replacementCatalogItems, catalogFingerprint: v.string(), replacementIndex: v.number(), securityPolicyVersion: v.string(), replacementValuePence: v.number(), savedCardLimitPence: v.number(), creditAccountId: v.optional(v.id("accounts")), creditRefundPence: v.number(), creditEarnedPence: v.number(), membershipFingerprint: v.string(), studioMonth: v.optional(v.string()), studioAvailable: v.optional(v.boolean()), deliverySettings: v.optional(v.object({ marginPct: v.number(), maxKm: v.number() })), createdAt: v.number(), expiresAt: v.number() })
+    .index("by_owner_request", ["ownerKey", "requestId"]).index("by_expiry", ["expiresAt"]),
   marketing_saved_drafts: defineTable({
     changes: v.array(v.object({ listingId: v.id("listings"), marketingOnly: v.union(v.boolean(), v.null()), expectedUpdatedAt: v.optional(v.number()) })),
     createdAt: v.number(),
@@ -34,17 +40,18 @@ export default defineSchema({
     state:v.union(v.literal("waiting"),v.literal("email_pending"),v.literal("offered"),v.literal("chosen"),v.literal("settled"),v.literal("review")),
     cancelledAt:v.number(),decisionAfter:v.number(),pickupAt:v.number(),choiceDeadline:v.optional(v.number()),
     dueAt:v.optional(v.number()),generation:v.number(),attempts:v.number(),leaseUntil:v.number(),updatedAt:v.number(),
+    restrictionRevisionAtStart:v.optional(v.number()),
     choice:v.optional(v.union(v.literal("refund"),v.literal("credit"))),choiceAt:v.optional(v.number()),
     cashRemainingPence:v.optional(v.number()),securityRemainingPence:v.optional(v.number()),spentCreditPence:v.optional(v.number()),
     emailDeliveryId:v.optional(v.id("rental_email_deliveries")),lastError:v.optional(v.string()),
   }).index("by_booking",["bookingId"]).index("by_due",["dueAt"]),
   rental_email_deliveries: defineTable({
-    bookingId: v.id("bookings"), kind: v.union(v.literal("payment"),v.literal("paid_verification"),v.literal("verification_reminder"),v.literal("receipt"),v.literal("verification"),v.literal("cancellation"),v.literal("review"),v.literal("cancellation_choice"),v.literal("time_change"),v.literal("refund_invoice")),
+    bookingId: v.id("bookings"), kind: v.union(v.literal("payment"),v.literal("paid_verification"),v.literal("verification_reminder"),v.literal("receipt"),v.literal("verification"),v.literal("cancellation"),v.literal("review"),v.literal("cancellation_choice"),v.literal("time_change"),v.literal("refund_invoice"),v.literal("pickup_reminder"),v.literal("return_reminder")),
     key: v.string(), sequence: v.number(), verificationStatus: v.optional(v.string()), verificationSchedule:v.optional(v.string()),
     refundId:v.optional(v.id("rental_refunds")),
     mode: v.optional(v.string()), refundAmount: v.optional(v.number()), creditAmount: v.optional(v.number()),
     changeDetail:v.optional(v.string()), changeSchedule:v.optional(v.string()), changeKind:v.optional(v.union(v.literal("pickup"),v.literal("return"))),
-    state: v.union(v.literal("pending"),v.literal("sending"),v.literal("sent"),v.literal("skipped"),v.literal("failed")),
+    state: v.union(v.literal("pending"),v.literal("sending"),v.literal("sent"),v.literal("skipped"),v.literal("failed"),v.literal("uncertain")),
     attempts: v.number(), generation: v.number(), dueAt: v.number(), createdAt: v.number(), updatedAt: v.number(), sentAt: v.optional(v.number()),
     lastError: v.optional(v.string()), payloadStorageId:v.optional(v.id("_storage")), recipientEmail:v.optional(v.string()), preparedPromotional:v.optional(v.boolean()),preparedCleanReturnRequired:v.optional(v.boolean()),
   }).index("by_key",["key"]).index("by_booking_kind",["bookingId","kind"]).index("by_refund",["refundId"]).index("by_state_due",["state","dueAt"]),
@@ -59,6 +66,7 @@ export default defineSchema({
     caseType: v.optional(v.union(v.literal("damage"), v.literal("loss"), v.literal("theft"), v.literal("insurance_follow_up"), v.literal("other"))),
     details: v.string(), status: v.union(v.literal("open"), v.literal("closed")),
     openedAt: v.number(), closedAt: v.optional(v.number()), resolution: v.optional(v.string()), requestId: v.optional(v.string()), lifecycleVersion:v.optional(v.number()),
+    claimAmountPence:v.optional(v.number()), claimReason:v.optional(v.string()), claimBasis:v.optional(v.union(v.literal("loss"),v.literal("severe_cosmetic_damage"))), claimEvidenceIds:v.optional(v.array(v.id("chat_attachment_attempts"))),
   }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]).index("by_booking_request", ["bookingId", "requestId"]).index("by_booking_item", ["bookingId", "itemKey"]).index("by_opened", ["openedAt"]),
   chat_case_archives: defineTable({caseId:v.id("rental_damage_cases"),bookingId:v.id("bookings"),accountId:v.optional(v.id("accounts")),threadId:v.optional(v.id("chat_threads")),archivedAt:v.number()}).index("by_case",["caseId"]).index("by_booking",["bookingId"]).index("by_account",["accountId"]),
   chat_case_archive_backfill: defineTable({key:v.string(),cursor:v.optional(v.string()),completedAt:v.optional(v.number()),updatedAt:v.number()}).index("by_key",["key"]),
@@ -123,8 +131,17 @@ export default defineSchema({
       day14: v.optional(v.number()),
       day30: v.optional(v.number()),
     }),
+    websitePriceFactors: v.optional(v.object({
+      daily: v.optional(v.number()),
+      day3: v.optional(v.number()),
+      day7: v.optional(v.number()),
+      day14: v.optional(v.number()),
+      day30: v.optional(v.number()),
+    })),
+    websitePricePolicyVersion: v.optional(v.number()),
     depositAmount: v.number(),
     stockMappingStatus: v.optional(v.union(v.literal("complete"), v.literal("incomplete"), v.literal("not_owned"))),
+    componentReplacementEvidence: v.optional(v.object({ version: v.literal(1), checkoutAvailable: v.literal(false), reviewedSubstitutions: v.array(v.object({ originalMasterItemId: v.string(), replacementMasterItemId: v.string(), declaredMissingOriginal:v.optional(v.object({descriptorId:v.string(),label:v.string(),quantityPerKit:v.number(),sourceUrl:v.string(),sourceExcerpt:v.string()})), quantityPerKit: v.number(), priceAdjustmentPence: v.number(), extensionAdjustmentPence: v.optional(v.array(v.number())), replacementSizeScore:v.number(), reviewedAt: v.number(), weights: v.array(v.object({ masterItemId: v.string(), weightGrams: v.number() })), replacementInventory: v.object({masterItemId:v.string(),active:v.literal(true),quantityOwned:v.number(),replacementCost:v.number()}) })) })),
     // bill-of-materials: which physical units this bundle consumes
     components: v.array(
       v.object({
@@ -135,7 +152,7 @@ export default defineSchema({
     hyggloListingSlug: v.optional(v.string()),
     hyggloProductId: v.optional(v.number()),
     demandScore: v.optional(v.number()), // rental-history demand (set by sync.applyDemand)
-    quietDeal: v.optional(v.number()), // % off — auto-set on genuinely-idle items (catalog.refreshQuietDeals)
+    quietDeal: v.optional(v.number()), // Legacy field retained for existing documents; storefront pricing ignores it.
     suppressed: v.optional(v.boolean()), // local marketing-only override — kept inactive every sync
     marketingOnly: v.optional(v.boolean()),
     marketingOnlySource: v.optional(v.union(v.literal("auto"), v.literal("admin"), v.literal("rental_manager"))),
@@ -159,11 +176,12 @@ export default defineSchema({
   // ── Layer 3: the availability ledger (double-booking guard) ───
   rental_change_requests: defineTable({
     requestId: v.string(), accountId: v.id("accounts"), bookingId: v.id("bookings"),
-    kind: v.union(v.literal("dates"), v.literal("items"), v.literal("extension"), v.literal("cancel"), v.literal("handover")),
+    kind: v.union(v.literal("dates"), v.literal("items"), v.literal("extension"), v.literal("cancel"), v.literal("handover"), v.literal("refund"), v.literal("delivery")),
     detail: v.string(), messageId: v.id("messages"), createdAt: v.number(),
     cancellationKindAtRequest: v.optional(v.union(v.literal("full_refund"), v.literal("store_credit"), v.literal("no_refund"))),
     cancellationTermsVersion: v.optional(v.string()),
     cancellationChoice: v.optional(v.union(v.literal("refund"), v.literal("credit"))),
+    creditOfferId: v.optional(v.id("rental_credit_offers")),
     requestedStart: v.optional(v.number()),
     requestedEnd: v.optional(v.number()),
     requestedSnapshot: v.optional(v.string()),
@@ -176,6 +194,7 @@ export default defineSchema({
       }))),
     })),
     requestedHandover: v.optional(v.object({ lineIndexes: v.array(v.number()), kind: v.union(v.literal("pickup"), v.literal("return")), time: v.string() })),
+    requestedDeliveryLegs: v.optional(v.union(v.literal("one_way"), v.literal("round_trip"))),
     status: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("declined"))),
     decisionNote: v.optional(v.string()), decidedAt: v.optional(v.number()), decisionMessageId: v.optional(v.id("messages")),
     execution: v.optional(v.object({ operation: v.union(v.literal("reschedule"), v.literal("cancellation"), v.literal("handover")), operationKey: v.string(), status: v.union(v.literal("processing"), v.literal("applied")), startedAt: v.number(), appliedAt: v.optional(v.number()), detail: v.optional(v.string()) })),
@@ -264,6 +283,9 @@ export default defineSchema({
     activePriceAdjustmentId:v.optional(v.id("rental_price_adjustments")),
     activeItemSwapId:v.optional(v.id("rental_item_swaps")),
     checkoutLineFunding:v.optional(v.array(v.object({listingId:v.id("listings"),start:v.number(),end:v.number(),qty:v.number(),gross:v.number(),discount:v.number(),membershipCredit:v.number(),accountCredit:v.number(),card:v.number()}))),
+    itemPaymentLedgerVersion:v.optional(v.literal(1)),
+    itemPaymentLedger:v.optional(v.array(v.object({listingId:v.id("listings"),qty:v.number(),sources:v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()}))}))),
+    itemPaymentLedgerRefundIds:v.optional(v.array(v.id("rental_refunds"))),
     checkoutLineCreditSources:v.optional(v.array(v.object({lineIndex:v.number(),creditId:v.id("credits"),amount:v.number(),kind:v.union(v.literal("refund"),v.literal("earned"))}))),
     priceAdjustmentCharges:v.optional(v.array(v.object({id:v.id("rental_price_adjustments"),title:v.string(),start:v.number(),end:v.number(),qty:v.number(),lineTotal:v.number()}))),
     extensionCharges:v.optional(v.array(v.object({requestId:v.id("booking_change_requests"),title:v.string(),start:v.number(),end:v.number(),qty:v.number(),lineTotal:v.number(),returnTime:v.optional(v.string())}))),
@@ -300,6 +322,11 @@ export default defineSchema({
         dailyRate: v.optional(v.number()),
         pickupTime: v.optional(v.union(v.string(), v.null())),
         returnTime: v.optional(v.union(v.string(), v.null())),
+        checkoutAccessoryOffer: v.optional(v.boolean()),
+        checkoutAccessoryOfferPercent: v.optional(v.number()),
+        checkoutAccessoryOfferOriginalTotal: v.optional(v.number()),
+        checkoutAccessoryOfferSaving: v.optional(v.number()),
+        physicalAllocation: v.optional(v.object({ version: v.literal("component-allocation-v1"), id: v.string(), replacementValuePence: v.number(), extensionAdjustmentPence: v.optional(v.array(v.number())), components: v.array(v.object({ inventoryUnitId: v.id("inventory_units"), qty: v.number() })) })),
       }),
     ),
     kitReplacements: v.optional(v.array(v.object({ requestId:v.string(), lineIndex:v.number(), oldListingId:v.id("listings"), newListingId:v.id("listings"), qty:v.number(), start:v.number(), end:v.number(), appliedAt:v.number() }))),
@@ -312,6 +339,7 @@ export default defineSchema({
     address: v.optional(v.string()),
     billingAddress: v.optional(v.string()),
     deliveryFee: v.number(),
+    sameDayFee: v.optional(v.number()),
     subtotal: v.number(),
     promoCode: v.optional(v.string()),
     discount: v.number(),
@@ -368,23 +396,37 @@ export default defineSchema({
     stripeCheckoutSessionId: v.optional(v.string()),
     stripeDepositIntentId: v.optional(v.string()),
     renterPersonKey: v.optional(v.string()),
+    identityMatchSameAccountSourceBookingId: v.optional(v.id("bookings")),
     replacementValues: v.optional(v.array(v.object({ listingId: v.id("listings"), unitPence: v.number() }))),
     verificationChecks: v.optional(v.object({ identity: v.string(), selfie: v.string(), address: v.string() })),
     diditSessionId: v.optional(v.string()),
     verificationReuseBlockReason: v.optional(v.string()),
     verificationReuseBlockedSessionId: v.optional(v.string()),
+    verificationFreshRequired: v.optional(v.boolean()),
     verificationReuseOwnershipAccountId: v.optional(v.id("accounts")),
     verificationReuseOwnershipSessionId: v.optional(v.string()),
     verificationReuseOwnershipDigest: v.optional(v.string()),
     diditEventId: v.optional(v.string()),
     diditEventAt: v.optional(v.number()),
+    diditSessionApprovalSeen: v.optional(v.boolean()),
+    diditSessionApprovedAt: v.optional(v.number()),
+    diditDecisionAt: v.optional(v.number()),
     diditManualDecisionAt: v.optional(v.number()),
-    diditReviewClaim: v.optional(v.object({ requestId: v.string(), sessionId: v.string(), decision: v.string(), startedAt: v.number() })),
+    diditReviewClaim: v.optional(v.object({ requestId: v.string(), sessionId: v.string(), decision: v.string(), startedAt: v.number(), outcomeUnknown: v.optional(v.boolean()), auditMarker: v.optional(v.string()) })),
+    diditRetryWindowAt: v.optional(v.number()),
+    diditRetryAttempts: v.optional(v.number()),
     diditReconciledAt: v.optional(v.number()),
     verificationProvider: v.optional(v.string()),
     verificationNote: v.optional(v.string()),
     identityRiskNotice: v.optional(v.string()),
     verificationUpdatedAt: v.optional(v.number()),
+    verificationLateOverrideAt: v.optional(v.number()),
+    verificationLateOverrideReason: v.optional(v.string()),
+    verificationLateBlockedAt: v.optional(v.number()),
+    verificationLateBlockedEventAt: v.optional(v.number()),
+    verificationLateBlockedDecisionAt: v.optional(v.number()),
+    verificationLateBlockedEventId: v.optional(v.string()),
+    verificationLateBlockedProviderStatus: v.optional(v.string()),
     idVerifyStatus: v.optional(v.string()),
     verificationConfirmationIssue: v.optional(v.union(v.literal("inventory_unavailable"),v.literal("manager_capacity_conflict"),v.literal("provider_confirmation_failed"))),
     droneLicenceStorageId: v.optional(v.id("_storage")),
@@ -398,6 +440,7 @@ export default defineSchema({
     verificationExpiresAt: v.optional(v.number()),
     documentExpiresAt: v.optional(v.number()),
     verificationReusedFrom: v.optional(v.id("bookings")),
+    verificationInProgressFrom: v.optional(v.id("bookings")),
     depositRefunded: v.optional(v.boolean()),
     agreementSignedAt: v.optional(v.number()),
     agreementSnapshot: v.optional(v.string()),
@@ -444,13 +487,13 @@ export default defineSchema({
     depositHoldCapturedForDamage: v.optional(v.number()),
     depositDeductionNote: v.optional(v.string()),
     damageNoticeSentAt: v.optional(v.number()),
-    returnedAt: v.optional(v.number()), // when the rental was marked returned + deposit released
+    returnedAt: v.optional(v.number()), // when the rental was closed
     actualReturnedAt: v.optional(v.number()),
     depositReturnReceipts: v.optional(v.array(depositReturnReceipt)),
     depositReturnReceiptHistory:v.optional(v.array(depositReturnReceipt)),
     returnDecision: v.optional(v.object({
       actualReturnedAt: v.number(), damageKept: v.number(), depositKept: v.optional(v.number()), claimBasis: v.optional(v.union(v.literal("loss"), v.literal("severe_cosmetic_damage"))), expectedSnapshot: v.optional(v.string()),
-      damageNote: v.optional(v.string()), chargeLate: v.boolean(),
+      damageNote: v.optional(v.string()), claimItemKey:v.optional(v.string()), claimEvidenceIds:v.optional(v.array(v.id("chat_attachment_attempts"))), claimCaseId:v.optional(v.id("rental_damage_cases")), chargeLate: v.boolean(),
       lateWaiverReason: v.optional(v.string()), lateClaimReason: v.optional(v.string()), lateClaimPolicyVersion: v.optional(v.string()),
       /** Timestamp receipt that the owner-only claim token was checked before freezing a money claim. Never stores the token. */
       ownerClaimAuthorizedAt: v.optional(v.number()), startedAt: v.number(),
@@ -485,7 +528,7 @@ export default defineSchema({
       supplierName: v.string(), supplierAddress: v.optional(v.string()),
       customerName: v.optional(v.string()), customerEmail: v.string(), billingAddress: v.optional(v.string()),
       lineItems: v.array(v.object({ title: v.string(), start: v.number(), end: v.number(), qty: v.number(), lineTotal: v.number(), returnTime: v.optional(v.string()) })),
-      subtotal: v.number(), discount: v.number(), deliveryFee: v.number(), creditApplied: v.number(),
+      subtotal: v.number(), discount: v.number(), deliveryFee: v.number(), sameDayFee:v.optional(v.number()), creditApplied: v.number(),
       checkoutPaid: v.number(), rentalRefunded:v.optional(v.number()), securityPaid: v.number(), securityRefunded: v.number(),
       holdStatus: v.optional(v.string()), holdAmount: v.optional(v.number()),
       damageTotal: v.number(), damageFromHold: v.number(), damageNote: v.optional(v.string()),
@@ -510,12 +553,15 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_security_hold_due", ["securityHoldPolicyVersion", "securityHoldRetryAt"])
     .index("by_verificationProvider_status", ["verificationProvider", "status"])
+    .index("by_verificationProvider_status_returnedAt", ["verificationProvider", "status", "returnedAt"])
     .index("by_verification_reused", ["verificationReusedFrom"])
+    .index("by_verification_in_progress_from", ["verificationInProgressFrom"])
     .index("by_agreement_request", ["agreementRequestId"])
     .index("by_stripePaymentIntentId", ["stripePaymentIntentId"])
     .index("by_guestEmail", ["guestEmail"])
     .index("by_guestEmail_status", ["guestEmail", "status"]).index("by_account_status",["accountId","status"])
     .index("by_account_verification_review",["accountId","idVerifyStatus","verificationProvider","status"])
+    .index("by_account_person_approval_source",["accountId","renterPersonKey","idVerificationSource","idVerifyStatus"])
     .index("by_guest_verification_review",["guestEmail","accountId","idVerifyStatus","verificationProvider","status"])
     .index("by_person_status", ["renterPersonKey", "status"])
     .index("by_account", ["accountId"])
@@ -548,6 +594,9 @@ export default defineSchema({
     date: v.number(),
     verifiedBookingId: v.optional(v.id("bookings")),
     published: v.boolean(),
+    moderationStatus: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("rejected"))),
+    moderationAt: v.optional(v.number()),
+    moderationNote: v.optional(v.string()),
     sourceRatingVerified: v.optional(v.boolean()),
     sourceRating: v.optional(v.number()),
     sourceRatingVerifiedAt: v.optional(v.number()),
@@ -560,6 +609,7 @@ export default defineSchema({
     .index("by_booking", ["verifiedBookingId"])
     .index("by_author_account_source", ["authorAccountId", "source"])
     .index("by_published", ["published"])
+    .index("by_moderation_status_date", ["source", "moderationStatus", "date"])
     .index("by_published_source_date", ["published", "source", "date"])
     .index("by_published_source_rating_date", ["published", "source", "rating", "date"])
     .index("by_source_hygglo_review_id", ["source", "hyggloReviewId"])
@@ -659,9 +709,10 @@ export default defineSchema({
     name: v.string(),
     email: v.string(),
     message: v.string(),
+    clientRequestId: v.optional(v.string()),
     routedTo: v.optional(v.string()),
     handled: v.boolean(),
-  }).index("by_handled", ["handled"]),
+  }).index("by_handled", ["handled"]).index("by_client_request", ["clientRequestId"]),
 
   legal_docs: defineTable({
     kind: v.union(
@@ -744,9 +795,9 @@ export default defineSchema({
     adminStarred: v.optional(v.boolean()),
     membershipSignupOfferUsed: v.optional(v.boolean()),
     membershipPerksPendingBookingId: v.optional(v.id("bookings")),
-    referralCode:v.optional(v.string()),referralFirstUsedAt:v.optional(v.number()),firstRentalPaidAt:v.optional(v.number()),referralRewardGrantedAt:v.optional(v.number()),referralRewardUsedAt:v.optional(v.number()),paymentIdentityHashes:v.optional(v.array(v.string())),
+    referralCode:v.optional(v.string()),referralFirstUsedAt:v.optional(v.number()),firstRentalPaidAt:v.optional(v.number()),firstCleanRentalCompletedAt:v.optional(v.number()),referralRewardGrantedAt:v.optional(v.number()),referralRewardUsedAt:v.optional(v.number()),paymentIdentityHashes:v.optional(v.array(v.string())),
     loyaltyPolicyVersion:v.optional(v.string()),
-    loyaltyLevel:v.optional(v.number()),loyaltyCelebratedLevel:v.optional(v.number()),
+    loyaltyLevel:v.optional(v.number()),loyaltyHistoricalLevel:v.optional(v.number()),loyaltyCelebratedLevel:v.optional(v.number()),
     loyaltyUnlockedAt: v.optional(v.number()),
     loyaltyCelebratedAt: v.optional(v.number()),
     starterRentalOfferUsed: v.optional(v.boolean()), // accepted legacy receipts
@@ -783,12 +834,14 @@ export default defineSchema({
     privateVerificationPortraitPromptVersion: v.optional(v.string()),
     idVerified: v.optional(v.boolean()),
     rentalVerification: v.optional(v.object({ sourceBookingId: v.id("bookings"), name: v.string(), address: v.string(), verifiedAt: v.number(), expiresAt: v.number() })),
+    activeDiditVerification: v.optional(v.object({ bookingId: v.id("bookings"), claimId: v.optional(v.string()), leaseUntil: v.optional(v.number()), sessionId: v.optional(v.string()) })),
     idSessionId: v.optional(v.string()), // Stripe Identity session (account-level verification)
     stripeCustomerId: v.optional(v.string()),
     membershipTier: v.optional(v.string()),
     membershipActive: v.optional(v.boolean()),
     membershipStatus: v.optional(v.string()),
     membershipSubscriptionCreatedAt: v.optional(v.number()),
+    membershipTrialFirstRentalCompletedAt: v.optional(v.number()),
     checkoutSeedHash: v.optional(v.string()),
     membershipCreditDebtPence: v.optional(v.number()),
     membershipPaidThrough: v.optional(v.number()),
@@ -825,6 +878,7 @@ export default defineSchema({
   messages: defineTable({
     accountId: v.id("accounts"),
     bookingId: v.optional(v.id("bookings")),
+    clientRequestId: v.optional(v.string()),
     sender: v.union(v.literal("renter"), v.literal("bot"), v.literal("system"), v.literal("owner")),
     text: v.string(),
     meta: v.optional(v.any()),
@@ -838,6 +892,8 @@ export default defineSchema({
     .index("by_booking_account_at", ["bookingId", "accountId", "at"])
     .index("by_booking_account_sender_at", ["bookingId", "accountId", "sender", "at"])
     .index("by_account_at", ["accountId", "at"])
+    .index("by_account_sender_at", ["accountId", "sender", "at"])
+    .index("by_account_client_request", ["accountId", "clientRequestId"])
     .searchIndex("search_text", { searchField: "text" }),
 
   renter_push_subscriptions: defineTable({
@@ -846,6 +902,7 @@ export default defineSchema({
   }).index("by_device", ["deviceId"]).index("by_endpoint", ["endpoint"]).index("by_account_enabled", ["accountId", "enabled"]).index("by_session", ["sessionId"]),
   renter_notifications: defineTable({
     eventKey: v.string(), kind: v.union(v.literal("messages"), v.literal("booking")), accountId: v.id("accounts"), bookingId: v.optional(v.id("bookings")),
+    notice: v.optional(v.union(v.literal("chat_message"), v.literal("support_reply"), v.literal("verification_progress"), v.literal("verification_approved"), v.literal("verification_review"), v.literal("verification_action"), v.literal("rental_action"), v.literal("rental_update"), v.literal("delivery_quote"), v.literal("extension_options"), v.literal("extension_payment"), v.literal("kit_change"), v.literal("rental_price"), v.literal("credit_offer"), v.literal("payment_link"), v.literal("gear_recommendation"), v.literal("checkout_kit"), v.literal("review_invitation"))),
     createdAt: v.number(), messageAt: v.number(),
   }).index("by_event", ["eventKey"]),
   renter_push_deliveries: defineTable({
@@ -871,6 +928,7 @@ export default defineSchema({
   }).index("by_event", ["eventKey"]).index("by_read_created", ["read", "createdAt"])
     .index("by_account_booking_read", ["accountId", "bookingId", "read"])
     .index("by_account_booking_kind_read_created", ["accountId", "bookingId", "kind", "read", "createdAt"])
+    .index("by_booking_kind_read_created", ["bookingId", "kind", "read", "createdAt"])
     .index("by_manager_due", ["managerStatus", "managerDueAt"])
     .index("by_telegram_due", ["telegramStatus", "telegramDueAt"]),
   admin_push_deliveries: defineTable({
@@ -995,35 +1053,45 @@ export default defineSchema({
     .index("by_account", ["accountId"]).index("by_account_status",["accountId","status"]).index("by_status_expiry",["status","expiresAt"])
     .index("by_status", ["status"]),
 
+  rental_credit_reservations: defineTable({
+    accountId:v.id("accounts"),bookingId:v.id("bookings"),operationType:v.union(v.literal("addition"),v.literal("extension"),v.literal("delivery"),v.literal("swap")),operationId:v.string(),
+    state:v.union(v.literal("reserved"),v.literal("consumed"),v.literal("released"),v.literal("restored")),requestedPence:v.optional(v.number()),amountPence:v.number(),
+    allocations:v.array(v.object({creditId:v.id("credits"),amountPence:v.number(),kind:v.union(v.literal("refund"),v.literal("earned")),membershipGrantId:v.optional(v.id("membership_credit_grants")),membershipInvoiceId:v.optional(v.string())})),
+    createdAt:v.number(),updatedAt:v.number(),expiresAt:v.optional(v.number()),consumedAt:v.optional(v.number()),releasedAt:v.optional(v.number()),restoredAt:v.optional(v.number()),restoredPence:v.optional(v.number()),restoredAllocations:v.optional(v.array(v.object({creditId:v.id("credits"),amountPence:v.number()}))),
+  }).index("by_account_state",["accountId","state"]).index("by_booking",["bookingId"]).index("by_operation",["operationType","operationId"]),
+
   referral_redemptions:defineTable({referrerAccountId:v.id("accounts"),friendAccountId:v.id("accounts"),bookingId:v.id("bookings"),code:v.string(),discount:v.number(),state:v.union(v.literal("reserved"),v.literal("paid"),v.literal("qualified"),v.literal("void")),createdAt:v.number(),paidAt:v.optional(v.number()),qualifiedAt:v.optional(v.number()),paymentHash:v.optional(v.string()),rejectionReason:v.optional(v.string())}).index("by_friend",["friendAccountId"]).index("by_booking",["bookingId"]).index("by_referrer",["referrerAccountId"]).index("by_state",["state"]),
   referral_rewards:defineTable({accountId:v.id("accounts"),redemptionId:v.id("referral_redemptions"),percent:v.number(),state:v.union(v.literal("available"),v.literal("used"),v.literal("expired")),createdAt:v.number(),expiresAt:v.number(),reservedBookingId:v.optional(v.id("bookings")),usedBookingId:v.optional(v.id("bookings")),usedAt:v.optional(v.number())}).index("by_account",["accountId"]).index("by_state_expiry",["state","expiresAt"]),
   referral_campaigns:defineTable({createdAt:v.number(),enqueuedAt:v.optional(v.number()),status:v.union(v.literal("queued"),v.literal("complete"),v.literal("stopped")),recipientCount:v.number(),sent:v.number(),failed:v.number()}),
   referral_campaign_messages:defineTable({campaignId:v.id("referral_campaigns"),accountId:v.id("accounts"),state:v.union(v.literal("pending"),v.literal("sending"),v.literal("sent"),v.literal("stopped")),dueAt:v.number(),attempts:v.number(),leaseUntil:v.optional(v.number()),sentAt:v.optional(v.number())}).index("by_campaign_account",["campaignId","accountId"]).index("by_state_due",["state","dueAt"]),
   rental_additions:defineTable({
     bookingId:v.id("bookings"),requestId:v.string(),reviewQuote:v.optional(v.string()),listingId:v.id("listings"),title:v.string(),
-    start:v.number(),end:v.number(),qty:v.number(),dailyRate:v.number(),lineTotal:v.number(),
+    start:v.number(),end:v.number(),qty:v.number(),dailyRate:v.number(),lineTotal:v.number(),undiscountedLineTotal:v.optional(v.number()),benefitKind:v.optional(v.string()),benefitLabel:v.optional(v.string()),benefitSaving:v.optional(v.number()),
     complimentary:v.optional(v.boolean()),draftReplacement:v.optional(v.boolean()),baseTotal:v.optional(v.number()),baseSecurity:v.optional(v.number()),baseSessionId:v.optional(v.string()),
     membershipCheckoutId:v.optional(v.id("membership_checkouts")),membershipFee:v.optional(v.number()),membershipSessionParams:v.optional(v.string()),
+    creditOptIn:v.optional(v.boolean()),creditReservationId:v.optional(v.id("rental_credit_reservations")),creditAppliedPence:v.optional(v.number()),cardDuePence:v.optional(v.number()),cardPaidPence:v.optional(v.number()),
     securityCharge:v.number(),securityPolicyVersion:v.optional(v.string()),proposedSavedCardLimit:v.optional(v.number()),replacementValuePence:v.optional(v.number()),priorSavedCardLimit:v.optional(v.number()),customerAcceptedAt:v.optional(v.number()),customerAccountId:v.optional(v.id("accounts")),customerConsentText:v.optional(v.string()),holdTotal:v.number(),oldHoldId:v.optional(v.string()),
     status:v.string(),reason:v.string(),createdAt:v.number(),updatedAt:v.number(),
-    sessionId:v.optional(v.string()),paymentUrl:v.optional(v.string()),paymentIntentId:v.optional(v.string()),
+    sessionId:v.optional(v.string()),paymentUrl:v.optional(v.string()),paymentIntentId:v.optional(v.string()),checkoutProtocolVersion:v.optional(v.number()),sessionCreationPending:v.optional(v.boolean()),recoveryNeedsReview:v.optional(v.boolean()),
     withdrawalRequestedAt:v.optional(v.number()),withdrawalRefundId:v.optional(v.string()),withdrawalRefundStatus:v.optional(v.string()),
     withdrawalMembershipSubscriptionId:v.optional(v.string()),
     securityCreationPending:v.optional(v.boolean()),securityCreationPreparedAt:v.optional(v.number()),securityCreationParams:v.optional(v.string()),
     holdIntentId:v.optional(v.string()),holdExpiresAt:v.optional(v.number()),
-  }).index("by_booking",["bookingId"]).index("by_request",["requestId"]).index("by_session",["sessionId"]).index("by_status",["status"]).index("by_status_updated",["status","updatedAt"]),
+  }).index("by_booking",["bookingId"]).index("by_request",["requestId"]).index("by_session",["sessionId"]).index("by_status",["status"]).index("by_status_updated",["status","updatedAt"]).index("by_status_recovery_updated",["status","recoveryNeedsReview","updatedAt"]),
 
   rental_delivery_quotes: defineTable({
     bookingId:v.id("bookings"),accountId:v.id("accounts"),requestId:v.string(),deliveryLegs:v.union(v.literal("one_way"),v.literal("round_trip")),
     deliveryAddress:v.string(),postcode:v.string(),baseAmountPence:v.number(),discountPence:v.number(),amountPence:v.number(),membershipTier:v.optional(v.string()),benefitMonth:v.optional(v.string()),
-    bookingFingerprint:v.string(),checkoutParams:v.optional(v.string()),checkoutExpiresAt:v.optional(v.number()),
+    bookingFingerprint:v.string(),checkoutParams:v.optional(v.string()),checkoutExpiresAt:v.optional(v.number()),recoveryAutoCheckedAt:v.optional(v.number()),
     isStudioBenefit:v.boolean(),status:v.union(v.literal("awaiting_acceptance"),v.literal("creating_checkout"),v.literal("checkout_open"),v.literal("paid"),v.literal("failed"),v.literal("expired"),v.literal("declined")),
     termsVersion:v.string(),termsText:v.string(),createdAt:v.number(),updatedAt:v.number(),expiresAt:v.number(),acceptedAt:v.optional(v.number()),
     checkoutSessionId:v.optional(v.string()),paymentUrl:v.optional(v.string()),paymentIntentId:v.optional(v.string()),paidAt:v.optional(v.number()),paymentMessageId:v.optional(v.id("messages")),
-  }).index("by_booking",["bookingId"]).index("by_request",["bookingId","requestId"]).index("by_status_updated",["status","updatedAt"]),
+    creditOptIn:v.optional(v.boolean()),creditReservationId:v.optional(v.id("rental_credit_reservations")),creditAppliedPence:v.optional(v.number()),cardDuePence:v.optional(v.number()),cardPaidPence:v.optional(v.number()),
+  }).index("by_booking",["bookingId"]).index("by_request",["bookingId","requestId"]).index("by_status_updated",["status","updatedAt"]).index("by_status_recovery_updated",["status","recoveryAutoCheckedAt","updatedAt"]),
 
   rental_refunds: defineTable({
     bookingId:v.id("bookings"),expectedAccountId:v.optional(v.id("accounts")),expectedRecipientEmail:v.optional(v.string()),requestId:v.string(),amountPence:v.number(),reason:v.string(),
+    lineAllocation:v.optional(v.object({lineIndex:v.number(),listingId:v.id("listings"),start:v.number(),end:v.number(),qty:v.number(),paymentIntentId:v.string(),amountPence:v.number(),sourceCaps:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()})))})),
     status:v.union(v.literal("prepared"),v.literal("pending"),v.literal("succeeded"),v.literal("failed")),
     refundReceipts:v.optional(v.array(depositReturnReceipt)),
     allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()}))),
@@ -1047,7 +1115,7 @@ export default defineSchema({
     bookingId:v.id("bookings"),accountId:v.id("accounts"),requestId:v.string(),
     baseSnapshot:v.string(),quoteSnapshot:v.string(),lineIndex:v.number(),oldListingId:v.id("listings"),newListingId:v.id("listings"),
     oldLine:v.any(),newLine:v.any(),changes:v.optional(v.array(v.object({lineIndex:v.number(),action:v.optional(v.union(v.literal("replace"),v.literal("remove"))),oldListingId:v.id("listings"),newListingId:v.id("listings"),oldLine:v.any(),newLine:v.any()}))),quote:v.any(),status:v.union(v.literal("awaiting_acceptance"),v.literal("accepted"),v.literal("awaiting_payment"),v.literal("refund_pending"),v.literal("refund_compensating"),v.literal("review"),v.literal("applied"),v.literal("refunded"),v.literal("withdrawn"),v.literal("declined"),v.literal("expired")),
-    createdAt:v.number(),updatedAt:v.number(),expiresAt:v.number(),acceptedAt:v.optional(v.number()),acceptanceText:v.optional(v.string()),acceptedEmail:v.optional(v.string()),
+    createdAt:v.number(),updatedAt:v.number(),expiresAt:v.number(),acceptedAt:v.optional(v.number()),acceptanceText:v.optional(v.string()),acceptedEmail:v.optional(v.string()),creditOptIn:v.optional(v.boolean()),creditReservationId:v.optional(v.id("rental_credit_reservations")),creditAppliedPence:v.optional(v.number()),cardDuePence:v.optional(v.number()),
     sessionId:v.optional(v.string()),paymentUrl:v.optional(v.string()),paymentIntentId:v.optional(v.string()),paymentSessionState:v.optional(v.union(v.literal("not_started"),v.literal("creating"),v.literal("created"),v.literal("closed"))),paymentSessionCreateStartedAt:v.optional(v.number()),expiredSessionEvidence:v.optional(v.object({sessionId:v.string(),status:v.literal("expired"),paymentStatus:v.literal("unpaid"),checkedAt:v.number(),expiresAt:v.number()})),asyncPaymentFailureAt:v.optional(v.number()),asyncPaymentFailureResolvedAt:v.optional(v.number()),asyncPaymentFailureEvidence:v.optional(v.object({sessionId:v.string(),sessionStatus:v.literal("complete"),paymentStatus:v.literal("unpaid"),paymentIntentId:v.string(),paymentIntentStatus:v.literal("canceled"),amountPence:v.number(),amountReceivedPence:v.literal(0),currency:v.literal("gbp"),checkedAt:v.number()})),settlementPlan:v.optional(v.any()),refundJobId:v.optional(v.id("rental_refunds")),stockAppliedAt:v.optional(v.number()),creditsRestoredAt:v.optional(v.number()),compensationStartedAt:v.optional(v.number()),compensationReason:v.optional(v.string()),compensationReceipt:v.optional(depositReturnReceipt),reconcileAfter:v.optional(v.number()),reconcileAttempts:v.optional(v.number()),reconcileError:v.optional(v.string()),
   }).index("by_booking",["bookingId"]).index("by_booking_status",["bookingId","status"]).index("by_booking_account",["bookingId","accountId"]).index("by_request",["bookingId","requestId"]).index("by_status_due",["status","reconcileAfter"]).index("by_status_error_due",["status","reconcileError","reconcileAfter"]),
 
@@ -1056,7 +1124,7 @@ export default defineSchema({
     documentType:v.optional(v.union(v.literal("supplementary_invoice"),v.literal("credit_note"),v.literal("account_adjustment"))),documentNumber:v.optional(v.string()),
     originalInvoiceNumber:v.string(),issuedAt:v.number(),currency:v.literal("GBP"),
     changes:v.array(v.object({lineIndex:v.number(),oldTitle:v.string(),newTitle:v.string(),oldQty:v.number(),newQty:v.number(),oldLineTotalPence:v.number(),newLineTotalPence:v.number()})),
-    cardChargePence:v.number(),cardRefundPence:v.number(),accountCreditRestoredPence:v.number(),requiresStockAck:v.boolean(),
+    cardChargePence:v.number(),cardRefundPence:v.number(),accountCreditRestoredPence:v.number(),accountCreditAppliedPence:v.optional(v.number()),requiresStockAck:v.boolean(),
     emailState:v.union(v.literal("pending"),v.literal("sent")),lastAttemptAt:v.number(),sentAt:v.optional(v.number()),
   }).index("by_swap",["swapId"]).index("by_email_state_attempt",["emailState","lastAttemptAt"]),
 
@@ -1109,6 +1177,9 @@ export default defineSchema({
     requestedReturnTime:v.optional(v.string()),
     approvedReturnTime:v.optional(v.string()),
     quoteItems:v.optional(v.array(v.object({lineIndex:v.number(),listingId:v.id("listings"),title:v.string(),start:v.number(),end:v.number(),qty:v.number(),dailyRate:v.number(),lineTotal:v.number()}))),
+    adminLateTerms:v.optional(v.object({lateDays:v.number(),targetEnd:v.number(),requestedReturnTime:v.string(),manualRates:v.array(v.object({lineIndex:v.number(),dailyPence:v.number(),confirmed:v.literal(true)})),customFee:v.optional(v.object({description:v.string(),amountPence:v.number()})),entries:v.array(v.object({lineIndex:v.number(),listingId:v.id("listings"),title:v.string(),qty:v.number(),coveredEnd:v.number(),coveredTime:v.string(),targetEnd:v.number(),extensionDays:v.number(),lateDailyPence:v.number(),lateRateSource:v.union(v.literal("manual"),v.literal("booking")),latePence:v.number(),extensionPence:v.number(),weekendSavingPence:v.number()})),latePence:v.number(),extensionPence:v.number(),discountPence:v.number(),totalPence:v.number(),quoteFingerprint:v.string()})),
+    adminLateAcceptedAt:v.optional(v.number()),
+    adminLateAcceptedFingerprint:v.optional(v.string()),
     benefitKind:v.optional(v.string()),
     benefitLabel:v.optional(v.string()),
     benefitSaving:v.optional(v.number()),
@@ -1120,14 +1191,17 @@ export default defineSchema({
     priceDelta: v.optional(v.number()),
     stripePaymentLinkId: v.optional(v.string()),
     paymentLinkUrl: v.optional(v.string()),
+    useAccountCredit:v.optional(v.boolean()),creditReservationId:v.optional(v.id("rental_credit_reservations")),creditAppliedPence:v.optional(v.number()),cardDuePence:v.optional(v.number()),cardPaidPence:v.optional(v.number()),
     paidAt: v.optional(v.number()),
-    settlementKind: v.optional(v.union(v.literal("stripe"), v.literal("approved_zero"))),
+    settlementKind: v.optional(v.union(v.literal("stripe"), v.literal("approved_zero"),v.literal("account_credit"))),
     settledAt: v.optional(v.number()),
     createdAt: v.number(),
     resolvedAt: v.optional(v.number()),
   })
     .index("by_booking", ["bookingId"])
-    .index("by_status", ["status"]),
+    .index("by_booking_requestKey", ["bookingId", "requestKey"])
+    .index("by_status", ["status"])
+    .index("by_status_expiry", ["status", "expiresAt"]),
 
   chat_attachment_attempts: defineTable({
     accountId: v.id("accounts"),
@@ -1151,7 +1225,7 @@ export default defineSchema({
     retentionHoldRevision: v.optional(v.number()),
     retentionNeedsReview: v.optional(v.boolean()),
     removedAt: v.optional(v.number()),
-  }).index("by_account_created", ["accountId", "createdAt"]).index("by_marker", ["marker"]).index("by_scope_request", ["accountId", "bookingId", "admin", "requestKey"]).index("by_status_created", ["status", "createdAt"]),
+  }).index("by_account_created", ["accountId", "createdAt"]).index("by_booking_created", ["bookingId", "createdAt"]).index("by_marker", ["marker"]).index("by_scope_request", ["accountId", "bookingId", "admin", "requestKey"]).index("by_status_created", ["status", "createdAt"]),
 
   chat_attachment_sweep: defineTable({ key: v.string(), watermark: v.number(), cutoff: v.optional(v.number()), cursor: v.optional(v.string()) }).index("by_key", ["key"]),
   chat_attachment_retention_sweep: defineTable({key:v.string(),cursor:v.optional(v.string()),completedAt:v.optional(v.number()),updatedAt:v.number()}).index("by_key",["key"]),
@@ -1164,6 +1238,8 @@ export default defineSchema({
   chat_threads: defineTable({
     accountId: v.id("accounts"),
     bookingId: v.optional(v.id("bookings")),
+    firstRenterMessageId: v.optional(v.id("messages")),
+    notificationPromptMessageId: v.optional(v.id("messages")),
     unreadOwner: v.optional(v.number()),
     unreadRenter: v.optional(v.number()),
     ownerReadAt: v.optional(v.number()),
@@ -1205,6 +1281,8 @@ export default defineSchema({
     success: v.boolean(),
     limited: v.boolean(),
     fn: v.string(),
+    entityId: v.optional(v.string()),
+    reason: v.optional(v.string()),
   }).index("by_at", ["at"]),
 
   admin_sessions_v2: defineTable({
@@ -1252,6 +1330,7 @@ export default defineSchema({
     subject: v.string(),
     replyKey: v.optional(v.string()),
     accountId: v.optional(v.id("accounts")),
+    bookingId: v.optional(v.id("bookings")),
     verifiedRenterEmail: v.optional(v.string()),
     status: v.union(v.literal("open"), v.literal("human_requested"), v.literal("closed")),
     createdAt: v.number(),
@@ -1259,6 +1338,7 @@ export default defineSchema({
     lastAt: v.number(),
     lastDirection: v.union(v.literal("in"), v.literal("out")),
     lastText: v.string(),
+    latestInboundMessageId: v.optional(v.id("email_messages")),
     unreadOwner: v.number(),
     humanNotifiedAt: v.optional(v.number()),
     humanNotifiedMessageId: v.optional(v.id("email_messages")),
@@ -1266,10 +1346,13 @@ export default defineSchema({
     .index("by_email_updated", ["email", "updatedAt"])
     .index("by_reply_key", ["replyKey"])
     .index("by_account_updated", ["accountId", "updatedAt"])
+    .index("by_account_booking_updated", ["accountId", "bookingId", "updatedAt"])
     .index("by_updated", ["updatedAt"]),
   email_messages: defineTable({
     threadId: v.id("email_threads"),
+    bookingId: v.optional(v.id("bookings")),
     direction: v.union(v.literal("in"), v.literal("out")),
+    chatSender: v.optional(v.union(v.literal("bot"), v.literal("owner"))),
     sender: v.string(),
     recipient: v.string(),
     subject: v.string(),
@@ -1294,7 +1377,8 @@ export default defineSchema({
     }))),
     inReplyTo: v.optional(v.string()),
     references: v.optional(v.array(v.string())),
-    state: v.union(v.literal("received"), v.literal("processing"), v.literal("replied"), v.literal("handoff"), v.literal("failed"), v.literal("sent")),
+    replyCapabilityVerified: v.optional(v.boolean()),
+    state: v.union(v.literal("received"), v.literal("processing"), v.literal("replied"), v.literal("handoff"), v.literal("failed"), v.literal("sent"), v.literal("uncertain")),
     leaseUntil: v.optional(v.number()),
     profileMessageId: v.optional(v.id("messages")),
     replyToProviderId: v.optional(v.string()),
@@ -1305,6 +1389,7 @@ export default defineSchema({
     .index("by_resend_email_id", ["resendEmailId"])
     .index("by_message_id", ["messageId"])
     .index("by_thread_at", ["threadId", "at"])
+    .index("by_thread_state", ["threadId", "state"])
     .index("by_reply_to_provider", ["replyToProviderId"]),
   // Only unmatched delivery events are buffered here. They can arrive before
   // the send action persists Resend's email ID; finalization links and deletes
@@ -1313,16 +1398,18 @@ export default defineSchema({
   email_delivery_events: defineTable({
     webhookEventId: v.string(),
     resendEmailId: v.string(),
-    eventType: v.union(
+    eventType: v.optional(v.union(
+      v.literal("sent"),
       v.literal("delivered"),
       v.literal("delivery_delayed"),
       v.literal("bounced"),
       v.literal("suppressed"),
       v.literal("failed"),
       v.literal("complained"),
-    ),
+    )),
     recipients: v.array(v.string()),
     occurredAt: v.number(),
+    messageId: v.optional(v.string()),
     reason: v.optional(v.string()),
   })
     .index("by_webhook_event_id", ["webhookEventId"])
@@ -1373,10 +1460,12 @@ export default defineSchema({
     consentAt: v.number(), updatedAt: v.number(), dueAt: v.number(), expiresAt: v.number(),
     state: v.union(v.literal("waiting"), v.literal("sent"), v.literal("stopped")),
     leaseUntil: v.optional(v.number()), attempts: v.number(), deliveredAt: v.optional(v.number()),
+    emailFollowupConsentAt: v.optional(v.number()),
+    followupStage: v.optional(v.union(v.literal("day_one"), v.literal("week_one"), v.literal("complete"))),
     bookingId: v.optional(v.id("bookings")),
   }).index("by_account", ["accountId"]).index("by_state_due", ["state", "dueAt"]),
-  account_codes: defineTable({email:v.string(),name:v.optional(v.string()),phone:v.optional(v.string()),purpose:v.union(v.literal("setup"),v.literal("reset")),challengeHash:v.string(),codeHash:v.string(),attempts:v.number(),expiresAt:v.number(),verifiedAt:v.optional(v.number()),setupHash:v.optional(v.string()),usedAt:v.optional(v.number()),cartKey:v.optional(v.string())}).index("by_challenge",["challengeHash"]).index("by_setup",["setupHash"]).index("by_email",["email"]),
-  checkout_carts: defineTable({shareKey:v.string(),email:v.string(),accountId:v.optional(v.id("accounts")),lines:v.array(v.object({listingId:v.id("listings"),start:v.number(),end:v.number(),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string())})),createdAt:v.number(),expiresAt:v.number()}).index("by_share",["shareKey"]),
+  account_codes: defineTable({email:v.string(),name:v.optional(v.string()),phone:v.optional(v.string()),purpose:v.union(v.literal("setup"),v.literal("reset")),challengeHash:v.string(),codeHash:v.string(),attempts:v.number(),expiresAt:v.number(),verifiedAt:v.optional(v.number()),setupHash:v.optional(v.string()),usedAt:v.optional(v.number()),cartKey:v.optional(v.string()),pendingAvatarId:v.optional(v.id("_storage")),avatarUploadLeaseUntil:v.optional(v.number()),avatarUploadLeaseKey:v.optional(v.string())}).index("by_challenge",["challengeHash"]).index("by_setup",["setupHash"]).index("by_email",["email"]),
+  checkout_carts: defineTable({shareKey:v.string(),email:v.string(),accountId:v.optional(v.id("accounts")),lines:v.array(v.object({listingId:v.id("listings"),start:v.optional(v.number()),end:v.optional(v.number()),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string())})),adminChatMessageId:v.optional(v.id("messages")),createdAt:v.number(),expiresAt:v.number()}).index("by_share",["shareKey"]).index("by_expiry",["expiresAt"]),
   account_access_links: defineTable({accountId:v.id("accounts"),bookingId:v.optional(v.id("bookings")),secretHash:v.string(),purpose:v.optional(v.literal("signup")),credentialHash:v.optional(v.string()),expiresAt:v.number(),usedAt:v.optional(v.number()),createdAt:v.number()}).index("by_hash",["secretHash"]).index("by_booking",["bookingId"]).index("by_account",["accountId"]),
   film_fund_rounds: defineTable({
     slug:v.string(),name:v.string(),state:v.union(v.literal("coming_soon"),v.literal("open"),v.literal("closed")),
@@ -1439,7 +1528,7 @@ export default defineSchema({
 
   rental_security_charges: defineTable({
     bookingId:v.id("bookings"),accountId:v.id("accounts"),requestId:v.string(),
-    kind:v.union(v.literal("damage"),v.literal("late")),claimBasis:v.optional(v.union(v.literal("loss"),v.literal("severe_cosmetic_damage"))),amountPence:v.number(),reason:v.string(),
+    kind:v.union(v.literal("damage"),v.literal("late")),claimBasis:v.optional(v.union(v.literal("loss"),v.literal("severe_cosmetic_damage"))),itemKey:v.optional(v.string()),evidenceIds:v.optional(v.array(v.id("chat_attachment_attempts"))),caseId:v.optional(v.id("rental_damage_cases")),returnAssessment:v.optional(v.object({damageAmountPence:v.number(),damageOffsetPence:v.number(),damageReason:v.string(),lateAmountPence:v.number(),lateReason:v.string()})),amountPence:v.number(),reason:v.string(),
     customerId:v.string(),paymentMethodId:v.string(),consentSnapshot:v.string(),
     state:v.string(),createdAt:v.number(),updatedAt:v.number(),noticeAt:v.optional(v.number()),
     collectAfter:v.optional(v.number()),noticeLeaseUntil:v.optional(v.number()),
@@ -1465,6 +1554,14 @@ export default defineSchema({
       status:v.union(v.literal("unknown"),v.literal("awaiting_approval"),v.literal("pending"),v.literal("succeeded"),v.literal("failed"))}))),
   }).index("by_booking",["bookingId"]).index("by_request",["bookingId","requestId"]).index("by_intent",["intentId"])
     .index("by_state_updated",["state","updatedAt"]).index("by_reconcile",["reconcileNextAt"]).index("by_refund_reconcile",["refundReconcileAt"]),
+
+  stripe_dispute_cases: defineTable({
+    disputeId:v.string(),eventId:v.string(),eventType:v.string(),chargeId:v.optional(v.string()),paymentIntentId:v.optional(v.string()),
+    bookingId:v.optional(v.id("bookings")),securityChargeId:v.optional(v.id("rental_security_charges")),
+    linkStatus:v.union(v.literal("linked"),v.literal("unresolved")),status:v.optional(v.string()),reason:v.optional(v.string()),
+    eventCreatedAt:v.number(),statusRank:v.number(),paymentLookupFailed:v.boolean(),createdAt:v.number(),updatedAt:v.number(),
+  }).index("by_dispute_id",["disputeId"]).index("by_event",["eventId"]).index("by_link_status_updated",["linkStatus","updatedAt"])
+    .index("by_booking",["bookingId"]),
 
   rental_security_refund_notices: defineTable({
     chargeId:v.id("rental_security_charges"),bookingId:v.id("bookings"),accountId:v.id("accounts"),sequence:v.number(),eventKey:v.string(),

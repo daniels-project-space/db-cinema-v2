@@ -22,7 +22,7 @@ export const verify = action({args:{challenge:v.string(),code:v.string()},handle
  const result=await ctx.runMutation(internal.accountCodeClaims.verify,{challengeHash:hash(a.challenge),codeHash:hash(a.challenge+":"+a.code),setupHash:hash(setupToken)});
  if(!result.ok)throw Error("Invalid or expired code. Request a new code if needed.");return {setupToken};
 }});
-export const complete = action({args:{setupToken:v.string(),password:v.string(),termsAndPrivacyAcknowledged:v.optional(v.boolean()),termsVersion:v.optional(v.string()),privacyNoticeVersion:v.optional(v.string())},handler:async(ctx,a):Promise<{token:string;cartKey?:string}>=>{
+export const complete = action({args:{setupToken:v.string(),password:v.string(),termsAndPrivacyAcknowledged:v.optional(v.boolean()),termsVersion:v.optional(v.string()),privacyNoticeVersion:v.optional(v.string()),acceptPendingAvatar:v.optional(v.boolean())},handler:async(ctx,a):Promise<{token:string;cartKey?:string}>=>{
  if(!/^[A-Za-z0-9_-]{43}$/.test(a.setupToken))throw Error("Request a new code.");
  if(a.password.length<8||a.password.length>256)throw Error("Choose a password of 8 to 256 characters.");
  // The internal claim row decides whether this is signup or password reset.
@@ -34,5 +34,5 @@ export const complete = action({args:{setupToken:v.string(),password:v.string(),
   if(a.termsVersion!==legalVersionForPolicy(policy)||a.privacyNoticeVersion!==CURRENT_PRIVACY_NOTICE_VERSION)throw Error("The Terms or Privacy Notice changed. Review the current versions and try again.");
  }
  const salt=randomBytes(16).toString("hex"),passwordHash=pbkdf2Sync(a.password,Buffer.from(salt,"hex"),100000,32,"sha256").toString("hex");
- return ctx.runMutation(internal.accountCodeClaims.finish,{setupHash:hash(a.setupToken),salt,hash:passwordHash,sessionToken:randomBytes(32).toString("hex"),termsAndPrivacyAcknowledged:a.termsAndPrivacyAcknowledged,termsVersion:a.termsVersion,privacyNoticeVersion:a.privacyNoticeVersion});
+ return ctx.runMutation(internal.accountCodeClaims.finish,{setupHash:hash(a.setupToken),salt,hash:passwordHash,sessionToken:randomBytes(32).toString("hex"),termsAndPrivacyAcknowledged:a.termsAndPrivacyAcknowledged,termsVersion:a.termsVersion,privacyNoticeVersion:a.privacyNoticeVersion,acceptPendingAvatar:a.acceptPendingAvatar});
 }});

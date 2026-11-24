@@ -86,18 +86,20 @@ export async function Footer() {
             ["/legal/rental-terms", "Rental terms"],
             ["/legal/cancellation", "Cancellation"],
             ["/legal/terms", "Terms & conditions"],
+            ["/legal/website-use", "Website use & AI"],
             ["/legal/privacy", "Privacy policy"],
           ]}
         />
       </div>
 
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 border-t border-white/5 px-6 py-6">
-        <span className="font-mono text-[11px] text-white/25">
-          © 2026 Db Cinema Rentals · cinema camera &amp; film equipment hire, London
-        </span>
-        <span className="flex items-center gap-4 font-mono text-[11px] text-white/20">
+      <div className="mx-auto flex max-w-7xl flex-col gap-5 border-t border-white/10 px-6 py-6 sm:flex-row sm:items-end sm:justify-between">
+        <div className="max-w-3xl font-mono text-xs leading-relaxed text-white/60">
+          <p>© {new Date().getFullYear()} DB Cinema Rentals. All rights reserved.</p>
+          <p className="mt-2">Website content, imagery, branding and original design may not be copied or used to train AI or recreate this website without prior written permission. <Link href="/legal/website-use" className="text-white/80 underline underline-offset-2 hover:text-white">Website use &amp; AI</Link></p>
+        </div>
+        <span className="flex shrink-0 items-center gap-4 font-mono text-xs text-white/60">
           <span className="hidden sm:inline">51.5072°N 0.1276°W</span>
-          <Link href="/admin" className="transition-colors hover:text-white/50">
+          <Link href="/admin" className="inline-flex min-h-11 items-center rounded-lg border border-white/15 px-4 text-white/80 transition-colors hover:border-white/35 hover:text-white">
             Owner login
           </Link>
         </span>

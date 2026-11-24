@@ -1,12 +1,15 @@
-import { membershipActiveNow, membershipTierFor } from "../../shared/membership";
+import { hasFirstEligibleRentalConfirmation, membershipRentalBenefitsActiveNow, membershipTierFor } from "../../shared/membership";
 import { tierByKey } from "../../shared/membership";
+import { membershipRentalBenefitAccount } from "./rentalBenefitAccount";
 export function londonMonth(now = Date.now()) {
   const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit" }).formatToParts(now);
   return `${parts.find(p => p.type === "year")!.value}-${parts.find(p => p.type === "month")!.value}`;
 }
 /** Pending reservations stay reserved until provider reconciliation, including beyond their soft TTL. */
 export async function studioDeliveryAvailable(ctx: any, account: any, month: string, prospective = false) {
-  if (!account || (!prospective && (!membershipActiveNow(account) || tierByKey(membershipTierFor(account))?.key !== "studio"))) return false;
+  const benefitAccount = await membershipRentalBenefitAccount(ctx, account);
+  if (!benefitAccount || !hasFirstEligibleRentalConfirmation(benefitAccount) ||
+    (!prospective && (!membershipRentalBenefitsActiveNow(benefitAccount) || tierByKey(membershipTierFor(benefitAccount))?.key !== "studio"))) return false;
   // Account-linked rentals remain discoverable if the renter changes their
   // email. Keep the email lookup for older guest bookings that were never
   // attached to an account; duplicate rows are harmless for this predicate.

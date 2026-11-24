@@ -9,6 +9,7 @@ Object.assign(process.env, {
   GMAIL_USER: "dbcinemarentals@gmail.com",
   GMAIL_APP_PASSWORD: "legacy-unused",
   OWNER_EMAIL: "bookings@dbcinemarentals.com",
+  INBOUND_REPLY_ADDRESS: "support@resend-inbox.example.invalid",
   RESEND_API_KEY: "resend-test-only",
   RESEND_FROM: "DB Cinema Rentals <bookings@dbcinemarentals.com>",
 });
@@ -25,6 +26,8 @@ global.fetch = async (url, options) => {
       subject: "Runtime QA",
       html: "<p>QA</p>",
       deliveryKey: "bookings-qa:payment:1",
+      inReplyTo: "<renter-message@example.invalid>",
+      references: ["<thread-root@example.invalid>", "<renter-message@example.invalid>"],
     };
 
     assert.equal(OWNER_EMAIL(), "dbcinemarentals@gmail.com", "legacy OWNER_EMAIL cannot override the monitored inbox");
@@ -34,13 +37,22 @@ global.fetch = async (url, options) => {
     assert.equal(requests[0].options.headers["Idempotency-Key"], message.deliveryKey);
     const payload = JSON.parse(requests[0].options.body);
     assert.equal(payload.from, "DB Cinema Rentals <bookings@dbcinemarentals.com>");
-    assert.equal(payload.reply_to, "dbcinemarentals@gmail.com");
+    assert.equal(payload.reply_to, process.env.INBOUND_REPLY_ADDRESS, "generic customer replies enter the central website inbox when its route is configured");
     assert.deepEqual(payload.cc, message.cc);
+    assert.deepEqual(payload.headers, {
+      "In-Reply-To": message.inReplyTo,
+      References: message.references.join(" "),
+    }, "the Resend transport emits standards-based thread headers from the inbox reply context");
 
     const tracked = await sendBusinessMailTracked(message);
     assert.equal(tracked.sent, true);
     assert.equal(tracked.ambiguous, false, "provider acceptance is recorded as a confirmed outcome");
     assert.equal(tracked.resendEmailId, "resend-email-2", "central inbox sends retain Resend's provider ID for later delivery events");
+
+    delete process.env.INBOUND_REPLY_ADDRESS;
+    assert.equal(await sendBusinessMail({ ...message, deliveryKey: "bookings-qa:fallback:1" }), true);
+    assert.equal(JSON.parse(requests.at(-1).options.body).reply_to, "dbcinemarentals@gmail.com", "unconfigured central routing preserves the monitored Gmail fallback");
+    process.env.INBOUND_REPLY_ADDRESS = "support@resend-inbox.example.invalid";
 
     global.fetch = async () => new Response(JSON.stringify({ error: "invalid_recipient" }), { status: 422 });
     const rejected = await sendBusinessMailTracked(message);
@@ -76,12 +88,13 @@ global.fetch = async (url, options) => {
     assert.equal(await sendBusinessMail(message), false, "a non-DB Cinema sender fails closed");
     assert.equal(requests.length, beforeBadSender);
 
-    console.log("PASS mail transport: all site mail uses the verified DB Cinema Resend sender, replies default to the monitored Gmail, explicit Gaffer threading works, stale owner overrides and SMTP credentials are ignored, and missing/invalid transport configuration fails closed. No network or customer sends.");
+    console.log("PASS mail transport: all site mail uses the verified DB Cinema Resend sender, generic replies use the configured central inbox with a Gmail fallback, explicit Gaffer threading works, stale owner overrides and SMTP credentials are ignored, and missing/invalid transport configuration fails closed. No network or customer sends.");
   } finally {
     global.fetch = originalFetch;
     delete process.env.GMAIL_USER;
     delete process.env.GMAIL_APP_PASSWORD;
     delete process.env.OWNER_EMAIL;
+    delete process.env.INBOUND_REPLY_ADDRESS;
     delete process.env.RESEND_API_KEY;
     delete process.env.RESEND_FROM;
   }

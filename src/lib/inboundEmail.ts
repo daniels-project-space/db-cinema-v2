@@ -97,6 +97,9 @@ export function hasSpecificModelQuoteMismatch(customerText: string, enquiry?: im
 /** Preserve Gaffer's exact catalogue cards in email, where there is no separate card UI. */
 export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: import("../../shared/gafferEmailQuote").GafferEmailQuote, preparedBasketUrl?: string, additionalAnswer?: string, recipientName?: string, customerText?: string): string {
   const gbp = (value: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(value);
+  const quoteAmount = (quote: import("../../shared/gafferEmailQuote").GafferEmailQuote) => quote.sameDayFee
+    ? gafferQuotePriceBreakdown(quote)
+    : gbp(quote.memberBenefit?.total ?? quote.total ?? 0);
   const date = (value: string) => new Date(value + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" });
   const label = (value: string) => equipmentOfferLabel(value).replace(/[\[\]]/g, "");
   const link = (title: string, slug: string) => slug ? "[" + label(title) + "](https://dbcinemarentals.com/gear/" + encodeURIComponent(slug) + ")" : label(title);
@@ -195,7 +198,7 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
       const discountNote = enquiry.days > 1 && Number.isFinite(card?.item?.saved) && card.item.saved > 0
         ? " The multi-day rate is already included."
         : "";
-      sections.push(`The ${item} would be ${gbp(enquiry.total)} for ${duration} on ${period}. ${window}${discountNote}`);
+      sections.push(`The ${item} would be ${quoteAmount(enquiry)} for ${duration} on ${period}. ${window}${discountNote}`);
     } else if (compactSingleItemQuote && enquiry.total !== null) {
       const line = lines[0].line;
       const item = link(line.displayTitle || line.title, line.slug);
@@ -206,7 +209,7 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
       const discountNote = enquiry.days > 1 && Number.isFinite(card?.item?.saved) && card.item.saved > 0
         ? " The multi-day rate is already included."
         : "";
-      sections.push(`${availability} Gear hire is ${gbp(enquiry.total)} for ${enquiry.days === 1 ? "the day" : `${enquiry.days} days`}.${discountNote}`);
+      sections.push(`${availability} Gear hire is ${quoteAmount(enquiry)} for ${enquiry.days === 1 ? "the day" : `${enquiry.days} days`}.${discountNote}`);
     } else if (enquiry.timeWindowPricingConservative) {
       sections.push(`I have ${requested} available on ${period}. I checked ${pickupWindow} and ${returnWindow}.`);
     } else if (suggestedDateOnlyWindow) {
@@ -217,7 +220,7 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
           : `${request.fulfilled} of ${request.quantity} requested ${subjectLabel(request)}`).join(", ");
       const listingNames = [...new Set(lines.map(({ line }) => link(line.displayTitle || line.title, line.slug)))];
       const listings = listingNames.length ? ` The matching listing${listingNames.length === 1 ? " is " : "s are "}${listingNames.join(", ")}.` : "";
-      const estimate = enquiry.total === null ? "" : ` Indicative gear hire is ${gbp(enquiry.total)} for ${enquiry.days} rental day${enquiry.days === 1 ? "" : "s"}.`;
+      const estimate = enquiry.total === null ? "" : ` Indicative gear hire is ${quoteAmount(enquiry)} for ${enquiry.days} rental day${enquiry.days === 1 ? "" : "s"}.`;
       const window = enquiry.availabilityWindow!;
       sections.push(`The date-only check covers ${coverage} on ${period}.${listings}${estimate} A possible window is pickup at ${window.pickupTime} and return at ${window.returnTime}. Would that suit? I'll confirm availability once you confirm those times.`);
     } else if (enquiry.availabilityWindow) {
@@ -264,9 +267,9 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
           ? [spokenPackingReview(line.displayTitle || line.title, line.verifiedContents ?? [])]
           : []);
         if (contentNotes.length) sections.push(contentNotes.join("\n"));
-        if ((lines.length > 1 || enquiry.requests.length > 1 || !enquiry.complete) && enquiry.total !== null) {
+        if ((lines.length > 1 || enquiry.requests.length > 1 || !enquiry.complete || (enquiry.sameDayFee ?? 0) > 0) && enquiry.total !== null) {
           const totalLabel = enquiry.timeWindowPricingConservative ? "Maximum gear hire" : hasAlternative ? "Total for this option" : enquiry.complete ? "Total gear hire" : "Confirmed gear hire";
-          sections.push(`${totalLabel}: ${gbp(enquiry.total)} for ${enquiry.days} day${enquiry.days === 1 ? "" : "s"}.`);
+          sections.push(`${totalLabel}: ${quoteAmount(enquiry)} for ${enquiry.days} day${enquiry.days === 1 ? "" : "s"}.`);
         } else if (lines.length === 1 && enquiry.days > 1) {
           const card = rows.find(row => String(row?.item?.listingId) === lines[0].line.listingId);
           if (Number.isFinite(card?.item?.saved) && card.item.saved > 0) sections.push(`The multi-day discount is already included.`);
@@ -347,5 +350,5 @@ export function plainBody(msg: any): string {
   return msg?.text ?? msg?.TextBody ?? msg?.plain ?? msg?.["body-plain"] ?? "";
 }
 import { equipmentModelTokens, equipmentOfferLabel } from "../../shared/equipmentIdentity";
-import { explicitlyAllowsAlternatives, gafferEmailQuoteIntro, minimumRentalBasketLines, sanitizeQuoteSupplementalAnswer } from "../../shared/gafferEmailQuote";
+import { explicitlyAllowsAlternatives, gafferEmailQuoteIntro, gafferQuotePriceBreakdown, minimumRentalBasketLines, sanitizeQuoteSupplementalAnswer } from "../../shared/gafferEmailQuote";
 import { spokenPackingReview } from "./voiceQuoteFormatting";

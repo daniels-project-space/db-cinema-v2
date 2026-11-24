@@ -1,14 +1,20 @@
 const assert = require('node:assert/strict');
 const { load, db, put } = require('./lib/rentalTestHarness.cjs');
 const { strictDepositWaiverReason } = load('convex/lib/strictDepositWaiver.ts');
-const { reviewContext } = load('convex/lib/reviewContext.ts');
-const { reviewSettlementFingerprint } = load('convex/lib/reviewEligibility.ts');
+const { loyaltyProgress } = load('convex/lib/loyalty.ts');
 const { seedVerificationFiles } = require('./lib/verificationFiles.cjs');
 const { depositWaiverEligibility,currentCheckoutWaiver } = load('convex/bookings.ts');
 const security=load('shared/rentalSecurity.ts');
 
 const DAY = 86400000;
 const ctx = { db };
+
+for (const reason of ['active_membership','encore']) {
+  assert.equal(security.depositForBookingPolicy({securityPolicyVersion:security.ASSESSMENT_SECURITY_POLICY_VERSION,securityWaiverReason:reason},200),0,`${reason} remains a supported signed assessment waiver`);
+}
+for (const reason of ['new_paid_membership','paid_membership','membership_checkout','arbitrary']) {
+  assert.equal(security.depositForBookingPolicy({securityPolicyVersion:security.ASSESSMENT_SECURITY_POLICY_VERSION,securityWaiverReason:reason},200),20,`${reason} cannot waive a newly quoted assessment security amount`);
+}
 
 function verifiedAccount(email) {
   const now=Date.now();
@@ -27,7 +33,7 @@ function verifiedAccount(email) {
 
 function cleanPriorRental(account, index) {
   const returnedAt = Date.now() - (index + 1) * DAY;
-  const inspection = [{ key: `legacy:0:${index}`, title: 'Camera', condition: 'good', details: '', openCase: false }];
+  const inspection = [{ key: 'legacy:0:0', title: 'Camera', condition: 'good', details: '', openCase: false }];
   const line = {
     listingId: `listing-${index}`,
     title: 'Camera',
@@ -40,6 +46,7 @@ function cleanPriorRental(account, index) {
     accountId: account._id,
     guestEmail: account.email,
     status: 'returned',
+    idVerifyStatus: 'verified',
     stripeCheckoutSessionId: `cs-clean-${account._id}-${index}`,
     depositAmount: 0,
     depositHoldAmount: 0,
@@ -53,6 +60,7 @@ function cleanPriorRental(account, index) {
     checkoutPaymentStatus:'paid',
     checkoutCreditState:'spent',
     stripePaymentIntentId:`pi-clean-${account._id}-${index}`,
+    pickedUpAt: line.start + 9 * 60 * 60 * 1000,
     actualReturnedAt: returnedAt,
     lineItems: [line],
     returnDecision: {
@@ -79,6 +87,11 @@ function cleanPriorRental(account, index) {
 
 (async () => {
   assert.equal(await strictDepositWaiverReason(ctx,null,99900),undefined,'guests without an account can never receive a waiver');
+  const accountOnly = verifiedAccount('account-only@example.invalid');
+  cleanPriorRental(accountOnly, 0);
+  assert.equal(await strictDepositWaiverReason(ctx,accountOnly,99900),undefined,
+    'an account and one clean completed rental do not qualify without paid membership or earned Encore III');
+
   const manualEncore = verifiedAccount('manual-encore@example.invalid');
   manualEncore.adminEncoreLevel=3;
   cleanPriorRental(manualEncore, 0);
@@ -87,6 +100,13 @@ function cleanPriorRental(account, index) {
     undefined,
     'an admin Encore III override with only one clean rental does not waive security',
   );
+
+  const unknownEncore = verifiedAccount('unknown-encore-history@example.invalid');
+  unknownEncore.adminEncoreLevel=3;
+  for(let index=0;index<100;index++)put('bookings',{accountId:unknownEncore._id,guestEmail:unknownEncore.email,status:'returned'});
+  cleanPriorRental(unknownEncore,0);
+  assert.equal(await strictDepositWaiverReason(ctx,unknownEncore,99900),undefined,
+    'Truncated rental history stays unknown and cannot be promoted into an Encore III waiver');
 
   const firstRentalPaidMember = verifiedAccount('first-rental-paid-member@example.invalid');
   Object.assign(firstRentalPaidMember, {
@@ -109,6 +129,32 @@ function cleanPriorRental(account, index) {
     undefined,
     'a paid subscription cannot waive security on the account’s first rental',
   );
+
+  const notYetReturnedMember = verifiedAccount('not-yet-returned-member@example.invalid');
+  Object.assign(notYetReturnedMember, {
+    email: 'not-yet-returned-member@example.invalid',
+    stripeSubscriptionId: 'sub_not_yet_returned',
+    membershipActive: true,
+    membershipStatus: 'active',
+    membershipPaidThrough: Date.now() + DAY,
+  });
+  put('membership_credit_grants', {
+    accountId: notYetReturnedMember._id,
+    subscriptionId: 'sub_not_yet_returned',
+    invoiceId: 'in_not_yet_returned',
+    paidMembershipPence: 4900,
+    periodEnd: Date.now() + DAY,
+    membershipRefundedPence: 0,
+  });
+  for (const status of ['pending_verification', 'active', 'confirmed']) {
+    put('bookings', {accountId:notYetReturnedMember._id,guestEmail:notYetReturnedMember.email,status,
+      paidConfirmedAt:Date.now()-DAY,checkoutPaidAt:Date.now()-DAY,stripePaymentIntentId:`pi-${status}`,lineItems:[]});
+    assert.equal(await strictDepositWaiverReason(ctx,notYetReturnedMember,99900),undefined,
+      `${status} rental is not a completed clean return and cannot waive security`);
+  }
+  cleanPriorRental(notYetReturnedMember, 0);
+  assert.equal(await strictDepositWaiverReason(ctx,notYetReturnedMember,99900),'active_membership',
+    'a paid member becomes eligible only after provider-paid history is cleanly returned and settled');
 
   const trialMember = verifiedAccount('trial-member@example.invalid');
   Object.assign(trialMember, {
@@ -170,22 +216,31 @@ function cleanPriorRental(account, index) {
     'a prior rental with a Stripe dispute is not treated as issue-free even after the bank closes it');
 
   const earnedEncore = verifiedAccount('earned-encore@example.invalid');
-  for (let index = 0; index < 3; index++) {
-    const booking = cleanPriorRental(earnedEncore, index);
-    booking.reviewEligibilityFingerprint = reviewSettlementFingerprint(await reviewContext(ctx, booking));
-    put('reviews', {
-      verifiedBookingId: booking._id,
-      source: 'native',
-      authorAccountId: earnedEncore._id,
-      rating: 5,
-      text: 'A verified rental review.',
-    });
-  }
+  const reviewedRentals=[];
+  for (let index = 0; index < 3; index++) reviewedRentals.push(cleanPriorRental(earnedEncore, index));
+  assert.equal(await strictDepositWaiverReason(ctx, earnedEncore, 399999),undefined,'clean returns do not earn Encore III or waive security before reviews');
+  for (const [index,booking] of reviewedRentals.entries()) put('reviews',{source:'native',authorAccountId:earnedEncore._id,verifiedBookingId:booking._id,rating:index===0?1:5,text:'An honest review of this completed rental.',published:true});
   assert.equal(
     await strictDepositWaiverReason(ctx, earnedEncore, 399999),
     'encore',
-    'three qualifying owned reviews retain the earned Encore III waiver',
+    'three separately reviewed clean rentals earn the Encore III waiver; every star rating counts equally',
   );
+
+  const incompletePaymentEncore=verifiedAccount('incomplete-payment-encore@example.invalid');
+  const incompletePaymentHistory=[];
+  for(let index=0;index<3;index++)incompletePaymentHistory.push(cleanPriorRental(incompletePaymentEncore,index));
+  for(const booking of incompletePaymentHistory.slice(0,2)){
+    booking.checkoutPaidAt=undefined;
+    booking.checkoutPaymentAmountPence=undefined;
+    booking.checkoutPaymentCurrency=undefined;
+    booking.checkoutPaymentStatus=undefined;
+    booking.stripePaymentIntentId=undefined;
+  }
+  const lastPaidBooking=incompletePaymentHistory[2];put('reviews',{source:'native',authorAccountId:incompletePaymentEncore._id,
+    verifiedBookingId:lastPaidBooking._id,rating:5,text:'An honest review of this paid and completed rental.',published:true});
+  assert.equal((await loyaltyProgress(ctx,incompletePaymentEncore)).completed,1,'only reviewed rentals with verified paid receipts count toward earned Encore progress');
+  assert.equal(await strictDepositWaiverReason(ctx,incompletePaymentEncore,99900),undefined,
+    'returned rows without a paid checkout receipt cannot supply the two remaining Encore rentals needed for a waiver');
 
   const member = verifiedAccount('paid-member@example.invalid');
   Object.assign(member, {

@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { accountIdentityVerified } from "../shared/verificationProgress";
 
 function stripe() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -72,10 +73,7 @@ export const refreshAccount = action({
   handler: async (ctx, { token }): Promise<{ status: string }> => {
     const acct: any = await ctx.runQuery(internal.accounts._byToken, { token });
     if (!acct) return { status: "required" };
-    if (acct.idVerified) return { status: "verified" };
-    if (!acct.idSessionId) return { status: "required" };
-    const vs = await stripe().identity.verificationSessions.retrieve(acct.idSessionId);
-    if (vs.status === "verified") await ctx.runMutation(internal.accounts._markIdVerified, { accountId: acct._id });
-    return { status: vs.status };
+    if (!accountIdentityVerified(acct)) return { status: "required" };
+    return { status: "verified" };
   },
 });

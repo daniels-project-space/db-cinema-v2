@@ -26,6 +26,8 @@ function account(extra = {}) {
   await assert.rejects(guestRenter.remove(), /contact the team/i);
   const formerlyRestricted = account({lastRestrictedAt: Date.now() - 1000});
   await assert.rejects(formerlyRestricted.remove(), /contact the team/i);
+  const retentionMarkedOnly = account({identitySafetyRetentionAt: Date.now() - 1000});
+  await assert.rejects(retentionMarkedOnly.remove(), /contact the team/i, 'A permanent identity-safety retention marker alone prevents deletion');
 
   const uploading = account();
   const upload = put('avatar_upload_ledger', {accountId: uploading.value._id});

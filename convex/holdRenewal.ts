@@ -9,7 +9,7 @@ import {
 import { action, internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
-import { sendMail } from "./lib/mailer";
+import { sendRentalContextEmail } from "./lib/rentalContextEmail";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 
 function stripe() {
@@ -34,8 +34,8 @@ function renewedHoldExpiry(intent: Stripe.PaymentIntent): number | undefined {
     ? expiresAt : undefined;
 }
 
-async function notify(email: string | null, subject: string, html: string) {
-  if (email) await sendMail({ to: email, subject, html });
+async function notify(ctx: any, bookingId: any, deliveryKey: string, email: string | null, subject: string, html: string) {
+  if (email) await sendRentalContextEmail(ctx, bookingId, deliveryKey, { to: email, subject, html });
 }
 
 async function releasePrevious(ctx: any, bookingId: any, ids: string[], sb: Stripe) {
@@ -147,13 +147,13 @@ export const renewOne = internalAction({
         bookingId, oldIntentId: b.oldIntentId, intentId: nextId, status: "processing",
       });
       const status = await reconcile(ctx, bookingId, b.oldIntentId, next.id, sb);
-      if (pickupAt !== undefined && status === "renewed") await notify(b.guestEmail,
+      if (pickupAt !== undefined && status === "renewed") await notify(ctx, bookingId, `rental-hold:renewed:${bookingId}:${next.id}`, b.guestEmail,
         "Your rental card hold was renewed before pickup",
         `<p>Your £${b.amount} security hold has been refreshed before collection. This is a temporary card authorisation, not a payment, and no extra rental charge has been taken. The earlier authorisation is released only after its replacement is confirmed. If your bank asks you to approve the hold, please complete that in your rental account before pickup.</p><p><a href="${process.env.APP_URL ?? "https://dbcinemarentals.com"}/account">Open your rental account</a></p>`).catch(console.error);
-      if (status === "requires_action") await notify(b.guestEmail,
+      if (status === "requires_action") await notify(ctx, bookingId, `rental-hold:action:${bookingId}:${next.id}`, b.guestEmail,
         "Action needed to keep your rental security hold active",
         `<p>Your bank needs you to approve a replacement security hold of £${b.amount}. The earlier hold will be released after the new one is authorised. Please sign in at <a href="${process.env.APP_URL ?? "https://dbcinemarentals.com"}/account">your rental account</a> to approve it before pickup. This is a hold, not a new payment.</p>`).catch(console.error);
-      if (status === "failed") await notify(b.guestEmail,
+      if (status === "failed") await notify(ctx, bookingId, `rental-hold:failed:${bookingId}:${next.id}`, b.guestEmail,
         "Your rental security hold needs attention",
         `<p>We could not renew your £${b.amount} security hold. Please contact us before the existing hold expires. Your bank may require a new card or direct authentication.</p>`).catch(console.error);
     } catch (e: any) {
@@ -161,7 +161,7 @@ export const renewOne = internalAction({
         bookingId, oldIntentId: b.oldIntentId, intentId: nextId,
         status: nextId ? "processing" : "failed",
       });
-      if (!nextId) await notify(b.guestEmail, "Your rental security hold needs attention",
+      if (!nextId) await notify(ctx, bookingId, `rental-hold:failure:${bookingId}:${b.oldIntentId}`, b.guestEmail, "Your rental security hold needs attention",
         `<p>We could not renew your £${b.amount} security hold. Please contact us before the existing hold expires.</p>`).catch(console.error);
       console.error("Security hold renewal failed", bookingId, e);
     }
@@ -295,8 +295,8 @@ export const authorizePickup = internalAction({args:{bookingId:v.id("bookings"),
   else try {intent=await sb.paymentIntents.create({amount:Math.round(b.depositHoldAmount*100),currency:"gbp",customer:b.securityHoldCustomerId,payment_method:b.securityHoldPaymentMethodId,allowed_payment_method_types:["card"],capture_method:"manual",confirm:true,off_session:true,...(process.env.STRIPE_EXTENDED_AUTH_ENABLED==="true"?{payment_method_options:{card:{request_extended_authorization:"if_available" as const}}}:{}),metadata:{bookingId:a.bookingId,purpose:"pickup_security_hold",generation:String(a.generation)},expand:["latest_charge"]},{idempotencyKey:`dbc-pickup-hold-${a.bookingId}-${a.generation}`});}
   catch(e:any){const id=e?.raw?.payment_intent?.id??e?.payment_intent?.id;if(!id)throw e;intent=await sb.paymentIntents.retrieve(id,{expand:["latest_charge"]});}
   const status=await reconcilePickup(ctx,b,intent,sb);
-  if(["requires_action","failed"].includes(status))await notify(b.guestEmail??null,"Your rental card hold needs attention",`<p>Your agreed £${b.depositHoldAmount} card authorisation at pickup ${status==="requires_action"?"needs bank authentication":"could not be authorised"}. No security hold has been charged. <a href="${process.env.APP_URL??"https://dbcinemarentals.com"}/account">Open your rental account</a> to authenticate or update your saved card. Equipment cannot be collected until the hold and required checks are complete.</p>`).catch(console.error);
- }catch(e:any){const transient=["StripeConnectionError","StripeAPIError","StripeRateLimitError"].includes(e?.type);const applied=await ctx.runMutation(internal.pickupSecurity.result,{...a,status:"failed",failureCode:transient?"provider_unavailable":"authorisation_failed",retry:transient});if(!applied)return;if(!transient||(b.securityHoldAttempts??0)>=3)await notify(b.guestEmail??null,"Your rental card hold needs attention",`<p>The card authorisation for pickup could not be completed. <a href="${process.env.APP_URL??"https://dbcinemarentals.com"}/account">Open your rental account</a> to update your saved card. Equipment cannot be collected until security is complete.</p>`).catch(console.error);}
+  if(["requires_action","failed"].includes(status))await notify(ctx,a.bookingId,`rental-hold:pickup:${a.bookingId}:${a.generation}`,b.guestEmail??null,"Your rental card hold needs attention",`<p>Your agreed £${b.depositHoldAmount} card authorisation at pickup ${status==="requires_action"?"needs bank authentication":"could not be authorised"}. No security hold has been charged. <a href="${process.env.APP_URL??"https://dbcinemarentals.com"}/account">Open your rental account</a> to authenticate or update your saved card. Equipment cannot be collected until the hold and required checks are complete.</p>`).catch(console.error);
+ }catch(e:any){const transient=["StripeConnectionError","StripeAPIError","StripeRateLimitError"].includes(e?.type);const applied=await ctx.runMutation(internal.pickupSecurity.result,{...a,status:"failed",failureCode:transient?"provider_unavailable":"authorisation_failed",retry:transient});if(!applied)return;if(!transient||(b.securityHoldAttempts??0)>=3)await notify(ctx,a.bookingId,`rental-hold:pickup:${a.bookingId}:${a.generation}`,b.guestEmail??null,"Your rental card hold needs attention",`<p>The card authorisation for pickup could not be completed. <a href="${process.env.APP_URL??"https://dbcinemarentals.com"}/account">Open your rental account</a> to update your saved card. Equipment cannot be collected until security is complete.</p>`).catch(console.error);}
 }});
 export const pickupsDue = internalAction({args:{},handler:async(ctx)=>{const rows:any[]=await ctx.runQuery(internal.pickupSecurity.due,{});for(const row of rows){const b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId:row.bookingId});if(b?.securityHoldPaymentMethodId)await ctx.runAction(internal.holdRenewal.authorizePickup,row);else await ctx.runAction(internal.checkout.preparePickupSecurity,{bookingId:row.bookingId});}}});
 

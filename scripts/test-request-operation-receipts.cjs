@@ -95,5 +95,41 @@ try {
  assert.equal(prepared.customerChoice,'credit','The selected v22 settlement remains attached to the prepared cancellation');
  assert.equal(v22Request.execution.status,'processing');
 } finally { Date.now=originalNow; }
+const boundaryPickup=Date.UTC(2030,0,10,15), boundaryOwners=[
+  {name:'v31-exact-48h',version:'2026-11-v31',minutes:48*60,expected:'no_refund'},
+  {name:'v31-just-over-48h',version:'2026-11-v31',minutes:48*60+1,expected:'store_credit'},
+  {name:'v33-exact-48h',version:'2026-11-v33',minutes:48*60,expected:'store_credit'},
+  {name:'v33-just-over-48h',version:'2026-11-v33',minutes:48*60+1,expected:'store_credit'},
+  {name:'v33-just-under-48h',version:'2026-11-v33',minutes:48*60-1,expected:'no_refund'},
+  {name:'v33-exact-seven-days',version:'2026-11-v33',minutes:7*24*60*60,expected:'full_refund'},
+  {name:'v34-exact-48h',version:'2026-11-v34',minutes:48*60,expected:'no_refund'},
+  {name:'v34-just-over-48h',version:'2026-11-v34',minutes:48*60+1,expected:'store_credit'},
+  {name:'v34-just-under-48h',version:'2026-11-v34',minutes:48*60-1,expected:'no_refund'},
+  {name:'v34-exact-seven-days',version:'2026-11-v34',minutes:7*24*60*60,expected:'full_refund'},
+];
+for(const boundary of boundaryOwners){
+ const owner=put('accounts',{email:`cancellation-${boundary.name}@example.invalid`}),token=`cancellation-${boundary.name}-session`;
+ put('sessions',{token,accountId:owner._id,expiresAt:boundaryPickup+600000});
+ const boundaryBooking=put('bookings',{accountId:owner._id,guestEmail:owner.email,status:'confirmed',lineItems:[{listingId:listing._id,title:listing.title,start:boundaryPickup,end:boundaryPickup+86400000,qty:1,lineTotal:80,pickupTime:'15:00'}],total:100,subtotal:80,depositAmount:20,pickupTime:'15:00',agreementDocs:[{kind:'cancellation',version:boundary.version}],paidConfirmedAt:Date.now(),verificationProvider:'didit',idVerifyStatus:'verified',idVerificationSource:'didit',idVerifiedAt:Date.now(),verificationChecks:{identity:'approved',selfie:'approved',address:'approved'}});
+ const requestId=`cancel-${boundary.name}-request-0001`,actualNow=Date.now;
+ try {
+  Date.now=()=>boundaryPickup-boundary.minutes*60000;
+  await requests.submit.handler(ctx,{token,bookingId:boundaryBooking._id,requestId,kind:'cancel',detail:'Please cancel under the accepted rental terms.',...(boundary.expected==='full_refund'?{cancellationChoice:'credit'}:{})});
+  const request=tables.get('rental_change_requests').find(row=>row.requestId===requestId);
+  assert.equal(request.cancellationKindAtRequest,boundary.expected,`${boundary.name} classification is captured in the renter request`);
+  assert.equal(request.cancellationTermsVersion,boundary.version,'The submitted cancellation remains bound to its accepted immutable terms version');
+  const messageCopy=tables.get('messages').find(message=>message._id===request.messageId).text;
+  const expectedMessage=boundary.expected==='full_refund'
+    ? /Seven or more London calendar days.*Renter chose 100% account credit/
+    : boundary.expected==='no_refund'
+      ? boundary.version==='2026-11-v31'||boundary.version==='2026-11-v34'?/48 hours or less.*No rental refund and no account credit/:/Less than 48 hours.*No rental refund and no account credit/
+      : boundary.version==='2026-11-v31'||boundary.version==='2026-11-v34'?/More than 48 hours.*Account credit only/:/At least 48 hours.*Account credit only/;
+  assert.match(messageCopy,expectedMessage,`${boundary.name} renter communication matches the accepted boundary`);
+  await requests.review.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:boundaryBooking._id,id:request._id,decision:'approved',note:'Approved under the cancellation terms accepted for this rental.'});
+  const prepared=await bookings.prepareCancellation.handler(ctx,{bookingId:boundaryBooking._id,changeRequestId:request._id,expectedCancellationKind:boundary.expected,...(boundary.expected==='full_refund'?{customerChoice:'credit'}:{})});
+  assert.equal(prepared.kind,boundary.expected,`${boundary.name} settlement cannot drift between renter request and admin application`);
+  assert.equal(request.execution.status,'processing','Approval only prepares the guarded settlement; it does not perform payment-provider work');
+ } finally { Date.now=actualNow; }
+}
 console.log('PASS actual request execution: approval/account/type fences, stock failure remains unapplied, atomic date receipt and real chat linkage, lost-response/no-inventory-change replay after pickup, changed-payload rejection, cancellation binding and no completion without settlement job. Controlled database; no provider writes.');
 })().catch(e=>{console.error(e);process.exitCode=1});

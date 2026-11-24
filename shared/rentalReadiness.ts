@@ -1,5 +1,5 @@
 import {isSavedCardRental} from './savedCardSecurity';
-import {verificationValidUntil} from './verificationProgress';
+import {bookingVerificationExpired,verificationValidUntil} from './verificationProgress';
 export type VerificationBooking = {
   status: string;
   fulfilment?: string | null;
@@ -14,6 +14,7 @@ export type VerificationBooking = {
   savedCardStatus?: string | null;
   depositHoldExpiresAt?: number | null;
   verificationArchiveReady?: boolean;
+  verificationWindowClosed?: boolean;
   verificationExpiresAt?: number | null;
   idVerifiedAt?: number | null;
   documentExpiresAt?: number | null;
@@ -24,6 +25,9 @@ export function rentalStageLabel(b: VerificationBooking): string {
   if (b.status === "returned") return "Returned";
   if (b.status === "cancelled") return "Cancelled";
   if (b.status === "pending_verification") {
+    if (b.idVerifyStatus === "verified" && bookingVerificationExpired(b)) return "Verification expired";
+    if (b.idVerifyStatus === "verified") return "Verification passed · confirmation pending";
+    if (b.verificationWindowClosed) return "Verification window passed";
     if (b.idVerifyStatus === "manual_review") return "Verification needs review";
     if (b.idVerifyStatus === "requires_input") return "Documents needed";
     if (b.idVerifyStatus === "rejected") return "Verification needs attention";
@@ -36,7 +40,7 @@ export function rentalStageLabel(b: VerificationBooking): string {
   if (b.idVerifyStatus === "requires_input") return "Documents needed";
   if (b.idVerifyStatus === "rejected") return "Verification needs attention";
   const verificationExpiresAt = verificationValidUntil(b);
-  if (b.idVerifyStatus !== "verified" || verificationExpiresAt == null || verificationExpiresAt <= Date.now() || (b.idVerificationSource !== "manual" && b.verificationChecks && ["identity", "selfie", "address"].some(key => b.verificationChecks?.[key] !== "approved"))) return "Awaiting verification";
+  if (b.idVerifyStatus !== "verified" || verificationExpiresAt == null || bookingVerificationExpired(b) || (b.idVerificationSource !== "manual" && b.verificationChecks && ["identity", "selfie", "address"].some(key => b.verificationChecks?.[key] !== "approved"))) return "Awaiting verification";
   if (b.verificationArchiveReady === false) return "Document storage not confirmed";
   if (b.requiresDroneLicence && b.droneLicenceStatus !== "approved") return "Awaiting drone licence";
   return "Verification approved";

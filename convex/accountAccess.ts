@@ -7,7 +7,7 @@ import { v,ConvexError } from "convex/values";
 import { sendMail } from "./lib/mailer";
 const hash=(secret:string)=>createHash("sha256").update(secret).digest("hex");
 const accessQuery=(next?:"chat"|"review",bookingId?:string)=>{
- const query=new URLSearchParams();if(next==="chat")query.set("next","chat");if(next==="review"&&bookingId){query.set("next","review");query.set("rental",bookingId);}const value=query.toString();return value?`?${value}`:"";
+ const query=new URLSearchParams();if(next==="chat")query.set("next","chat");if(next==="review"&&bookingId)query.set("next","review");if((next==="chat"||next==="review")&&bookingId)query.set("rental",bookingId);const value=query.toString();return value?`?${value}`:"";
 };
 export const sendForSignup=internalAction({args:{email:v.string(),credentialHash:v.string(),next:v.optional(v.union(v.literal("chat"),v.literal("review"))),bookingId:v.optional(v.id("bookings"))},handler:async(ctx,a):Promise<void>=>{
  const secret=randomBytes(32).toString("base64url"),claim:any=await ctx.runMutation(internal.accountClaims.prepareSignup,{email:a.email,credentialHash:a.credentialHash,secretHash:hash(secret)});if(!claim)return;

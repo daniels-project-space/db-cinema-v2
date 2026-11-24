@@ -1009,6 +1009,14 @@ html[data-gaffer-nav="1"] .tile-in {
   to { opacity: 1; transform: none; }
 }
 .stage-in { animation: stage-in 0.5s var(--ease-out-expo) both; }
+@keyframes mobile-menu-link-enter {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.mobile-site-menu-link-enter { animation: mobile-menu-link-enter 0.5s var(--ease-out-expo) both; }
+@media (prefers-reduced-motion: reduce) {
+  .mobile-site-menu-link-enter { animation: none !important; }
+}
 @keyframes card-in {
   from { opacity: 0; transform: translateY(18px) scale(0.96); }
   to { opacity: 1; transform: none; }

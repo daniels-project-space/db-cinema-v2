@@ -105,11 +105,14 @@ daily rate is: 3 days 10% off, 7 days 18% off, 14 days 27% off, 30 days 38% off 
 A longer hire is never more expensive per day than a shorter one.
 Members save a further 10-30% on every rental.
 
-## Deposits and insurance
-ID-verified renters pay a small refundable damage hold plus insurance cover, instead of a
-large deposit. The hold is 5% of the item's replacement value, with a minimum of £50 and a
-maximum of £200. It is refundable. Verify ID once and it is saved to the account.
-The alternative is a full refundable security deposit equal to the replacement value.
+## Security and cancellation
+Security and insurance depend on the exact terms accepted for a rental. This static
+knowledge document is not authoritative for amounts, permissions, refunds or eligibility:
+never quote remembered deposit/hold amounts or use this document to decide a renter's
+case. For a personal cancellation question, use only an authorized booking result that
+includes the signed terms and scheduled pickup time; if that information is unavailable,
+direct the renter to their signed-in rental chat. For general policy, direct them to the
+current cancellation section on the website. Existing rentals keep their own signed terms.
 
 ## Delivery
 Delivery is available across London and quoted both ways — the fee is based on distance
@@ -120,12 +123,12 @@ with a time window. Members may get free delivery.
 Pickups and returns run 09:00-22:00, every day. Delivery windows are
 arranged when booking.
 
-## Changes, extensions and cancellations
-Compatible gear can be added up to an hour before the rental starts, and dates can be
-extended — ask, or message us from the account area. To change or cancel a booking,
-message from the account area as early as possible; a member of the team confirms it.
-Never invent a cancellation window or a refund figure — if asked for specifics beyond
-this, say a human will confirm and take their details.
+## Changes and extensions
+Extensions and other changes require a quote for the exact booking, items, dates, live
+availability and applicable price. A normal new-rental quote is not an extension quote.
+Only quote an extension when an authorized live extension result is available; otherwise
+direct the renter to the extension control in their signed-in rental chat. Nothing changes
+until the booking records the approved request and any required payment.
 
 ## Rental contents
 Use the documented Included, Only if requested, Explicitly excluded and Seller notes
@@ -369,13 +372,11 @@ const PINNED_TOOL_DESCRIPTIONS = {
    * in the basket rather than lost with nothing to show for it.
    */
   add_to_basket:
-    "Add an item to the customer's basket and open it. If they've already told you to add it, " +
-    "get it, or book it — that already IS the ask; call this directly, don't check back first. " +
-    "Only ask before adding when you are the one suggesting the item, not them. If you know the " +
-    "hire dates pass them; otherwise it is pencilled in for tomorrow and the customer can change " +
-    "it. When someone names several items to add in one breath, add each the moment it checks " +
-    "out available rather than checking all of them and adding at the end — if anything " +
-    "interrupts the call, whatever already cleared should already be in the basket.",
+    "Add an item to the customer's basket when both hire dates are known; verify its exact-date " +
+    "availability and price before adding. If no dates were given, a catalog-only proposed kit " +
+    "can be assembled without a price or availability claim and shared by email for the customer " +
+    "to enter dates at checkout. If only one date was given, ask for the other; never infer a " +
+    "same-day rental or invent dates. Exact pickup and return times are selected at checkout.",
 };
 
 /**

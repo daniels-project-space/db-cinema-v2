@@ -1,5 +1,5 @@
 "use client";
-import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, cardLimitForPolicy, depositForBookingPolicy, isCardHoldSecurityPolicy, isSetupIntentSecurityPolicy } from "../../../shared/rentalSecurity";
+import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, cardLimitForPolicy, depositForBookingPolicy, isCardHoldSecurityPolicy, isSetupIntentSecurityPolicy, isImmediateClaimSecurityPolicy } from "../../../shared/rentalSecurity";
 
 import { REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../../../shared/rentalSecurity";
 import {DepositRefundStatus} from "./DepositRefundStatus";
@@ -37,8 +37,11 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
   const [reviewBusy, setReviewBusy] = useState(false);
   const saved = booking.returnDecision;
   const refundablePolicy=hasCashDepositPolicy(booking.securityPolicyVersion);
+  const savedCard=isSavedCardRental(booking);
+  const manualHoldPolicy=!refundablePolicy&&!savedCard;
   const [depositKept,setDepositKept]=useState<number>(saved?.depositKept??0);
   const schedule = useQuery(api.returnInspections.schedule, { token, bookingId: booking._id });
+  const claimEvidenceOptions = useQuery(api.securityChargeState.evidenceOptions,savedCard||manualHoldPolicy?{token,bookingId:booking._id}:'skip');
   const [conditions, setConditions] = useState<Record<string, InspectionInput>>(() => Object.fromEntries((saved?.inspection ?? []).map((i: InspectionInput) => [i.key, { key: i.key, condition: i.condition, details: i.details, openCase: i.openCase }])));
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { if (!dialog.current?.open) dialog.current?.showModal(); }, []);
@@ -61,13 +64,23 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     catch { return null; }
   }, [booking.lineItems, booking.returnTime, at]);
   const damageAmount = Number(damage);
-  const savedCard=isSavedCardRental(booking);
   const cardHoldPolicy=isCardHoldSecurityPolicy(booking.securityPolicyVersion);
   const setupIntentPolicy=isSetupIntentSecurityPolicy(booking.securityPolicyVersion);
   const [claimDamage,setClaimDamage]=useState(!!saved&&((saved.damageKept??0)>0||(saved.depositKept??0)>0));
   const [claimBasis,setClaimBasis]=useState<""|"loss"|"severe_cosmetic_damage">(saved?.claimBasis??"");
+  const [claimItemKey,setClaimItemKey]=useState<string>(saved?.claimItemKey??"");
+  const [claimEvidenceIds,setClaimEvidenceIds]=useState<string[]>(saved?.claimEvidenceIds??[]);
   const damageClaimNeeded=damageAmount>0||(refundablePolicy&&depositKept>0);
   const ownerClaimNeeded=(claimDamage&&(damageAmount>0||(refundablePolicy&&depositKept>0)))||(chargeLate&&(quote?.amount??0)>0);
+  const immediateClaimPolicy=isImmediateClaimSecurityPolicy(booking.securityPolicyVersion);
+  const issueItems=(schedule?.items??[]).filter((item:any)=>conditions[item.key]?.condition==="issue");
+  const selectedClaimItemKey=saved?.claimItemKey||(claimItemKey||(!saved?issueItems[0]?.key:""));
+  const claimEvidenceRequired=savedCard&&((claimDamage&&damageAmount>(refundablePolicy?depositKept:0))||(chargeLate&&(quote?.amount??0)>0))||manualHoldPolicy&&claimDamage&&damageAmount>0;
+  const mayAttachEvidenceToSavedLateClaim=!!saved&&saved.chargeLate&&(saved.damageKept??0)===0&&(saved.depositKept??0)===0&&!(saved.claimEvidenceIds?.length)&&Number.isSafeInteger(saved.ownerClaimAuthorizedAt);
+  const mayAttachEvidenceToSavedHoldClaim=!!saved&&manualHoldPolicy&&(saved.damageKept??0)>0&&!(saved.claimEvidenceIds?.length)&&Number.isSafeInteger(saved.ownerClaimAuthorizedAt);
+  const mayAttachEvidenceToSavedClaim=mayAttachEvidenceToSavedLateClaim||mayAttachEvidenceToSavedHoldClaim;
+  const selectedClaimEvidence=(claimEvidenceOptions??[]).filter((file:any)=>claimEvidenceIds.includes(file.id));
+  const selectedClaimEvidenceBytes=selectedClaimEvidence.reduce((total:number,file:any)=>total+file.size,0);
   let damageLimit=booking.depositAmount+(booking.depositHoldAmount??0);
   if(savedCard){try{damageLimit=savedCardRentalValue(booking);}catch{damageLimit=0;}}
   const legacyResume = !!saved && !saved.inspection;
@@ -82,12 +95,16 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     (!damageClaimNeeded || claimDamage) &&
     (!chargeLate || !quote?.amount || legacyReturnDecision || lateClaimReason.trim().length >= 10) &&
     (!setupIntentPolicy || damageAmount <= 0 || !claimDamage || claimBasis !== "") &&
+    (!claimEvidenceRequired||(claimEvidenceIds.length>0&&selectedClaimEvidence.length===claimEvidenceIds.length)) &&
+    selectedClaimEvidenceBytes<=12*1024*1024 &&
+    (!claimDamage||damageAmount<=0||!!selectedClaimItemKey||savedCard&&!!saved&&!saved.claimItemKey) &&
     (!legacyReturnDecision || chargeLate || !quote?.amount || waiverReason.trim().length >= 5) && inspectionValid;
   const canSettle=valid&&(!ownerClaimNeeded||ownerClaimToken.trim().length>0);
 
   const selection = {
         token, bookingId: booking._id, actualReturnedAt: at,
         damageKept: claimDamage ? damageAmount : 0, ...(refundablePolicy?{depositKept:claimDamage?depositKept:0}:{}), ...(setupIntentPolicy&&damageAmount>0&&claimDamage&&claimBasis?{claimBasis}:{}), damageNote: claimDamage&&damageAmount ? damageNote.trim() : undefined,
+        ...(claimDamage&&damageAmount>0&&selectedClaimItemKey?{claimItemKey:selectedClaimItemKey}:{}),...(claimEvidenceRequired&&claimEvidenceIds.length?{claimEvidenceIds:claimEvidenceIds as any}:{}),
         chargeLate, lateWaiverReason: legacyReturnDecision && !chargeLate ? waiverReason.trim() || undefined : undefined,
         lateClaimReason: chargeLate && quote?.amount ? lateClaimReason.trim() || undefined : undefined,
         inspection: legacyResume ? undefined : schedule?.items.map(i => conditions[i.key]),
@@ -185,6 +202,8 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     {error && <p role="alert" className="mt-2 text-rose-300">{error}</p>}
     {!inspectionValid && !legacyResume && <p className="mt-3 text-amber-200">Select a condition for every item and complete the required issue details. Any deduction must correspond to an item with an issue.</p>}
     <ReturnSettlementReview data={reviewData} busy={reviewBusy || working} enabled={valid} onReview={inspectReview} paymentSummary={<section className={styles.paymentSummary}><h4>Payment summary</h4><dl><div><dt>Paid refundable deposit</dt><dd>{formatGbp(booking.depositAmount ?? 0)}</dd></div>{booking.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION&&<div><dt>{savedCard?"Saved-card collection limit · not held":"Original card authorisation"}</dt><dd>{formatGbp(savedCard?booking.savedCardLimit:booking.depositHoldAmount ?? 0)}</dd></div>}</dl><p>{savedCard ? refundablePolicy ? "The deposit decision controls the cash refund. An additional card claim uses only the amount not covered by retained cash." : "No security funds were held. A card payment is attempted only for an explicit, itemised claim." : "The review checks the current card balance and calculates the cash refund separately."}</p><label>{savedCard ? "Damage or loss amount to claim (£)" : "Documented damage or loss to retain (£)"}<input type="number" disabled={working || reviewBusy || !!saved} min="0" max={Number.isFinite(damageLimit)?damageLimit:undefined} step="0.01" value={damage} onChange={e => {setDamage(e.target.value);if(refundablePolicy)setDepositKept(previous=>Math.min(previous,Math.max(0,Number(e.target.value))));}} /></label>{damageClaimNeeded && <label className={styles.damageClaim}><input type="checkbox" disabled={working || reviewBusy || !!saved} checked={claimDamage} onChange={e => setClaimDamage(e.target.checked)} /><span>I am claiming this amount</span></label>}{damageAmount > 0 && <label>Itemised evidence and reason<textarea disabled={working || reviewBusy || !!saved} value={damageNote} onChange={e => setDamageNote(e.target.value)} rows={3} placeholder="Item, evidence and amount calculation" /></label>}{setupIntentPolicy && damageAmount > 0 && claimDamage && <label>Claim basis<select disabled={working || reviewBusy || !!saved} value={claimBasis} onChange={e => setClaimBasis(e.target.value as typeof claimBasis)} className="input mt-1 w-full"><option value="">Choose claim basis</option><option value="severe_cosmetic_damage">Severe permanent cosmetic damage</option><option value="loss">Lost / unreturned item</option></select></label>}</section>} />
+    {claimDamage&&damageAmount>0&&<section className="mt-3 rounded-xl border border-white/10 bg-white/[.025] p-3"><label className="block text-xs text-white/75">Affected item<select value={selectedClaimItemKey} disabled={working||reviewBusy||!!saved&&!mayAttachEvidenceToSavedHoldClaim} onChange={e=>{setClaimItemKey(e.target.value);setReviewed(null);}} className="input mt-1 w-full" required><option value="" disabled>Select inspected item</option>{issueItems.map((item:any)=><option key={item.key} value={item.key}>{item.title}</option>)}</select></label></section>}
+    {claimEvidenceRequired&&<section className="mt-3 rounded-xl border border-white/10 bg-white/[.025] p-3"><strong className="text-sm text-white">Evidence to attach</strong><p className="mt-1 text-xs text-white/55">Upload supporting evidence to this rental chat, then select it for the affected item and invoice.</p>{cardHoldPolicy&&claimDamage&&damageAmount>0&&<p className="mt-1 text-xs text-amber-100/75">This claim opens a permanent rental case archive; the selected evidence is linked to the item and frozen claim.</p>}{(claimEvidenceOptions??[]).length?(claimEvidenceOptions??[]).map((file:any)=><label key={file.id} className="mt-2 flex items-center gap-2 text-xs text-white/75"><input type="checkbox" checked={claimEvidenceIds.includes(file.id)} disabled={working||reviewBusy||(!!saved&&!mayAttachEvidenceToSavedClaim)} onChange={e=>{setClaimEvidenceIds(current=>e.target.checked?[...current,file.id]:current.filter(id=>id!==file.id));setReviewed(null);}}/><span>{file.name} · {file.uploadedBy} · {(file.size/1024/1024).toFixed(1)} MB</span></label>):<p className="mt-2 text-xs text-amber-200">No supporting files are attached to this rental chat yet.</p>}{selectedClaimEvidenceBytes>12*1024*1024&&<p className="mt-2 text-xs text-rose-200">Selected evidence must total 12 MB or less.</p>}</section>}
     {ownerClaimNeeded && <label className="mt-3 block rounded-xl border border-amber-200/15 bg-amber-100/[.035] p-3 text-xs text-white/70">Owner claim code<input type="password" autoComplete="off" aria-label="Owner return claim code" value={ownerClaimToken} onChange={event=>setOwnerClaimToken(event.target.value)} className="input mt-1 w-full" placeholder="Required to keep or charge money" /><span className="mt-1 block text-[10px] text-white/45">Clean returns need no code.</span></label>}
     <button type="button" disabled={!canSettle || working || reviewBusy || !reviewData || (reviewData.alreadySettled && !(savedCard && !!saved && ((saved.damageKept ?? 0) > (saved.depositKept ?? 0) || saved.chargeLate)))} onClick={finish} className={styles.confirm}>{working ? "Settling…" : reviewData?.alreadySettled ? "Retry / check saved claim" : refundablePolicy?"Confirm return and deposit refund":savedCard?"Confirm return":"Confirm settlement and email renter"}</button>
     </div>}

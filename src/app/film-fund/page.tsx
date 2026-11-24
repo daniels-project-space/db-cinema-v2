@@ -7,7 +7,7 @@ import { FilmFundInvite } from "@/components/FilmFundInvite";
 import { FilmFundApplication } from "@/components/FilmFundApplication";
 import { FilmFundHeart } from "@/components/FilmFundHeart";
 import { FilmFundPrizeChart } from "@/components/FilmFundPrizeChart";
-const prizes=[{number:"7",title:"The selected project",label:"Days of gear",note:"Give your story room to breathe.",points:["An agreed cinema equipment package","Up to seven consecutive rental days","Kit and shoot dates planned with our team"]},{number:"2",title:"The runner-up",label:"Days of gear",note:"A little support can start something big.",points:["An agreed equipment package for your project","Up to two consecutive rental days","Support for a focused shoot or key scene"]}];
+const prizes=[{number:"7",title:"The selected project",label:"Days of gear",note:"Give your story room to breathe."},{number:"2",title:"The runner-up",label:"Days of gear",note:"A little support can start something big."}];
 export default function FilmFundPage(){const schedule=useQuery(api.filmFund.schedule,{}),open=schedule?.rounds.some(r=>r.state==="open"&&r.opensAt<=Date.now()&&r.deadline>Date.now());return <><SiteHeader/><main className="fund-page mx-auto max-w-7xl px-5 pb-20 pt-8 sm:px-8 sm:pt-14">
  <FilmFundInvite compact/>
  <section className="fund-section fund-prizes" aria-labelledby="fund-prizes-title"><div className="fund-section-heading"><div><p className="fund-eyebrow">Your story. Our kit.</p><h2 id="fund-prizes-title" className="fund-section-title">Two projects.<br/><em>A real chance to create.</em></h2></div><p>Equipment, not a cash prize. Chosen for the idea, the people and the plan. No extra tickets. No buying better odds.</p></div>

@@ -14,6 +14,7 @@ delete process.env.INVOICE_SECRET;
  for (const action of [notify.bookingAlert,invoice.invoiceEmail]) {
   const payload=await action.handler(ctx,{bookingId:'owned-fixture',prepareOnly:true});
   assert.equal(payload.to,booking.guestEmail);
+  if(action===notify.bookingAlert){assert.match(payload.html,/Ask Gaffer about your rental/);assert.match(payload.html,/account\?rental=owned-fixture#chat/);}
   assert.match(payload.html,/Saved-card collection permission/);
   assert.match(payload.html,/£250\.00/);
   assert.match(payload.html,/No security money was taken or blocked/);
@@ -33,11 +34,18 @@ const verifiedAt=Date.UTC(2030,0,1,12);
 const verificationCtx={runQuery:async ref=>ref==='settings.pickupAddress'?{businessAddress:address}:{...booking,fulfilment:'pickup',paidConfirmedAt:Date.now(),verificationProvider:'didit',idVerificationSource:'didit',verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},idVerifiedAt:verifiedAt,idVerifyStatus:'verified'},
   runAction:async()=>({attachments:[{filename:'receipt.pdf',content:'fixture'}]})};
  const verification=await notify.verificationEmail.handler(verificationCtx,{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
-assert.match(verification.subject,/valid for 90 days/);
-assert.match(verification.html,/Your payment and verification are complete, and this rental is confirmed\. Your identity, selfie and address checks passed\./);
-assert.match(verification.html,/reuse this approval for 90 days from approval, until 1 April 2030, without repeating those checks while it is active\./,'the automated email states the exact 90-day reuse window and expiry date');
+if(process.env.DBC_EMAIL_PREVIEW)require('node:fs').writeFileSync(process.env.DBC_EMAIL_PREVIEW,verification.html);
+assert.equal(verification.subject,"Your rental is confirmed");
+assert.match(verification.html,/Questions about your booking or its equipment\? Ask Gaffer in your rental conversation/);
+assert.match(verification.html,/href="https:\/\/dbcinemarentals\.com\/account\?rental=owned-fixture#chat"/,'confirmation opens the exact rental chat without embedding access credentials');
+assert.match(verification.html,/Ask Gaffer about your rental/);
+assert.match(verification.html,/Payment and verification passed\./);
+assert.match(verification.html,/Your verification approval is valid for 90 days from approval, until 1 April 2030\. Eligible future rentals on this account can reuse it, so you will not need to verify again during that period\./,'the automated email states the exact 90-day reuse window, start point, no-reverification promise and expiry date');
+assert.match(verification.html,/href="mailto:dbcinemarentals@gmail\.com"[^>]*>email DB Cinema<\/a>/,'every branded transaction email gives a clickable support email');
  assert.doesNotMatch(verification.html,/remaining document checks and approval before handover/);
  assert.match(verification.html,/The Grand Building<br>Meet outside &lt;Waterstones&gt; &amp; wait/,'pickup instructions retain line breaks and escape HTML');
+ assert.match(verification.html,/href="tel:\+447933019849">\+44 7933 019849</,'the post-verification approval email includes Leo’s clickable support number');
+ assert.doesNotMatch(verification.html,/Open Waterstones, Trafalgar Square in Google Maps/,'a partial pickup address does not publish a guessed map location');
  assert.match(verification.html,/rental invoice is attached as a PDF/,'verification emails describe the attached PDF as an invoice');
  assert.doesNotMatch(verification.html,/payment receipt is attached/);
  assert.match(verification.html,/dbcinemarentals@gmail\.com/,'verified renters receive the current support address');
@@ -45,6 +53,13 @@ assert.match(verification.html,/reuse this approval for 90 days from approval, u
  const updated=await notify.verificationEmail.handler(verificationCtx,{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
  assert.match(updated.html,/Updated location/,'new verification emails read the current saved address');
  assert(!updated.html.includes('The Grand Building'));
+ address='The Grand Building\nTrafalgar Square\nLondon WC2N 5EJ';
+ const exactPickup=await notify.verificationEmail.handler(verificationCtx,{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
+ assert.match(exactPickup.html,/Please meet us at the confirmed time outside the Waterstones bookstore at Trafalgar Square\./,'the approved pickup email includes the handover meeting instruction');
+ assert.match(exactPickup.html,/Open pickup point in Google Maps/,'the exact approved pickup address adds the map link');
+ const beforeVerification=await notify.verificationEmail.handler({runQuery:async()=>({...booking,status:'pending_verification',checkoutPaidAt:Date.now(),idVerifyStatus:'processing'}),runAction:async()=>({attachments:[]})},{bookingId:'owned-fixture',status:'processing',prepareOnly:true});
+ assert.doesNotMatch(beforeVerification.html,/Ask Gaffer about your rental/,'pending verification keeps its verification action');
+ assert.doesNotMatch(beforeVerification.html,/tel:\+447933019849|\+44 7933 019849/,'the Leo contact is hidden until verification and confirmation gates pass');
  const pending=await notify.verificationEmail.handler({runQuery:async()=>({...booking,idVerifyStatus:'requires_input'}),runAction:async()=>{throw Error('Invoice must not run');}},{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
  assert.equal(pending,null,'An outdated approval email cannot send while verification needs input');
  const expired=await notify.verificationEmail.handler({runQuery:async()=>({...booking,status:'confirmed',paidConfirmedAt:Date.now(),verificationProvider:'didit',idVerificationSource:'didit',verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},idVerifyStatus:'verified',idVerifiedAt:Date.now()-91*86400000,verificationExpiresAt:Date.now()-1}),runAction:async()=>{throw Error('Invoice must not run');}},{bookingId:'owned-fixture',status:'verified',prepareOnly:true});

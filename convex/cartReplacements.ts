@@ -3,12 +3,14 @@ import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { rentalUnavailable, marketingRedirect } from "./lib/marketingInventory";
 import { assertRentalInventory } from "./lib/rentalInventory";
+import { hasFreshSharedStock } from "./lib/shared_stock_sync";
 import { quote } from "./lib/pricing";
 import { listingImages } from "./lib/catalogImages";
 import { deriveItemType } from "./lib/taxonomy";
 import { bestCompat, parseMounts } from "./lib/mount";
 import { bundleContentSimilarity } from "../shared/verifiedRentalCopy";
 import { createPublicListingCopy } from "./lib/publicListingCopy";
+import { rentalPricingDays } from "../shared/rentalDuration";
 
 /** Listing packs such as "3x Sony FX3" represent three requested bodies. */
 const packSize = (title: string) => Math.min(100, Math.max(1, Number(title.match(/(?:^|[\s(])([1-9]\d*)\s*[x×](?=\s|[A-Za-z)]|$)/i)?.[1] ?? 1)));
@@ -20,6 +22,7 @@ export const sets = query({
   args: { items: v.array(v.object({key:v.string(),...stockRequestFields})), sourceKey: v.string(), limit: v.optional(v.number()) },
   handler: async (ctx, { items, sourceKey, limit = 2 }) => {
     if (items.length > 100 || !Number.isSafeInteger(limit) || limit < 1 || limit > 20) throw Error("Invalid replacement request");
+    if (!await hasFreshSharedStock(ctx)) return { status: "refresh_required" as const };
     const source = items.find(i => i.key === sourceKey);
     if (!source || !Number.isSafeInteger(source.start) || !Number.isSafeInteger(source.end) || source.end < source.start || source.end - source.start > 365 * 86400000) return null;
     const original = await ctx.db.get(source.listingId);
@@ -29,8 +32,8 @@ export const sets = query({
     const group = items.filter(i => i.listingId === source.listingId && i.start === source.start && i.end === source.end && i.pickupTime===source.pickupTime && i.returnTime===source.returnTime);
     const keys = group.map(i => i.key), requested = group.reduce((sum,line)=>sum+(line.qty??1),0) * packSize(original.title);
     const cache = { records: new Map<string, any>(), reservations: new Map<string, any[]>() };
-    const days = Math.round((source.end - source.start) / 86400000) + 1;
-    try { await assertRentalInventory(ctx, items.map(i => ({ ...i, qty: i.qty??1 })), undefined, cache); return { keys, requested, options: [], singles: [], searchLimited: false }; } catch {}
+    const days = rentalPricingDays(source.start, source.end, source.pickupTime, source.returnTime);
+    try { await assertRentalInventory(ctx, items.map(i => ({ ...i, qty: i.qty??1 })), undefined, cache); return { status: "ready" as const, keys, requested, options: [], singles: [], searchLimited: false }; } catch {}
     const retained = await Promise.all(items.filter(i => !keys.includes(i.key)).map(async line => ({ line, listing: await ctx.db.get(line.listingId) })));
     const type = original.itemType ?? deriveItemType(original.title);
     const redirect = marketingRedirect(original);
@@ -55,7 +58,7 @@ export const sets = query({
     const describe = (sourceListing: typeof original) => {
       const l=displayById.get(String(sourceListing._id))??sourceListing;
       const price = quote(l.pricing, days);
-      const total = l.quietDeal ? Math.round(price.total * (1 - l.quietDeal / 100)) : price.total;
+      const total = price.total;
       return { listingId: String(l._id), slug: l.slug, title: l.title, included:l.rentalContents?.included??[],verifiedComponentContents:l.verifiedComponentContents??[],heroImage: listingImages(l)[0] ?? null, imageSources: listingImages(l), days, perDay: Math.round(total / days * 100) / 100, total, deposit: l.depositAmount };
     };
     const availability = new Map<string, boolean>();
@@ -96,7 +99,7 @@ export const sets = query({
       }
     }
     await search([], 0, 0);
-    return { keys, requested, options, singles, searchLimited:searchLimited||candidateSearchLimited };
+    return { status: "ready" as const, keys, requested, options, singles, searchLimited:searchLimited||candidateSearchLimited };
   },
 });
 
@@ -110,6 +113,7 @@ export const forCart = query({
     if (!Number.isFinite(limit)) throw Error("Invalid replacement limit");
     limit = Math.max(2, Math.min(100, Math.floor(limit)));
     if (items.length > 100) throw Error("Basket is too large");
+    if (!await hasFreshSharedStock(ctx)) return { status: "refresh_required" as const, results: {} as Record<string, { listingId: string; slug: string; title: string; included:string[];verifiedComponentContents:string[];heroImage: string | null; imageSources: string[]; days: number; perDay: number; total: number; deposit: number }[]> };
     const originals = await Promise.all(items.map(i => ctx.db.get(i.listingId)));
     const decoratePublic=createPublicListingCopy(ctx),displayById=new Map<string,any>();
     for(const listing of await decoratePublic(originals.filter(Boolean)))displayById.set(String(listing._id),listing);
@@ -124,7 +128,7 @@ export const forCart = query({
         await assertRentalInventory(ctx, [ { ...line, qty: line.qty??1 }, ...retained.filter(r => r.listing.components.some(c => sourceUnits.has(String(c.inventoryUnitId)))).map(r => ({ ...r.line, qty: r.line.qty??1 })) ]);
         continue; // available source: no substitution needed
       } catch { /* unavailable source */ }
-      const days = Math.round((line.end - line.start) / 86400000) + 1;
+      const days = rentalPricingDays(line.start, line.end, line.pickupTime, line.returnTime);
       if (!categories.has(source.category)) categories.set(source.category, await ctx.db.query("listings").withIndex("by_category", q => q.eq("category", source.category)).take(512));
       const type = source.itemType ?? deriveItemType(source.title), redirect = marketingRedirect(source);
       const displaySource=displayById.get(String(source._id))??source;
@@ -160,13 +164,13 @@ export const forCart = query({
           await assertRentalInventory(ctx, [{ ...line,listingId: candidate._id,qty:line.qty??1 }, ...retained.filter(r => r.listing.components.some(c => units.has(String(c.inventoryUnitId)))).map(r => ({ ...r.line, qty: r.line.qty??1 }))]);
         } catch { continue; }
         const price = quote(candidate.pricing, days);
-        const total = candidate.quietDeal ? Math.round(price.total * (1-candidate.quietDeal/100)) : price.total;
+        const total = price.total;
         const publicCandidate=displayById.get(String(candidate._id))??candidate;
         result[line.key].push({ listingId: candidate._id, slug: candidate.slug, title: publicCandidate.title, included:publicCandidate.rentalContents?.included??[],verifiedComponentContents:publicCandidate.verifiedComponentContents??[],heroImage: listingImages(candidate)[0] ?? null, imageSources: listingImages(candidate), days, perDay: Math.round(total/days*100)/100, total, deposit: candidate.depositAmount });
         seen.add(signature);
         if (result[line.key].length >= limit) break;
       }
     }
-    return result;
+    return { status: "ready" as const, results: result };
   },
 });

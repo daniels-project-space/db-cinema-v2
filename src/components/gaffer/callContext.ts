@@ -55,16 +55,14 @@ const title = (slug: string) =>
 
 /**
  * How to actually run a sale on the phone. Spelled out because the tools now
- * enforce it — add_to_basket refuses kit that isn't free, and go_to_checkout
- * refuses a basket with a bad line, so an agent that doesn't know the sequence
- * will just hit walls.
+ * enforce it — dated additions check availability, undated selections stay
+ * proposed until the renter supplies dates, and go_to_checkout refuses a bad
+ * dated line.
  */
 const SELL_CLOSE =
   "At the cart or checkout stage, use check_basket and explain unavailable items clearly. Offer the actual same-date replacements returned by that tool, and mention Show more replacements if the first two do not suit them. Only use switch_unavailable after they choose and confirm a replacement. Never claim a marketing-only item is rentable. " +
-  "If they want the discussed cart by email, use email_checkout_cart after confirming their email. To create an account, ask for name, phone and email and their agreement, then use setup_account. The customer must enter the emailed one-time code privately and immediately choose a password. Never ask for their code or password. For a forgotten password use reset_password or point to Forgot password on sign-in. " +
-  "Get their dates first — everything else depends on them. Use browse_for or find_gear to put real " +
-  "options on screen and check what's actually free for those dates; never promise something you " +
-  "haven't checked. When they pick one, add_to_basket highlights it on screen and drops it in — do " +
+  "If they want the discussed basket or proposed kit by email, use email_checkout_cart after confirming their email and permission. Undated items are not priced or availability-checked; the private link collects dates before it checks either. To create an account, ask for name, phone and email and their agreement, then use setup_account. The customer must enter the emailed one-time code privately and immediately choose a password. Never ask for their code or password. For a forgotten password use reset_password or point to Forgot password on sign-in. " +
+  "Use browse_for or find_gear to put real options on screen. Check stock only with both hire dates; if dates are missing ask for the complete range, and never invent dates or same-day rental. When they pick one, add_to_basket highlights it on screen and adds it only after the selected dates are checked; if no dates were given it may go into a proposed kit with no price or availability claim. Do " +
   "this as soon as each item is confirmed, not batched at the end; a call that gets interrupted should " +
   "still leave whatever was already agreed sitting in the basket. " +
   "If it's booked out you'll be handed alternatives — offer those rather than dead-ending. " +

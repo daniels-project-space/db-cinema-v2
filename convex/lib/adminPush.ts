@@ -12,7 +12,7 @@ export function validatePushSubscription(endpoint: string, p256dh: string, auth:
 }
 
 export function ownerPushAllowed(subscription: {humanRequests?:boolean;renterMessages?:boolean},kind:string) {
-  return kind === "human_request" ? subscription.humanRequests !== false : kind === "renter_message" ? subscription.renterMessages !== false : true;
+  return kind === "human_request" ? subscription.humanRequests !== false : ["renter_message", "gaffer_handled"].includes(kind) ? subscription.renterMessages !== false : true;
 }
 
 export async function queueOwnerNotification(ctx: any, args: {
@@ -47,7 +47,7 @@ export async function acknowledgeOwnerNotificationPage(ctx: any, args: Conversat
     .paginate({ numItems: 100, cursor: args.cursor ?? null });
   for (const notification of result.page) {
     if (marker) {
-      const match = /^(?:renter-message|human-request|gaffer-resumed):([^:]+)$/.exec(notification.eventKey);
+      const match = /^(?:renter-message|human-request|gaffer-resumed|gaffer-handled):([^:]+)$/.exec(notification.eventKey);
       const messageId = match ? ctx.db.normalizeId("messages", match[1]) : null;
       const message = messageId ? await ctx.db.get(messageId) : null;
       if (message && message.accountId === accountId && message.bookingId === bookingId) {
@@ -62,6 +62,6 @@ export async function acknowledgeOwnerNotificationPage(ctx: any, args: Conversat
 }
 
 export async function acknowledgeOwnerNotifications(ctx: any, accountId: any, bookingId?: any, through = Date.now(), marker?: ConversationMarker) {
-  for (const kind of ["renter_message", "human_request", "gaffer_resumed"])
+  for (const kind of ["renter_message", "human_request", "gaffer_resumed", "gaffer_handled"])
     await acknowledgeOwnerNotificationPage(ctx, { accountId, bookingId, through, kind, marker });
 }

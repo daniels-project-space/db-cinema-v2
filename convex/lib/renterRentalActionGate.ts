@@ -12,6 +12,10 @@ export function hasBookingDiditApproval(booking: any): boolean {
     ["identity", "selfie", "address"].every(key => booking.verificationChecks?.[key] === "approved");
 }
 
+export function renterHandoverDetailsReady(booking: any): boolean {
+  return renterRentalActionReady(booking);
+}
+
 export function renterRentalActionReady(booking: any): boolean {
   return !!booking &&
     ["confirmed", "active"].includes(booking.status) &&

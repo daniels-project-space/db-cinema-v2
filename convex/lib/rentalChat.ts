@@ -1,4 +1,4 @@
-import { queueRenterNotification } from "./renterPush";
+import { queueRenterNotification, renterPushNotice } from "./renterPush";
 import { queueOwnerNotification } from "./adminPush";
 import { belongsToRentalAccount } from "./rentalAccount";
 import { internal } from "../_generated/api";
@@ -64,6 +64,7 @@ export async function postRentalMessage(
     sender: "renter" | "bot" | "system" | "owner";
     text: string;
     meta?: any;
+    clientRequestId?: string;
     deferOwnerAlert?: boolean;
   },
 ) {
@@ -71,6 +72,12 @@ export async function postRentalMessage(
     await ownedBooking(ctx, await ctx.db.get(a.accountId), a.bookingId);
   const thread = await rentalThread(ctx, a.accountId, a.bookingId);
   const now = Math.max(Date.now(), (thread?.updatedAt ?? 0) + 1);
+  const firstExistingRenterMessage = a.sender === "renter" && !thread?.firstRenterMessageId
+    ? await ctx.db.query("messages")
+        .withIndex("by_booking_account_sender_at", (q: any) => q.eq("bookingId", a.bookingId).eq("accountId", a.accountId).eq("sender", "renter"))
+        .order("asc")
+        .first()
+    : null;
   const caseArchived = thread?.caseArchivedAt ? true : a.bookingId ? await bookingHasCaseArchive(ctx, a.bookingId) : false;
   const { deferOwnerAlert, ...message } = a;
   const id = await ctx.db.insert("messages", {
@@ -81,6 +88,8 @@ export async function postRentalMessage(
   });
   let threadId=thread?._id;
   const patch = {
+    ...(a.sender === "renter" && !thread?.firstRenterMessageId && !firstExistingRenterMessage ? { firstRenterMessageId: id } : {}),
+    ...((a.sender === "owner" || a.sender === "bot") && thread?.firstRenterMessageId && !thread.notificationPromptMessageId ? { notificationPromptMessageId: id } : {}),
     closedAt: undefined,
     caseArchivedAt: thread?.caseArchivedAt ?? (caseArchived ? now : undefined),
     updatedAt: now,
@@ -123,6 +132,7 @@ export async function postRentalMessage(
   }
   if (a.sender === "owner" || a.sender === "bot" || a.sender === "system") await queueRenterNotification(ctx, {
     eventKey: `rental-message:${id}`, kind: a.sender === "system" ? "booking" : "messages",
+    notice: renterPushNotice(a.sender, a.bookingId, a.meta),
     accountId: a.accountId, bookingId: a.bookingId, messageAt: now,
   });
   return id;

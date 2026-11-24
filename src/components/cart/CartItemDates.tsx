@@ -6,12 +6,14 @@ import { api } from "@cvx/_generated/api";
 import { dayMs } from "@/lib/dates";
 import { rentalPricingDays } from "../../../shared/rentalDuration";
 import { type CartItem, useCart } from "./CartProvider";
+import { stockDisplayState } from "@/lib/stockDisplayState";
 
 export function CartItemDates({ item }: { item: CartItem }) {
-  const cart = useCart(), convex = useConvex(), priceQuote = useAction(api.checkout.priceQuote);
+  const cart = useCart(), convex = useConvex(), priceQuote = useAction(api.checkout.priceQuote), refreshStock = useAction(api.sync.refreshCartStock);
   const id = useId();
   const [open, setOpen] = useState(false), [start, setStart] = useState(item.start), [end, setEnd] = useState(item.end);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false), [refreshError, setRefreshError] = useState<string | null>(null);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date());
   const ukDate = (value: string) => value
     ? new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" }).format(new Date(`${value}T00:00:00Z`))
@@ -19,14 +21,30 @@ export function CartItemDates({ item }: { item: CartItem }) {
   const valid = !!start && !!end && start >= today && end >= start;
   const prospective = cart.items.map(i => ({ listingId: i.listingId as any, start: dayMs(i.key === item.key ? start : i.start), end: dayMs(i.key === item.key ? end : i.end),pickupTime:i.key===item.key?undefined:i.pickupTime,returnTime:i.key===item.key?undefined:i.returnTime }));
   const fit = useQuery(api.availability.forCart, open && valid ? { items: prospective } : "skip");
-  const available = !!fit?.[item.listingId]?.ok;
+  const stockState = stockDisplayState(fit?.[item.listingId]);
+
+  async function retryAvailability() {
+    if (refreshing || !valid) return;
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      await refreshStock({ items: prospective });
+    } catch {
+      setRefreshError("Couldn’t check stock. Try again.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function save() {
     if (!valid || busy) return;
     setBusy(true); setError(null);
     try {
       const checked = await convex.query(api.availability.forCart, { items: prospective });
-      if (!checked[item.listingId]?.ok) throw Error("This item isn't available with your kit on those dates. Try another date range.");
+      const checkedItem = checked[item.listingId];
+      const checkedState = stockDisplayState(checkedItem);
+      if (checkedState === "unknown" || checkedState === "checking") throw Error("Couldn’t confirm stock. Retry the availability check.");
+      if (checkedState !== "available") throw Error("This item isn't available with your kit on those dates. Try another date range.");
       const keepChosenTimes = start === item.start && end === item.end;
       const pickupTime = keepChosenTimes ? item.pickupTime : undefined;
       const returnTime = keepChosenTimes ? item.returnTime : undefined;
@@ -47,9 +65,10 @@ export function CartItemDates({ item }: { item: CartItem }) {
         <label className="min-w-0 text-[10px] text-white/50"><span className="mb-1 flex items-center justify-between gap-1"><span>Pickup</span><span className="font-medium text-white/75">{ukDate(start)}</span></span><input aria-label={`Pickup date for ${item.title}`} type="date" min={today} value={start} disabled={busy} onChange={e => { setStart(e.target.value); if (e.target.value > end) setEnd(e.target.value); setError(null); }} className="input w-full min-w-0 !px-2 !py-2 text-xs [color-scheme:dark]"/></label>
         <label className="min-w-0 text-[10px] text-white/50"><span className="mb-1 flex items-center justify-between gap-1"><span>Return</span><span className="font-medium text-white/75">{ukDate(end)}</span></span><input aria-label={`Return date for ${item.title}`} type="date" min={start || today} value={end} disabled={busy} onChange={e => { setEnd(e.target.value); setError(null); }} className="input w-full min-w-0 !px-2 !py-2 text-xs [color-scheme:dark]"/></label>
       </div>
-      <p className="mt-2 text-[10px] leading-4 text-white/45" aria-live="polite">{!valid ? "Choose a valid date range from today onwards." : fit === undefined ? "Checking availability for your kit…" : !available ? "Unavailable with your kit. Try different dates." : `${rentalPricingDays(dayMs(start), dayMs(end))} rental day${rentalPricingDays(dayMs(start), dayMs(end)) === 1 ? "" : "s"} · date availability checked. Choose exact times at checkout.`}</p>
+      <p className="mt-2 text-[10px] leading-4 text-white/45" aria-live="polite">{!valid ? "Choose a valid date range from today onwards." : stockState === "checking" ? "Checking availability for your kit…" : stockState === "unknown" ? <>Couldn’t confirm stock yet. <button type="button" onClick={() => void retryAvailability()} disabled={refreshing} className="underline text-accent-300 disabled:opacity-50">{refreshing ? "Checking…" : "Retry"}</button></> : stockState !== "available" ? "Unavailable with your kit. Try different dates." : `${rentalPricingDays(dayMs(start), dayMs(end))} rental day${rentalPricingDays(dayMs(start), dayMs(end)) === 1 ? "" : "s"} · date availability checked. Choose exact times at checkout.`}</p>
+      {refreshError && <p role="alert" className="mt-1 text-[10px] text-amber-200">{refreshError}</p>}
       {error && <p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
-      <button type="button" data-cart-date-save onClick={save} disabled={!valid || !available || busy} className="btn-ghost mt-3 min-h-9 w-full !px-3 !py-2 text-xs">{busy ? "Updating…" : "Save dates"}</button>
+      <button type="button" data-cart-date-save onClick={save} disabled={!valid || stockState !== "available" || busy} className="btn-ghost mt-3 min-h-9 w-full !px-3 !py-2 text-xs">{busy ? "Updating…" : "Save dates"}</button>
     </div>}
   </div>;
 }

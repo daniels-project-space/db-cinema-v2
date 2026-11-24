@@ -16,8 +16,7 @@ import { Marquee } from "@/components/Marquee";
 import { ViewfinderHUD } from "@/components/ViewfinderHUD";
 import { GearCard, type GearListing } from "@/components/GearCard";
 import { HomeGearSearch } from "@/components/HomeGearSearch";
-import { CategoryIcon } from "@/components/CategoryIcon";
-import { IconArrowRight } from "@/components/icons";
+import { HomeCategoryGrid } from "@/components/HomeCategoryGrid";
 import { BadgeTruck, BadgeSquare, BadgeShield, BadgeClock } from "@/components/AnimatedIcons";
 import { HowItWorksSteps } from "@/components/HowItWorksSteps";
 import { DeliveryProtectionTile } from "@/components/DeliveryProtectionTile";
@@ -25,9 +24,10 @@ import { CONTACT_EMAIL, SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib
 import { unstable_cache } from "next/cache";
 import { HomeClosingAperture } from "@/components/HomeClosingAperture";
 import { legalVersionForPolicy } from "../../shared/legalVersioning";
+import { cancellationPolicySummary } from "@/lib/cancellationPolicy";
 
 const homeHyggloReviews = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.listVerifiedHyggloHighlights, { limit: 100 }), ["public-home-reviews-v4", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 300 });
-const homeBest = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.bestSellers, { limit: 8 }), ["public-home-best-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
+const homeBest = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.bestSellers, { limit: 8, homeShowcase: true }), ["public-home-best-v2", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
 const homeCategories = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.categories, {}), ["public-home-categories-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
 
 const trustTiles = [
@@ -87,6 +87,7 @@ export default async function Home() {
   } catch {}
 
   const itemCount = categories.reduce((sum, category) => sum + category.count, 0);
+  const cancellationSummary = cancellationPolicySummary(cancellationPolicyVersion);
 
   const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const jsonLd = {
@@ -123,7 +124,7 @@ export default async function Home() {
       <section data-testid="home-hero" className="section-window relative isolate min-h-[clamp(24rem,68svh,38rem)] overflow-hidden sm:min-h-[54svh] lg:min-h-[calc(100vh-93px)]">
 
         {/* cinematic film (Veo 3.1) + timed gear callouts + catchphrase/CTA */}
-        <HeroCinematic categories={categories} />
+        <HeroCinematic categories={categories} rating={rating} />
         <ViewfinderHUD />
 
       <div className="absolute inset-x-0 bottom-0 z-10 hidden pb-2 sm:block">
@@ -134,10 +135,6 @@ export default async function Home() {
             itemClassName="font-mono text-xs tracking-[0.35em] text-white/30"
           />
         </div>
-      </section>
-
-      <section className="section-window px-4 py-5 sm:px-6 sm:py-8" aria-label="Find and book rental gear">
-        <div className="mx-auto max-w-7xl"><HomeGearSearch categories={categories} /></div>
       </section>
 
       {/* ───────────────── London, on the label ───────────────── */}
@@ -178,6 +175,16 @@ export default async function Home() {
         </div>
       </section>
 
+      <section className="section-window px-4 py-5 sm:px-6 sm:py-8" aria-label="Find and book rental gear">
+        <div className="mx-auto max-w-7xl">
+          <HomeGearSearch categories={categories} />
+          <p aria-label="Cancellation terms at a glance" className="mx-auto mt-3 max-w-5xl text-center text-[10px] leading-5 text-white/45 sm:text-xs">
+            {cancellationSummary ?? "Cancellation options follow the rental terms accepted at checkout."}{" "}
+            <Link href={`/legal/cancellation?version=${encodeURIComponent(cancellationPolicyVersion)}`} className="whitespace-nowrap text-accent-200 underline underline-offset-2">Full terms</Link>
+          </p>
+        </div>
+      </section>
+
       {/* ──────────── the instrument — scroll-scrubbed deconstruction ──────────── */}
       <div className="h-8 lg:h-0" aria-hidden />
       <CameraDeconstruct />
@@ -189,64 +196,7 @@ export default async function Home() {
       <HomeGearSearch categories={categories} featured={featured} initialRevision={catalogVersion} />
 
       {/* ───────────────── categories ───────────────── */}
-      {categories.length > 0 && (
-        <section className="section-glass px-4 py-12 sm:px-6 sm:py-20">
-          <div className="mx-auto max-w-7xl">
-            <Reveal>
-              <div className="hud-label !text-accent-400/90">The catalogue</div>
-              <h2 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
-                Every department, <span className="serif-accent gradient-text text-[1.06em]">covered</span>
-              </h2>
-              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/45">
-                From cinema camera hire to lens, lighting, audio and drone rental, Db Cinema is London&apos;s
-                full-service film equipment hire — delivered across London or collected in central London.
-              </p>
-            </Reveal>
-            <div className="dim-grid mt-8 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-              {categories.map((c, i) => (
-                <Reveal key={c.name} delay={Math.min(i, 8) * 50}>
-                  <Link
-                    href={`/gear?cat=${encodeURIComponent(c.name)}`}
-                    className="ci-host spot lift group flex h-full flex-col rounded-2xl p-5"
-                  >
-                    <span className="flex items-start justify-between">
-                      <span className="flex h-14 w-14 items-center justify-center rounded-xl bg-accent-500/10 text-accent-400 transition-all duration-300 group-hover:scale-105 group-hover:bg-accent-500/15 group-hover:accent-glow">
-                        <CategoryIcon name={c.name} className="h-9 w-9" />
-                      </span>
-                      <span className="font-poster text-xl text-white/[0.1] transition-colors group-hover:text-accent-400/25">
-                        {String(i + 1).padStart(2, "0")}
-                      </span>
-                    </span>
-                    <span className="mt-5">
-                      <span className="block font-display text-lg font-semibold text-white/90 transition-colors group-hover:text-white">
-                        {c.name}
-                      </span>
-                      <span className="mt-1 flex items-center justify-between">
-                        <span className="font-mono text-xs text-white/35">{c.count} items</span>
-                        <IconArrowRight className="h-4 w-4 text-white/20 transition-all group-hover:translate-x-1 group-hover:text-accent-400" />
-                      </span>
-                    </span>
-                  </Link>
-                </Reveal>
-              ))}
-              <Reveal delay={Math.min(categories.length, 9) * 50}>
-                <Link
-                  href="/gear"
-                  className="spot lift group flex h-full min-h-[150px] flex-col items-center justify-center gap-3 rounded-2xl border-dashed p-5 text-center"
-                >
-                  <span className="font-display text-lg font-semibold text-white/70 transition-colors group-hover:text-white">
-                    View everything
-                  </span>
-                  <span className="flex items-center gap-1.5 font-mono text-xs text-accent-400">
-                    {categories.reduce((n, c) => n + c.count, 0)} items
-                    <IconArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-                  </span>
-                </Link>
-              </Reveal>
-            </div>
-          </div>
-        </section>
-      )}
+      {categories.length > 0 && <HomeCategoryGrid categories={categories} />}
 
       <section id="reviews" className="section-glass scroll-mt-24 px-4 py-12 sm:px-6 sm:py-20">
         <Reveal className="mx-auto max-w-6xl">
@@ -297,7 +247,7 @@ export default async function Home() {
             </div>
             <div className="relative z-10 grid grid-cols-2 gap-3 self-end p-6 pt-0 sm:gap-4 sm:p-8">
               <div className="rounded-2xl border border-white/15 bg-black/45 p-4 backdrop-blur-xl sm:p-5">
-                <p className="font-poster text-3xl tabular-nums text-white sm:text-4xl">4.73<span className="ml-1 text-base text-white/45">/5</span></p>
+                <p className="font-poster text-3xl tabular-nums text-white sm:text-4xl">{rating.ratingValue.toFixed(2)}<span className="ml-1 text-base text-white/45">/5</span></p>
                 <p className="mt-2 font-mono text-[9px] uppercase tracking-[.18em] text-white/50">Profile rating</p>
               </div>
               <div className="rounded-2xl border border-accent-200/20 bg-black/45 p-4 backdrop-blur-xl sm:p-5">

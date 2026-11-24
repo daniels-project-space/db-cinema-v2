@@ -4,6 +4,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import styles from "./RentalRequestHistory.module.css";
 import { cancellationTimingBasis, isNoRefundWithin48HoursCancellationVersion } from "@/lib/cancellationPolicy";
+import { renterFacingError } from "@/lib/renterFacingError";
 
 export function RentalRequestApply({ token, bookingId, id, requestId, kind, decisionNote, requestedStart, requestedEnd, requestedSnapshot, requestedHandover, handoverItems, cancellationKindAtRequest, cancellationTermsVersion, cancellationChoice, disabled = false }: {
   token: string; bookingId: string; id: string; requestId?: string; kind: "dates" | "cancel" | "handover"; decisionNote?: string; disabled?: boolean;
@@ -61,7 +62,7 @@ export function RentalRequestApply({ token, bookingId, id, requestId, kind, deci
         await changeHandoverTimes({ token, bookingId: bookingId as any, requestId, changeRequestId: id as any, lineIndexes: requestedHandover.lineIndexes, kind: requestedHandover.kind, time: requestedHandover.time, expectedSnapshot: requestedSnapshot, reason });
       }
       setOpen(false);
-    } catch (e: any) { setError(e.data?.message ?? e.message ?? "The change could not be completed. Check its status and retry."); setRefreshKey(k => k + 1); if (kind === "cancel") setConsent(false); }
+    } catch (e: any) { setError(renterFacingError(e, "The change could not be completed. Your rental is unchanged; check its status and retry.")); setRefreshKey(k => k + 1); if (kind === "cancel") setConsent(false); }
     finally { inFlight.current = false; setBusy(false); }
   }
   if (!open) return <div className={styles.actions}><button type="button" disabled={disabled || busy} onClick={() => { setOpen(true); setError(""); }}>{kind === "dates" ? "Apply agreed dates" : kind === "handover" ? "Apply approved time" : "Process agreed cancellation"}</button></div>;

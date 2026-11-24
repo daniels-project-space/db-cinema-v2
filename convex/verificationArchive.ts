@@ -35,7 +35,8 @@ const DOCUMENT_RETENTION_MS = 90 * 86400000;
 const CAPTURE_LEASE_MS = 5 * 60000;
 const READ_PROOF_MAX_AGE_MS=24*3600000;
 const READ_PROOF_INTERVAL_MS=12*3600000;
-function hasFreshReadProof(archive:any){return archive.supplementalAssetsPending!==true&&(archive.supplementalStatus==="complete"||archive.supplementalCheckVersion===2)&&archive.readProofVersion===2&&Number.isFinite(archive.readVerifiedAt)&&archive.readVerifiedAt<=Date.now()&&archive.readVerifiedAt>Date.now()-READ_PROOF_MAX_AGE_MS;}
+function hasReadProof(archive:any){return archive.supplementalAssetsPending!==true&&(archive.supplementalStatus==="complete"||archive.supplementalCheckVersion===2)&&archive.readProofVersion===2&&Number.isFinite(archive.readVerifiedAt)&&archive.readVerifiedAt<=Date.now()&&(archive.readProofFailures??0)===0;}
+function hasFreshReadProof(archive:any){return hasReadProof(archive)&&archive.readVerifiedAt>Date.now()-READ_PROOF_MAX_AGE_MS;}
 async function flagArchiveFailure(ctx:any,archive:any){
  const booking=await ctx.db.get(archive.bookingId),account=await accountForRental(ctx,booking);
  await queueOwnerNotification(ctx,{eventKey:`verification-archive-failed:${archive._id}:${archive.generation??0}`,kind:"verification_archive",...(account?{accountId:account._id}:{}),bookingId:archive.bookingId,
@@ -225,6 +226,16 @@ export async function assertVerificationArchive(ctx: any, booking: any) {
   }
   throw Error("Verification document copies must be fully archived and within their retention period before handover. Check account documents or complete a new verification.");
 }
+export async function verificationArchiveHasIntegrity(ctx:any,booking:any){
+  if(!booking?.diditSessionId)return false;
+  const archives=await ctx.db.query("verification_archives").withIndex("by_booking",(q:any)=>q.eq("bookingId",booking._id)).collect();
+  for(const archive of archives){
+    if(archive.sessionId!==booking.diditSessionId||archive.status!=="complete"||!hasReadProof(archive))continue;
+    if(!(await archiveRetention(ctx,archive)).viewable)continue;
+    if((await archiveCopies(ctx,archive)).ready)return true;
+  }
+  return false;
+}
 export const reuseReadCandidate=internalQuery({args:{bookingId:v.id("bookings")},handler:async(ctx,{bookingId})=>{
   const booking=await ctx.db.get(bookingId);if(!booking?.diditSessionId)return null;
   const archives=await ctx.db.query("verification_archives").withIndex("by_booking",query=>query.eq("bookingId",bookingId)).collect();
@@ -316,7 +327,7 @@ export const resumeReuses=internalMutation({args:{accountId:v.id("accounts"),sou
   const status=statuses[statusIndex];
   const page=await ctx.db.query("bookings").withIndex("by_account_status",query=>query.eq("accountId",args.accountId).eq("status",status)).paginate({numItems:20,cursor:pageCursor});
   let scheduled=0;
-  for(const booking of page.page)if(booking.accountAccessRequired===false&&booking.verificationProvider==="didit"&&
+  for(const booking of page.page)if(booking.accountAccessRequired===false&&booking.verificationProvider==="didit"&&!booking.diditSessionId&&
     ((["required","processing"].includes(booking.idVerifyStatus??"required")&&!booking.diditSessionId)||
       ["requires_input","manual_review","rejected"].includes(booking.idVerifyStatus??"required"))&&
     booking.idVerificationSource!=="manual"&&!booking.diditManualDecisionAt){

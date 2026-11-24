@@ -1,4 +1,5 @@
-import { verificationExpired } from "../../shared/verificationProgress";
+import { renterHandoverDetailsReady } from "./renterRentalActionGate";
+import { LEO_SUPPORT_PHONE, TRAFALGAR_PICKUP_ADDRESS, TRAFALGAR_PICKUP_INSTRUCTIONS } from "../../shared/pickupLocation";
 
 /** Compose only from recorded state; unpaid drafts cannot disclose collection details. */
 export function rentalReplyTemplates(booking: any, settings: any): { label: string; text: string }[] {
@@ -18,12 +19,25 @@ export function rentalReplyTemplates(booking: any, settings: any): { label: stri
   }
   const replies: { label: string; text: string }[] = [];
   if (["confirmed", "active"].includes(booking.status)) {
+    const handoverReady = renterHandoverDetailsReady(booking);
     const day = (value: number) => new Date(value).toLocaleDateString("en-GB", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" });
     const start = Math.min(...booking.lineItems.map((line: any) => line.start));
     const end = Math.max(...booking.lineItems.map((line: any) => line.end));
     const dates = `Collection: ${day(start)}${booking.pickupTime ? ` at ${booking.pickupTime} (London time)` : "; time to be confirmed"}. Return: ${day(end)}${booking.returnTime ? ` at ${booking.returnTime} (London time)` : "; time to be confirmed"}.`;
-    const stage = booking.status === "active" ? "Your rental is on hire." : booking.idVerifyStatus === "verified" && !verificationExpired(booking) ? "Your rental is confirmed." : "Your payment is recorded; verification is still required before collection.";
-    replies.push({ label: "Rental details", text: `${stage} ${dates}${booking.fulfilment === "pickup" && booking.idVerifyStatus === "verified" && !verificationExpired(booking) && settings?.businessAddress ? ` Collection location: ${settings.businessAddress}.` : booking.fulfilment === "delivery" ? " This order is for delivery to the address on your booking." : " The collection location will be shared after verification is approved."}` });
+    const stage = handoverReady
+      ? booking.status === "active" ? "Your rental is on hire." : "Your rental is confirmed."
+      : booking.paidConfirmedAt
+        ? "Your payment is recorded; collection details will follow once verification and booking checks are complete."
+        : "Your rental is not ready for collection yet. We will share details once payment and verification are complete.";
+    const location = handoverReady && booking.fulfilment === "pickup"
+      ? ` Collection location: ${TRAFALGAR_PICKUP_ADDRESS}. ${TRAFALGAR_PICKUP_INSTRUCTIONS}`
+      : booking.fulfilment === "delivery" && handoverReady
+        ? booking.deliveryLegs === "one_way"
+          ? ` This order is delivered to your address; return it to ${TRAFALGAR_PICKUP_ADDRESS}. ${TRAFALGAR_PICKUP_INSTRUCTIONS}`
+          : " This order is delivered to the address on your booking."
+        : " Collection details will be shared once the booking is ready.";
+    const contact = handoverReady ? ` Call Leo on ${LEO_SUPPORT_PHONE} if you need help.` : "";
+    replies.push({ label: "Rental details", text: `${stage} ${dates}${location}${contact}` });
     if (booking.idVerifyStatus === "requires_input") replies.push({ label: "Resubmit documents", text: "Please open verification in your account and follow the provider's instructions to resubmit the requested documents. Verification must be approved before handover." });
     if (booking.idVerifyStatus === "manual_review") replies.push({ label: "Verification review", text: "Your verification is awaiting a team review. We will update you here once a decision is recorded. Handover requires approved verification." });
     if (booking.idVerifyStatus === "rejected") replies.push({ label: "Verification declined", text: "Your verification has not been approved. Please contact the team here to discuss the next step before handover." });

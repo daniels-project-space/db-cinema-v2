@@ -21,6 +21,7 @@ export type SwapAdjustmentDocumentData = {
   cardChargePence: number;
   cardRefundPence: number;
   accountCreditRestoredPence: number;
+  accountCreditAppliedPence?: number;
 };
 
 const COMPANY_NAME = "DB CINEMA RENTALS LTD";
@@ -67,9 +68,10 @@ const titleFor = (kind: SwapAdjustmentDocumentData["documentType"]) => kind === 
 export function SwapAdjustmentDocument({ data }: { data: SwapAdjustmentDocumentData }) {
   const isInvoice = data.documentType === "supplementary_invoice";
   const isCreditNote = data.documentType === "credit_note";
-  const settlementAmount = isInvoice ? data.cardChargePence : isCreditNote ? data.cardRefundPence : 0;
-  const settlementLabel = isInvoice ? "Additional card payment received" : isCreditNote ? "Refund to original payment method" : "No card payment or refund";
-  const settlementTitle = isInvoice ? "Amount paid" : isCreditNote ? "Credit note total" : "Account credit restored";
+  const creditAppliedPence = data.accountCreditAppliedPence ?? 0;
+  const settlementAmount = isInvoice ? data.cardChargePence + creditAppliedPence : isCreditNote ? data.cardRefundPence : 0;
+  const settlementLabel = isInvoice ? "Amount received for this adjustment" : isCreditNote ? "Refund to original payment method" : "No payment or refund";
+  const settlementTitle = isInvoice ? "Adjustment total" : isCreditNote ? "Credit note total" : "Account credit restored";
 
   return (
     <Document title={`DB Cinema ${titleFor(data.documentType)} ${data.documentNumber}`}>
@@ -130,6 +132,18 @@ export function SwapAdjustmentDocument({ data }: { data: SwapAdjustmentDocumentD
               <Text style={styles.totalValue}>£0.00</Text>
             </View>
           )}
+          {creditAppliedPence > 0 ? (
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Paid with account credit</Text>
+              <Text style={styles.totalValue}>{pounds(creditAppliedPence)}</Text>
+            </View>
+          ) : null}
+          {isInvoice && data.cardChargePence > 0 ? (
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Paid by card</Text>
+              <Text style={styles.totalValue}>{pounds(data.cardChargePence)}</Text>
+            </View>
+          ) : null}
           {data.accountCreditRestoredPence > 0 ? (
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Account credit restored separately</Text>
@@ -138,9 +152,10 @@ export function SwapAdjustmentDocument({ data }: { data: SwapAdjustmentDocumentD
           ) : null}
         </View>
 
-        <Text style={styles.note}>This document records the accepted equipment change for original invoice {data.originalInvoiceNumber}. The original rental invoice remains unchanged. Equipment line values show the previous and updated rental lines; any discounts and account credit are reflected in the settlement amount above.</Text>
+        <Text style={styles.note}>This document records the accepted equipment change for original invoice {data.originalInvoiceNumber}. The original rental invoice remains unchanged. Equipment line values show the previous and updated rental lines; account credit and card payments are shown separately.</Text>
         {isCreditNote ? <Text style={styles.note}>The credit note records a refund to the original payment method. Your bank controls when that refund appears.</Text> : null}
         {data.accountCreditRestoredPence > 0 ? <Text style={styles.note}>Restored account credit is held on your DB Cinema account and is separate from any card payment or refund shown here.</Text> : null}
+        {creditAppliedPence > 0 ? <Text style={styles.note}>The account credit shown above was applied to this equipment change. It is separate from any card payment shown.</Text> : null}
         <Text style={styles.note}>DB Cinema Rentals Ltd is not VAT registered. No VAT is charged.</Text>
         <Text style={styles.footer}>Keep this adjustment with rental invoice {data.originalInvoiceNumber}.</Text>
       </Page>

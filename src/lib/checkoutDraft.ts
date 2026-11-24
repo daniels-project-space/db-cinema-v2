@@ -3,7 +3,7 @@
  * only a bounded fingerprint used to expire stale checkbox consent. */
 export type CheckoutDraft = {
   email: string; name: string; phone: string; billingAddress: string;
-  fulfilment: "pickup" | "delivery"; address: string; postcode: string;
+  fulfilment: "pickup" | "delivery"; deliveryLegs: "one_way" | "round_trip"; address: string; postcode: string;
   protection: "verify" | "deposit";
   agreed: boolean; deliveryAgreed: boolean; useAccountCredit?: boolean;
   securityConsentContext?: string | null;
@@ -21,6 +21,7 @@ function fields(value: any): CheckoutDraft {
     email: text("email", 320), name: text("name"), phone: text("phone", 80),
     billingAddress: text("billingAddress", 2000), address: text("address", 2000), postcode: text("postcode", 20),
     fulfilment: value.fulfilment === "delivery" ? "delivery" : "pickup",
+    deliveryLegs: value.deliveryLegs === "one_way" ? "one_way" : "round_trip",
     protection: value.protection === "deposit" ? "deposit" : "verify",
     ...(typeof value.useAccountCredit === "boolean" ? { useAccountCredit: value.useAccountCredit } : {}),
     agreed: value.agreed === true, deliveryAgreed: value.deliveryAgreed === true,

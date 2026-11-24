@@ -169,7 +169,7 @@ function isPlainText(bytes) {
 }
 
 async function validateStructure(bytes) {
-  if(bytes.subarray(0,5).toString()==='%PDF-')throw Error('PDF attachments require further security validation');
+  if(bytes.indexOf(Buffer.from('%PDF-'))!==-1)throw Error('PDF attachments require further security validation');
   if(isPlainText(bytes))return 'text/plain';
   const image=sharp(bytes,{failOn:'error',limitInputPixels:20000000,animated:false});const metadata=await image.metadata();
   if(!['jpeg','png','webp'].includes(metadata.format)||!Number.isSafeInteger(metadata.width)||!Number.isSafeInteger(metadata.height)||metadata.width<1||metadata.height<1||metadata.width*metadata.height>20000000||metadata.pages&&metadata.pages!==1)throw Error('Image validation failed');

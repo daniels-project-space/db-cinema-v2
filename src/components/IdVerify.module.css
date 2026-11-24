@@ -72,6 +72,25 @@
     cursor: pointer;
   }
 
+  .mobileStandaloneLink {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    padding-inline: 0.75rem;
+    border: 1px solid rgb(255 255 255 / 18%);
+    border-radius: 9999px;
+    background: rgb(17 24 39 / 92%);
+    color: #fff;
+    font: 600 0.75rem/1 system-ui, sans-serif;
+    text-decoration: none;
+    white-space: nowrap;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    pointer-events: auto;
+    cursor: pointer;
+  }
+
   .mobileMenu {
     position: fixed;
     top: auto;
@@ -107,13 +126,15 @@
 
   .mobileMenu button:focus-visible,
   .mobileMenu a:focus-visible,
+  .mobileStandaloneLink:focus-visible,
   .mobileOptionsButton:focus-visible {
     outline: 2px solid #d3a679;
     outline-offset: 2px;
   }
 
   .mobileMenu button:hover,
-  .mobileMenu a:hover {
+  .mobileMenu a:hover,
+  .mobileStandaloneLink:hover {
     background: rgb(255 255 255 / 9%);
   }
 

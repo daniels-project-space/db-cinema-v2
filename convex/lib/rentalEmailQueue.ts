@@ -10,7 +10,7 @@ export function handoverScheduleFingerprint(booking:{lineItems:any[];pickupTime?
   return JSON.stringify(bookingStockLines({...booking,lineItems:booking.lineItems??[]}).map(line=>[String(line.listingId),line.qty,line.start,line.pickupTime??null,line.end,line.returnTime??null]));
 }
 
-export type RentalEmailKind = "payment" | "paid_verification" | "verification_reminder" | "receipt" | "verification" | "cancellation" | "review" | "cancellation_choice" | "time_change" | "refund_invoice";
+export type RentalEmailKind = "payment" | "paid_verification" | "verification_reminder" | "receipt" | "verification" | "cancellation" | "review" | "cancellation_choice" | "time_change" | "refund_invoice" | "pickup_reminder" | "return_reminder";
 /** Persist in the same transaction as payment, verification or cancellation.
  * Stable financial keys prevent webhook replays from sending twice. Each real
  * verification transition gets a new sequence so returning to a status can notify. */
@@ -20,13 +20,14 @@ export async function queueRentalEmail(ctx: MutationCtx, bookingId: Id<"bookings
   const previous = kind==="refund_invoice"
     ? (await ctx.db.query("rental_email_deliveries").withIndex("by_refund",q=>q.eq("refundId",detail.refundId!)).first())
     : (await ctx.db.query("rental_email_deliveries").withIndex("by_booking_kind",q=>q.eq("bookingId",bookingId).eq("kind",kind)).order("desc").take(1))[0];
-  if (kind !== "verification" && kind !== "cancellation_choice" && kind !== "time_change" && previous) return previous._id;
+  const reminderKind=kind==="pickup_reminder"||kind==="return_reminder";
+  if (kind !== "verification" && kind !== "cancellation_choice" && kind !== "time_change" && !(reminderKind&&previous?.state==="skipped") && previous) return previous._id;
   const sequence = (previous?.sequence ?? 0) + 1;
   if ((kind === "verification" || kind === "time_change") && previous && ["pending","sending"].includes(previous.state))
     await ctx.db.patch(previous._id,{state:"skipped",updatedAt:Date.now(),lastError:"Superseded by a newer notice"});
   const booking=kind==="verification"&&detail.verificationStatus==="verified"?await ctx.db.get(bookingId):null;
   const now=Date.now(), {dueAt,...noticeDetail}=detail, id=await ctx.db.insert("rental_email_deliveries",{
-    bookingId,kind,...noticeDetail,...(booking?{verificationSchedule:pickupScheduleFingerprint(booking)}:{}),key:kind==="refund_invoice"?`${bookingId}:refund_invoice:${detail.refundId}`:`${bookingId}:${kind}:${kind === "verification" || kind === "cancellation_choice" || kind === "time_change" ? sequence : 1}`,
+    bookingId,kind,...noticeDetail,...(booking?{verificationSchedule:pickupScheduleFingerprint(booking)}:{}),key:kind==="refund_invoice"?`${bookingId}:refund_invoice:${detail.refundId}`:`${bookingId}:${kind}:${kind === "verification" || kind === "cancellation_choice" || kind === "time_change" || reminderKind ? sequence : 1}`,
     sequence,state:"pending",attempts:0,generation:0,dueAt:dueAt??now,createdAt:now,updatedAt:now,
   });
   await ctx.scheduler.runAfter(Math.max(0,(dueAt??now)-now),internal.rentalEmailDelivery.dispatchOne,{deliveryId:id});

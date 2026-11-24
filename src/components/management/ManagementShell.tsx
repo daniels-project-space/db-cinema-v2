@@ -15,8 +15,9 @@ const icons: Record<string, string> = {
   people: "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z M3 21v-3a6 6 0 0 1 12 0v3 M17 5a3 3 0 0 1 0 6 M18 15a4 4 0 0 1 3 4v2",
   settings: "M12 3v3 M12 18v3 M3 12h3 M18 12h3 M5.6 5.6l2.1 2.1 M16.3 16.3l2.1 2.1 M5.6 18.4l2.1-2.1 M16.3 7.7l2.1-2.1 M16 12a4 4 0 1 0-8 0 4 4 0 0 0 8 0Z",
 };
-export function ManagementShell({ role, title, name, subtitle, nav, active, onNavigate, actions, children, screenOverride, breadcrumb }: { screenOverride?: string; breadcrumb?: ReactNode; role: "renter" | "admin"; title: string; name: string; subtitle?: string; nav: ManagementNav[]; active: string; onNavigate: (key: string) => void; actions?: ReactNode; children: ReactNode }) {
+export function ManagementShell({ role, title, name, avatarUrl, subtitle, nav, active, onNavigate, actions, menuActions, children, screenOverride, breadcrumb }: { screenOverride?: string; breadcrumb?: ReactNode; role: "renter" | "admin"; title: string; name: string; avatarUrl?: string | null; subtitle?: string; nav: ManagementNav[]; active: string; onNavigate: (key: string) => void; actions?: ReactNode; menuActions?: ReactNode; children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const managementRef = useRef<HTMLDivElement>(null);
   const siteNavigationRef = useRef<HTMLDivElement>(null);
   const screen = screenOverride ?? (active === "inbox" || active === "chat" ? "messages" : active === "bookings" ? "rentals" : active);
@@ -31,6 +32,7 @@ export function ManagementShell({ role, title, name, subtitle, nav, active, onNa
     observer.observe(header);
     return () => observer.disconnect();
   }, []);
+  useEffect(() => setAvatarFailed(false), [avatarUrl]);
   useEffect(() => {
     if (!menuOpen) return;
     const close = (event: KeyboardEvent) => { if (event.key === "Escape") setMenuOpen(false); };
@@ -46,7 +48,7 @@ export function ManagementShell({ role, title, name, subtitle, nav, active, onNa
           <i aria-hidden="true">/</i>
           {breadcrumb ?? <><button type="button" onClick={() => { onNavigate(role === "admin" ? "overview" : "rentals"); setMenuOpen(false); }}>{role === "admin" ? "Management" : "My account"}</button><i aria-hidden="true">/</i><strong aria-current="page">{title}</strong></>}
         </nav>
-        <div className={styles.actor}><span className={styles.avatar}>{name.slice(0, 1).toUpperCase()}</span><span>{name}<small>{role === "admin" ? "Administrator" : "Renter"}</small></span>{actions}</div>
+        <div className={styles.actor}><span className={styles.avatar} data-testid="account-header-avatar-wrap">{role === "renter" && avatarUrl && !avatarFailed ? <img data-testid="account-header-avatar" src={avatarUrl} alt="" referrerPolicy="no-referrer" onError={() => setAvatarFailed(true)} /> : name.slice(0, 1).toUpperCase()}</span><span>{name}<small>{role === "admin" ? "Administrator" : "Renter"}</small></span>{actions}</div>
       </header>
     </div>
     <div className={styles.shell} data-management-role={role} data-management-screen={screen}>
@@ -58,6 +60,7 @@ export function ManagementShell({ role, title, name, subtitle, nav, active, onNa
           <span>{role === "admin" && /^(inventory|customers)\s*&/i.test(item.label) ? item.label.split(" &")[0] : item.label}</span>{!!item.badge && <b>{item.badge}</b>}
         </button>)}
       </nav>
+      {menuActions && <div className={styles.mobileMenuActions}>{menuActions}</div>}
       {secondaryNav.length>0 && <details className={styles.moreTools}><summary>More tools</summary>{secondaryNav.map(item=><button type="button" key={item.key} onClick={()=>{onNavigate(item.key);setMenuOpen(false);}}>{item.label}</button>)}</details>}
       <div className={styles.sidebarBottom}>
         <div className={styles.sidebarImage} aria-hidden="true"><img src={screen === "documents" ? "/images/management/documents-kit-spotlight.webp" : "/arri-deconstruct-poster.jpg"} alt="" loading="lazy" decoding="async" /></div>

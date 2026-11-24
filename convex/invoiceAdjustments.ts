@@ -19,6 +19,7 @@ export const swapAdjustmentInvoiceData = query({
         !Number.isSafeInteger(receipt.cardChargePence) || receipt.cardChargePence < 0 ||
         !Number.isSafeInteger(receipt.cardRefundPence) || receipt.cardRefundPence < 0 ||
         !Number.isSafeInteger(receipt.accountCreditRestoredPence) || receipt.accountCreditRestoredPence < 0 ||
+        !Number.isSafeInteger(receipt.accountCreditAppliedPence ?? 0) || (receipt.accountCreditAppliedPence ?? 0) < 0 ||
         (receipt.cardChargePence > 0 && receipt.cardRefundPence > 0)) return null;
 
     const [swap, booking, account] = await Promise.all([
@@ -40,7 +41,7 @@ export const swapAdjustmentInvoiceData = query({
     }
 
     const identity = swapAdjustmentDocumentIdentity(
-      String(swap._id), receipt.cardChargePence, receipt.cardRefundPence,
+      String(swap._id), receipt.cardChargePence, receipt.cardRefundPence, receipt.accountCreditAppliedPence ?? 0,
     );
     if ((receipt.documentType && receipt.documentType !== identity.documentType) ||
         (receipt.documentNumber && receipt.documentNumber !== identity.documentNumber)) return null;
@@ -57,6 +58,7 @@ export const swapAdjustmentInvoiceData = query({
       cardChargePence: receipt.cardChargePence,
       cardRefundPence: receipt.cardRefundPence,
       accountCreditRestoredPence: receipt.accountCreditRestoredPence,
+      accountCreditAppliedPence: receipt.accountCreditAppliedPence ?? 0,
     };
   },
 });

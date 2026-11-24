@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CancellationPolicyQuickGuide } from "@/components/CancellationPolicyQuickGuide";
 import styles from "./CancellationProtection.module.css";
 import { COMPANY_CANCELLATION_GUARANTEE_LEGAL_VERSIONS } from "@/lib/legal";
+import { cancellationPolicySummary } from "@/lib/cancellationPolicy";
 
 export function CancellationProtection({
   showV16RenterPolicy = false,
@@ -17,6 +18,7 @@ export function CancellationProtection({
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const broadCompanyCancellation = (COMPANY_CANCELLATION_GUARANTEE_LEGAL_VERSIONS as readonly string[]).includes(version);
+  const renterPolicySummary = cancellationPolicySummary(version);
 
   useEffect(() => {
     if (!open) return;
@@ -48,6 +50,7 @@ export function CancellationProtection({
       <span className={styles.free}>Free</span>
       <span aria-hidden className={styles.arrow}>↗</span>
     </button>
+    {renterPolicySummary && <p className="mt-2 px-1 text-xs leading-5 text-white/55">{renterPolicySummary}</p>}
 
     <dialog
       ref={dialog}

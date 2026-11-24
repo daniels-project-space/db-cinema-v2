@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import Link from "next/link";
@@ -13,6 +13,10 @@ import { EmailLink } from "@/components/EmailLink";
 import { AskGaffer } from "@/components/gaffer/AskGaffer";
 import { OpenGafferChat } from "@/components/gaffer/OpenGafferChat";
 import { legalVersionForPolicy, CURRENT_PRIVACY_NOTICE_VERSION } from "../../../shared/legalVersioning";
+import { createClientRequestId } from "@/lib/clientRequestId";
+import { ChatErrorBoundary } from "@/components/rentals/ChatErrorBoundary";
+import { BUSINESS_CONTACT_EMAIL } from "../../../shared/businessEmail";
+import { renterFacingError } from "@/lib/renterFacingError";
 
 export default function ContactPage() {
   const submit = useMutation(api.contact.submit);
@@ -33,6 +37,7 @@ export default function ContactPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [hp, setHp] = useState(""); // honeypot
+  const contactAttempt = useRef<{ fingerprint: string; requestId: string } | null>(null);
 
   useEffect(() => {
     if (!accountLoading && !nameTouched) setName(me?.name ?? "");
@@ -49,12 +54,24 @@ export default function ContactPage() {
     setBusy(true);
     setErr(null);
     try {
-      if (me && token) await sendToAccountChat({ token, text: message });
-      else await submit({ name, email, message, hp });
+      const fingerprint = me && token
+        ? "account:" + message.trim()
+        : JSON.stringify([name.trim(), email.trim().toLowerCase(), message.trim()]);
+      let attempt = contactAttempt.current;
+      if (!attempt || attempt.fingerprint !== fingerprint) {
+        attempt = { fingerprint, requestId: createClientRequestId() };
+        contactAttempt.current = attempt;
+      }
+      if (me && token) {
+        await sendToAccountChat({ token, text: message, requestId: attempt.requestId });
+      } else {
+        const result = await submit({ name, email, message, hp, requestId: attempt.requestId });
+        if (!result?.id) throw new Error("We couldn't confirm your message was received. Please use the email option below.");
+      }
+      contactAttempt.current = null;
       setSent(true);
     } catch (e: any) {
-      const m = String(e?.message || "").match(/Uncaught Error:\s*(.+?)(?:\n|$)/);
-      setErr(m ? m[1] : "Sorry, we couldn't send that — please try again.");
+      setErr(renterFacingError(e, "We couldn't confirm it was received. Please retry; duplicate messages are prevented."));
     } finally {
       setBusy(false);
     }
@@ -71,7 +88,7 @@ export default function ContactPage() {
           sub="Questions about gear, availability or delivery? Gaffer can help with live stock, rental quotes and your booking."
         />
 
-        <div className="mt-8"><OpenGafferChat /></div>
+        <div className="mt-8"><ChatErrorBoundary fallbackHref={`mailto:${BUSINESS_CONTACT_EMAIL}`} fallbackLabel="Email support"><OpenGafferChat /></ChatErrorBoundary></div>
 
         <div className="mt-10 grid gap-8 md:grid-cols-[1fr_260px]">
           <div>
@@ -80,8 +97,8 @@ export default function ContactPage() {
                 <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
                   <IconCheck className="h-6 w-6" />
                 </span>
-                <p className="mt-4 font-display text-lg font-semibold text-white/90">Message sent</p>
-                <p className="mt-2 text-sm leading-relaxed text-white/60">{me ? "Your enquiry is in your account support conversation. Gaffer will reply there." : `Gaffer will read your enquiry and reply to ${email} with answers and next steps.`}</p>
+                <p className="mt-4 font-display text-lg font-semibold text-white/90">Message received</p>
+                <p className="mt-2 text-sm leading-relaxed text-white/60">{me ? "Your message is in account support. Gaffer will try to help first; the team can follow up in this chat." : `Your enquiry is in the support inbox. Gaffer will try to answer ${email} first; if it cannot, the team can follow up.`}</p>
                 {me ? <Link href="/account?conversation=general#chat" className="btn-primary mt-6 py-3">Continue in your Gaffer chat →</Link> : !creating ? <button type="button" className="btn-primary mt-6 py-3" onClick={() => { setTermsAndPrivacyAcknowledged(false); setCreating(true); }}>Create an account &amp; start a Gaffer chat</button> : confirmationSent ? <div className="mt-6 rounded-xl border border-accent-300/20 bg-accent-500/10 p-4 text-sm text-white/75" role="status">Check {email} for your confirmation link. Confirm once to activate your password, then start a Gaffer chat from your account.</div> : <form className="mt-6 space-y-3 text-left" onSubmit={async event => {
                   event.preventDefault(); setBusy(true); setErr(null);
                   try {
@@ -132,7 +149,7 @@ export default function ContactPage() {
                 <button onClick={send} disabled={!valid || busy} className="btn-primary mt-1 py-3">
                   {busy ? "Sending…" : "Send message"}
                 </button>
-                {err && <p className="text-sm text-rose-300">{err}</p>}
+                {err && <p role="alert" className="text-sm text-rose-300">{err} <EmailLink className="ml-2 underline underline-offset-2" label="Email support instead" /></p>}
               </div>
             )}
           </div>
@@ -170,20 +187,20 @@ export default function ContactPage() {
                 <span className="hud-label !text-white/60">In-person collection</span>
               </div>
               <p className="mt-2 text-sm leading-relaxed text-white/60">
-                The Grand Building<br />
-                Trafalgar Square, London<br />
-                WC2N 5EJ
-                <span className="mt-2 block text-white/45">Meet outside the Waterstones bookstore at your confirmed time.</span>
+                Trafalgar Square, London
+                <span className="mt-2 block text-white/45">We share the exact meeting point after payment, verification and booking confirmation.</span>
                 <span className="mt-2 block text-white/35">Ask Gaffer to check delivery for your address and dates.</span>
               </p>
             </div>
           </aside>
         </div>
-        <AskGaffer
-          className="mt-10"
-          title="Don't fancy typing it out?"
-          blurb="Ask Gaffer instead. It can answer most things on the spot, and takes your details across to us if it can't."
-        />
+        <ChatErrorBoundary fallbackHref={`mailto:${BUSINESS_CONTACT_EMAIL}`} fallbackLabel="Email support">
+          <AskGaffer
+            className="mt-10"
+            title="Don't fancy typing it out?"
+            blurb="Ask Gaffer instead. It can answer most things on the spot, and takes your details across to us if it can't."
+          />
+        </ChatErrorBoundary>
       </main>
     </>
   );

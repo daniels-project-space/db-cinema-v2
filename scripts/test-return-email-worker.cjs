@@ -1,8 +1,9 @@
 /** Actual completion worker and claims; delivery is captured, never sent. */
 const assert = require('node:assert/strict');
-const { load, db, put, setMock, tables } = require('./lib/rentalTestHarness.cjs');
+const { load, db, docs, put, setMock, tables } = require('./lib/rentalTestHarness.cjs');
 const deliveries = [];
 let deliver = false, ambiguous = true, rejectPdf = false, fetches = 0;
+process.env.INBOUND_REPLY_ADDRESS = 'support@resend-inbox.example.invalid';
 setMock('./lib/mailer', {
   sendMail: async mail => { deliveries.push(mail); return deliver; },
   sendBusinessMailTracked: async mail => {
@@ -10,7 +11,7 @@ setMock('./lib/mailer', {
     return { sent: deliver, ambiguous: deliver ? false : ambiguous, ...(deliver ? { resendEmailId: `resend-${deliveries.length}` } : {}) };
   },
 });
-const bookings = load('convex/bookings.ts'), invoice = load('convex/invoice.ts');
+const bookings = load('convex/bookings.ts'), invoice = load('convex/invoice.ts'), inbox = load('convex/emailInbox.ts');
 process.env.INVOICE_SECRET = 'fixture-private-invoice-key';
 process.env.APP_URL = 'https://completion.example.invalid';
 const statement = { number:'DBC-R-FIXTURE', issuedAt:Date.now(), actualReturnedAt:Date.now(),
@@ -20,16 +21,19 @@ const statement = { number:'DBC-R-FIXTURE', issuedAt:Date.now(), actualReturnedA
   securityPolicyVersion:'2026-10-refundable-deposit-v1', depositKept:25,
   damageTotal:25, damageAssessed:150, damageFromHold:25,
   damageNote:'Inspected casing damage; repair estimate recorded.', lateAssessed:0, lateWaived:0, lateBreakdown:[] };
-const row = put('bookings', { returnStatement:statement });
+const row = put('bookings', { status:'returned', guestEmail:statement.customerEmail, returnStatement:statement });
 let pdf;
 global.fetch = async (url, options) => {
   fetches++;
-  assert.equal(url, `${process.env.APP_URL}/api/invoice/${row._id}?phase=return`);
+  assert.match(url, new RegExp(`^${process.env.APP_URL}/api/invoice/bookings-[^?]+\\?phase=return$`));
   assert.equal(options.headers['x-invoice-key'],process.env.INVOICE_SECRET);
   return new Response(rejectPdf ? 'not a PDF' : pdf, { headers:{'content-type':rejectPdf?'text/html':'application/pdf'} });
 };
-const ctx = { db, scheduler:{runAfter:async()=>{}}, runMutation:async(ref,args)=>bookings[ref.split('.')[1]].handler(ctx,args),
-  runQuery:async(ref,args)=>bookings[ref.split('.')[1]].handler(ctx,args) };
+const ctx = { db, scheduler:{runAfter:async()=>{}}, runMutation:async(ref,args)=>{
+    if (ref === 'emailInbox.prepareReturnStatementEmail') return inbox.prepareReturnStatementEmail.handler(ctx,args);
+    if (ref === 'emailInbox.finishReturnStatementEmail') return inbox.finishReturnStatementEmail.handler(ctx,args);
+    return bookings[ref.split('.')[1]].handler(ctx,args);
+  }, runQuery:async(ref,args)=>bookings[ref.split('.')[1]].handler(ctx,args) };
 (async()=>{
   const React=require('react'), {Document,Page,Text,renderToBuffer}=await import('@react-pdf/renderer');
   pdf=await renderToBuffer(React.createElement(Document,null,React.createElement(Page,null,
@@ -39,7 +43,12 @@ const ctx = { db, scheduler:{runAfter:async()=>{}}, runMutation:async(ref,args)=
   assert.equal(row.returnStatementEmailAmbiguous,true,'A lost/uncertain provider response remains retryable while the idempotency window is valid');
   assert.equal(deliveries.length,1);
   const mail=deliveries[0]; assert.equal(mail.to,statement.customerEmail);
-  assert.equal(mail.deliveryKey,`return-statement-${row._id}-${statement.number}`,'Return statement retries use a deterministic Resend idempotency key');
+  assert.equal(mail.deliveryKey,`return-statement:${row._id}`,'Return statement retries use a deterministic Resend idempotency key');
+  const outbound=tables.get('email_messages').find(message=>message.providerId===`return-statement:${row._id}`);
+  const emailThread=docs.get(outbound.threadId);
+  assert.equal(outbound.state,'uncertain','An ambiguous provider result remains visible in the central inbox');
+  assert.equal(emailThread.bookingId,row._id,'The tracked return statement is linked to its rental');
+  assert.equal(mail.replyTo,`gaffer+${emailThread.replyKey}@resend-inbox.example.invalid`,'Return statement delivery is routed through a tracked Gaffer reply alias');
   assert(mail.html.includes('Deposit retained £25.00')); assert(mail.html.includes(statement.damageNote));
   assert(mail.html.includes('original payment method')); assert(mail.html.includes('5–10 business days')); assert(mail.html.includes('Refunds confirmed by Stripe')); assert(!mail.html.includes('Confirmed bank refunds'));
   assert.equal(Buffer.from(mail.attachments[0].content,'base64').compare(pdf),0);
@@ -50,8 +59,31 @@ const ctx = { db, scheduler:{runAfter:async()=>{}}, runMutation:async(ref,args)=
   await invoice.returnSettlementEmail.handler(ctx,{bookingId:row._id});
   assert.equal(row.returnStatementEmailStatus,'sent'); assert(row.returnStatementEmailedAt);
   assert.equal(deliveries.at(-1).deliveryKey,mail.deliveryKey,'Failed retries reuse the original Resend idempotency key');
+  assert.equal(deliveries.at(-1).replyTo,mail.replyTo,'Retries preserve the tracked Gaffer reply address');
+  assert.equal(tables.get('email_messages').filter(message=>message.providerId===`return-statement:${row._id}`).length,1,'Retries reuse one central outbox row');
+  assert.equal(outbound.state,'sent');
   const before=fetches; await invoice.returnSettlementEmail.handler(ctx,{bookingId:row._id});
   assert.equal(fetches,before,'Sent statements neither regenerate nor resend');
+
+  const concurrentEmail='concurrent-return@example.invalid';
+  const concurrent=put('bookings',{status:'returned',guestEmail:concurrentEmail,returnStatement:{...statement,number:'DBC-R-CONCURRENT',customerEmail:concurrentEmail}});
+  const beforeConcurrent=deliveries.length;
+  await Promise.all([
+    invoice.returnSettlementEmail.handler(ctx,{bookingId:concurrent._id}),
+    invoice.returnSettlementEmail.handler(ctx,{bookingId:concurrent._id}),
+  ]);
+  assert.equal(concurrent.returnStatementEmailStatus,'sent');
+  assert.equal(deliveries.length,beforeConcurrent+1,'Concurrent claims send a return statement once');
+  assert.equal(tables.get('email_messages').filter(message=>message.providerId===`return-statement:${concurrent._id}`).length,1,'Concurrent retries retain one central outbox row');
+
+  const changedEmail='old-return-contact@example.invalid';
+  const changed=put('bookings',{status:'returned',guestEmail:'new-return-contact@example.invalid',returnStatement:{...statement,number:'DBC-R-CHANGED',customerEmail:changedEmail}});
+  const beforeChanged=deliveries.length;
+  await invoice.returnSettlementEmail.handler(ctx,{bookingId:changed._id});
+  assert.equal(changed.returnStatementEmailStatus,'failed');
+  assert.equal(deliveries.length,beforeChanged,'A recipient changed after return fails closed without sending');
+  assert.equal(tables.get('email_messages').some(message=>message.providerId===`return-statement:${changed._id}`),false,'A stale recipient cannot claim an inbox outbox row');
+
   row.returnStatementEmailStatus='failed'; rejectPdf=true;
   const count=deliveries.length;
   const originalError=console.error; console.error=()=>{};

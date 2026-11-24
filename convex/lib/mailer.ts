@@ -1,6 +1,5 @@
 "use node";
 
-import { createHash } from "node:crypto";
 import { brandedEmailHtml } from "../../shared/emailBrand";
 import { BUSINESS_CONTACT_EMAIL, isBusinessSender } from "../../shared/businessEmail";
 
@@ -8,9 +7,9 @@ import { BUSINESS_CONTACT_EMAIL, isBusinessSender } from "../../shared/businessE
  * The one place email leaves this app.
  *
  * Every customer and operator message uses the verified DB Cinema sender on
- * Resend. Replies go to the monitored business Gmail mailbox unless a message
- * is explicitly threaded to a customer or Gaffer reply address. A ChatGPT
- * Gmail connection or SMTP password is never treated as a website credential.
+ * Resend. Replies use the configured central inbound route when available,
+ * with the monitored Gmail as a safe fallback. A ChatGPT Gmail connection or
+ * SMTP password is never treated as a website credential.
  *
  * Callers previously swallowed every failure in a bare catch, so a
  * rejected send was indistinguishable from a delivered one — the contact form
@@ -36,20 +35,23 @@ export type MailInput = {
   subject: string;
   html: string;
   text?: string;
-  /** Defaults to the owner address; set per-send to thread a reply elsewhere. */
+  /** Defaults to the configured central inbound route, then the monitored owner inbox. */
   replyTo?: string;
   inReplyTo?: string;
   references?: string[];
   attachments?: MailAttachment[];
 };
 
-export function deliveryMessageId(deliveryKey: string): string {
-  return `<rental-${createHash("sha256").update(deliveryKey).digest("hex")}@dbcinemarentals.com>`;
-}
-
 export const OWNER_EMAIL = () => BUSINESS_CONTACT_EMAIL;
 
-async function viaResend(m: MailInput, key: string): Promise<{ sent: boolean; resendEmailId?: string; ambiguous?: boolean }> {
+function defaultReplyAddress() {
+  const inboundAddress = process.env.INBOUND_REPLY_ADDRESS?.trim();
+  return inboundAddress && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(inboundAddress)
+    ? inboundAddress
+    : OWNER_EMAIL();
+}
+
+async function viaResend(m: MailInput, key: string): Promise<{ sent: boolean; resendEmailId?: string; messageId?: string; ambiguous?: boolean }> {
   const from = m.from?.trim() || process.env.RESEND_FROM?.trim();
   if (!from || !isBusinessSender(from)) {
     console.error("[mail] refusing customer mail without the verified DB Cinema sender");
@@ -67,7 +69,7 @@ async function viaResend(m: MailInput, key: string): Promise<{ sent: boolean; re
         subject: m.subject,
         html: brandedEmailHtml(m.html),
         ...(m.text ? { text: m.text } : {}),
-        reply_to: m.replyTo ?? OWNER_EMAIL(),
+        reply_to: m.replyTo ?? defaultReplyAddress(),
         ...(m.inReplyTo || m.references?.length ? { headers: {
           ...(m.inReplyTo ? { "In-Reply-To": m.inReplyTo } : {}),
           ...(m.references?.length ? { References: m.references.join(" ") } : {}),
@@ -85,7 +87,15 @@ async function viaResend(m: MailInput, key: string): Promise<{ sent: boolean; re
     }
     let result: any = null;
     try { result = await res.json(); } catch { /* a successful API status still means Resend accepted it */ }
-    return { sent: true, ambiguous: false, ...(typeof result?.id === "string" && result.id.trim() ? { resendEmailId: result.id.trim() } : {}) };
+    const messageId = typeof result?.message_id === "string" && /^<[^<>\r\n\s]+>$/.test(result.message_id.trim())
+      ? result.message_id.trim()
+      : undefined;
+    return {
+      sent: true,
+      ambiguous: false,
+      ...(typeof result?.id === "string" && result.id.trim() ? { resendEmailId: result.id.trim() } : {}),
+      ...(messageId ? { messageId } : {}),
+    };
   } catch (e) {
     console.error("[mail] resend send failed:", String((e as any)?.message ?? e));
     return { sent: false, ambiguous: true };
@@ -108,14 +118,14 @@ function configuredBusinessSender() {
  * All website messages use the verified DB Cinema domain through Resend.
  * ChatGPT's Gmail connection is not a backend credential.
  */
-export async function sendBusinessMailTracked(m: MailInput): Promise<{ sent: boolean; resendEmailId?: string; ambiguous?: boolean }> {
+export async function sendBusinessMailTracked(m: MailInput): Promise<{ sent: boolean; resendEmailId?: string; messageId?: string; ambiguous?: boolean }> {
   const key = process.env.RESEND_API_KEY?.trim();
   const sender = configuredBusinessSender();
   if (!key || !sender) {
     console.error("[mail] business Resend sender is not configured for dbcinemarentals.com");
     return { sent: false, ambiguous: false };
   }
-  return viaResend({ ...m, from: sender.from, replyTo: m.replyTo ?? OWNER_EMAIL() }, key);
+  return viaResend({ ...m, from: sender.from, replyTo: m.replyTo ?? defaultReplyAddress() }, key);
 }
 
 export async function sendBusinessMail(m: MailInput): Promise<boolean> {

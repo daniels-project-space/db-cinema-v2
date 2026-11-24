@@ -18,14 +18,17 @@ import { SavedCardCharges } from "@/components/rentals/SavedCardCharges";
 import {OperatorCancellationStatus} from "./OperatorCancellationStatus";
 import { RentalDeliveryQuotePanel } from "./RentalDeliveryQuotePanel";
 import { RentalReviewRequest } from "./RentalReviewRequest";
+import { RentalPricePanel } from "@/components/rentals/RentalPricePanel";
 import { RentalCasePanel } from "./RentalCasePanel";
 import { RentalSwapRecovery } from "./RentalSwapRecovery";
 import { RentalSwapStockReview } from "./RentalSwapStockReview";
 import { RentalSwapProposal } from "./RentalSwapProposal";
 import { InventoryConflictRefund } from "./InventoryConflictRefund";
 import { CompactRentalImages } from "./CompactRentalImages";
+import { AdminHandoverSummary } from "./AdminHandoverSummary";
 import { RENTAL_TIME_SLOTS } from "../../../shared/rentalWindow";
 import { hasCashDepositPolicy } from "../../../shared/rentalSecurity";
+import { confirmedRentalRefundPence, rentalRefundSummary } from "../../../shared/rentalRefundSummary";
 
 const stripeApprovalUrlPattern = /^https:\/\/dashboard\.stripe\.com\/(?:acct_[A-Za-z0-9]+\/)?settings\/approvals\/requests\/apreq_[A-Za-z0-9]+$/;
 function safeStripeApprovalUrl(value: unknown): string | undefined {
@@ -57,6 +60,7 @@ export function RentalOrderTools({
   showReturn = true,
   showSavedCardTools = true,
   compactControls = false,
+  showPriceTools = false,
   initialMode,
 }: {
   token: string;
@@ -67,6 +71,8 @@ export function RentalOrderTools({
   showSavedCardTools?: boolean;
   /** Group the account-rail actions into short, discoverable rows. */
   compactControls?: boolean;
+  /** Show the existing renter-accepted price-change path beside rental payments. */
+  showPriceTools?: boolean;
   /** The exact extension request already shown by the adjacent live extension panel. */
   initialMode?:"reschedule"|"refund"|"add";
 }) {
@@ -101,7 +107,8 @@ export function RentalOrderTools({
     return () => window.clearTimeout(timer);
   }, [lookup]);
   const add = useAction(api.rentalAdditions.start),
-    withdraw = useAction(api.rentalAdditions.withdrawByOwner);
+    withdraw = useAction(api.rentalAdditions.withdrawByOwner),
+    recoverAdditionPayment = useAction(api.rentalAdditions.recoverPayment);
   const setStatus = useMutation(api.bookings.adminSetStatus);
   const [returnOpen, setReturnOpen] = useState(false);
   const reschedule = useMutation(api.rentalOperations.reschedule),
@@ -114,7 +121,8 @@ export function RentalOrderTools({
     [date, setDate] = useState(""),
     [endDate, setEndDate] = useState(""),
     [reason, setReason] = useState(""),
-    [amount, setAmount] = useState("");
+    [amount, setAmount] = useState(""),
+    [refundLineIndex, setRefundLineIndex] = useState("");
   const [keepAgreedPrice, setKeepAgreedPrice] = useState(false);
   const [rescheduleSnapshot, setRescheduleSnapshot] = useState<string | undefined>();
   const [handoverLines, setHandoverLines] = useState<number[]>([]), [handoverTime, setHandoverTime] = useState(""), [handoverSnapshot, setHandoverSnapshot] = useState("");
@@ -148,6 +156,25 @@ export function RentalOrderTools({
     b.activeExtensionId || b.activePriceAdjustmentId,
   );
   const diditDeclinedPending = b.status === "pending_verification" && b.verificationProvider === "didit" && b.idVerifyStatus === "rejected";
+  const refundSummary = rentalRefundSummary(b.total, b.depositAmount ?? 0, b.rentalRefunds ?? []);
+  const hasUnitemizedConfirmedRefund = b.rentalRefunds.some((refund: any) => !refund.lineAllocation && confirmedRentalRefundPence(refund) > 0 && !(b.itemPaymentLedgerVersion===1 && b.itemPaymentLedger && b.itemPaymentLedgerRefundIds?.some(id=>String(id)===String(refund._id))));
+  const refundItemOptions = b.lineItems.map((line: any, index: number) => {
+    const funding = b.checkoutLineFunding?.[index];
+    const additionCardPence = b.addedItemCardPence?.[index];
+    const fundingMatches = funding && String(funding.listingId) === String(line.listingId) && funding.qty === line.qty && Number.isFinite(funding.card) && funding.card >= 0 || Number.isSafeInteger(additionCardPence) && additionCardPence! > 0;
+    const recorded = b.itemPaymentLedgerVersion === 1 && b.itemPaymentLedger?.length === b.lineItems.length ? b.itemPaymentLedger[index] : null;
+    const recordedSourcesValid = !!(recorded && funding && String(recorded.listingId) === String(line.listingId) && recorded.qty === line.qty && String(funding.listingId) === String(line.listingId) && funding.qty === line.qty && recorded.sources.every(source => !!source.paymentIntentId && Number.isSafeInteger(source.amountPence) && source.amountPence > 0) && new Set(recorded.sources.map(source => source.paymentIntentId)).size === recorded.sources.length && recorded.sources.reduce((sum,source) => sum + source.amountPence,0) === Math.round(funding.card * 100));
+    const sourceUncertain = !!b.itemRefundSourceUncertain && !recordedSourcesValid;
+    const itemRefunded = b.rentalRefunds.reduce((total: number, refund: any) => {
+      const allocation = refund.lineAllocation;
+      return allocation && allocation.lineIndex === index && String(allocation.listingId) === String(line.listingId) && allocation.qty === line.qty
+        ? total + confirmedRentalRefundPence(refund)
+        : total;
+    }, 0);
+    const maxPence = fundingMatches ? Math.min(refundSummary.remainingRefundCapPence, Math.max(0, (funding ? Math.round(funding.card * 100) : additionCardPence!) - itemRefunded)) : 0;
+    return { line, index, maxPence, sourceUncertain, selectable: !!fundingMatches && maxPence > 0 && !hasUnitemizedConfirmedRefund && !sourceUncertain };
+  });
+  const selectedRefundLine = refundLineIndex === "" ? undefined : refundItemOptions[Number(refundLineIndex)];
   const savedApprovalUrl = safeStripeApprovalUrl(processing?.refundReceipts?.find(receipt => receipt.status === "awaiting_approval")?.approvalUrl);
   const processingApprovalUrl = savedApprovalUrl ?? (refundApproval && processing?.requestId === refundApproval.requestId ? safeStripeApprovalUrl(refundApproval.url) : undefined);
   async function submit() {
@@ -203,12 +230,15 @@ export function RentalOrderTools({
       if (mode === "refund") {
         request.current ??= crypto.randomUUID();
         const requestId = request.current;
+        const refundReason = selectedRefundLine ? `${reason.trim()} — ${rentalTitle(selectedRefundLine.line.title)}` : reason;
         const r = await refund({
           token,
           bookingId: bookingId as any,
           requestId,
           amountPence: amount ? Math.round(Number(amount) * 100) : undefined,
-          reason,
+          ...(selectedRefundLine ? { lineIndex: selectedRefundLine.index } : {}),
+          reason: refundReason,
+          expectedSnapshot: b.controlsSnapshot,
         });
         setResult(r.status === "awaiting_approval" ? `${formatGbp(r.amount)} rental refund is awaiting Stripe approval.` : `${formatGbp(r.amount)} rental refund: ${r.status}.`);
         const approvalUrl = safeStripeApprovalUrl(r.approvalUrl);
@@ -232,6 +262,7 @@ export function RentalOrderTools({
         token,
         bookingId: bookingId as any,
         requestId: processing.requestId,
+        ...(processing.lineAllocation ? { lineIndex: processing.lineAllocation.lineIndex } : {}),
         reason: processing.reason,
       });
       setResult(r.status === "awaiting_approval" ? `${formatGbp(r.amount)} rental refund is awaiting Stripe approval.` : `${formatGbp(r.amount)} refund: ${r.status}.`);
@@ -283,6 +314,14 @@ export function RentalOrderTools({
       setBusy(false);
     }
   }
+  async function recoverAddition(id: string) {
+    setBusy(true); setError(""); setResult("");
+    try {
+      const result = await recoverAdditionPayment({ token, id: id as any });
+      setResult(result.status === "paid" ? "Payment confirmed. Item added." : result.status === "closed" ? "Proposal closed. Check account credit." : result.status === "processing" ? "Payment is still processing." : "No unique payment found. Review Stripe.");
+    } catch (e: any) { setError(e.message ?? "Payment check failed. The rental remains protected."); }
+    finally { setBusy(false); }
+  }
   const compactButton = (base: string) => `${compactControls ? "w-full justify-start rounded-xl text-left" : "rounded-full"} ${base}`;
   const changeButtons = <>
     {["pending_payment", "confirmed", "active"].includes(b.status) && <button data-testid="rental-action-add-item" disabled={busy || !!b.returnDecision || !!processing || hasActiveRentalChange || !!b.cancellationDecision} onClick={() => { request.current = null; setMode("add"); setError(""); }} className={compactButton("border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35")}>Add item</button>}
@@ -303,35 +342,39 @@ export function RentalOrderTools({
   </>;
   const paymentButtons = <>
     {(["confirmed", "pending_payment"].includes(b.status) || diditDeclinedPending) && blockingRequestStateReady && !blockingRequests.cancel && <button data-testid="rental-action-cancel" disabled={busy || blockingRequests.any || !!b.returnDecision || !!processing || hasActiveRentalChange} title={blockingRequests.any ? "Resolve the renter’s open request first" : undefined} onClick={() => { setMode("cancel"); setError(""); }} className={compactButton("border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35")}>{b.cancellationDecision ? "Resume cancellation" : diditDeclinedPending ? "Retry settlement" : "Cancel rental"}</button>}
-    {["confirmed", "active"].includes(b.status) && b.stripePaymentIntentId && <button data-testid="rental-action-refund" disabled={busy || !!processing || !!b.returnDecision || !!b.cancellationDecision || hasActiveRentalChange} onClick={() => { setMode("refund"); setError(""); }} className={compactButton("border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35")}>Refund rental charge</button>}
+    {["confirmed", "active"].includes(b.status) && (b.hasRefundablePayment || b.stripePaymentIntentId) && <button data-testid="rental-action-refund" disabled={busy || !!processing || !!b.returnDecision || !!b.cancellationDecision || hasActiveRentalChange} onClick={() => { request.current = null; setAmount(""); setRefundLineIndex(""); setReason(""); setMode("refund"); setError(""); }} className={compactButton("border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35")}>Refund rental charge</button>}
   </>;
   const hasChangeActions = ["pending_payment", "confirmed", "active"].includes(b.status);
   const hasHandoverActions = b.status === "confirmed" || showReturn && (b.status === "active" || !!b.returnDecision && b.status !== "returned");
-  const hasPaymentActions = ["confirmed", "pending_payment"].includes(b.status) || ["confirmed", "active"].includes(b.status) && !!b.stripePaymentIntentId || diditDeclinedPending;
+  const hasPaymentActions = ["confirmed", "pending_payment"].includes(b.status) || ["confirmed", "active"].includes(b.status) && !!(b.hasRefundablePayment || b.stripePaymentIntentId) || diditDeclinedPending;
   return (
     <div data-testid="owner-rental-tools">
       {(b.verificationConfirmationIssue === "inventory_unavailable" || b.verificationConfirmationIssue === "manager_capacity_conflict") && <div role="alert" className="mb-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-xs text-amber-100">
         <p className="font-semibold">Checkout completed · {b.verificationConfirmationIssue === "manager_capacity_conflict" ? "Manager could not reserve stock" : "equipment needs review"}</p>
         <p className="mt-1">This booking is not confirmed. Recheck live availability and payment, and contact the renter before offering alternatives. If it cannot be fulfilled, resolve the original payment through the approved settlement process. Do not mark it confirmed without an acknowledged stock reservation.</p>
       </div>}
-      {diditDeclinedPending && <div role="alert" data-testid="didit-declined-rental-notice" className="mb-3 rounded-xl border border-rose-300/20 bg-rose-300/[.05] px-3 py-2.5 text-xs text-rose-100"><p className="font-medium">Didit declined · settlement queued</p><p className="mt-1 text-rose-100/70">Accepted terms apply. No 130% bonus. Retry if it stays pending.</p></div>}
+      {diditDeclinedPending && <div role="alert" data-testid="didit-declined-rental-notice" className="mb-3 rounded-xl border border-rose-300/20 bg-rose-300/[.05] px-3 py-2.5 text-xs text-rose-100"><p className="font-medium">Didit declined · rental needs resolution</p><p className="mt-1 text-rose-100/70">{b.cancellationDecision ? "Retry the saved settlement." : "Cancel to begin settlement under the accepted terms."} No 130% bonus applies.</p></div>}
       <section className={chatStyles.bookingFacts} aria-label="Booked equipment and handover">
         {b.lineItems.length > 0 && <div className="mb-3"><CompactRentalImages items={b.lineItems} /></div>}
         <div className={chatStyles.factsIdentity}><div className="min-w-0"><h5>{rentalTitle(b.lineItems[0]?.title ?? "Rental kit")}</h5><p>DBC-{bookingId.slice(-8).toUpperCase()} · {b.lineItems.length} listings</p></div></div>
-        <dl><div><dt>Rental dates</dt><dd>{b.lineItems.length ? rentalDate(Math.min(...b.lineItems.map(l => l.start)), Math.max(...b.lineItems.map(l => l.end))) : "Dates need review"}</dd></div><div><dt>{b.fulfilment === "delivery" ? "Delivery" : "Collection"}</dt><dd>{rentalHandoverLabel(b,"pickup")}</dd></div><div><dt>Return</dt><dd>{rentalHandoverLabel(b,"return")}</dd></div><div><dt>Customer</dt><dd>{b.guestName || b.guestEmail}</dd></div><div><dt>Verification</dt><dd data-verified={b.idVerifyStatus === "verified"}>{b.idVerifyStatus === "verified" ? "✓ Verified" : (b.idVerifyStatus ?? "Required").replaceAll("_", " ")}</dd></div></dl>
+        <dl><div><dt>Rental dates</dt><dd>{b.lineItems.length ? rentalDate(Math.min(...b.lineItems.map(l => l.start)), Math.max(...b.lineItems.map(l => l.end))) : "Dates need review"}</dd></div><div><dt>Customer</dt><dd>{b.guestName || b.guestEmail}</dd></div><div><dt>Verification</dt><dd data-verified={b.idVerifyStatus === "verified"}>{b.idVerifyStatus === "verified" ? "✓ Verified" : (b.idVerifyStatus ?? "Required").replaceAll("_", " ")}</dd></div></dl>
       </section>
+      <AdminHandoverSummary booking={b} />
       <InventoryConflictRefund key={`inventory-conflict:${token}:${bookingId}`} token={token} bookingId={bookingId}/>
       <RentalRequestHistory token={token} bookingId={bookingId} admin onBlockingRequests={publishBlockingRequests} onPrepareItemChange={prepareItemChangeQuote} />
       <RentalSwapRecovery key={`swap-recovery:${token}:${bookingId}`} token={token} bookingId={bookingId} />
       <RentalSwapStockReview key={`swap-stock-review:${token}:${bookingId}`} token={token} bookingId={bookingId} />
       {b.status === "confirmed" && <RentalSwapProposal key={`swap-proposal:${token}:${bookingId}`} token={token} bookingId={bookingId} items={b.lineItems} itemChangeRequest={itemQuoteRequest} onItemChangeQuoteSent={clearItemChangeQuote} />}
       <OperatorCancellationStatus key={`cancellation-status:${bookingId}`} token={token} bookingId={bookingId}/>
-      {b.fulfilment === "delivery" && b.deliveryLegs === "one_way" && <p className="mt-2 rounded-lg border border-sky-200/10 bg-sky-300/[0.04] px-3 py-2 text-xs text-sky-100/70">One-way delivery · renter returns the kit to the Trafalgar Square collection point.</p>}
-      <dl className={chatStyles.paymentSummary} aria-label="Booking financial summary">
-        <div><dt>Booking total</dt><dd>{formatGbp(b.total)}</dd></div>
+      <dl className={chatStyles.paymentSummary} aria-label="Booking financial summary" data-testid="rental-financial-summary">
+        <div><dt>Rental charge · security excluded</dt><dd>{formatGbp(refundSummary.rentalAmountPence / 100)}</dd></div>
+        <div><dt>Rental refunds confirmed</dt><dd>{formatGbp(refundSummary.confirmedRefundedPence / 100)}</dd></div>
+        {refundSummary.pendingRefundPence > 0 && <div><dt>Refund in progress</dt><dd>{formatGbp(refundSummary.pendingRefundPence / 100)}</dd></div>}
+        <div><dt>Refund cap left after pending</dt><dd>{formatGbp(refundSummary.remainingRefundCapPence / 100)}</dd></div>
         <div><dt>Refundable deposit</dt><dd>{formatGbp(b.depositAmount ?? 0)}</dd></div>
         <div><dt>Card authorisation</dt><dd>{formatGbp(b.depositHoldAmount ?? 0)}</dd></div>
       </dl>
+      <p className="mt-1 text-[10px] leading-4 text-white/40">In-progress refunds temporarily reduce the cap; failed refunds restore it. Security is separate, and Stripe checks the actual card balance.</p>
       <RentalDeliveryQuotePanel token={token} booking={b} />
       <RentalReviewRequest key={`review-request:${token}:${bookingId}`} token={token} bookingId={bookingId} />
       {["confirmed", "active", "returned"].includes(b.status) && <RentalCasePanel key={`rental-case:${token}:${bookingId}`} token={token} bookingId={bookingId} />}
@@ -349,6 +392,7 @@ export function RentalOrderTools({
       {showReturn && !returnOpen && b.status === "returned" && !!b.returnDecision && hasCashDepositPolicy(b.securityPolicyVersion) && <DepositRefundStatus token={token} bookingId={bookingId} />}
       <ReturnInspectionHistory token={token} bookingId={bookingId} />
       <RentalManagerDelivery token={token} bookingId={bookingId} />
+      {showPriceTools && <details id="rental-price-adjustment" data-testid="rental-price-adjustment-tools" className="mt-3 rounded-xl border border-white/10 bg-white/[.025] p-3"><summary className="cursor-pointer text-xs font-medium text-white/75">Add or reduce a rental amount</summary><p className="mt-2 text-[11px] leading-4 text-white/45">Extra charges go through the existing price proposal. The renter must accept and pay before the rental total changes.</p><RentalPricePanel token={token} bookingId={bookingId} admin /></details>}
       {additions
         .filter(
           (r) =>
@@ -359,6 +403,7 @@ export function RentalOrderTools({
         .map((r) => (
           <div
             key={r._id}
+            data-testid="rental-addition-recovery"
             className="mt-3 rounded-xl bg-white/[0.035] p-3 text-xs text-white/60"
           >
             <p>
@@ -367,7 +412,7 @@ export function RentalOrderTools({
               {r.status.replaceAll("_", " ")}
             </p>
             <div className="mt-2 flex gap-3">
-              {!r.paymentUrl && (
+              {r.recoveryNeedsReview ? <button disabled={busy} onClick={() => void recoverAddition(r._id)} className="rounded-full border border-amber-200/30 px-3 py-1.5 text-amber-100 disabled:opacity-40">Check Stripe</button> : !r.paymentUrl && (
                 <button
                   disabled={busy}
                   onClick={() => resumeAddition(r)}
@@ -386,18 +431,19 @@ export function RentalOrderTools({
                   Open payment link
                 </a>
               )}
-              <button
+              {!r.recoveryNeedsReview && <button
                 disabled={busy}
                 onClick={() => withdrawAddition(r._id)}
                 className="text-rose-300"
               >
                 Withdraw proposal
-              </button>
+              </button>}
             </div>
-            <p className="mt-2 text-white/35">
+            {r.recoveryNeedsReview && <p role="status" className="mt-2 text-amber-100">Payment needs checking. The rental and credit remain protected.</p>}
+            {!r.recoveryNeedsReview && <p className="mt-2 text-white/35">
               Finish or withdraw this proposal before a refund, return,
               reschedule or cancellation.
-            </p>
+            </p>}
           </div>
         ))}
       {processing && (
@@ -452,7 +498,7 @@ export function RentalOrderTools({
                   ? "Move the rental or set a new return date. Agreed charges and security stay the same: extra days are complimentary. Any eligible refund uses the separate refund control. Stock is checked before saving."
                   : mode === "pickup-time" || mode === "return-time"
                     ? "Choose all items or select the affected items. Other items keep their times. We recheck availability before saving and notify the renter in chat and by email. Times are London local time."
-                  : "Refund all remaining rental payment, or specify a smaller amount. Security payment is handled separately on return or cancellation."}
+                  : "Choose an item or the rental total. Security is separate."}
           </p>
           {mode === "add" && (
             <div className="mt-3">
@@ -529,12 +575,32 @@ export function RentalOrderTools({
           {(mode === "pickup-time" || mode === "return-time") && <div className="mt-3 grid gap-3"><fieldset className="grid gap-2"><legend className="text-xs text-white/55">Items affected</legend><label className="mt-2 flex items-center gap-2 text-xs text-white/80"><input type="checkbox" checked={handoverLines.length === b.lineItems.length} onChange={event=>{setHandoverLines(event.target.checked?b.lineItems.map((_,index)=>index):[]);request.current=null;}}/>All items</label>{b.lineItems.map((line,index)=><label key={index} className="flex items-center gap-2 rounded-xl border border-white/10 p-3 text-xs text-white/70"><input type="checkbox" checked={handoverLines.includes(index)} onChange={event=>{setHandoverLines(current=>event.target.checked?[...current,index]:current.filter(value=>value!==index));request.current=null;}}/>{line.qty}× {rentalTitle(line.title)} · {mode === "pickup-time" ? line.pickupTime ?? "pickup time not set" : line.returnTime ?? "return time not set"}</label>)}</fieldset><label className="text-xs text-white/55">New {mode === "pickup-time" ? "pickup" : "return"} time<select data-testid="rental-handover-time" aria-label={`New ${mode === "pickup-time" ? "pickup" : "return"} time`} required value={handoverTime} onChange={event=>{setHandoverTime(event.target.value);request.current=null;}} className="mt-1 block w-full rounded-xl border border-white/10 bg-[#151515] p-3 text-white"><option value="">Choose a time</option>{RENTAL_TIME_SLOTS.map(time=><option key={time} value={time}>{time}</option>)}</select></label></div>}
           {mode === "reschedule" && endDate && <label className="mt-3 flex items-start gap-2 text-xs text-white/60"><input type="checkbox" required checked={keepAgreedPrice} onChange={e => setKeepAgreedPrice(e.target.checked)} className="mt-0.5" />Keep the agreed rental charge for these dates. I approve any extra days as complimentary; any eligible refund is handled separately.</label>}
           {mode === "refund" && (
+            <>
+            <div className="mt-3 rounded-xl border border-white/10 bg-black/15 p-3" data-testid="refund-summary-card">
+              <div className="flex justify-between gap-3 text-xs"><span className="text-white/55">Rental amount</span><strong>{formatGbp(refundSummary.rentalAmountPence / 100)}</strong></div>
+              <div className="mt-2 flex justify-between gap-3 text-xs"><span className="text-white/55">Confirmed refunds</span><strong>{formatGbp(refundSummary.confirmedRefundedPence / 100)}</strong></div>
+              {refundSummary.pendingRefundPence > 0 && <div className="mt-2 flex justify-between gap-3 text-xs text-amber-100"><span>In progress</span><strong>{formatGbp(refundSummary.pendingRefundPence / 100)}</strong></div>}
+              <div className="mt-2 flex justify-between gap-3 border-t border-white/10 pt-2 text-xs"><span className="text-white/65">Available</span><strong className="text-emerald-100">{formatGbp(refundSummary.remainingRefundCapPence / 100)}</strong></div>
+              <p className="mt-2 text-[10px] leading-4 text-white/40">Stripe checks the payment. Security is separate.</p>
+            </div>
+            <label className="mt-3 block text-xs text-white/55">Refund scope
+              <select data-testid="refund-item-choice" value={refundLineIndex} disabled={busy || !!processing} onChange={event=>{const value=event.target.value;setRefundLineIndex(value);request.current=null;setAmount(value===""?"":((refundItemOptions[Number(value)]?.maxPence??0)/100).toFixed(2));}} className="mt-1 w-full rounded-xl border border-white/10 bg-[#151515] p-3 text-white">
+                <option value="">Entire rental</option>
+                {refundItemOptions.map(({line,index,selectable,sourceUncertain})=><option key={`${line.listingId}-${index}`} value={index} disabled={!selectable}>{line.qty}× {rentalTitle(line.title)}{selectable?"":sourceUncertain?" · payment needs review":hasUnitemizedConfirmedRefund?" · refund needs review":" · no card payment"}</option>)}
+              </select>
+            </label>
+            {hasUnitemizedConfirmedRefund && <p role="status" className="mt-2 rounded-lg border border-amber-200/15 bg-amber-100/[.04] p-2 text-[11px] leading-4 text-amber-100/80">An earlier refund has no item record. Review the refund history before targeting an individual item; the overall refund option remains available.</p>}
+            {refundItemOptions.some(item=>item.sourceUncertain) && <p role="status" className="mt-2 rounded-lg border border-amber-200/15 bg-amber-100/[.04] p-2 text-[11px] leading-4 text-amber-100/80">Some item payment sources need review. You can use a rental-total refund.</p>}
+            {selectedRefundLine && <p className="mt-2 text-[11px] leading-4 text-sky-100/70">Item card payment: up to {formatGbp(selectedRefundLine.maxPence/100)}. Delivery and security are separate.</p>}
             <label className="mt-3 block text-xs text-white/55">
-              Amount in £ · leave blank for full remaining rental payment
+              Amount (£)
               <input
                 type="number"
                 min="0.01"
+                max={selectedRefundLine?selectedRefundLine.maxPence/100:undefined}
+                required={!!selectedRefundLine}
                 step="0.01"
+                placeholder={selectedRefundLine ? `Up to ${formatGbp(selectedRefundLine.maxPence/100)}` : "Blank = full amount"}
                 value={amount}
                 onChange={(e) => {
                   setAmount(e.target.value);
@@ -543,15 +609,16 @@ export function RentalOrderTools({
                 className="mt-1 w-full rounded-xl bg-[#151515] p-3 text-white"
               />
             </label>
+            </>
           )}
           <label className="mt-3 block text-xs text-white/55">
-            {mode==="cancel"?"Note (optional)":"Reason · shared with the customer"}
+            {mode==="cancel"?"Note (optional)":mode==="refund"?"Reason (sent to renter)":"Reason · shared with the customer"}
             <textarea
               data-testid="rental-operation-reason"
               aria-label={mode === "cancel" ? "Cancellation note" : "Reason shared with renter"}
               required={mode!=="cancel"}
               minLength={mode==="cancel"?undefined:5}
-              maxLength={400}
+              maxLength={mode === "refund" && selectedRefundLine ? Math.max(5,400-rentalTitle(selectedRefundLine.line.title).length-3) : 400}
               value={reason}
               onChange={(e) => {setReason(e.target.value);if(mode === "pickup-time" || mode === "return-time") request.current=null;}}
               className="mt-1 w-full rounded-xl bg-[#151515] p-3 text-sm text-white"
@@ -583,7 +650,7 @@ export function RentalOrderTools({
         </p>
       )}
       {result && (
-        <div role="status" className="mt-3 flex flex-wrap items-center gap-3 text-xs text-emerald-300">
+        <div role="status" className={`mt-3 flex flex-wrap items-center gap-3 text-xs ${result.includes("Review Stripe") ? "text-amber-100" : "text-emerald-300"}`}>
           <span>{result}</span>
           {refundApproval && <a aria-label="Review rental refund in Stripe" className="font-semibold underline" href={safeStripeApprovalUrl(refundApproval.url)} target="_blank" rel="noopener noreferrer">Review in Stripe</a>}
         </div>

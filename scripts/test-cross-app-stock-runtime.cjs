@@ -69,7 +69,7 @@ async function launch(name, source, fixture) {
     if (!syncSource.includes(scheduledPush)) throw Error('The synthetic runtime fixture could not isolate automatic RMV2 scheduling.');
     // This integration test drives every delivery explicitly so its lost-response and race assertions are deterministic.
     fs.writeFileSync(syncQueue, syncSource.replace(scheduledPush, '// Manual delivery is controlled by the synthetic test transport.'));
-    fs.writeFileSync(path.join(dir, 'convex', 'lib', 'rentalSwapAuthority.ts'), 'export function swapAuthorityAvailable() { return true; }\nexport function assertSwapAuthorityAvailable() {}\n');
+    fs.writeFileSync(path.join(dir, 'convex', 'lib', 'rentalSwapAuthority.ts'), 'export function swapAuthorityAvailable() { return true; }\nexport function rentalItemSwapFeatureReady() { return process.env.RENTAL_ITEM_SWAP_ENABLED === "true" && process.env.RMV2_OUTBOUND_ENABLED !== "false" && swapAuthorityAvailable(); }\nexport function assertSwapAuthorityAvailable() {}\n');
   }
   fs.rmSync(path.join(dir, 'convex', 'crons.ts'), { force: true });
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, CONVEX_AGENT_MODE: 'anonymous', XDG_CONFIG_HOME: path.join(dir, 'config') };

@@ -18,12 +18,15 @@ import {
 } from "@/components/icons";
 import { useAccount } from "@/components/account/AccountProvider";
 import { useCart } from "@/components/cart/CartProvider";
+import { createClientRequestId } from "@/lib/clientRequestId";
 import { BotAvatar, BotAvatarBadge } from "@/components/chat/BotAvatar";
-import { ChatBubble, TypingIndicator, Chips, hasChatContactAction } from "@/components/chat/ChatKit";
+import { ChatBubble, TypingIndicator, Chips } from "@/components/chat/ChatKit";
 import { GlowSlider } from "@/components/GlowSlider";
 import { GafferCall } from "@/components/GafferCall";
 import { useGafferSession } from "@/components/gaffer/GafferSession";
 import { HumanHandoffOffer } from "@/components/rentals/HumanHandoffOffer";
+import { dismissChatNotificationOffer, isChatNotificationOfferDismissed, isChatNotificationOfferReady, latestAnsweredQuestionReplyId } from "@/lib/chatNotificationOffer";
+import { listingImageSources } from "../../shared/listingImages";
 
 type Card = any;
 type Msg = {
@@ -33,6 +36,7 @@ type Msg = {
   suggestions?: string[];
   id?: string;
   pending?: boolean;
+  guestReplyComplete?: boolean;
   meta?: { offerHuman?: boolean };
 };
 const GREETING =
@@ -107,14 +111,16 @@ export function BotBubble() {
   const cart = useCart();
   const accountThread = useQuery(api.chat.myThread, account.token ? { token: account.token } : "skip");
   const [notificationOfferDismissed, setNotificationOfferDismissed] = useState(true);
+  const [streamedNotificationReplyId, setStreamedNotificationReplyId] = useState<string | null>(null);
+  const [guestOfferDismissed, setGuestOfferDismissed] = useState(false);
+  const [guestHandoffError, setGuestHandoffError] = useState("");
   useEffect(() => {
     if (!account.me?._id) { setNotificationOfferDismissed(true); return; }
-    try { setNotificationOfferDismissed(localStorage.getItem("dbc_chat_notification_offer:" + account.me._id) === "dismissed"); }
-    catch { setNotificationOfferDismissed(false); }
+    setNotificationOfferDismissed(isChatNotificationOfferDismissed(String(account.me._id)));
     const accountId=account.me._id;
     const receive=(event:Event)=>{
       if((event as CustomEvent).detail!=="active")return;
-      try{localStorage.setItem("dbc_chat_notification_offer:"+accountId,"dismissed");}catch{}
+      dismissChatNotificationOffer(String(accountId));
       setNotificationOfferDismissed(true);
     };
     window.addEventListener("dbc:renter-notification-status",receive);
@@ -122,9 +128,10 @@ export function BotBubble() {
     return()=>window.removeEventListener("dbc:renter-notification-status",receive);
   }, [account.me?._id]);
   const recordAccountQuestion = useMutation(api.chat.recordGafferUserMessage);
-  const recordAccountReply = useMutation(api.chat.recordGafferReply);
   const requestAccountHuman = useMutation(api.chat.requestHuman);
   const hydratedAccountToken = useRef<string | null>(null);
+  const pendingAccountRequest = useRef<{ token: string; text: string; requestId: string } | null>(null);
+  const [accountAwaitingMessageId, setAccountAwaitingMessageId] = useState<string | null>(null);
   const addonBusy = null;
   function addToBooking(item: any) {
     if (!account.token || !item?.addonBookingId) return;
@@ -165,6 +172,14 @@ export function BotBubble() {
         setMsgs(saved.map((m) => (m.cards?.length ? { ...m, cards: [] } : m)));
       } catch {}
   }, [account.token, accountThread]);
+  useEffect(() => {
+    if (!accountAwaitingMessageId || !accountThread) return;
+    const questionIndex = accountThread.findIndex((message) => String(message._id) === accountAwaitingMessageId);
+    if (questionIndex < 0) return;
+    if (!accountThread.slice(questionIndex + 1).some((message) => message.sender !== "renter")) return;
+    setAccountAwaitingMessageId(null);
+    setBusy(false);
+  }, [accountAwaitingMessageId, accountThread]);
   useEffect(() => {
     if (account.token) {
       try { localStorage.removeItem("dbc_bot"); } catch {}
@@ -213,15 +228,25 @@ export function BotBubble() {
   async function send(override?: string) {
     const t = (override ?? text).trim();
     if (!t || busy) return;
+    const priorAccountRequest = pendingAccountRequest.current;
+    const accountRequestId = account.token
+      ? priorAccountRequest?.token === account.token && priorAccountRequest.text === t
+        ? priorAccountRequest.requestId
+        : createClientRequestId()
+      : null;
+    if (account.token && accountRequestId && (priorAccountRequest?.requestId !== accountRequestId))
+      pendingAccountRequest.current = { token: account.token, text: t, requestId: accountRequestId };
     setOnb(4); // any message dismisses the onboarding prompts
     const next: Msg[] = [...msgs, { role: "user", content: t, pending: !!account.token }];
     setMsgs(next);
     setText("");
     setBusy(true);
     let renterMessageId: string | null = null;
+    let waitForServerReply = false;
     try {
       if (account.token) {
-        const recorded = await recordAccountQuestion({ token: account.token, text: t });
+        const recorded = await recordAccountQuestion({ token: account.token, text: t, requestId: accountRequestId! });
+        if (pendingAccountRequest.current?.requestId === accountRequestId) pendingAccountRequest.current = null;
         renterMessageId = String(recorded.messageId);
         setMsgs((current) => current.map((message, index) => index === current.length - 1
           ? { ...message, id: renterMessageId!, pending: false }
@@ -233,6 +258,9 @@ export function BotBubble() {
           }]);
           return;
         }
+        setAccountAwaitingMessageId(renterMessageId);
+        waitForServerReply = true;
+        return;
       }
       const r = await fetch("/api/bot", {
         method: "POST",
@@ -240,7 +268,6 @@ export function BotBubble() {
         body: JSON.stringify({
           messages: next.map((m) => ({ role: m.role, content: m.content })),
           token: account.token ?? undefined,
-          renterMessageId: renterMessageId ?? undefined,
           rentalBookingId: rentalBookingId ?? undefined,
           cart: cart.items.map((i) => ({
             listingId: i.listingId,
@@ -255,19 +282,6 @@ export function BotBubble() {
       const d = await r.json();
       const reply = d.reply || "…";
       let replyId: string | undefined;
-      if (account.token && renterMessageId) {
-        const recorded = await recordAccountReply({ token: account.token, renterMessageId: renterMessageId as any, text: reply, ...(typeof d.completionProof === "string" ? { completionProof:d.completionProof } : {}) });
-        if (!recorded.saved) {
-          setMsgs((current) => [...current, {
-            role: "assistant",
-            content: recorded.handledByHuman
-              ? "A team member has taken over. Your question is saved in Account → Messages, and their reply will appear there."
-              : "Your question is saved in Account → Messages, but this reply could not be added. Please try again there.",
-          }]);
-          return;
-        }
-        replyId = String(recorded.messageId);
-      }
       const cards = (d.cards || []).map((card:any)=>{
         const item=card.kind==="swap"?card.added:card.item;
         const first=cart.items[0];
@@ -277,7 +291,7 @@ export function BotBubble() {
       setMsgs((current) => {
         setTalkingIdx(current.length);
         const existingIndex = replyId ? current.findIndex((message) => message.id === replyId) : -1;
-        const message = { id: replyId, role: "assistant" as const, content: reply, cards, suggestions: d.suggestions || [] };
+        const message = { id: replyId, role: "assistant" as const, content: reply, cards, suggestions: d.suggestions || [], guestReplyComplete: r.ok && typeof d.reply === "string" && !!d.reply.trim() };
         if (existingIndex >= 0) return current.map((item, index) => index === existingIndex ? message : item);
         return [...current, message];
       });
@@ -296,17 +310,17 @@ export function BotBubble() {
         }];
       });
     } finally {
-      setBusy(false);
+      if (!waitForServerReply) setBusy(false);
     }
   }
 
   function addItem(it: any) {
-    if (it.needsTimes || (it.available !== true && !it.requestable)) return;
+    if ((it.needsTimes && !it.checkoutTimeCheckPending) || (it.available !== true && !it.requestable && !it.checkoutTimeCheckPending)) return;
     cart.add({
       listingId: it.listingId,
       slug: it.slug,
       title: it.title,
-      heroImage: it.image ?? null,
+      heroImage: listingImageSources(it)[0] ?? null,
       start: it.start,
       end: it.end,
       pickupTime: it.pickupTime, returnTime: it.returnTime,
@@ -325,8 +339,20 @@ export function BotBubble() {
     .map((m, i) => ({ m, i }))
     .reverse()
     .find((x) => x.m.role === "assistant");
-  const firstAccountQuestion = accountThread?.findIndex(message => message.sender === "renter" && message.text?.trim()) ?? -1;
-  const firstAccountReply = firstAccountQuestion < 0 ? undefined : accountThread?.slice(firstAccountQuestion + 1).find(message => message.sender === "bot" && message.text?.trim());
+  const notificationPromptReplyId = accountThread ? latestAnsweredQuestionReplyId(accountThread) : null;
+  const firstGuestQuestion = msgs.findIndex(message => message.role === "user" && message.content.trim());
+  const firstGuestReply = firstGuestQuestion < 0 ? -1 : msgs.findIndex((message, index) => index > firstGuestQuestion && message.role === "assistant" && message.guestReplyComplete);
+  function saveGuestChat() {
+    try {
+      const transcript = msgs.map(message => `${message.role === "user" ? "Guest" : "Guest-recorded assistant reply"}: ${message.content}`).join("\n\n");
+      if (!transcript || transcript.length > 8000) { setGuestHandoffError("This conversation is too long to save here. Please copy it before signing in."); return; }
+      localStorage.setItem("dbc_guest_chat_handoff_v1", JSON.stringify({ requestId: `guest_${createClientRequestId()}`, transcript }));
+      window.location.href = "/account#chat";
+    } catch { setGuestHandoffError("Please allow site storage to save your conversation before signing in."); }
+  }
+  function openNotificationSetup() {
+    try { sessionStorage.setItem("dbc_open_chat_notification_settings", "1"); } catch {}
+  }
   const latestAccountMessageId = accountThread?.at(-1)?._id ? String(accountThread.at(-1)!._id) : undefined;
   const liveSuggestions =
     !busy && lastAssistant?.m.suggestions?.length
@@ -600,19 +626,10 @@ export function BotBubble() {
                     m.role === "assistant" && mi === msgs.length - 1 && !busy
                   }
                   mood={talkingIdx === mi ? "talking" : "idle"}
+                  onStreamComplete={m.id && m.id === notificationPromptReplyId ? () => setStreamedNotificationReplyId(m.id!) : undefined}
                 />
-                {m.role === "assistant" && hasChatContactAction(m.content) && (
-                  <div className="ml-10 -mt-1">
-                    <button
-                      type="button"
-                      onClick={() => composerRef.current?.focus()}
-                      className="inline-flex min-h-9 items-center rounded-xl border border-white/12 bg-white/[0.045] px-3 py-1.5 text-xs font-medium text-white/70 transition hover:border-white/25 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-200/70"
-                    >
-                      Keep chatting with Gaffer
-                    </button>
-                  </div>
-                )}
-                {account.token && account.me?._id && !notificationOfferDismissed && m.id === String(firstAccountReply?._id) && <div className="ml-10 flex gap-3 rounded-2xl border border-white/15 bg-white/[0.07] p-3 text-xs text-white/80 shadow-[0_12px_32px_#0005] backdrop-blur-2xl" aria-label="Chat notifications"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-amber-100/20 bg-amber-100/[0.08] text-amber-100" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-4 w-4"><path d="M18 8a6 6 0 00-12 0v5l-2 3v1h16v-1l-2-3V8ZM9 20h6"/><path d="M18.5 3v3m-1.5-1.5h3"/></svg></span><div className="min-w-0 flex-1"><strong className="text-white">Stay in the loop</strong><p className="mt-1 leading-relaxed">Get an alert when the team replies. Tap to enable; iPhone and iPad setup includes the Home Screen steps.</p><div className="mt-3 flex items-center gap-4"><Link href="/account#chat" className="rounded-full border border-amber-100/30 bg-amber-100/[0.08] px-3 py-2 text-amber-100 transition hover:bg-amber-100/[0.14]" onClick={() => { try { sessionStorage.setItem("dbc_open_chat_notification_settings", "1"); } catch {} }}>Turn on notifications</Link><button type="button" className="text-white/50 transition hover:text-white/80" onClick={() => { try { localStorage.setItem("dbc_chat_notification_offer:" + account.me!._id, "dismissed"); } catch {} setNotificationOfferDismissed(true); }}>Later</button></div></div></div>}
+                {account.token && account.me?._id && !notificationOfferDismissed && m.id === notificationPromptReplyId && isChatNotificationOfferReady(notificationPromptReplyId, streamedNotificationReplyId) && <div className="ml-10 flex gap-3 rounded-2xl border border-white/15 bg-white/[0.07] p-3 text-xs text-white/80 shadow-[0_12px_32px_#0005] backdrop-blur-2xl" aria-label="Chat notification setup"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-amber-100/20 bg-amber-100/[0.08] text-amber-100" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-4 w-4"><path d="M18 8a6 6 0 00-12 0v5l-2 3v1h16v-1l-2-3V8ZM9 20h6"/><path d="M18.5 3v3m-1.5-1.5h3"/></svg></span><div className="min-w-0 flex-1"><strong className="text-white">Get chat alerts</strong><p className="mt-1 leading-relaxed">Open setup, then choose “Enable notifications.” On iPhone or iPad, add this site to your Home Screen first.</p><div className="mt-3 flex items-center gap-4"><Link href="/account#chat" className="rounded-full border border-amber-100/30 bg-amber-100/[0.08] px-3 py-2 text-amber-100 transition hover:bg-amber-100/[0.14]" onClick={openNotificationSetup}>Open setup</Link><button type="button" className="text-white/50 transition hover:text-white/80" onClick={() => { if(account.me?._id)dismissChatNotificationOffer(String(account.me._id)); setNotificationOfferDismissed(true); }}>Not now</button></div></div></div>}
+                {!account.loading && !account.token && !guestOfferDismissed && !busy && talkingIdx !== mi && mi === firstGuestReply && <div className="ml-10 rounded-2xl border border-amber-100/20 bg-white/[0.07] p-4 text-xs text-white/80 shadow-xl backdrop-blur-2xl" aria-label="Save chat and set up alerts"><strong className="text-white">Stay in the loop</strong><p className="mt-1 leading-relaxed">Save this conversation to an account, then choose whether to enable reply alerts.</p><div className="mt-3 flex items-center gap-4"><button type="button" onClick={saveGuestChat} className="rounded-full border border-amber-100/30 bg-amber-100/[0.08] px-3 py-2 text-amber-100">Create account or sign in</button><button type="button" onClick={() => setGuestOfferDismissed(true)} className="text-white/50">Not now</button></div>{guestHandoffError && <p role="alert" className="mt-2 text-amber-100">{guestHandoffError}</p>}</div>}
                 {account.token && m.role === "assistant" && m.id && m.meta?.offerHuman && m.id === latestAccountMessageId && <HumanHandoffOffer key={`support-${m.id}`} onRequest={async () => { await requestAccountHuman({ token: account.token!, offerMessageId: m.id as any }); }} />}
                 {m.cards &&
                   m.cards.length > 0 &&
@@ -657,7 +674,7 @@ export function BotBubble() {
                               state={state}
                               delay={ci * 90}
                               onAdd={() => {
-                                if(shown.refreshing||(item.available!==true&&!item.requestable)||item.needsTimes)return;
+                                if(shown.refreshing||(item.available!==true&&!item.requestable&&!item.checkoutTimeCheckPending)||item.needsTimes)return;
                                 if (shown.kind === "swap") {
                                   if (shown.removed)
                                     removeByListing(shown.removed.listingId);
@@ -751,6 +768,7 @@ export function BotBubble() {
 }
 
 function Tile({ item, tone }: { item: any; tone: "green" | "red" | "plain" }) {
+  const images = listingImageSources(item);
   const ring =
     tone === "green"
       ? "border-emerald-400/40 bg-emerald-500/[0.08]"
@@ -758,14 +776,13 @@ function Tile({ item, tone }: { item: any; tone: "green" | "red" | "plain" }) {
         ? "border-red-400/30 bg-red-500/[0.06]"
         : "border-white/10 bg-white/[0.03]";
   return (
-    <div className={`flex items-center gap-2 rounded-lg border p-1.5 ${ring}`}>
-      {item?.image ? (
-        <SmartImage fit="contain" src={item.image} fallbackSources={item.imageSources} alt={item.title} className={`h-10 w-10 shrink-0 rounded ${tone === "red" ? "opacity-60" : ""}`} />
+    <div className={`flex min-w-0 flex-1 items-center gap-2 rounded-xl border p-2 ${ring}`}>
+      {images.length > 0 ? (
+        <SmartImage fit="contain" src={images[0]} fallbackSources={images.slice(1)} alt={item.title} className={`h-11 w-11 shrink-0 rounded-lg ring-1 ring-white/10 ${tone === "red" ? "opacity-60" : ""}`} />
       ) : null}
       <div className="min-w-0">
-        <div
-          className={`truncate text-[11px] font-medium ${tone === "red" ? "text-white/45 line-through" : "text-white/85"}`}
-        >
+        <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/35">{tone === "red" ? "Current" : "Suggested"}</div>
+        <div className={`line-clamp-2 text-[11px] font-medium leading-snug ${tone === "red" ? "text-white/45 line-through" : "text-white/85"}`}>
           {item?.title}
         </div>
         {tone !== "red" && item?.total != null && (
@@ -792,91 +809,101 @@ function CardView({
   const added = state === "added";
   const swap = card.kind === "swap";
   const addonItem = swap ? card.added : card.item;
+  const itemImages = listingImageSources(card.item);
   const canAddBooking = !!addonItem?.addonBookingId;
   const includedPreview=[...(addonItem?.verifiedComponentContents??[]),...(addonItem?.rentalContents?.included??[])].slice(0,2);
+  const availabilityLabel = card.refreshing
+    ? "Refreshing details"
+    : addonItem?.needsTimes
+      ? "Choose dates"
+      : addonItem?.available === true
+        ? "Available for these dates"
+        : addonItem?.requestable
+          ? "Requestable"
+          : addonItem?.checkoutTimeCheckPending
+            ? "Stock checked at checkout"
+            : "Check dates";
   return (
     <div
-      className="spot gradient-border rounded-2xl p-3"
+      aria-label={`${swap ? "Equipment change suggestion" : "Gear recommendation"}: ${addonItem?.title ?? "rental item"}`}
+      data-testid="gaffer-recommendation-card"
+      className="spot gradient-border group relative overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(ellipse_at_top_left,rgba(237,176,110,0.1),transparent_58%),linear-gradient(145deg,rgba(255,255,255,0.065),rgba(255,255,255,0.025))] p-3 shadow-[0_16px_38px_rgba(0,0,0,0.24)] backdrop-blur-xl sm:p-3.5"
       style={{ animation: `card-in 0.5s var(--ease-out-expo) ${delay}ms both` }}
     >
+      <div className="mb-2.5 flex items-center justify-between gap-2">
+        <span className="text-[9px] font-semibold uppercase tracking-[0.17em] text-accent-200/75">{swap ? "Kit update" : "Gaffer pick"}</span>
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-black/15 px-2 py-1 text-[9px] font-medium text-white/60">
+          <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${addonItem?.available === true ? "bg-emerald-300" : addonItem?.requestable ? "bg-amber-300" : "bg-white/35"}`} />
+          {availabilityLabel}
+        </span>
+      </div>
       {swap ? (
         <>
-          <div className="mb-2 text-[11px] leading-relaxed text-white/50">
-            {card.reason}
-          </div>
+          <div className="mb-2 line-clamp-2 text-[11px] leading-relaxed text-white/55">{card.reason}</div>
           <div className="flex items-center gap-2">
             {card.removed && <Tile item={card.removed} tone="red" />}
-            <IconArrowRight className="h-3.5 w-3.5 shrink-0 text-white/30" />
+            <IconArrowRight className="h-4 w-4 shrink-0 text-accent-200/70" />
             <Tile item={card.added} tone="green" />
           </div>
         </>
       ) : (
-        <div className="flex gap-3">
-          {card.item.image && (
+        <div className="flex min-w-0 items-stretch gap-3">
+          {itemImages.length > 0 && (
             <Link
               href={`/gear/${card.item.slug}`}
-              className="block h-16 w-16 shrink-0 overflow-hidden rounded-lg"
+              aria-label={`View ${card.item.title}`}
+              data-testid="gaffer-product-image-link"
+              className="block h-[76px] w-[76px] shrink-0 overflow-hidden rounded-xl border border-white/10 bg-[radial-gradient(circle_at_50%_38%,rgba(255,255,255,0.1),rgba(255,255,255,0.015)_68%)] shadow-inner sm:h-[88px] sm:w-[88px]"
             >
-              <SmartImage fit="contain" src={card.item.image} fallbackSources={card.item.imageSources} alt={card.item.title} className="h-full w-full" />
+              <SmartImage fit="cover" src={itemImages[0]} fallbackSources={itemImages.slice(1)} alt={card.item.title} className="h-full w-full transition-transform duration-500 group-hover:scale-[1.04]" />
             </Link>
           )}
-          <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-1 flex-col justify-center">
             <Link
               href={`/gear/${card.item.slug}`}
-              className="block truncate text-sm font-medium text-white/90 transition-colors hover:text-accent-300"
+              className="line-clamp-2 text-[13px] font-semibold leading-snug text-white/95 transition-colors hover:text-accent-200 sm:text-sm"
             >
               {card.item.title}
             </Link>
-            <div className="font-mono text-[11px] text-white/45">
-              {card.refreshing ? <>Refreshing price and stock…</> : card.item.estimated ? (
-                <>£{card.item.perDay}/day · </>
-              ) : (
+            <div className="mt-1.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+              {card.refreshing ? <span className="text-[11px] text-white/50">Refreshing price…</span> : card.item.memberTotal != null ? (
                 <>
-                  {card.item.start} → {card.item.end} ·{" "}
-                </>
-              )}
-              {card.item.memberTotal != null ? (
-                <>
-                  <span className="line-through">£{card.item.total}</span>{" "}
-                  <span className="text-emerald-300">
-                    £{card.item.memberTotal}
-                  </span>{" "}
-                  <span className="text-emerald-400/70">
-                    member −{card.item.memberPct}%
+                  <span className="font-mono text-[10px] text-white/35 line-through">£{Number(card.item.total).toFixed(2)}</span>
+                  <span className="font-mono text-[15px] font-semibold text-white">£{Number(card.item.memberTotal).toFixed(2)}</span>
+                  <span className="rounded-full border border-emerald-300/20 bg-emerald-300/[0.08] px-1.5 py-0.5 text-[9px] font-medium text-emerald-200">
+                    {card.item.memberBenefitKind === "loyalty" ? `Encore −${card.item.memberPct}%` : `Save £${Number(card.item.memberSaving).toFixed(2)}`}
                   </span>
                 </>
-              ) : (
-                <>£{card.item.total}</>
-              )}{" "}
-              <span className={card.item.estimated ? "text-white/30" : ""}>
-                ({card.item.days}d{card.item.estimated ? " est." : ""})
-              </span>
+              ) : card.item.total != null ? <span className="font-mono text-[15px] font-semibold text-white">£{card.item.total}</span> : card.item.perDay != null ? <span className="font-mono text-[14px] font-semibold text-white">£{card.item.perDay}<span className="ml-1 text-[10px] font-normal text-white/45">/ day</span></span> : null}
             </div>
-            <div className="mt-0.5 text-[11px] leading-relaxed text-white/40">
-              {card.reason}
+            <div className="mt-0.5 text-[10px] text-white/45">
+              {card.item.estimated ? "Indicative price" : card.item.days ? `${card.item.days} rental ${card.item.days === 1 ? "day" : "days"}${card.item.start && card.item.end ? ` · ${card.item.start} → ${card.item.end}` : ""}` : card.item.start && card.item.end ? `${card.item.start} → ${card.item.end}` : "Live listing details"}
             </div>
-            {includedPreview.length>0&&<div className="mt-1 line-clamp-2 text-[10px] leading-4 text-white/35">Includes: {includedPreview.join(" · ")}</div>}
+            {card.reason && <div className="mt-1.5 line-clamp-2 text-[10px] leading-relaxed text-white/50">{card.reason}</div>}
+            {includedPreview.length > 0 && <div className="mt-1 line-clamp-1 text-[9px] leading-relaxed text-white/35">Includes {includedPreview.join(" · ")}</div>}
           </div>
         </div>
       )}
-      <div className="mt-3 flex flex-wrap gap-2">
-        {addonItem?.needsTimes ? <Link href={`/gear/${addonItem.slug}`} className="btn-primary rounded-full px-3 py-1.5 text-[11px]">Choose dates and times</Link> : <button
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/[0.08] pt-2.5">
+        {addonItem?.needsTimes ? <Link href={`/gear/${addonItem.slug}`} className="btn-primary inline-flex min-h-9 items-center justify-center rounded-xl px-3.5 text-[11px] font-semibold">Choose rental dates</Link> : <button
           onClick={onAdd}
-          disabled={added || card.refreshing || (addonItem?.available !== true && !addonItem?.requestable)}
-          className={`press inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors ${
+          data-testid="gaffer-recommendation-primary-action"
+          disabled={added || card.refreshing || (addonItem?.available !== true && !addonItem?.requestable && !addonItem?.checkoutTimeCheckPending)}
+          className={`press inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl px-3.5 text-[11px] font-semibold transition-colors ${
             added
-              ? "cursor-default bg-emerald-500/20 text-emerald-300"
-              : "bg-accent-500 text-white hover:bg-accent-600"
+              ? "cursor-default border border-emerald-300/20 bg-emerald-400/[0.08] text-emerald-200"
+              : "border border-accent-200/30 bg-[linear-gradient(125deg,rgba(240,184,128,0.28),rgba(152,105,68,0.22))] text-white shadow-[0_4px_18px_rgba(215,151,93,0.12)] transition hover:border-accent-100/45 hover:bg-[linear-gradient(125deg,rgba(240,184,128,0.38),rgba(152,105,68,0.3))]"
           }`}
         >
           {added && <IconCheck className="h-3 w-3" />}
-          {added ? card.alreadyIncluded?"Already in your kit":"Added to kit" : card.refreshing ? "Refreshing choices…" : addonItem?.requestable ? "Add request" : addonItem?.available !== true ? "Choose a matching alternative" : swap ? "Accept swap" : "Add to kit"}
+          {added ? card.alreadyIncluded?"Already in your kit":"Added to kit" : card.refreshing ? "Refreshing choices…" : addonItem?.requestable ? "Add request" : addonItem?.available !== true && !addonItem?.checkoutTimeCheckPending ? "Choose a matching alternative" : swap ? "Accept swap" : "Add to kit"}
         </button>}
         {!added && canAddBooking && (
           <button
             onClick={onAddBooking}
+            data-testid="gaffer-recommendation-rental-action"
             disabled={card.refreshing||addonItem.available!==true||addonBusy === addonItem.listingId}
-            className="press rounded-full bg-emerald-500 px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-emerald-600 disabled:opacity-50"
+            className="press min-h-9 rounded-xl border border-emerald-200/20 bg-emerald-300/[0.08] px-3.5 text-[11px] font-medium text-emerald-100 transition hover:bg-emerald-300/[0.14] disabled:opacity-50"
           >
             {addonBusy === addonItem.listingId
               ? "…"
@@ -887,13 +914,13 @@ function CardView({
           <>
             <button
               onClick={onAlt}
-              className="glass rounded-full px-3 py-1.5 text-[11px] text-white/60 transition-colors hover:text-white"
+              className="glass min-h-9 rounded-xl px-3 text-[11px] text-white/65 transition-colors hover:text-white"
             >
               Find alternative
             </button>
             <button
               onClick={onDecline}
-              className="rounded-full px-3 py-1.5 text-[11px] text-white/35 transition-colors hover:text-white/60"
+              className="min-h-9 rounded-xl px-2.5 text-[11px] text-white/40 transition-colors hover:text-white/70"
             >
               {swap ? "Keep original" : "Decline"}
             </button>

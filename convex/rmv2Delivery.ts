@@ -6,7 +6,7 @@ import { queueOwnerNotification } from "./lib/adminPush";
 import { accountForRental, belongsToRentalAccount } from "./lib/rentalAccount";
 import { postRentalMessage } from "./lib/rentalChat";
 import { internal } from "./_generated/api";
-import { verificationValidUntil } from "../shared/verificationProgress";
+import { bookingVerificationExpired } from "../shared/verificationProgress";
 
 function swapConfirmationDetail(swap: any) {
   const changes = Array.isArray(swap.changes) && swap.changes.length
@@ -39,7 +39,11 @@ export const record = internalMutation({ args: { bookingId: v.id("bookings"), re
   const booking = await ctx.db.get(args.bookingId);
   if (!booking || (booking.rmv2Revision ?? 0) !== args.revision || booking.rmv2DeliveredRevision === args.revision || booking.rmv2SyncStatus !== "pending" || booking.rmv2SyncLeaseGeneration !== args.generation || typeof booking.rmv2SyncLeaseUntil !== "number") return;
   const paidStockAck = args.paidPendingStockAcknowledgement;
-  if (paidStockAck && (booking.status !== "pending_verification" || booking.verificationProvider !== "didit" || typeof booking.checkoutPaidAt !== "number" || booking.checkoutPaidAt <= 0 || paidStockAck.bookingId !== booking._id || paidStockAck.bookingRevision !== args.revision || (paidStockAck.outcome === "execution_started" ? paidStockAck.holdsStock !== true : paidStockAck.holdsStock !== false)))
+  const paidPendingVerification = booking.status === "pending_verification" && booking.verificationProvider === "didit" &&
+    typeof booking.checkoutPaidAt === "number" && Number.isSafeInteger(booking.checkoutPaidAt) && booking.checkoutPaidAt > 0;
+  if (args.ok && paidPendingVerification && !paidStockAck)
+    throw Error("The paid Rental Manager stock acknowledgement is required before this revision can be delivered.");
+  if (paidStockAck && (!paidPendingVerification || paidStockAck.bookingId !== booking._id || paidStockAck.bookingRevision !== args.revision || (paidStockAck.outcome === "execution_started" ? paidStockAck.holdsStock !== true : paidStockAck.holdsStock !== false)))
     throw Error("The paid Rental Manager stock acknowledgement does not match this booking revision.");
   if(args.deferred){
     if(!args.ok||args.stockAcknowledgement||paidStockAck)throw Error("A deferred stock update cannot acknowledge a receipt.");
@@ -60,7 +64,7 @@ export const record = internalMutation({ args: { bookingId: v.id("bookings"), re
         if(!swap||swap.bookingId!==booking._id||booking.activeItemSwapId!==swap._id)throw Error("The equipment change fence needs reconciliation.");
         await ctx.db.patch(receipt._id,{deliveryState:"acknowledged",acknowledgedAt:Date.now(),auditInitializedAt:Date.now(),auditDueAt:Date.now()+3600000});
         const account=await ctx.db.get(swap.accountId);
-        const safe=receipt.stockRisk!==true&&booking.status==="confirmed"&&booking.idVerifyStatus==="verified"&&(verificationValidUntil(booking)??0)>Date.now()&&!booking.cancellationDecision&&!booking.returnDecision&&!!account&&account.blockedAt==null&&belongsToRentalAccount(booking,account);
+        const safe=receipt.stockRisk!==true&&booking.status==="confirmed"&&booking.idVerifyStatus==="verified"&&!bookingVerificationExpired(booking)&&!booking.cancellationDecision&&!booking.returnDecision&&!!account&&account.blockedAt==null&&belongsToRentalAccount(booking,account);
         if(!safe){
           await queueOwnerNotification(ctx,{eventKey:`swap-acknowledgement-review:${swap._id}`,kind:"checkout_failure",accountId:swap.accountId,bookingId:booking._id,title:"Equipment change needs review",body:"Rental Manager confirmed the stock change, but the rental or account changed. The rental remains locked; review verification and inventory before handover."});
         }else if(["applied","refund_pending"].includes(swap.status)){

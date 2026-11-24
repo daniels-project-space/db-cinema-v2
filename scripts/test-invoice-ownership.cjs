@@ -13,7 +13,7 @@ put('rental_security_charges',{bookingId:booking._id,accountId:owner._id,state:'
 const fn=load('convex/bookings.ts').invoiceData.handler;
 (async()=>{
 const owned=await fn({db},{bookingId:booking._id,token:'owner'});assert.ok(owned);assert.equal(owned.customerName,'Booking name');assert.equal(owned.depositHoldAmount,81);assert.equal(owned.depositRefundAmount,40.5);assert.deepEqual(owned.equipmentImages,[['/gear-camera.webp','https://source.example.invalid/camera.jpg']]);
-assert.equal(owned.assessmentPayments.length,1);assert.equal(owned.assessmentPayments[0].paid,20);assert.equal(owned.assessmentPayments[0].refunded,5);assert(!JSON.stringify(owned).includes('private-provider-customer'));assert(!JSON.stringify(owned).includes('FOREIGN ASSESSMENT'));assert(!JSON.stringify(owned).includes('UNPAID ASSESSMENT'));
+assert.equal(owned.assessmentPayments.length,1);assert.equal(owned.assessmentPayments[0].paid,20);assert.equal(owned.assessmentPayments[0].refunded,5);assert.equal(owned.assessmentClaims.length,2);assert.equal(owned.assessmentClaims.find(row=>row.state==='notice_sent').amount,10);assert(!JSON.stringify(owned).includes('private-provider-customer'));assert(!JSON.stringify(owned).includes('FOREIGN ASSESSMENT'));
 owner.blockedAt=Date.now();assert.equal(await fn({db},{bookingId:booking._id,token:'owner'}),null);owner.blockedAt=undefined;
 owner.emailVerificationRequired=true;assert.equal(await fn({db},{bookingId:booking._id,token:'owner'}),null);owner.emailVerifiedAt=Date.now();assert.ok(await fn({db},{bookingId:booking._id,token:'owner'}));
 assert.equal(await fn({db},{bookingId:booking._id,token:'foreign'}),null);

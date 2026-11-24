@@ -1,9 +1,10 @@
 import { assertVerificationArchive } from "./verificationArchive";
 import { retainVerificationArchiveLink } from "./lib/verificationArchiveLink";
 import { renterVerificationNote, verificationValidUntil } from "../shared/verificationProgress";
-import { renterRentalActionReady } from "./lib/renterRentalActionGate";
+import { renterHandoverDetailsReady } from "./lib/renterRentalActionGate";
 import { ensureReferralCode } from "./lib/referrals";
 import { belongsToRentalAccount, rentalsForAccount } from "./lib/rentalAccount";
+import { checkoutBenefitAccount, membershipRentalBenefitAccount } from "./lib/rentalBenefitAccount";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
 import { creditKind } from "./lib/checkoutCredit";
@@ -11,7 +12,7 @@ import { loyaltyProgress, celebratedLoyaltyLevel, ENCORE_POLICY_VERSION } from "
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { usableCredit } from "./lib/creditLedger";
 import { verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
-import { accountVerificationReady } from "./lib/accountVerificationReady";
+import { accountVerificationBadge, accountVerificationReady } from "./lib/accountVerificationReady";
 import { deletePrivateFile } from "./lib/privateStorage";
 import { droneDocumentType } from "./lib/droneDocument";
 import {
@@ -25,6 +26,7 @@ import { api, internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { listingRentalImages } from "./lib/catalogImages";
+import { gafferCancellationFacts } from "./lib/gafferCancellationFacts";
 import { stream, mergedStream } from "convex-helpers/server/stream";
 import schema from "./schema";
 import { accountAuthError, validAccountEmail } from "../shared/accountAuth";
@@ -83,8 +85,7 @@ export const _byToken = internalQuery({
   handler: async (ctx, { token }) => {
     const account=await resolve(ctx,token);
     if (!account) return null;
-    const loyalty=await loyaltyProgress(ctx,account);
-    return {...account,loyaltyEligible:loyalty.eligible,loyaltyLevel:loyalty.level,loyaltyPercent:loyalty.percent,loyaltyCompleted:loyalty.completed};
+    return checkoutBenefitAccount(ctx,account);
   },
 });
 
@@ -230,6 +231,13 @@ export const purgeExpiredRentalVerification = internalMutation({
         record.sourceBookingId !== indexedRecord.sourceBookingId ||
         record.verifiedAt !== indexedRecord.verifiedAt ||
         record.expiresAt !== indexedRecord.expiresAt) continue;
+      const canonicalExpiry = verificationValidUntil(record);
+      if (!Number.isSafeInteger(canonicalExpiry)) continue;
+      if (canonicalExpiry! > now) {
+        if (record.expiresAt !== canonicalExpiry)
+          await ctx.db.patch(account._id, { rentalVerification: { ...record, expiresAt: canonicalExpiry! } });
+        continue;
+      }
       await ctx.db.patch(account._id, { rentalVerification: undefined, idVerified: false });
       cleared++;
     }
@@ -315,8 +323,12 @@ export const me = query({
   handler: async (ctx, { token }) => {
     const a: any = await resolve(ctx, token);
     if (!a) return null;
-    const loyalty = await loyaltyProgress(ctx,a);
-    const verification=await accountVerificationReady(ctx,a);
+    const [benefitAccount,loyalty,verification,verificationBadge] = await Promise.all([
+      membershipRentalBenefitAccount(ctx,a),
+      loyaltyProgress(ctx,a),
+      accountVerificationReady(ctx,a),
+      accountVerificationBadge(ctx,a),
+    ]);
     const now = Date.now();
     const credits = await ctx.db
       .query("credits")
@@ -332,7 +344,10 @@ export const me = query({
       loyaltyLevel:loyalty.level,loyaltyPercent:loyalty.percent,loyaltyCelebratedLevel:celebratedLoyaltyLevel(a),
       loyaltyEligible: loyalty.eligible,
       loyaltyCompleted: loyalty.completed,
-      loyaltyCelebrated: (celebratedLoyaltyLevel(a))>=loyalty.level,
+      loyaltyAdminAssigned: a.adminEncoreLevel != null,
+      loyaltyHistoricalLevel: loyalty.historicalLevel,
+      membershipFirstCleanRentalCompletedAt: benefitAccount.membershipFirstCleanRentalCompletedAt ?? null,
+      loyaltyCelebrated: loyalty.completed === null || celebratedLoyaltyLevel(a) >= loyalty.completed,
       membershipPerksPending: !!a.membershipPerksPendingBookingId,
       _id: a._id,
       email: a.email,
@@ -342,8 +357,8 @@ export const me = query({
       marketingEmails: a.marketingEmails ?? false,
       favorites: (a.favorites ?? []) as string[],
       avatarUrl: a.avatarStorageId && a.avatarStorageId === a.avatarOwnedStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : (a.googleAvatarUrl ?? null),
-      idVerified: !!verification,
-      verificationValidUntil: verification?.expiresAt ?? null,
+      idVerified: !!verificationBadge,
+      verificationValidUntil: verificationBadge?.expiresAt ?? null,
       verificationReadyUntil: verification?.proofExpiresAt ?? null,
       hasPassword: !!a.hash,
       membershipTier: membershipTierFor(a) ?? null,
@@ -479,10 +494,9 @@ export const updateProfile = mutation({
   handler: async (ctx, { token, ...patch }) => {
     const a: any = await resolve(ctx, token);
     if (!a) throw new Error("unauthorized");
-    const changed = (patch.name != null && verificationDetail(patch.name) !== verificationDetail(a.name)) ||
-      (patch.address != null && verificationDetail(patch.address) !== verificationDetail(a.address));
-    await ctx.db.patch(a._id, { ...patch, ...(changed ? { rentalVerification: undefined, idVerified: false } : {}) });
-    if (changed) {
+    const identityNameChanged = patch.name != null && verificationDetail(patch.name) !== verificationDetail(a.name);
+    await ctx.db.patch(a._id, { ...patch, ...(identityNameChanged ? { rentalVerification: undefined, idVerified: false } : {}) });
+    if (identityNameChanged) {
       const [linked, linkedPending, legacy, legacyPending] = await Promise.all([
         ctx.db.query("bookings").withIndex("by_account_status", q => q.eq("accountId", a._id).eq("status", "confirmed")).take(101),
         ctx.db.query("bookings").withIndex("by_account_status", q => q.eq("accountId", a._id).eq("status", "pending_verification")).take(101),
@@ -651,8 +665,11 @@ export const myBookings = query({
 });
 
 async function enrichBookings(ctx:any,rows:any[]) {
-    const allReviews = await ctx.db.query("reviews").collect();
-    const reviewed = new Set(allReviews.map((r:any) => r.verifiedBookingId).filter(Boolean));
+    const cancellationAssessedAt = Date.now();
+    const reviewed = new Set((await Promise.all(rows.map(async (booking:any) => {
+      const review = await ctx.db.query("reviews").withIndex("by_booking", (q:any) => q.eq("verifiedBookingId", booking._id)).first();
+      return review && (review.moderationStatus !== "rejected" || review.published) ? String(booking._id) : null;
+    }))).filter(Boolean));
 
     // resolve a display image url for a listing (R2 → source → gallery), cached across bookings
     const listingCache = new Map<string, any>();
@@ -700,15 +717,18 @@ async function enrichBookings(ctx:any,rows:any[]) {
       const starts = b.lineItems.map((li: any) => li.start);
       const ends = b.lineItems.map((li: any) => li.end);
       const verificationExpiresAt = verificationValidUntil(b);
-      // Keep this projection aligned with the renter chat gate: confirmed,
-      // paid, and all required checks approved by the recorded Didit result.
-      const handoverReady = renterRentalActionReady(b);
+      const cancellation = gafferCancellationFacts(b, cancellationAssessedAt);
+      // Keep contact and location details private until payment, confirmed
+      // status and a complete booking-level Didit approval are all recorded.
+      const handoverReady = renterHandoverDetailsReady(b);
       out.push({
         _id: b._id,
         status: b.status,
         idVerifyStatus: b.idVerifyStatus ?? "required",
         paidConfirmedAt: b.paidConfirmedAt ?? null,
         verificationExpiresAt,
+        verificationLateApprovalBlocked: b.verificationLateBlockedProviderStatus === "Approved" && !!b.verificationLateBlockedAt,
+        cancellation,
         handoverDetails: handoverReady ? {
           phone: LEO_SUPPORT_PHONE,
           pickupAddress: b.fulfilment === "delivery" ? (typeof b.address === "string" ? b.address : null) : TRAFALGAR_PICKUP_ADDRESS,
@@ -742,7 +762,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
         lateFeeStatus: b.lateFeeStatus ?? null,
         currency: b.currency ?? "GBP",
         fulfilment: b.fulfilment,
-        address: b.address ?? null,
+        address: handoverReady ? b.address ?? null : null,
         pickupTime: b.pickupTime ?? null,
         returnTime: b.returnTime ?? null,
         verificationNote: renterVerificationNote(b.verificationNote),
@@ -750,15 +770,17 @@ async function enrichBookings(ctx:any,rows:any[]) {
         documentExpiresAt: b.documentExpiresAt ?? null,
         verificationChecks: b.verificationChecks ?? null,
         idVerificationSource: b.idVerificationSource ?? null,
+        verificationProvider: b.verificationProvider ?? null,
         cancellationPending: !!b.cancellationDecision && b.status !== "cancelled",
         returnPending: !!b.returnDecision && b.status !== "returned",
         requiresDroneLicence: await requiresDroneLicence(ctx, b),
         droneLicenceStatus: await droneLicenceStatusForRental(ctx, b),
-        reviewed: reviewed.has(b._id),
+        reviewed: reviewed.has(String(b._id)),
         firstSlug: lines[0]?.slug ?? null,
         start: starts.length ? Math.min(...starts) : null,
         end: ends.length ? Math.max(...ends) : null,
         at: b._creationTime,
+        deliveryLegs: b.deliveryLegs ?? null,
       });
     }
     return out;
@@ -816,7 +838,7 @@ export const deleteAccount = mutation({
     if (!a) throw new Error("unauthorized");
     if (a.stripeSubscriptionId) throw new Error("Please contact the team to request deletion. Your subscription needs to be checked and cancelled first so billing does not continue.");
     if (a.membershipActive) throw new Error("Please contact the team to request deletion so we can review your membership and account records.");
-    if (a.lastRestrictedAt != null) throw new Error("Please contact the team to request deletion so we can review your account records.");
+    if (a.lastRestrictedAt != null || a.identitySafetyRetentionAt != null) throw new Error("Please contact the team to request deletion so we can review your account records.");
     const [booking, guestBooking, archive, credit, thread, rentalCase, attachment, adminNote, adminChange] = await Promise.all([
       ctx.db.query("bookings").withIndex("by_account", q => q.eq("accountId", a._id)).first(),
       ctx.db.query("bookings").withIndex("by_guestEmail_status", q => q.eq("guestEmail", a.email.trim().toLowerCase())).first(),
@@ -930,10 +952,12 @@ export const acknowledgeLoyalty = mutation({
   handler:async(ctx,{token,level})=>{
     const account=await resolve(ctx,token);
     if(!account)throw Error("Sign in to your account.");
-    const progress=await loyaltyProgress(ctx,account),earned=level??progress.level;
-    if(!Number.isInteger(earned)||earned<1||earned>progress.level)throw Error("Complete a clean rental and its review before claiming this Encore level.");
+    const progress=await loyaltyProgress(ctx,account);
+    if(progress.completed===null)throw Error("Your reviewed rental history needs a check before claiming this Encore level.");
+    const earned=level??progress.completed;
+    if(!Number.isInteger(earned)||earned<1||earned>progress.completed)throw Error("Submit an honest review after a clean, settled rental before claiming this Encore level.");
     const celebrated=celebratedLoyaltyLevel(account);
-    if(earned>celebrated)await ctx.db.patch(account._id,{loyaltyPolicyVersion:ENCORE_POLICY_VERSION,loyaltyLevel:progress.level,loyaltyCelebratedLevel:earned,...(earned===3?{loyaltyUnlockedAt:account.loyaltyUnlockedAt??Date.now(),loyaltyCelebratedAt:Date.now()}:{})});
+    if(earned>celebrated)await ctx.db.patch(account._id,{loyaltyPolicyVersion:ENCORE_POLICY_VERSION,loyaltyLevel:progress.earnedLevel,loyaltyHistoricalLevel:progress.historicalLevel||undefined,loyaltyCelebratedLevel:earned,...(earned===3?{loyaltyUnlockedAt:account.loyaltyUnlockedAt??Date.now(),loyaltyCelebratedAt:Date.now()}:{})});
     return true;
   },
 });

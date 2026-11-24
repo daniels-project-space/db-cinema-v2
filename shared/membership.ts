@@ -3,7 +3,7 @@
 export type MemberTier={key:string;name:string;monthlyGbp:number;monthlyCredit:number;creditBonusPct:number;deliveryPct:number;weekend:boolean;filmFund:boolean;pct:number;freeDelivery:boolean;freeAccessories:number;exclusiveOffers:boolean;perks:string[]};
 const tier=(key:string,name:string,monthlyGbp:number,deliveryPct:number,weekend:boolean,filmFund:boolean):MemberTier=>({
  key,name,monthlyGbp,creditBonusPct:key==="plus"?10:key==="pro"?20:30,monthlyCredit:Math.round(monthlyGbp*(key==="plus"?110:key==="pro"?120:130))/100,deliveryPct,weekend,filmFund,pct:0,freeDelivery:false,freeAccessories:0,exclusiveOffers:false,
- perks:[`£${(Math.round(monthlyGbp*(key==="plus"?110:key==="pro"?120:130))/100).toFixed(2)} rental credit each paid month`,"Credits stack · valid for one year","Use first-month credit when it beats other offers",...(key==="studio"?["One London delivery included each calendar month"]:[`${deliveryPct}% off delivery`]),...(weekend?["Weekend 2-for-1 / 3-for-2 · save up to £100 per rental"]:[]),...(filmFund?["Film Fund application entry included"]:["Film Fund entry available for £15 per project"])]
+ perks:[`£${(Math.round(monthlyGbp*(key==="plus"?110:key==="pro"?120:130))/100).toFixed(2)} rental credit each paid month`,"Credits stack · valid for one year","Use first-month credit towards your rental",...(key==="studio"?["One London delivery included each calendar month"]:[`${deliveryPct}% off delivery`]),...(weekend?["Weekend 2-for-1 / 3-for-2 · save up to £100 per rental"]:[]),...(filmFund?["Film Fund application entry included"]:["Film Fund entry available for £15 per project"])]
 });
 export const TIERS=[tier("plus","Starter",19,10,false,false),tier("pro","Pro",49,30,true,true),tier("studio","Studio",99,0,true,true)];
 export const tierByKey=(key?:string|null)=>TIERS.find(t=>t.key===key);
@@ -18,6 +18,11 @@ export const BENEFITS:{label:string;get:(t:MemberTier)=>boolean|string}[]=[
  {label:"Film Fund application entry",get:t=>t.filmFund?"Included":"£15 / project"},
  {label:"Credits stack and last one year",get:()=>true},
 ];
+export function membershipPlanHighlights(tier:MemberTier):string[]{
+ const perks=tier.perks.slice(1);
+ const distinctBenefits=tier.filmFund?perks.filter(perk=>perk!=="Use first-month credit towards your rental"):perks;
+ return distinctBenefits.slice(0,4);
+}
 export type IntroOffer="trial"|"credit"|"none";
 export function exactKitKey(lines:{listingId:string;qty:number}[]){const counts=new Map<string,number>();for(const l of lines)counts.set(String(l.listingId),(counts.get(String(l.listingId))??0)+l.qty);return JSON.stringify([...counts].sort(([a],[b])=>a.localeCompare(b)));}
 export function weekendDays(start:number,end:number){const DAY=86400000;if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start%DAY||end%DAY)return 0;const days=(end-start)/DAY+1,day=new Date(start).getUTCDay();return (days===2&&(day===5||day===6))|| (days===3&&day===5)?days:0;}
@@ -33,16 +38,30 @@ export function monthlyCreditPence(paidMembershipPence:number,tierKey?:string){
  return Math.round(paidMembershipPence*(100+(plan?.creditBonusPct??30))/100);
 }
 export function membershipTierFor(a:any){return a?.adminMembershipTier === "standard" ? undefined : a?.adminMembershipTier ?? a?.membershipTier;}
-export function paidDepositExempt(a:any){return membershipActiveNow(a)&&!a?.membershipPerksPendingBookingId&&!!a?.membershipActive&&a.membershipStatus==="active"&&!!a.membershipPaidThrough&&a.membershipPaidThrough>Date.now();}
+export function paidDepositExempt(a:any){return membershipRentalBenefitsActiveNow(a)&&!a?.membershipPerksPendingBookingId&&!!a?.membershipActive&&a.membershipStatus==="active"&&!!a.membershipPaidThrough&&a.membershipPaidThrough>Date.now();}
+export function hasFirstEligibleRentalConfirmation(a:any){
+ return [a?.firstCleanRentalCompletedAt,a?.membershipFirstCleanRentalCompletedAt,a?.membershipTrialFirstRentalCompletedAt].some(value=>Number.isSafeInteger(value)&&value>0);
+}
 /** Clock-based entitlement survives a delayed lifecycle webhook without extending perks. */
-export function membershipActiveNow(a:any){
+export function membershipActiveNow(a:any,now=Date.now()){
  if(a?.blockedAt!=null)return false;
  if(a?.adminMembershipTier)return a.adminMembershipTier!=="standard";
  if(!a?.membershipActive || a.membershipPerksPendingBookingId)return false;
  if(!a.stripeSubscriptionId||a.membershipSource==="collective-comp")return true; // Explicit owner/collective complimentary membership.
- return a.membershipStatus==="trialing"?(a.membershipTrialEnd??0)>Date.now():a.membershipStatus==="active"&&(a.membershipPaidThrough??0)>Date.now();
+ return a.membershipStatus==="trialing"?(a.membershipTrialEnd??0)>now:a.membershipStatus==="active"&&(a.membershipPaidThrough??0)>now;
+}
+/** Billing state and paid credit remain active independently; rental perks wait for a clean completed rental. */
+export function membershipRentalBenefitsActiveNow(a:any,now=Date.now()){
+ if(!membershipActiveNow(a,now))return false;
+ if(!hasFirstEligibleRentalConfirmation(a))return false;
+ // Stripe trials are active billing state, not evidence of a paid subscription.
+ // `membershipPaidThrough` is set only after the server verifies a successful
+ // recurring invoice; require it before subscription-backed rental perks apply.
+ if(a?.stripeSubscriptionId&&a?.membershipSource!=="collective-comp"&&!a?.adminMembershipTier)
+  return Number.isSafeInteger(a.membershipPaidThrough)&&a.membershipPaidThrough>now;
+ return true;
 }
 
-export const MEMBERSHIP_TERMS_VERSION = "2026-11-membership-v10";
+export const MEMBERSHIP_TERMS_VERSION = "2026-11-membership-v11";
 
 export const MEMBERSHIP_CREDIT_START = Date.UTC(2026,9,1);

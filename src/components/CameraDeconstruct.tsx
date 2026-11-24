@@ -14,8 +14,7 @@ import { useEffect, useRef } from "react";
  * gentle zoom and a bottom film-scrubber + frame counter — one rAF,
  * transform/opacity only.
  *
- * Fallbacks: touch gets an ambient loop (iOS can't seek on scroll);
- * reduced-motion holds the poster.
+ * Reduced-motion holds the poster; touch uses the same scroll-driven timeline.
  */
 export function CameraDeconstruct() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -34,9 +33,8 @@ export function CameraDeconstruct() {
     // mobile: the camera is shown object-contain (full width, uncropped), so
     // skip the big zoom that would crop it again.
     const coarse = window.matchMedia("(pointer: coarse)").matches;
-    // touch: leave preload="none" so the hero keeps the only video decoder at
-    // page load (iOS caps simultaneous H.264 decoders). desktop can buffer eagerly.
-    video.preload = coarse ? "none" : "auto";
+    // Defer loading until the section approaches the viewport.
+    video.preload = "none";
 
     const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
     const smooth = (e0: number, e1: number, x: number) => {
@@ -94,46 +92,71 @@ export function CameraDeconstruct() {
     // decode/seek an idle preload until a gesture activates it, so prime the
     // element (play→pause) on the first touch/scroll, then fall through to the
     // scrub path below (which seeks bidirectionally as you scroll up/down).
+    let prime: (() => void) | undefined;
     if (coarse) {
       video.muted = true;
       video.playsInline = true;
-      const prime = () => {
+      prime = () => {
         video.play().then(() => video.pause()).catch(() => {});
       };
       window.addEventListener("touchstart", prime, { once: true, passive: true });
-      window.addEventListener("touchmove", prime, { once: true, passive: true });
-      window.addEventListener("scroll", prime, { once: true, passive: true });
     }
 
     const track = video.closest<HTMLElement>("[data-deconstruct-track]");
-    if (!track) return;
+    const stickyStage = track?.querySelector<HTMLElement>("[data-deconstruct-stage]");
+    if (!track || !stickyStage) return;
+
+    const preloadObserver = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return;
+      video.preload = "auto";
+      video.load();
+      preloadObserver.disconnect();
+    }, { rootMargin: "1000px 0px" });
+    preloadObserver.observe(track);
 
     let targetTime = 0;
     let displayTime = 0;
     let raf = 0;
     let prev = 0;
+    let lastSeekAt = Number.NEGATIVE_INFINITY;
+    let seekTimer: number | undefined;
     const EPS = 0.003;
-    const RESPONSE = 0.08;
+    const RESPONSE = 0.24;
+    const SEEK_EPSILON = coarse ? 0.08 : 1 / 30;
+    const SEEK_INTERVAL = 1000 / 24;
 
     const readTarget = () => {
-      const scrollable = track.offsetHeight - window.innerHeight;
-      const prog =
-        scrollable > 0 ? clamp(-track.getBoundingClientRect().top / scrollable, 0, 1) : 0;
+      const stickyTop = Math.max(0, Number.parseFloat(getComputedStyle(stickyStage).top) || 0);
+      const trackDocumentTop = track.getBoundingClientRect().top + window.scrollY;
+      const startScroll = Math.max(0, trackDocumentTop - stickyTop);
+      const endScroll = trackDocumentTop + track.offsetHeight - stickyStage.offsetHeight - stickyTop;
+      const scrollable = Math.max(1, endScroll - startScroll);
+      const prog = clamp((window.scrollY - startScroll) / scrollable, 0, 1);
       targetTime = prog * (duration - 0.05);
     };
 
     // Reliable scrub: never issue a seek while one is in flight (prevents the
-    // "stuck" pile-up), and never seek past what's actually buffered (prevents
-    // the "renders halfway" stall) — re-attempt from `seeked`/`progress` as more
-    // of the file loads.
+    // "stuck" pile-up). Seekable ranges support media servers that load
+    // individual ranges rather than buffering the whole file from the start.
     const seekTo = () => {
       if (video.seeking) return;
-      const b = video.buffered;
-      const loadedEnd = b.length ? b.end(0) : 0; // contiguous buffer from 0
-      const safe = Math.min(displayTime, Math.max(0, loadedEnd - 0.05));
-      if (Math.abs(video.currentTime - safe) > 1 / 30) {
+      const waitForNextFrame = SEEK_INTERVAL - (performance.now() - lastSeekAt);
+      if (waitForNextFrame > 0) {
+        if (seekTimer === undefined) {
+          seekTimer = window.setTimeout(() => {
+            seekTimer = undefined;
+            wake();
+          }, waitForNextFrame);
+        }
+        return;
+      }
+      const ranges = video.seekable;
+      if (!ranges.length) return;
+      const safe = clamp(displayTime, ranges.start(0), Math.max(ranges.start(0), ranges.end(ranges.length - 1) - 0.05));
+      if (Math.abs(video.currentTime - safe) > SEEK_EPSILON) {
         try {
           video.currentTime = safe;
+          lastSeekAt = performance.now();
         } catch {
           /* not ready */
         }
@@ -186,20 +209,23 @@ export function CameraDeconstruct() {
 
     window.addEventListener("scroll", wake, { passive: true });
     window.addEventListener("resize", wake);
-    video.addEventListener("seeked", seekTo);
-    video.addEventListener("progress", seekTo);
+    video.addEventListener("seeked", wake);
+    video.addEventListener("progress", wake);
     return () => {
       window.removeEventListener("scroll", wake);
       window.removeEventListener("resize", wake);
-      video.removeEventListener("seeked", seekTo);
-      video.removeEventListener("progress", seekTo);
+      video.removeEventListener("seeked", wake);
+      video.removeEventListener("progress", wake);
+      if (prime) window.removeEventListener("touchstart", prime);
+      preloadObserver.disconnect();
       cancelAnimationFrame(raf);
+      if (seekTimer !== undefined) window.clearTimeout(seekTimer);
     };
   }, []);
 
   return (
     <section className="section-window relative max-w-full overflow-x-clip" style={{ height: "220vh" }} data-deconstruct-track>
-      <div className="sticky top-[93px] h-[calc(100vh-93px)] overflow-hidden bg-[#050507]">
+      <div data-deconstruct-stage className="sticky top-[93px] h-[calc(100vh-93px)] overflow-hidden bg-[#050507]">
         {/* the camera — full-bleed, black screen-blended away */}
         <div ref={stageRef} className="absolute inset-0 z-0 will-change-transform">
           <video

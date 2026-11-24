@@ -7,6 +7,7 @@ import { api } from "@cvx/_generated/api";
 const labels: Record<string, string> = {
   sent: "A review request was already sent.",
   sending: "The review form is already being sent in this chat.",
+  delivery_uncertain: "Email delivery could not be confirmed. Check the renter’s messages before sending anything else.",
   not_due: "The review request becomes available 24 hours after return and settlement.",
   reviewed: "This rental already has a review.",
   not_settled: "The rental and security settlement must be complete before requesting a review.",

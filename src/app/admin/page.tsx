@@ -216,7 +216,7 @@ export default function AdminPage() {
         { key: "settings", label: "Settings", icon: "settings" },
       ]} onNavigate={key => {setDocumentsOpen(null);setTab(key as typeof tab);window.history.replaceState(null, "", window.location.pathname);}}
 
-      actions={<><OwnerNotificationBell token={token} /><button onClick={lock} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] text-white/65">Lock</button></>}>
+      actions={<><OwnerNotificationBell token={token} /><a href="/admin/reviews" className="rounded-lg border border-white/15 px-3 py-2 text-[10px] text-white/65 hover:border-[#d4a574]/40 hover:text-white/85">Review queue</a><button onClick={lock} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] text-white/65">Lock</button></>}>
 
         {tab === "overview" && (
           <div>

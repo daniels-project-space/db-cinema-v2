@@ -8,6 +8,7 @@ import { SmartImage } from "@/components/SmartImage";
 import { dayMs } from "@/lib/dates";
 import { cancellationTimingBasis, isNoRefundWithin48HoursCancellationVersion } from "@/lib/cancellationPolicy";
 import { RENTAL_TIME_SLOTS } from "../../../shared/rentalWindow";
+import { renterFacingError } from "@/lib/renterFacingError";
 
 export function RenterRentalTools({ token, bookingId }: { token: string; bookingId: string }) {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -26,34 +27,44 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
   const cancellation = useQuery(api.cancellationRecovery.renterStatus, { token, bookingId: bookingId as any });
   const request = useMutation(api.rentalRequests.submit);
   const cancelUnpaid = useAction(api.checkout.cancelUnpaidByCustomer);
-  const [mode, setMode] = useState<"dates" | "items" | "extension" | "cancel" | "handover" | null>(null);
-  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const [mode, setMode] = useState<"dates" | "items" | "extension" | "cancel" | "handover" | "refund" | "delivery" | null>(null);
   const [detail, setDetail] = useState("");
   const [itemChangeLineIndexes, setItemChangeLineIndexes] = useState<number[]>([]);
+  const [creditOfferId, setCreditOfferId] = useState<string | null>(null);
   const [handoverKind, setHandoverKind] = useState<"pickup" | "return">("pickup");
   const [handoverTime, setHandoverTime] = useState("");
   const [handoverLineIndexes, setHandoverLineIndexes] = useState<number[]>([]);
+  const [deliveryLegs, setDeliveryLegs] = useState<"one_way" | "round_trip">("round_trip");
   const [cancellationChoice, setCancellationChoice] = useState<"refund" | "credit" | null>(null);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
   const requestId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!context) return;
+    setCancellationChoice(null);
+    requestId.current = null;
+  }, [context?.cancellationKind, context?.cancellationTermsVersion]);
   if (!context) return null;
   if (!["pending_payment", "pending_verification", "confirmed", "active"].includes(context.status)) return <RentalRequestHistory token={token} bookingId={bookingId} />;
   const rentalItems = context.items ?? [];
   const canCancel = context.direct && context.status === "pending_payment";
   const canRequestPendingCancellation = context.canRequestPaidPendingCancellation === true;
   const canRequestChanges = context.actionReady === true;
+  const canRequestKitChange = context.canRequestKitChange === true;
+  const canRequestDelivery = context.canRequestDelivery === true;
+  const canPrepareKitQuote = context.canPrepareKitQuote !== false;
   const actions = canRequestPendingCancellation
     ? [["cancel", context.cancellationKind === "full_refund" ? "Request cancellation · refund options" : context.cancellationKind === "store_credit" ? "Request cancellation · credit only" : "Request cancellation"]]
     : canRequestChanges
-    ? context.status === "active"
-      ? [["items", "Request kit change"], ["handover", "Request time change"]]
+      ? context.status === "active"
+      ? [["handover", "Request time change"]]
       : context.status === "confirmed"
-        ? [["dates", "Reschedule"], ["items", "Request kit change"], ["handover", "Request time change"], ["cancel", context.cancellationKind === "full_refund" ? "Cancel · refund options" : context.cancellationKind === "store_credit" ? "Cancel · credit only" : "Cancellation options"]]
+        ? [["dates", "Request date change"], ...(canRequestKitChange ? [["items", "Request kit change"]] : []), ...(canRequestDelivery ? [["delivery", "Request delivery quote"]] : []), ["handover", "Request time change"], ["cancel", context.cancellationKind === "full_refund" ? "Cancel · refund options" : context.cancellationKind === "store_credit" ? "Cancel · credit only" : "Cancellation options"]]
         : []
     : canCancel ? [["cancel", "Abandon checkout"]] : [];
+  if (canRequestChanges && context.canRequestRefund) actions.push(["refund", "Request refund review"]);
   const rescheduleStart = mode === "dates" && detail ? dayMs(detail.slice(0, 10)) : 0;
   const preview = useQuery(api.rentalOperations.renterReschedulePreview,
     canRequestChanges && context.status === "confirmed" && rescheduleStart > 0 && detail.length > 10
@@ -65,11 +76,28 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
       ? { token, bookingId: bookingId as any, lineIndexes: handoverLineIndexes, kind: handoverKind, time: handoverTime, reason: handoverReason }
       : "skip");
   function open(next: typeof mode) {
-    setMobileActionsOpen(false);
     setMode(next); setDetail(""); setCancellationChoice(null); setConsent(false); setError(""); setResult(""); requestId.current = null;
+    setCreditOfferId(null);
     setHandoverKind(context?.status === "active" ? "return" : "pickup"); setHandoverTime(""); setHandoverLineIndexes(next === "handover" ? context?.items?.map(item => item.index) ?? [] : []);
     setItemChangeLineIndexes(next === "items" ? context?.items?.map(item => item.index) ?? [] : []);
+    setDeliveryLegs("round_trip");
   }
+  useEffect(() => {
+    const openCreditReview = (event: Event) => {
+      const offer = (event as CustomEvent<{ bookingId?: string; offerId?: string; proposedCreditPence?: number }>).detail;
+      if (offer?.bookingId !== bookingId || !offer.offerId) return;
+      setMode("cancel"); setCancellationChoice(null); setConsent(false); setError(""); setResult(""); requestId.current = null;
+      setCreditOfferId(offer.offerId);
+      setHandoverKind("pickup"); setHandoverTime(""); setHandoverLineIndexes([]); setItemChangeLineIndexes([]);
+      const controls = document.querySelector<HTMLDetailsElement>('[data-testid="renter-chat-controls"]');
+      if (controls) controls.open = true;
+      if (Number.isSafeInteger(offer.proposedCreditPence) && (offer.proposedCreditPence ?? 0) > 0) {
+        setDetail(`Please review the proposed ${new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format((offer.proposedCreditPence ?? 0) / 100)} account-credit option shown in this chat.`);
+      } else setDetail("");
+    };
+    window.addEventListener("dbc:open-rental-cancellation", openCreditReview);
+    return () => window.removeEventListener("dbc:open-rental-cancellation", openCreditReview);
+  }, [bookingId]);
   async function submit() {
     if (busy || !mode) return;
     setBusy(true); setError("");
@@ -82,42 +110,40 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
         requestId.current ??= crypto.randomUUID();
         if (mode === "dates" && (!preview?.ok || !rescheduleStart)) throw Error("Choose a new start date and wait for the live availability check.");
         if (mode === "items" && !itemChangeLineIndexes.length) throw Error("Choose at least one booked item to change.");
-        const requestDetail = mode === "dates"
+        const requestDetail = mode === "delivery"
+          ? "Please quote delivery to my saved rental address."
+          : mode === "dates"
           ? `Reschedule all items together to ${detail.slice(0, 10)}. Reason: ${detail.slice(11).trim()}`
           : mode === "items"
             ? detail.trim()
           : detail.trim();
         if (mode === "handover" && !handoverPreview?.ok) throw Error(handoverPreview?.reason ?? "Choose the affected items and time, then wait for the live availability check.");
-        await request({ token, bookingId: bookingId as any, requestId: requestId.current, kind: mode, detail: requestDetail, ...(mode === "dates" ? { proposedStart: rescheduleStart } : {}), ...(mode === "items" ? { itemLineIndexes: [...itemChangeLineIndexes].sort((left, right) => left - right) } : {}), ...(mode === "handover" ? { handoverKind, handoverTime, handoverLineIndexes } : {}), ...(mode === "cancel" && cancellationChoice ? { cancellationChoice } : {}) });
-        setResult(mode === "handover" ? "Time request sent for team approval. Your booking stays unchanged until the team approves and applies it." : mode === "items" ? "Request sent. The team will check availability and price, then send a proposal. Nothing changes until you accept it." : "Request sent for team approval. Your rental and any payment stay unchanged until the team approves and applies it.");
+        await request({ token, bookingId: bookingId as any, requestId: requestId.current, kind: mode, detail: requestDetail, ...(mode === "dates" ? { proposedStart: rescheduleStart } : {}), ...(mode === "items" ? { itemLineIndexes: [...itemChangeLineIndexes].sort((left, right) => left - right) } : {}), ...(mode === "handover" ? { handoverKind, handoverTime, handoverLineIndexes } : {}), ...(mode === "delivery" ? { deliveryLegs } : {}), ...(mode === "cancel" && cancellationChoice ? { cancellationChoice } : {}), ...(mode === "cancel" && creditOfferId ? { creditOfferId: creditOfferId as any } : {}) });
+        setResult(mode === "delivery" ? "Request sent for team approval. No delivery is booked or charged; you’ll review the exact quote and terms before paying." : mode === "handover" ? "Time request sent for team approval. Your booking stays unchanged until the team approves and applies it." : mode === "items" && !canPrepareKitQuote ? "Request sent for team review. Your kit, dates and payment stay unchanged while shared stock coordination is offline." : mode === "items" ? "Request sent. The team will check availability and price, then send a proposal. Nothing changes until you accept it." : mode === "refund" ? "Refund review request sent. Your booking and payment are unchanged; approval does not send money." : "Request sent for team approval. Your rental and any payment stay unchanged until the team approves and applies it.");
       }
       setMode(null);
-    } catch (e: any) { setError(e.data?.message ?? e.message ?? "Please try again."); }
+    } catch (e: any) { setError(renterFacingError(e, "We couldn’t send this request. Your rental is unchanged. Please try again.")); }
     finally { setBusy(false); }
   }
   return <div className="mt-3" data-testid="renter-rental-tools">
     <RentalRequestHistory token={token} bookingId={bookingId} />
     {cancellation && cancellation.status !== "succeeded" && <p role="status" className="mb-3 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-xs text-amber-100">{cancellation.status === "attention" ? "The team is reviewing your cancellation settlement. Please message us if you need help." : "Your cancellation is processing. We will confirm once the refund and security release are complete."}</p>}
-    {(canRequestChanges || canCancel || canRequestPendingCancellation) ? <div className={styles.requestActions} data-testid="renter-action-buttons" aria-label="Rental requests" data-open={mobileActionsOpen ? "true" : "false"}>
-      <button type="button" className={styles.mobileActionsToggle} data-testid="renter-actions-toggle" aria-expanded={mobileActionsOpen} aria-controls="renter-request-action-list" onClick={() => setMobileActionsOpen(value => !value)}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="7" cy="6" r="1" fill="currentColor"/><circle cx="14" cy="12" r="1" fill="currentColor"/><circle cx="10" cy="18" r="1" fill="currentColor"/></svg>
-        Rental actions
-        <svg className={styles.mobileActionsChevron} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
-      </button>
+    {(canRequestChanges || canCancel || canRequestPendingCancellation) ? <div className={styles.requestActions} data-testid="renter-action-buttons" aria-label="Rental requests">
       <div className={styles.requestActionList} id="renter-request-action-list">
-      {actions.map(([kind, label]) => <button key={kind} type="button" data-testid={`renter-request-${kind}`} aria-label={kind === "dates" ? "Request a reschedule" : kind === "items" ? "Request a kit change" : kind === "handover" ? "Request a pickup or return time change" : canCancel ? "Abandon this checkout" : "See cancellation options"} disabled={busy || context.locked} onClick={() => open(kind as typeof mode)} className={`${styles.requestAction} ${mode === kind ? styles.requestActionActive : ""} disabled:opacity-35`}>
-        <svg className={styles.requestActionIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">{kind === "dates" ? <><rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M8 3.5v3M16 3.5v3M3.5 9.5h17M8 13h3m-3 3h6"/></> : kind === "items" ? <><path d="m12 3 8.5 4.5v9L12 21l-8.5-4.5v-9L12 3Z"/><path d="m3.8 7.8 8.2 4.5 8.2-4.5M12 12.3V21"/></> : kind === "handover" ? <><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></> : <><circle cx="12" cy="12" r="8.5"/><path d="m6 6 12 12"/></>}</svg>
+      {actions.map(([kind, label]) => <button key={kind} type="button" data-testid={`renter-request-${kind}`} aria-label={kind === "dates" ? "Request a reschedule" : kind === "items" ? "Request a kit change" : kind === "delivery" ? "Request a delivery quote" : kind === "handover" ? "Request a pickup or return time change" : kind === "refund" ? "Request a refund review" : canCancel ? "Abandon this checkout" : "See cancellation options"} disabled={busy || context.locked} onClick={() => open(kind as typeof mode)} className={`${styles.requestAction} ${mode === kind ? styles.requestActionActive : ""} disabled:opacity-35`}>
+        <svg className={styles.requestActionIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">{kind === "dates" ? <><rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M8 3.5v3M16 3.5v3M3.5 9.5h17M8 13h3m-3 3h6"/></> : kind === "items" ? <><path d="m12 3 8.5 4.5v9L12 21l-8.5-4.5v-9L12 3Z"/><path d="m3.8 7.8 8.2 4.5 8.2-4.5M12 12.3V21"/></> : kind === "delivery" ? <><path d="M2.5 6.5h12v10h-12zM14.5 10h4l3 3v3.5h-7z"/><circle cx="7" cy="18.5" r="1.5"/><circle cx="18.5" cy="18.5" r="1.5"/></> : kind === "handover" ? <><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></> : <><circle cx="12" cy="12" r="8.5"/><path d="m6 6 12 12"/></>}</svg>
         <span className={styles.requestActionDesktopLabel}>{label}</span>
-        <span className={styles.requestActionMobileLabel}>{kind === "dates" ? "Move dates" : kind === "items" ? "Change kit" : kind === "handover" ? "Change time" : canCancel ? "Abandon" : "Cancel"}</span>
+        <span className={styles.requestActionMobileLabel}>{kind === "dates" ? "Request dates" : kind === "items" ? "Change kit" : kind === "delivery" ? "Delivery quote" : kind === "handover" ? "Request time" : kind === "refund" ? "Refund review" : canCancel ? "Abandon" : "Cancel"}</span>
       </button>)}
-      {canRequestChanges && (context.status === "confirmed" || context.status === "active") && <button type="button" data-testid="renter-request-extension" aria-label="Request a rental extension" className={`${styles.requestAction} ${styles.mobileOnlyAction}`} onClick={() => { setMobileActionsOpen(false); window.dispatchEvent(new Event("dbc:open-rental-extension")); }}>
+      {canRequestChanges && (context.status === "confirmed" || context.status === "active") && <button type="button" data-testid="renter-request-extension" aria-label="Request a rental extension" disabled={busy || context.locked} className={`${styles.requestAction} ${styles.mobileOnlyAction} disabled:opacity-35`} onClick={() => { window.dispatchEvent(new Event("dbc:open-rental-extension")); }}>
         <svg className={styles.requestActionIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M8 3.5v3M16 3.5v3M3.5 9.5h17M12 12v6m-3-3h6"/></svg>
-        <span className={styles.requestActionDesktopLabel}>Extend rental</span><span className={styles.requestActionMobileLabel}>Extend rental</span>
+        <span className={styles.requestActionDesktopLabel}>Request extension</span><span className={styles.requestActionMobileLabel}>Request extension</span>
       </button>}
       </div>
     </div> : <p data-testid="renter-actions-locked" className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-2 text-xs text-white/45">Rental changes unlock after payment and verification are complete.</p>}
+    {canRequestChanges && !canRequestKitChange && !context.locked && context.status === "active" && <p data-testid="renter-kit-change-chat-route" className="mt-2 rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-2 text-xs leading-5 text-white/55">For an in-rental replacement, message the team here so it can be reviewed as a rental case.</p>}
     {mode && <form onSubmit={e => { e.preventDefault(); void submit(); }} className={`mt-3 rounded-2xl border border-white/10 bg-white/[0.035] ${mode === "cancel" ? "p-3" : "p-4"}`}>
-      <div className="flex justify-between gap-3"><h3 className="text-sm font-medium text-white">{mode === "cancel" ? "Cancellation terms" : "Ask the team"}</h3><button type="button" disabled={busy} onClick={() => setMode(null)} className="min-h-10 min-w-12 rounded-full px-2 text-xs text-white/65 hover:bg-white/[0.06] lg:min-h-0 lg:min-w-0">Close</button></div>
+      <div className="flex justify-between gap-3"><h3 className="text-sm font-medium text-white">{mode === "cancel" ? "Cancellation terms" : mode === "refund" ? "Refund review" : mode === "dates" ? "Request date change" : mode === "handover" ? "Request time change" : mode === "items" ? "Request kit change" : mode === "delivery" ? "Request delivery" : "Ask the team"}</h3><button type="button" disabled={busy} onClick={() => setMode(null)} className="min-h-10 min-w-12 rounded-full px-2 text-xs text-white/65 hover:bg-white/[0.06] lg:min-h-0 lg:min-w-0">Close</button></div>
       {mode === "cancel" ? <div className="mt-2 space-y-2 text-xs leading-relaxed text-white/70">
         <section data-testid="renter-cancellation-summary" className="rounded-xl border border-white/10 bg-white/[0.035] p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,.04)]">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -168,6 +194,13 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
         <label className="block text-xs text-white/65">New {handoverKind} time<select data-testid="renter-handover-time" aria-label={`New ${handoverKind} time`} required value={handoverTime} onChange={e => { setHandoverTime(e.target.value); requestId.current = null; }} className="mt-1.5 block w-full rounded-xl border border-white/10 bg-[#151515] px-3 py-2.5 text-sm text-white"><option value="">Choose a time</option>{RENTAL_TIME_SLOTS.map(time => <option key={time} value={time}>{time}</option>)}</select></label>
         <label className="block text-xs text-white/65">Why do you need to change the time?<textarea data-testid="renter-handover-reason" aria-label="Time change reason" required minLength={5} maxLength={500} value={detail} onChange={e => { setDetail(e.target.value); requestId.current = null; }} placeholder="Tell us what needs to change" className="mt-1.5 w-full rounded-xl bg-[#151515] p-3 text-sm text-white" /></label>
         {!handoverTime || !handoverLineIndexes.length || handoverReason.length < 5 ? <p className="text-xs text-white/45">Choose a time and affected items, then tell us why.</p> : handoverPreview === undefined ? <p role="status" className="text-xs text-white/45">Checking availability…</p> : handoverPreview.ok ? <p role="status" className="text-xs text-emerald-200">Time is available for the selected items. The booking changes only after team approval and application.</p> : <p role="status" className="text-xs text-amber-200">{handoverPreview.reason ?? "That time is not currently available."}</p>}
+      </div> : mode === "delivery" ? <div className="mt-3 space-y-3" data-testid="renter-delivery-request">
+        <fieldset className="grid gap-2 text-xs text-white/75">
+          <legend className="mb-1 font-medium">What should we quote?</legend>
+          <label className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 transition ${deliveryLegs === "round_trip" ? "border-accent-300/35 bg-accent-300/[0.06]" : "border-white/[0.08] bg-black/10"}`}><input type="radio" name={`renter-delivery-legs-${bookingId}`} value="round_trip" checked={deliveryLegs === "round_trip"} onChange={() => { setDeliveryLegs("round_trip"); requestId.current = null; }} /><span><strong className="block font-medium text-white/85">Delivery + collection</strong><span className="text-[10px] text-white/45">Courier delivers and collects the kit.</span></span></label>
+          <label className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 transition ${deliveryLegs === "one_way" ? "border-accent-300/35 bg-accent-300/[0.06]" : "border-white/[0.08] bg-black/10"}`}><input type="radio" name={`renter-delivery-legs-${bookingId}`} value="one_way" checked={deliveryLegs === "one_way"} onChange={() => { setDeliveryLegs("one_way"); requestId.current = null; }} /><span><strong className="block font-medium text-white/85">One-way delivery</strong><span className="text-[10px] text-white/45">You return the kit at the agreed Trafalgar Square point.</span></span></label>
+        </fieldset>
+        <p className="rounded-xl border border-white/[0.08] bg-black/15 px-3 py-2.5 text-[11px] leading-4 text-white/55">We’ll check the saved rental address and send a price. Nothing is booked or charged yet. You’ll review the exact delivery terms before paying.</p>
       </div> : <p className="mt-2 text-xs text-white/50">{mode === "items" ? "Tell us which items and quantities to add or remove." : "Your request is checked before any rental or payment changes."}</p>}
       {mode === "items" && <section aria-label="Select items for a kit change" data-testid="renter-item-change-items" className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
         <div className="mb-2 flex items-center justify-between gap-3"><div><h4 className="text-xs font-medium text-white/85">Items to change</h4><p className="mt-0.5 text-[10px] text-white/45">Choose one or more from this rental</p></div><label className="flex min-h-10 items-center gap-2 text-[10px] text-white/70"><input data-testid="renter-item-change-all" type="checkbox" checked={itemChangeLineIndexes.length === context.items.length} onChange={event => { setItemChangeLineIndexes(event.target.checked ? context.items.map(item => item.index) : []); requestId.current = null; }} />All items</label></div>
@@ -180,10 +213,11 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
           </label>;
         })}</div>
         <label className="mt-3 block text-[11px] text-white/70">What would you like changed?<textarea data-testid="renter-item-change-request" aria-label="Requested kit changes" required minLength={5} maxLength={500} value={detail} onChange={e => { setDetail(e.target.value); requestId.current = null; }} placeholder="Name the item or alternative you need, and the quantity." className="mt-1.5 w-full rounded-xl border border-white/10 bg-[#151515] p-3 text-sm text-white placeholder:text-white/35" /></label>
-        <p role="note" className="mt-2 rounded-xl border border-[#d8ae7a]/15 bg-[#d8ae7a]/[0.04] px-3 py-2 text-[10px] leading-4 text-white/60">The team will check availability and price, then send a proposal. Your kit stays the same until you accept it. Return the current items at the original booked time unless the team confirms a new time.</p>
+        <p role="note" className="mt-2 rounded-xl border border-[#d8ae7a]/15 bg-[#d8ae7a]/[0.04] px-3 py-2 text-[10px] leading-4 text-white/60">{canPrepareKitQuote ? "The team will check availability and price, then send a proposal." : "Your request reaches the team for review. Live stock checks and quotes are temporarily unavailable."} Your kit stays the same until you accept a proposal. Return the current items at the original booked time unless the team confirms a new time.</p>
       </section>}
       {(mode === "cancel" && !canCancel) && <textarea aria-label="Cancellation request details" required minLength={5} maxLength={500} rows={2} value={detail} onChange={e => { setDetail(e.target.value); requestId.current = null; }} placeholder="Why do you need to cancel?" className="mt-2 h-14 w-full resize-y rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white placeholder:text-white/40" />}
-      <button disabled={busy || (mode === "items" && (!itemChangeLineIndexes.length || detail.trim().length < 5)) || (mode === "cancel" && canCancel && !consent) || (mode === "cancel" && !canCancel && currentCancellationTerms && context.cancellationKind === "full_refund" && !cancellationChoice) || (mode === "dates" && (!preview?.ok || detail.slice(11).trim().length < 5)) || (mode === "handover" && (!handoverTime || !handoverLineIndexes.length || handoverReason.length < 5 || !handoverPreview?.ok))} className={`mt-3 min-h-11 rounded-full border px-4 py-2 text-xs font-semibold transition disabled:cursor-not-allowed lg:min-h-0 ${mode === "cancel" ? "border-rose-300/35 bg-rose-600 text-white hover:bg-rose-500 disabled:border-rose-300/25 disabled:bg-rose-950/80 disabled:text-rose-100/90 disabled:opacity-100" : "border-accent-300/20 bg-accent-500 text-white hover:bg-accent-400 disabled:opacity-40"}`}>{busy ? "Sending…" : mode === "cancel" && canCancel ? "Abandon checkout" : mode === "cancel" ? "Request cancellation" : mode === "dates" ? "Request reschedule" : mode === "handover" ? "Request time change" : mode === "items" ? "Send kit change request" : "Send request"}</button>
+      {mode === "refund" && <div className="mt-3 space-y-2"><p className="rounded-xl border border-white/[0.08] bg-white/[0.025] px-3 py-2 text-[11px] leading-4 text-white/60">Ask the team to review a possible rental-charge refund. This does not cancel the rental or send money; any amount and settlement are confirmed separately under your accepted terms.</p><label className="block text-xs text-white/65">Why should we review this?<textarea aria-label="Refund review reason" required minLength={5} maxLength={500} rows={3} value={detail} onChange={e => { setDetail(e.target.value); requestId.current = null; }} placeholder="Tell us briefly what happened." className="mt-1.5 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white placeholder:text-white/40" /></label></div>}
+      <button disabled={busy || (mode === "items" && (!itemChangeLineIndexes.length || detail.trim().length < 5)) || (mode === "refund" && detail.trim().length < 5) || (mode === "cancel" && canCancel && !consent) || (mode === "cancel" && !canCancel && currentCancellationTerms && context.cancellationKind === "full_refund" && !cancellationChoice) || (mode === "dates" && (!preview?.ok || detail.slice(11).trim().length < 5)) || (mode === "handover" && (!handoverTime || !handoverLineIndexes.length || handoverReason.length < 5 || !handoverPreview?.ok)) || (mode === "delivery" && !canRequestDelivery)} className={`mt-3 min-h-11 rounded-full border px-4 py-2 text-xs font-semibold transition disabled:cursor-not-allowed lg:min-h-0 ${mode === "cancel" ? "border-rose-300/35 bg-rose-600 text-white hover:bg-rose-500 disabled:border-rose-300/25 disabled:bg-rose-950/80 disabled:text-rose-100/90 disabled:opacity-100" : "border-accent-300/20 bg-accent-500 text-white hover:bg-accent-400 disabled:opacity-40"}`}>{busy ? "Sending…" : mode === "cancel" && canCancel ? "Abandon checkout" : mode === "cancel" ? "Request cancellation" : mode === "dates" ? "Request reschedule" : mode === "handover" ? "Request time change" : mode === "items" ? "Send kit change request" : mode === "refund" ? "Send refund review request" : mode === "delivery" ? "Request delivery quote" : "Send request"}</button>
     </form>}
     {error && <p role="alert" className="mt-2 text-xs text-rose-300">{error}</p>}
     {result && <p role="status" className="mt-2 text-xs text-emerald-300">{result}</p>}

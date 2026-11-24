@@ -1,6 +1,7 @@
 const assert=require('node:assert/strict'),Stripe=require('stripe'),h=require('./lib/rentalTestHarness.cjs');
 const realWebhooks=new Stripe('sk_test_fixture').webhooks;
-class StripeFixture { webhooks=realWebhooks; }
+const chargeReceipts=new Map();
+class StripeFixture { webhooks=realWebhooks; charges={retrieve:async id=>{const charge=chargeReceipts.get(id);if(!charge)throw Error('Synthetic charge unavailable');return charge;}}; }
 h.setMock('stripe',{default:StripeFixture});
 const checkout=h.load('convex/checkout.ts'),disputes=h.load('convex/stripeDisputes.ts'),securityState=h.load('convex/securityChargeState.ts'),presentation=h.load('shared/adminNotificationPresentation.ts');
 process.env.STRIPE_SECRET_KEY='sk_test_fixture';process.env.STRIPE_WEBHOOK_SECRET='whsec_synthetic';
@@ -9,7 +10,7 @@ const scheduled=[],ctx={db:h.db,scheduler:{runAfter:async(delay,ref,args)=>sched
  if(ref==='stripeDisputes.record')return disputes.record.handler(ctx,args);
  throw Error(`Unexpected mutation ${ref}`);
 }};
-function event(id,type,intent,{disputeId='dp_fixture',status='needs_response',reason='fraudulent',created=1000}={}){const body=JSON.stringify({id,type,created,data:{object:{id:disputeId,payment_intent:intent,status,reason}}});return {body,sig:realWebhooks.generateTestHeaderString({payload:body,secret:process.env.STRIPE_WEBHOOK_SECRET})};}
+function event(id,type,intent,{disputeId='dp_fixture',chargeId,status='needs_response',reason='fraudulent',created=1000}={}){const body=JSON.stringify({id,type,created,data:{object:{id:disputeId,payment_intent:intent,charge:chargeId,status,reason}}});return {body,sig:realWebhooks.generateTestHeaderString({payload:body,secret:process.env.STRIPE_WEBHOOK_SECRET})};}
 (async()=>{
  const account=h.put('accounts',{email:'synthetic@example.invalid'}),booking=h.put('bookings',{accountId:account._id,status:'confirmed',stripePaymentIntentId:'pi_unique',depositAmount:20,total:100,agreementSnapshot:'unchanged'});
  h.put('admin_push_subscriptions',{enabled:true,deviceId:'synthetic',updatedAt:1,endpoint:'https://synthetic.invalid',p256dh:'fixture',auth:'fixture'});
@@ -28,6 +29,7 @@ function event(id,type,intent,{disputeId='dp_fixture',status='needs_response',re
  h.put('bookings',{accountId:account._id,status:'confirmed',stripePaymentIntentId:'pi_unique',depositAmount:0,total:5,agreementSnapshot:'other'});
  const closed=event('evt_synthetic_closed','charge.dispute.closed','pi_unique');
  assert.equal(await checkout.stripeWebhook.handler(ctx,closed),true);assert.equal(rows[2].bookingId,undefined,'ambiguous payment ownership is not guessed');
+ const ambiguousCase=(h.tables.get('stripe_dispute_cases')??[]).find(row=>row.disputeId==='dp_fixture');assert.equal(ambiguousCase.linkStatus,'unresolved');assert.equal(ambiguousCase.bookingId,undefined);
  const assessmentBooking=h.put('bookings',{accountId:account._id,status:'returned',stripePaymentIntentId:'pi_assessment_booking',depositAmount:0,total:25});
  const assessment=h.put('rental_security_charges',{bookingId:assessmentBooking._id,accountId:account._id,requestId:'assessment-fixture',kind:'damage',amountPence:2500,reason:'Synthetic inspection assessment',customerId:'cus_fixture',paymentMethodId:'pm_fixture',consentSnapshot:'fixture',state:'paid',createdAt:1,updatedAt:1,intentId:'pi_security_unique',paidPence:2500});
  const securityCreated=event('evt_synthetic_security_created','charge.dispute.created','pi_security_unique',{disputeId:'dp_security',status:'needs_response',reason:'product_not_received',created:2000});
@@ -38,13 +40,45 @@ function event(id,type,intent,{disputeId='dp_fixture',status='needs_response',re
  assert.equal(await checkout.stripeWebhook.handler(ctx,securityUpdated),true);assert.equal(assessment.stripeDisputeStatus,'under_review');
  const staleSecurityUpdate=event('evt_synthetic_security_stale','charge.dispute.updated','pi_security_unique',{disputeId:'dp_security',status:'needs_response',reason:'product_not_received',created:2001});
  assert.equal(await checkout.stripeWebhook.handler(ctx,staleSecurityUpdate),true);assert.equal(assessment.stripeDisputeStatus,'under_review','an older Stripe event cannot roll back newer dispute state');
+ const sameSecondStaleUpdate=event('evt_synthetic_security_same_second_stale','charge.dispute.updated','pi_security_unique',{disputeId:'dp_security',status:'needs_response',reason:'product_not_received',created:2002});
+ assert.equal(await checkout.stripeWebhook.handler(ctx,sameSecondStaleUpdate),true);assert.equal(assessment.stripeDisputeStatus,'under_review','same-second delivery cannot downgrade a dispute lifecycle stage');
+ assert.equal((h.tables.get('stripe_dispute_cases')??[]).find(row=>row.disputeId==='dp_security').eventId,'evt_synthetic_security_updated','stale same-second delivery cannot replace the latest applied event');
  const securityClosed=event('evt_synthetic_security_closed','charge.dispute.closed','pi_security_unique',{disputeId:'dp_security',status:'won',reason:'product_not_received',created:2003});
  assert.equal(await checkout.stripeWebhook.handler(ctx,securityClosed),true);assert.equal(assessment.stripeDisputeStatus,'won');
  securityContext=await securityState.context.handler(ctx,{id:assessment._id});assert.equal(securityContext.collectionPaused,true,'closing a Stripe case does not silently resume saved-card collection');
- assert.equal((h.tables.get('admin_notifications')??[]).filter(row=>row.bookingId===assessmentBooking._id).length,4,'assessment dispute lifecycle alerts remain attached to the rental');
+ assert.equal((h.tables.get('admin_notifications')??[]).filter(row=>row.bookingId===assessmentBooking._id).length,5,'assessment dispute lifecycle alerts remain attached to the rental');
+ const recoveredAccount=h.put('accounts',{email:'recovered-dispute@example.invalid'}),recoveredBooking=h.put('bookings',{accountId:recoveredAccount._id,status:'confirmed',stripePaymentIntentId:'pi_recovered',depositAmount:0,total:50});
+ chargeReceipts.set('ch_recovered',{id:'ch_recovered',payment_intent:'pi_recovered'});
+ const recoveredEvent=event('evt_synthetic_charge_recovered','charge.dispute.created',null,{disputeId:'dp_recovered',chargeId:'ch_recovered',status:'needs_response',created:3000});
+ assert.equal(await checkout.stripeWebhook.handler(ctx,recoveredEvent),true);assert.equal(recoveredBooking.stripeDisputeId,'dp_recovered','a charge-only event recovers and links its booking payment intent');
+ const recoveredCase=(h.tables.get('stripe_dispute_cases')??[]).find(row=>row.disputeId==='dp_recovered');assert.equal(recoveredCase.linkStatus,'linked');assert.equal(recoveredCase.paymentIntentId,'pi_recovered');
+ const recoveredAssessmentBooking=h.put('bookings',{accountId:recoveredAccount._id,status:'returned',stripePaymentIntentId:'pi_assessment_recovered',depositAmount:0,total:25});
+ const recoveredAssessment=h.put('rental_security_charges',{bookingId:recoveredAssessmentBooking._id,accountId:recoveredAccount._id,requestId:'assessment-recovered-fixture',kind:'damage',amountPence:2500,reason:'Synthetic inspection assessment',customerId:'cus_fixture',paymentMethodId:'pm_fixture',consentSnapshot:'fixture',state:'paid',createdAt:1,updatedAt:1,intentId:'pi_security_recovered',paidPence:2500});
+ chargeReceipts.set('ch_security_recovered',{id:'ch_security_recovered',payment_intent:'pi_security_recovered'});
+ const recoveredSecurityEvent=event('evt_synthetic_security_charge_recovered','charge.dispute.created',null,{disputeId:'dp_security_recovered',chargeId:'ch_security_recovered',status:'needs_response',created:3001});
+ assert.equal(await checkout.stripeWebhook.handler(ctx,recoveredSecurityEvent),true);assert.equal(recoveredAssessment.stripeDisputeId,'dp_security_recovered','a charge-only event also resolves saved-card security charges');assert.equal(recoveredAssessment.disputedAt,3_001_000);
+ const fundsAccount=h.put('accounts',{email:'funds-dispute@example.invalid'}),fundsBooking=h.put('bookings',{accountId:fundsAccount._id,status:'confirmed',stripePaymentIntentId:'pi_funds',depositAmount:0,total:50});
+ const withdrawn=event('evt_synthetic_funds_withdrawn','charge.dispute.funds_withdrawn','pi_funds',{disputeId:'dp_funds',status:'needs_response',reason:'product_not_received',created:4000});
+ assert.equal(await checkout.stripeWebhook.handler(ctx,withdrawn),true,'funds withdrawal events are accepted and linked to their rental');
+ const reinstated=event('evt_synthetic_funds_reinstated','charge.dispute.funds_reinstated','pi_funds',{disputeId:'dp_funds',status:'won',reason:'product_not_received',created:4001});
+ assert.equal(await checkout.stripeWebhook.handler(ctx,reinstated),true,'funds reinstatement events are accepted and linked to their rental');
+ const fundsCase=(h.tables.get('stripe_dispute_cases')??[]).find(row=>row.disputeId==='dp_funds');
+ assert.equal(fundsBooking.stripeDisputedAt,4_000_000,'funds lifecycle events still mark the rental as disputed for future waiver checks');
+ assert.equal(fundsCase.eventType,'charge.dispute.funds_reinstated');assert.equal(fundsCase.status,'won','funds reconciliation updates the durable dispute lifecycle');
+ assert.equal((h.tables.get('admin_notifications')??[]).find(row=>row.eventKey==='stripe-dispute:evt_synthetic_funds_withdrawn').title,'Dispute funds withdrawn');
+ assert.equal((h.tables.get('admin_notifications')??[]).find(row=>row.eventKey==='stripe-dispute:evt_synthetic_funds_reinstated').title,'Dispute funds reinstated');
+ const unresolvedEvent=event('evt_synthetic_unmatched','charge.dispute.created',null,{disputeId:'dp_unmatched',chargeId:'ch_unmatched',status:'needs_response',created:3001});
+ chargeReceipts.set('ch_unmatched',{id:'ch_unmatched',payment_intent:null});
+ assert.equal(await checkout.stripeWebhook.handler(ctx,unresolvedEvent),true);assert.equal(await checkout.stripeWebhook.handler(ctx,unresolvedEvent),true);
+ const unresolvedCase=(h.tables.get('stripe_dispute_cases')??[]).find(row=>row.disputeId==='dp_unmatched'),unresolvedNotice=(h.tables.get('admin_notifications')??[]).find(row=>row.eventKey==='stripe-dispute:evt_synthetic_unmatched');
+ assert.equal(unresolvedCase.linkStatus,'unresolved','unmatched disputes persist for admin reconciliation');assert.equal(unresolvedCase.chargeId,'ch_unmatched');assert.equal(unresolvedNotice.title,'Stripe dispute needs a payment match');assert.match(unresolvedNotice.body,/dp_unmatched/);assert.match(unresolvedNotice.body,/Reconcile it in Stripe/);
+ assert.equal((h.tables.get('stripe_dispute_cases')??[]).filter(row=>row.disputeId==='dp_unmatched').length,1,'dispute case replay is idempotent');
+ assert.equal(recoveredBooking.status,'confirmed');assert.equal(recoveredBooking.total,50,'dispute matching never changes rental or payment state');
+ const unavailableEvent=event('evt_synthetic_lookup_unavailable','charge.dispute.created',null,{disputeId:'dp_lookup_unavailable',chargeId:'ch_lookup_unavailable',status:'needs_response',created:3002});
+ assert.equal(await checkout.stripeWebhook.handler(ctx,unavailableEvent),true);const unavailableCase=(h.tables.get('stripe_dispute_cases')??[]).find(row=>row.disputeId==='dp_lookup_unavailable');assert.equal(unavailableCase.paymentLookupFailed,true);assert.equal(unavailableCase.linkStatus,'unresolved');
  await assert.rejects(disputes.record.handler(ctx,{eventId:'bad-event',eventType:'charge.dispute.created'}),/Invalid dispute event/);
  assert.equal(booking.agreementSnapshot,'unchanged');assert.equal(booking.status,'confirmed');assert.equal(booking.depositAmount,20);assert.equal(booking.total,100);
  assert(!JSON.stringify(h.tables.get('admin_notifications')).includes('pi_unique'),'payment reference is not exposed in notification copy');
  assert(scheduled.some(job=>job.ref==='adminPushDelivery.deliver'));
- console.log('PASS signed synthetic disputes: signature rejection, idempotent delivery, booking waiver-risk marker, saved-card assessment linkage and collection pause, ordered lifecycle updates, owner alerts, ambiguity handling and no payment mutation.');
+ console.log('PASS signed synthetic disputes: signature rejection, idempotent delivery, booking waiver-risk marker, charge-to-payment fallback, durable unresolved case alerts, saved-card assessment linkage and collection pause, monotonic same-second lifecycle ordering, owner alerts, ambiguity handling and no payment mutation.');
 })().catch(error=>{console.error(error);process.exitCode=1});

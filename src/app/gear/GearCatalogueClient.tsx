@@ -14,6 +14,7 @@ import { HireProfessionals } from "@/components/HireProfessionals";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Reveal } from "@/components/Reveal";
 import { getSessionId } from "@/lib/session";
+import { gearSearchIntent } from "@/lib/gearSearchIntent";
 
 /** Both spellings are in the wild: links use ?cat / ?q, Gaffer's navigate_to
  *  pushes ?category / ?search. Accept either rather than silently ignoring one. */
@@ -100,12 +101,18 @@ function GearPageInner() {
   }, [urlCat, urlQ]);
 
   const cats = useQuery(api.catalog.categories) ?? [];
+  const catalogueSearch = useMemo(() => gearSearchIntent(search, cats), [search, cats]);
   const bestResults = useQuery(api.catalog.bestSellers, { limit: 6 });
   const best = bestResults ?? [];
+  const normalizedSearch = search.trim().replace(/\s+/g, " ").toLowerCase();
+  const hasDepartmentWords = catalogueSearch.search !== normalizedSearch;
+  const queryCategory = cat !== "All"
+    ? cat
+    : hasDepartmentWords && catalogueSearch.categories.length === 1 ? catalogueSearch.categories[0] : undefined;
   const filteredListings =
     useQuery(api.catalog.listListings, {
-      category: cat === "All" ? undefined : cat,
-      search: search || undefined,
+      category: queryCategory,
+      search: catalogueSearch.search || undefined,
     }) ?? undefined;
   // Voice matching understands model aliases and spoken requests; literal title
   // search does not. Render the actual returned picks on the voice shortlist.
@@ -197,7 +204,7 @@ function GearPageInner() {
         sub="Cameras, lenses, lighting and audio for hire across London."
       />
       <main data-gaffer-route={route} data-gaffer-ready={listings !== undefined && cat === (urlCat || "All") && search === (urlQ ?? "")} className="section-window mx-auto flex min-h-screen min-w-0 max-w-7xl flex-col px-4 pb-12 pt-3 sm:px-6 sm:pt-8">
-        <div className="order-5 px-2 lg:order-1 sm:px-4 xl:px-6">
+        <div id="ai-item-assembly" className="order-5 scroll-mt-24 px-2 lg:order-1 sm:px-4 xl:px-6">
           <AssemblyShowcase
             listings={[...best, ...(filteredListings ?? [])]}
             loading={bestResults === undefined || filteredListings === undefined}
@@ -382,7 +389,7 @@ function GearPageInner() {
         {/* grid */}
         <div className="order-4 lg:order-5">
         {listings === undefined ? (
-          <div className="mt-8 grid grid-cols-1 gap-3 min-[600px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 sm:gap-4">
+          <div className="mt-8 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
             {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="glass overflow-hidden rounded-2xl">
                 <div className="aspect-[4/3] animate-pulse bg-charcoal-800" />
@@ -407,7 +414,7 @@ function GearPageInner() {
             </button>
           </div>
         ) : (
-          <div className={`dim-grid mt-4 grid gap-3 sm:mt-8 sm:gap-4 ${visibleListings.length === 1 ? "mx-auto w-full max-w-3xl grid-cols-1" : "grid-cols-1 min-[600px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"}`}>
+          <div className={`dim-grid mt-4 grid gap-3 sm:mt-8 sm:gap-4 ${visibleListings.length === 1 ? "mx-auto w-full max-w-sm grid-cols-1" : "grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"}`}>
             {visibleListings.map((l, i) => (
               <Reveal key={l._id} delay={Math.min(i, 8) * 50}>
                 <GearCard listing={l} mobileCompact priorityImage={i < 2} />

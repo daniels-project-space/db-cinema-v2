@@ -45,8 +45,6 @@ function renderMembership({member=null,selected,variant='checkout'}={}) {
   },mod,mod.exports);
   return renderToStaticMarkup(React.createElement(mod.exports.CheckoutMembership,{
     variant,
-    accountTermsVersion:'2026-11-v22',
-    accountPrivacyNoticeVersion:legal.CURRENT_PRIVACY_NOTICE_VERSION,
     selected,
     onChange:()=>{},
     appliedSavings:{weekendSaving:0,rentalSaving:5,deliveryReduction:0,membershipFee:19,membershipCreditApplied:0,membershipNetSaving:5,membershipOffer:{tier:'plus',netSaving:5,state:'selected'}},
@@ -70,26 +68,34 @@ function renderMembership({member=null,selected,variant='checkout'}={}) {
 
   const selection={tier:'plus',intro:'none',termsAccepted:true,accountTermsAcceptedVersion:'2026-11-v22',privacyNoticeAcceptedVersion:legal.CURRENT_PRIVACY_NOTICE_VERSION};
   const guestHtml=renderMembership({selected:selection});
-  assert(guestHtml.includes('data-testid="guest-account-terms-consent"'),'guest membership checkout shows separate account consent');
-  assert(guestHtml.includes('data-testid="guest-account-terms-checkbox"'),'account consent is an explicit checkbox');
-  assert(guestHtml.includes('text-[11px]'),'account consent text stays readable on phones');
-  assert.match(guestHtml,/data-testid="guest-account-terms-checkbox"[^>]*checked/,'checkbox is checked only for the exact versions the guest accepted');
-  assert(guestHtml.includes('/legal/terms?version=2026-11-v22'));
-  assert(guestHtml.includes('href="/legal/privacy"'),'the current Privacy Notice link resolves to the published notice route');
-  const staleHtml=renderMembership({selected:{...selection,accountTermsAcceptedVersion:'old-terms'}});
-  assert.doesNotMatch(staleHtml,/data-testid="guest-account-terms-checkbox"[^>]*checked/,'a restored acceptance for older Terms is unchecked');
-  const stalePrivacyHtml=renderMembership({selected:{...selection,privacyNoticeAcceptedVersion:'old-notice'}});
-  assert.doesNotMatch(stalePrivacyHtml,/data-testid="guest-account-terms-checkbox"[^>]*checked/,'a restored acceptance for an older Privacy Notice is unchecked');
+  assert.doesNotMatch(guestHtml,/guest-account-terms-consent|guest-account-terms-checkbox/,'membership tile does not ask guest renters to repeat the rental Terms and Privacy acceptance');
+  assert(guestHtml.includes('Membership creates an account after payment.'),'guest membership explains account creation without a second legal checkbox');
   assert(!renderMembership({member:{email:'member@example.invalid'},selected:selection}).includes('guest-account-terms-consent'),'signed-in member checkout does not add account-creation consent');
   assert(!renderMembership({selected:selection,variant:'basket'}).includes('guest-account-terms-consent'),'basket membership preview does not request account consent');
+  const acceptedDocuments=[
+    {kind:'terms',version:base.accountTermsVersion},
+    {kind:'privacy',version:legal.CURRENT_PRIVACY_NOTICE_VERSION},
+  ];
+  const accountConsent={accountTermsPrivacyAcknowledged:true,accountTermsVersion:base.accountTermsVersion,privacyNoticeVersion:legal.CURRENT_PRIVACY_NOTICE_VERSION};
+  assert.equal(legal.guestMembershipAccountConsentMatchesRentalAgreement(accountConsent,acceptedDocuments,policy),true,'one checked rental agreement can satisfy guest membership account Terms and Privacy');
+  assert.equal(legal.guestMembershipAccountConsentMatchesRentalAgreement({...accountConsent,accountTermsPrivacyAcknowledged:false},acceptedDocuments,policy),false,'unchecked rental consent cannot create a guest account');
+  assert.equal(legal.guestMembershipAccountConsentMatchesRentalAgreement({...accountConsent,accountTermsVersion:'old-terms'},acceptedDocuments,policy),false,'stale account terms are rejected');
+  assert.equal(legal.guestMembershipAccountConsentMatchesRentalAgreement(accountConsent,acceptedDocuments.filter(document=>document.kind!=='terms'),policy),false,'rental signature without account Terms does not satisfy account creation');
+  assert.equal(legal.guestMembershipAccountConsentMatchesRentalAgreement(accountConsent,[...acceptedDocuments,{kind:'privacy',version:'old-notice'}],policy),false,'stale Privacy Notice acceptance is rejected');
 
   const checkoutSource=fs.readFileSync(path.resolve(__dirname,'../convex/checkout.ts'),'utf8');
+  const checkoutPage=fs.readFileSync(path.resolve(__dirname,'../src/app/checkout/page.tsx'),'utf8');
+  assert.match(checkoutPage,/const accepted=e\.target\.checked;setAgreed\(accepted\);agreementRequest\.current=null;if\(membership&&!account\.me\)setMembership\(\{\.\.\.membership,accountTermsAcceptedVersion:accepted\?currentAccountTermsVersion:undefined,privacyNoticeAcceptedVersion:accepted\?CURRENT_PRIVACY_NOTICE_VERSION:undefined\}\);/,'the rental consent records guest account Terms and Privacy versions with one checkbox');
+  assert.match(checkoutPage,/including the current account Terms and Privacy Notice for membership setup/,'shared consent explains its account-creation purpose');
+  assert.match(checkoutPage,/transition-transform duration-300 ease-out group-open:rotate-180/,'expanded agreement details animate their custom disclosure glyph');
+  const agreementComponent=fs.readFileSync(path.resolve(__dirname,'../src/components/cart/CartItemTimes.tsx'),'utf8');
+  assert.match(agreementComponent,/data-testid="checkout-times-chevron"[^>]*transition-transform duration-300 ease-out/,'expanded fulfilment time tiles animate their chevron');
   assert.match(checkoutSource,/if \(!acct\) \{\s*const accountTermsVersion = legalVersionForPolicy\(cfg\);/,'server checkout derives the active Terms version');
-  assert.match(checkoutSource,/accountTermsPrivacyAcknowledged !== true \|\| a\.selectedMembership\.accountTermsVersion !== accountTermsVersion \|\| a\.selectedMembership\.privacyNoticeVersion !== CURRENT_PRIVACY_NOTICE_VERSION/,'server checkout rejects missing or stale client consent');
+  assert.match(checkoutSource,/guestMembershipAccountConsentMatchesRentalAgreement\(a\.selectedMembership,a\.agreement\?\.documents,cfg\)/,'server binds the guest account to signed Terms and Privacy documents');
   assert.match(checkoutSource,/termsAndPrivacyAcknowledged:true,accountTermsVersion,privacyNoticeVersion:CURRENT_PRIVACY_NOTICE_VERSION/,'validated versions and explicit acknowledgement reach the internal account creator');
   const selectedMembershipBlock=checkoutSource.slice(checkoutSource.indexOf('if (a.selectedMembership) {'),checkoutSource.indexOf('a.customer.email = price.customerEmail;'));
-  assert(selectedMembershipBlock.indexOf('if (!acct) {') < selectedMembershipBlock.indexOf('accountTermsPrivacyAcknowledged !== true'),'only guest account creation is gated by the account checkbox');
+  assert(selectedMembershipBlock.indexOf('if (!acct) {') < selectedMembershipBlock.indexOf('guestMembershipAccountConsentMatchesRentalAgreement'),'only guest account creation is gated by the combined consent');
   assert.match(selectedMembershipBlock,/membershipCheckout = await ctx\.runMutation\(internal\.membershipBenefits\.reserveCheckout/,'existing authenticated accounts still proceed through the normal membership reservation');
 
-  console.log('PASS guest membership checkout account consent: explicit guest-only UI, current server-validated legal versions, server timestamps, stale-version rejection and idempotent checkout account reuse.');
+  console.log('PASS guest membership checkout account consent: one linked rental/account Terms and Privacy acceptance, exact server-validated versions, server timestamps and idempotent account reuse.');
 })().catch(error=>{console.error(error);process.exitCode=1}).finally(()=>{Date.now=realNow});

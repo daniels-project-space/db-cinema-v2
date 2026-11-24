@@ -4,13 +4,13 @@ import { SmartImage } from "@/components/SmartImage";
 import { rentalClockLabel } from "../../../shared/rentalHandover";
 import { rentalTitle } from "@/lib/rentalPresentation";
 import { formatGbp } from "@/lib/pricing";
-import { groupRentalKit, uniqueKitPhotos, type RentalKitItem } from "@/lib/rentalKit";
+import { groupRentalKit, groupRentalKitPhotos, type RentalKitItem } from "@/lib/rentalKit";
 
 /** Full image frames; quantity represents repeated items, never repeated pictures. */
 export function RentalKit({ items, compact = false, prices = false, showcase = false, expanded = false, allPhotos = false, hideHeroTitle = false }: { items: RentalKitItem[]; compact?: boolean; prices?: boolean; showcase?: boolean; expanded?: boolean; allPhotos?: boolean; hideHeroTitle?: boolean }) {
   const grouped = groupRentalKit(items);
   const units = grouped.reduce((n, item) => n + (item.qty ?? 1), 0);
-  const photos = uniqueKitPhotos(grouped);
+  const photos = groupRentalKitPhotos(grouped);
   const visible = allPhotos ? photos : photos.slice(0, compact || showcase ? 1 : 3);
   return <div className="min-w-0">
     <div className={allPhotos ? "flex gap-2 overflow-x-auto pb-2" : compact ? "flex items-center gap-4" : "flex gap-2"} aria-label={allPhotos ? "Equipment in this rental" : undefined}>

@@ -48,6 +48,18 @@ const line={listingId:lens._id,title:'forged',qty:1,start:day,end:day,total:1,de
  p=await calculateRentalPrice(ctx,{items:[line],customer:{email:'renter@example.invalid'},fulfilment:'pickup',protection:'deposit'});assert.equal(p.depositHoldAmount,0);assert.equal(p.depositAmount,0);assert.equal(p.savedCardLimit,250,'No former protection choice may create an upfront charge/hold');
  await db.patch(lens._id,{depositAmount:150});
  member=true;p=await calculateRentalPrice(ctx,{items:[line],token:'token',customer:{email:'renter@example.invalid'},fulfilment:'pickup'});assert.equal(p.depositAmount,0);assert.equal(p.depositHoldAmount,0);assert.equal(p.savedCardLimit,15);
+ process.env.SETUP_INTENT_SECURITY_POLICY_ENABLED='true';
+ const camera=put('listings',{active:true,title:'Two camera bodies',depositAmount:6400,pricing:{daily:10000},components:[]});
+ const sound=put('listings',{active:true,title:'Sound kit',depositAmount:700,pricing:{daily:1000},components:[]});
+ const card=put('listings',{active:true,title:'Memory card',depositAmount:200,pricing:{daily:500},components:[]});
+ const mulanItems=[camera,sound,card].map(item=>({...line,listingId:item._id,deposit:1}));
+ p=await calculateRentalPrice(ctx,{items:mulanItems,customer:{email:'renter@example.invalid'},fulfilment:'pickup'});
+ assert.equal(p.replacementSum,7300,'security uses all three authoritative listing values, not client-supplied amounts');
+ assert.equal(p.securityPolicyVersion,security.IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION);
+ assert.equal(p.savedCardLimit,530,'the current scaled policy quotes £530 for £7,300 of equipment');
+ assert.equal(p.depositAmount,0);assert.equal(p.depositHoldAmount,0);
+ assert.equal(security.cardLimitForPolicy(security.SETUP_INTENT_SECURITY_POLICY_VERSION,7300),200,'the earlier signed setup-intent policy retains its £200 limit');
+ delete process.env.SETUP_INTENT_SECURITY_POLICY_ENABLED;
  process.env.STRIPE_SECRET_KEY='sk_test_fixture';
  let amount=0;const writes=[];
  const holdCtx={runQuery:async()=>({amount,status:'confirmed'}),runMutation:async(_ref,args)=>writes.push(args)};

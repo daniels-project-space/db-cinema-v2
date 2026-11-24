@@ -21,17 +21,6 @@
 .main {
   min-width: 0;
 }
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  padding: 8px 12px;
-  border: 1px solid #765339;
-  border-radius: 6px;
-  background: #30271f;
-  color: #d1a17e;
-  font-size: 13px;
-}
 .steps {
   display: grid;
   gap: 12px;

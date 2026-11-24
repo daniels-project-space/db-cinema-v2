@@ -60,6 +60,10 @@ jobs:
         # Invalid argument types are rejected before the action body runs.
         # A missing staged function must not be disguised as a browser timeout.
         run: node scripts/check-stock-backend.cjs
+      - name: Verify rental checkout release readiness
+        run: node scripts/test-checkout-release-readiness.cjs
+      - name: Verify saved checkout prices use exact rental duration
+        run: node scripts/test-checkout-recovery-pricing.cjs
       - name: Build production app for browser regression
         run: npm run build
       - name: Membership basket and checkout browser regression

@@ -1,10 +1,11 @@
 "use node";
 import Stripe from 'stripe';
+import { createHash } from 'node:crypto';
 import { action, internalAction } from './_generated/server';
 import { api, internal } from './_generated/api';
 import { v } from 'convex/values';
-import { sendMail } from './lib/mailer';
-import { SECURITY_COLLECTION_DAYS, SECURITY_COLLECTION_NOTICE_HOURS } from '../shared/savedCardSecurity';
+import { sendRentalContextEmail } from './lib/rentalContextEmail';
+import { SECURITY_COLLECTION_DAYS, SECURITY_COLLECTION_NOTICE_HOURS, isSavedCardRental } from '../shared/savedCardSecurity';
 import { belongsToRentalAccount } from './lib/rentalAccount';
 import { recoverApprovedRefund, RefundReviewRequired, type RefundReceipt } from './lib/approvedRefund';
 import { isImmediateClaimSecurityPolicy } from '../shared/rentalSecurity';
@@ -52,15 +53,49 @@ export const sendNotice=internalAction({args:idArgs,handler:async(ctx,{id}):Prom
  if(!account?.email){await ctx.runMutation(internal.securityChargeState.noticeResult,{id,sent:false});return false;}
  const basis=r.claimBasis==='loss'?' · lost or unreturned item':r.claimBasis==='severe_cosmetic_damage'?' · severe, permanent cosmetic damage':'';
  const immediate=isImmediateClaimSecurityPolicy(booking.securityPolicyVersion);
+ const evidenceInvoice=isSavedCardRental(booking);
  const nextStep=immediate
-  ?`No payment has been taken yet. DB will now make one off-session attempt under the terms accepted for this rental. Your bank may decline it or require authentication. You may query or dispute this assessment at any time; statutory and bank dispute rights remain unchanged.`
-  :`No payment has been taken for this assessment. Under your retained booking consent, collection may be attempted no earlier than ${date(Date.now()+SECURITY_COLLECTION_NOTICE_HOURS*3600000)} London time. Reply or raise a concern in your rental account within this period if the evidence or amount is wrong. An unresolved dispute pauses collection. Your bank dispute and statutory rights remain unchanged.`;
- const email={to:account.email,subject:`DB Cinema Rentals: ${money(r.amountPence)} ${r.kind==='late'?'late-return':'damage/loss'} assessment`,html:`<h2>Itemised rental assessment</h2><p>Reference ${esc(String(r._id).slice(-8))}. ${r.kind==='late'?'Late-return fees':'Damage/loss'}${esc(basis)}: <strong>${money(r.amountPence)}</strong>.</p><p>${esc(r.reason).replace(/\n/g,'<br>')}</p><p>${nextStep}</p><p><a href="${esc((process.env.APP_URL??'https://dbcinemarentals.com')+'/account?rental='+encodeURIComponent(String(r.bookingId))+'#chat')}">View your rental and assessment</a></p>`};const sent=await sendMail(email);
- await ctx.runMutation(internal.securityChargeState.noticeResult,{id,sent,recipient:email.to,subject:email.subject,html:email.html});
- return sent;
+  ?`No payment has been taken yet. DB may make one off-session attempt under the terms accepted for this rental${evidenceInvoice?' after sending the attached itemised claim invoice and supporting evidence':''}. Your bank may decline it or require authentication. You may query or dispute this assessment at any time; statutory and bank dispute rights remain unchanged.`
+  :`No payment has been taken for this assessment. The attached itemised invoice and supporting evidence are provided now. You have at least seven days to query or dispute this assessment. No collection attempt may be made before ${date(Date.now()+SECURITY_COLLECTION_NOTICE_HOURS*3600000)} London time. Reply or raise a concern in your rental account if the evidence or amount is wrong; an unresolved dispute pauses collection. Your bank dispute and statutory rights remain unchanged.`;
+ let attachments:{filename:string;content:string}[]=[];
+ try{
+  if(evidenceInvoice){
+   const app=process.env.APP_URL??'https://dbcinemarentals.com',secret=process.env.INVOICE_SECRET;
+   if(!secret)throw Error('The itemised claim invoice service is not configured.');
+   const invoiceUrl=new URL(`/api/invoice/${encodeURIComponent(String(r.bookingId))}`,app);invoiceUrl.searchParams.set('phase','assessment');invoiceUrl.searchParams.set('assessment',String(r._id));
+   const response=await fetch(invoiceUrl,{headers:{'x-invoice-key':secret},signal:AbortSignal.timeout(20000)});
+   if(!response.ok||response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()!=='application/pdf')throw Error('The itemised claim invoice could not be generated.');
+   const pdf=Buffer.from(await response.arrayBuffer());if(pdf.length<5||pdf.length>10_000_000||pdf.subarray(0,5).toString('ascii')!=='%PDF-')throw Error('The itemised claim invoice is invalid.');
+   attachments.push({filename:`DbCinema-claim-invoice-${String(r._id).slice(-8)}.pdf`,content:pdf.toString('base64')});
+   const evidence:any[]=await ctx.runQuery(internal.securityChargeState.noticeEvidence,{id});
+   if(!evidence.length)throw Error('Supporting evidence is required before a claim can be sent.');
+   let totalBytes=pdf.length;
+   for(const file of evidence){
+    if(!['image/jpeg','image/png','image/webp','text/plain'].includes(file.contentType)||!Number.isSafeInteger(file.size)||file.size<=0||file.size>10*1024*1024||totalBytes+file.size>20*1024*1024)throw Error('The supporting evidence exceeds the safe email size limit.');
+    const fileResponse=await fetch(file.url,{signal:AbortSignal.timeout(20000)});
+    if(!fileResponse.ok)throw Error('A selected supporting evidence file could not be retrieved.');
+    const bytes=Buffer.from(await fileResponse.arrayBuffer());
+    if(bytes.length!==file.size||createHash('sha256').update(bytes).digest('hex')!==file.sha256)throw Error('A selected evidence file failed its saved integrity check.');
+    totalBytes+=bytes.length;
+    const safeName=String(file.name).replace(/[^a-z0-9._-]/gi,'_').slice(0,120)||'evidence';
+    attachments.push({filename:`Evidence-${safeName}`,content:bytes.toString('base64')});
+   }
+  }
+  const subjectType=r.returnAssessment?'return':r.kind==='late'?'late-return':'damage/loss';
+  const itemisation=r.returnAssessment?`<p>Damage/loss: ${money(r.returnAssessment.damageAmountPence)}${r.returnAssessment.damageReason?` — ${esc(r.returnAssessment.damageReason)}`:''}</p>${r.returnAssessment.damageOffsetPence?`<p>Deposit retained: −${money(r.returnAssessment.damageOffsetPence)}</p>`:''}<p>Late fee: ${money(r.returnAssessment.lateAmountPence)}${r.returnAssessment.lateReason?` — ${esc(r.returnAssessment.lateReason)}`:''}</p>`:`<p>${r.kind==='late'?'Late-return fees':'Damage/loss'}${esc(basis)}: <strong>${money(r.amountPence)}</strong>.</p><p>${esc(r.reason).replace(/\n/g,'<br>')}</p>`;
+  const email={deliveryKey:`security-claim-notice-${String(r._id)}`,to:account.email,subject:`DB Cinema Rentals: ${money(r.amountPence)} ${subjectType} assessment`,html:`<h2>Itemised rental assessment</h2><p>Reference ${esc(String(r._id).slice(-8))}.</p>${itemisation}<p><strong>Total: ${money(r.amountPence)}</strong></p><p>${nextStep}</p>${evidenceInvoice?`<p>The attached PDF is the itemised claim invoice. Selected supporting evidence is attached separately.</p>`:''}<p><a href="${esc((process.env.APP_URL??'https://dbcinemarentals.com')+'/account?rental='+encodeURIComponent(String(r.bookingId))+'#chat')}">View your rental and assessment</a></p>`,...(attachments.length?{attachments}:{})};
+  const sent=(await sendRentalContextEmail(ctx,r.bookingId,`rental-security:charge-${String(r._id)}`,email)).sent;
+  await ctx.runMutation(internal.securityChargeState.noticeResult,{id,sent,recipient:email.to,subject:email.subject,html:email.html});
+  return sent;
+ }catch(error){
+  console.error('Saved-card assessment notice failed before collection',String(error));
+  await ctx.runMutation(internal.securityChargeState.noticeResult,{id,sent:false});
+  return false;
+ }
 }});
-const claimArgs={token:v.string(),ownerClaimToken:v.string(),confirmed:v.boolean(),bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),amount:v.number(),reason:v.string()};
-const frozenReturnClaimArgs={token:v.string(),bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),amount:v.number(),reason:v.string()};
+const returnAssessmentArg=v.optional(v.object({damageAmountPence:v.number(),damageOffsetPence:v.number(),damageReason:v.string(),lateAmountPence:v.number(),lateReason:v.string()}));
+const claimArgs={token:v.string(),ownerClaimToken:v.string(),confirmed:v.boolean(),bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),itemKey:v.optional(v.string()),evidenceIds:v.optional(v.array(v.id('chat_attachment_attempts'))),returnAssessment:returnAssessmentArg,amount:v.number(),reason:v.string()};
+const frozenReturnClaimArgs={token:v.string(),bookingId:v.id('bookings'),requestId:v.string(),kind:v.union(v.literal('damage'),v.literal('late')),claimBasis:v.optional(v.union(v.literal('loss'),v.literal('severe_cosmetic_damage'))),itemKey:v.optional(v.string()),evidenceIds:v.optional(v.array(v.id('chat_attachment_attempts'))),returnAssessment:returnAssessmentArg,amount:v.number(),reason:v.string()};
 async function finishImmediateClaim(ctx:any,token:string,id:any):Promise<{id:any;status:string}>{
  let latest=await matchingContext(ctx,id),charge=latest.charge;
  if(['paid','failed','requires_action','processing'].includes(charge.state))return {id,status:charge.state};
@@ -112,7 +147,7 @@ export const sendReceipt=internalAction({args:idArgs,handler:async(ctx,{id}):Pro
   const bytes=Buffer.from(await response.arrayBuffer());if(bytes.length<5||bytes.length>10_000_000||bytes.subarray(0,5).toString('ascii')!=='%PDF-')throw Error('Assessment statement invalid');
   attachment={filename:`DbCinema-assessment-${String(r._id).slice(-8)}.pdf`,content:bytes.toString('base64')};
  }catch(error){console.error('Assessment statement could not be attached',String(error));}
- const email={to:account.email,subject:`DB Cinema Rentals: ${money(r.paidPence??0)} assessment payment receipt`,html:`<h2>Payment confirmed</h2><p>Stripe confirmed ${money(r.paidPence??0)} for your ${r.kind==='late'?'late-return':'damage/loss'} assessment, reference ${esc(String(r._id).slice(-8))}.</p><p>${esc(r.reason)}</p><p>This is a separate saved-card payment. No deposit or card hold was captured. ${attachment?'Your assessment statement is attached.':'A PDF statement could not be attached; contact us if you need one.'}</p><p>Reply if any receipt detail is wrong.</p>`,...(attachment?{attachments:[attachment]}:{})};const sent=await sendMail(email);
+ const email={to:account.email,subject:`DB Cinema Rentals: ${money(r.paidPence??0)} assessment payment receipt`,html:`<h2>Payment confirmed</h2><p>Stripe confirmed ${money(r.paidPence??0)} for your ${r.kind==='late'?'late-return':'damage/loss'} assessment, reference ${esc(String(r._id).slice(-8))}.</p><p>${esc(r.reason)}</p><p>This is a separate saved-card payment. No deposit or card hold was captured. ${attachment?'Your assessment statement is attached.':'A PDF statement could not be attached; contact us if you need one.'}</p><p>Reply if any receipt detail is wrong.</p>`,...(attachment?{attachments:[attachment]}:{})};const sent=(await sendRentalContextEmail(ctx,r.bookingId,`rental-security:receipt-${String(r._id)}`,email)).sent;
  await ctx.runMutation(internal.securityChargeState.noticeResult,{id,sent,receipt:true,recipient:email.to,subject:email.subject,html:email.html});
 }});
 export const sendRefundNotice=internalAction({args:{noticeId:v.id('rental_security_refund_notices')},handler:async(ctx,{noticeId}):Promise<void>=>{
@@ -132,7 +167,7 @@ export const sendRefundNotice=internalAction({args:{noticeId:v.id('rental_securi
   }catch(error){console.error('Updated assessment statement could not be attached',String(error));}
   const subject=`DB Cinema Rentals: ${money(notice.amountPence)} assessment refund confirmed`;
   const html=`<h2>Assessment refund confirmed</h2><p>Stripe confirmed a refund of <strong>${money(notice.amountPence)}</strong> to the original payment method for assessment ${esc(String(r._id).slice(-8))}.</p><p>Reason: ${esc(notice.reason).replace(/\n/g,'<br>')}</p><p>Refunded to date for this assessment: ${money(notice.cumulativePence)}. The assessment statement shows the original payment, confirmed refunds and remaining net payment. ${attachment?'The updated assessment statement is attached.':'Download the latest assessment statement from your rental account.'}</p><p>The refund is not account credit. Your bank or card issuer controls when it appears.</p><p><a href="${esc(app+'/account?rental='+encodeURIComponent(String(r.bookingId))+'#chat')}">View this rental and assessment</a></p>`;
-  const sent=await sendMail({deliveryKey:notice.eventKey,to:account.email,subject,html,...(attachment?{attachments:[attachment]}:{})});
+  const sent=(await sendRentalContextEmail(ctx,r.bookingId,`rental-security:refund-${String(noticeId)}`,{deliveryKey:notice.eventKey,to:account.email,subject,html,...(attachment?{attachments:[attachment]}:{})})).sent;
   await ctx.runMutation(internal.securityChargeState.finishRefundNotice,{noticeId,sent,recipient:account.email,subject,html,...(!sent?{error:'The mail service did not accept the refund email.'}:{})});
  }catch(error:any){
   await ctx.runMutation(internal.securityChargeState.finishRefundNotice,{noticeId,sent:false,error:String(error?.message??error)});
@@ -150,7 +185,7 @@ export const collect=action({args:{token:v.string(),...idArgs},handler:async(ctx
   if(r.state==='uncertain'){const found=await findAttempt(sb,r);if(found)return {status:(await observe(ctx,id,found)).status};}
   const method=await sb.paymentMethods.retrieve(r.paymentMethodId);
   if(method.type!=='card'||(typeof method.customer==='string'?method.customer:method.customer?.id)!==r.customerId)throw Error('Saved card is no longer attached to the rental customer.');
-  requestStarted=true;const pi=await sb.paymentIntents.create({capture_method:'automatic',amount:r.amountPence,currency:'gbp',customer:r.customerId,payment_method:r.paymentMethodId,allowed_payment_method_types:['card'],confirm:true,off_session:true,description:`DB Cinema ${r.kind==='late'?'late-return':'damage/loss'} assessment ${String(r._id).slice(-8)}`,metadata:{purpose:'rental_saved_card_charge',bookingId:String(r.bookingId),securityChargeId:String(r._id)}},{idempotencyKey:`dbc-security-charge-${r._id}`});
+  requestStarted=true;const pi=await sb.paymentIntents.create({capture_method:'automatic',amount:r.amountPence,currency:'gbp',customer:r.customerId,payment_method:r.paymentMethodId,allowed_payment_method_types:['card'],confirm:true,off_session:true,description:`DB Cinema ${r.returnAssessment?'return':r.kind==='late'?'late-return':'damage/loss'} assessment ${String(r._id).slice(-8)}`,metadata:{purpose:'rental_saved_card_charge',bookingId:String(r.bookingId),securityChargeId:String(r._id)}},{idempotencyKey:`dbc-security-charge-${r._id}`});
   return {status:(await observe(ctx,id,pi)).status};
  }catch(error:any){
   const intentId=error?.raw?.payment_intent?.id??error?.payment_intent?.id;

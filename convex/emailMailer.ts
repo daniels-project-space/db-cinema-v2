@@ -2,9 +2,9 @@
 
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
-import { deliveryMessageId, sendBusinessMailTracked } from "./lib/mailer";
+import { sendBusinessMailTracked } from "./lib/mailer";
 
-/** Keep the provider client and stable message-ID generation behind a Node action. */
+/** Keep the provider client behind a Node action and return only provider receipts. */
 export const sendBusinessReply = internalAction({
   args: {
     deliveryKey: v.string(),
@@ -17,8 +17,7 @@ export const sendBusinessReply = internalAction({
     references: v.array(v.string()),
   },
   handler: async (_ctx, args) => {
-    const messageId = deliveryMessageId(args.deliveryKey);
-    const delivery = await sendBusinessMailTracked({
+    return sendBusinessMailTracked({
       deliveryKey: args.deliveryKey,
       to: args.to,
       cc: args.cc,
@@ -28,6 +27,5 @@ export const sendBusinessReply = internalAction({
       inReplyTo: args.inReplyTo,
       references: args.references,
     });
-    return { ...delivery, messageId };
   },
 });

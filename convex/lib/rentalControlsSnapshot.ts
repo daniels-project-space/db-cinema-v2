@@ -39,6 +39,7 @@ export function rentalControlsSnapshot(
         String(refund._id),
         refund.status,
         refund.amountPence ?? null,
+        refund.lineAllocation ? [refund.lineAllocation.lineIndex, String(refund.lineAllocation.listingId), refund.lineAllocation.start, refund.lineAllocation.end, refund.lineAllocation.qty, refund.lineAllocation.paymentIntentId, refund.lineAllocation.amountPence] : null,
       ])
       .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
   ]);

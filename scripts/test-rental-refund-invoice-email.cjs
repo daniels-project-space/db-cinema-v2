@@ -3,7 +3,7 @@ const { load, db, put, setMock } = require("./lib/rentalTestHarness.cjs");
 
 const account = put("accounts", { email: "refund-renter@example.invalid", name: "Refund Renter" });
 const line = { title: "Sony FX3", start: Date.UTC(2030, 0, 2), end: Date.UTC(2030, 0, 4), qty: 1, lineTotal: 80 };
-const booking = put("bookings", { accountId: account._id, guestEmail: account.email, status: "confirmed", stripePaymentIntentId: "pi_original", paidConfirmedAt: Date.now(), lineItems: [line], subtotal: 80, discount: 0, deliveryFee: 0, creditApplied: 0, total: 80 });
+const booking = put("bookings", { accountId: account._id, guestEmail: account.email, status: "confirmed", idVerifyStatus: "verified", checkoutPaidAt: Date.now(), stripePaymentIntentId: "pi_original", paidConfirmedAt: Date.now(), lineItems: [line], subtotal: 80, discount: 0, deliveryFee: 0, creditApplied: 0, total: 80 });
 const posted = [], scheduled = [];
 setMock("./lib/rentalChat", { ...load("convex/lib/rentalChat.ts"), postRentalMessage: async (_ctx, message) => posted.push(message) });
 setMock("./lib/mailer", { sendMail: async () => { throw Error("This test must never send mail"); }, OWNER_EMAIL: () => "owner@example.invalid" });
@@ -25,7 +25,7 @@ function refundFixture(requestId, status = "prepared") {
   });
 }
 
-function callCtx(refund) {
+function callCtx(refund, bookingRecord = booking) {
   const invoiceSnapshot = {
     number: `DBC-${String(booking._id).slice(-8).toUpperCase()}`,
     issuedAt: Date.now(),
@@ -49,7 +49,7 @@ function callCtx(refund) {
   const view = { ...invoiceSnapshot, rentalRefunds: [{ reference, amount: 15, status: refund.status, reason: refund.reason }], rentalRefunded: refund.status === "succeeded" ? 15 : 0 };
   return {
     runQuery: async (ref, args) => {
-      if (ref === "bookings.receiptContext") return { ...booking, guestEmail: account.email, invoiceSnapshot };
+      if (ref === "bookings.receiptContext") return { ...bookingRecord, guestEmail: account.email, invoiceSnapshot };
       if (ref === "rentalOperations.refundJob") return refund;
       if (ref === "rentalOperations.changeRecipient") return { email: account.email, bookingId: booking._id };
       if (ref === "bookings.invoiceData") return view;
@@ -95,6 +95,10 @@ function callCtx(refund) {
     return new Response(Buffer.from("%PDF-refund-test"), { status: 200, headers: { "content-type": "application/pdf" } });
   };
   try {
+    const pendingVerification = await invoice.invoiceEmail.handler(callCtx(successful, { ...booking, status: "pending_verification", idVerifyStatus: "requires_input" }), { bookingId: booking._id, refundId: successful._id, prepareOnly: true });
+    assert.equal(pendingVerification, null, "Even a provider-confirmed refund cannot email an invoice before renter verification passes");
+    assert.equal(fetches, 0, "A pending-verification refund invoice cannot fetch a PDF containing pickup details");
+
     const payload = await invoice.invoiceEmail.handler(callCtx(successful), { bookingId: booking._id, refundId: successful._id, deliveryKey: queued[0].key, prepareOnly: true });
     const reference = `DBC-R-${String(successful._id).slice(-8).toUpperCase()}`;
     assert.equal(payload.to, account.email);

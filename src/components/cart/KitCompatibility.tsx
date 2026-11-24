@@ -24,15 +24,24 @@ export function KitCompatibility() {
           }),
         });
         const d = await r.json();
-        if (!cancelled) setData(r.ok ? { ...d, queryKey: key } : null);
+        if (!cancelled) {
+          const valid = r.ok && !d?.unknown && !d?.error && Array.isArray(d?.warnings) && Array.isArray(d?.upgrades);
+          setData(valid ? { ...d, queryKey: key } : { unknown: true, queryKey: key });
+        }
       } catch {
-        if (!cancelled) setData(null);
+        if (!cancelled) setData({ unknown: true, queryKey: key });
       }
     }, 400);
     return () => { cancelled = true; clearTimeout(t); };
   }, [key]);
 
-  if (!data || data.queryKey !== key || (!data.warnings?.length && !data.upgrades?.length)) return null;
+  if (!data || data.queryKey !== key) return null;
+  if (data.unknown) return (
+    <p role="status" className="mb-6 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs text-white/55">
+      Kit compatibility couldn’t be checked just now. Please retry before booking.
+    </p>
+  );
+  if (!data.warnings?.length && !data.upgrades?.length) return null;
   const tone = (l: string) =>
     l === "error" ? "border-red-400/40 bg-red-500/[0.08] text-red-200"
     : l === "warn" ? "border-amber-400/40 bg-amber-500/[0.07] text-amber-200"

@@ -4,7 +4,7 @@ global.Date = class extends RealDate {
   constructor(...args) { super(...(args.length ? args : ["2026-11-01T12:00:00Z"])); }
   static now() { return new RealDate("2026-11-01T12:00:00Z").getTime(); }
 };
-const { load, setMock, db, put } = require("./lib/rentalTestHarness.cjs");
+const { load, setMock, db, put, putFreshSharedStock } = require("./lib/rentalTestHarness.cjs");
 const { LIVE_FX3_BODY_KIT, LIVE_REMUS_45 } = require("./lib/gafferLiveCatalogueFixtures.cjs");
 const { explicitlyAllowsAlternatives, explicitlyRequestsOptionalAddOns, shouldSuggestOptionalAddOns, minimumRentalBasketLines } = load("shared/gafferEmailQuote.ts");
 const { brandedEmailHtml } = load("shared/emailBrand.ts");
@@ -29,7 +29,7 @@ for (const [alias, file] of Object.entries({
   "@/lib/compat": "src/lib/compat.ts", "@/lib/kitRank": "src/lib/kitRank.ts", "@/lib/site": "src/lib/site.ts",
 })) setMock(alias, load(file));
 const availability = load("convex/availability.ts"), ctx = { db };
-put("rmv2_sync_state", { key: "shared-stock-v1", status: "ok", cursor: JSON.stringify({ version: 2, turnaroundBufferMinutes: 60, checkedAt: Date.now() }) });
+putFreshSharedStock();
 const unit = (name, quantityOwned) => put("inventory_units", { name, quantityOwned, active: true });
 const rode = unit("Rode pool", 2), djiOne = unit("DJI 1 pool", 1), djiTwo = unit("DJI 2 pool", 1), camera = unit("Camera pool", 2);
 function listing(title, pool, daily, day3, itemType = "wireless-mic") {
@@ -222,21 +222,56 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   return { ...result, sharedRefreshes, email: formatGafferEmailReply(result.reply, result.cards, result.enquiry, undefined, result.additionalAnswer, undefined, customerText) };
 }
 (async () => {
+  const configuredApiKey=process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_API_KEY;
+  const unavailableChat=await handleChat({messages:[{role:"user",content:"Can you help me?"}]});
+  assert.match(unavailableChat.reply,/\[open the contact form\]\(\/contact\)/,"chat still offers an actionable support path if the assistant is unconfigured");
+  assert.equal(unavailableChat.resolvedInquiry,false);
+  const unavailableEmail=await handleChat({messages:[{role:"user",content:"Can you help me?"}],channel:"email"});
+  assert.equal(unavailableEmail.reply,"The assistant isn't configured yet.","email and voice callers retain the sentinel that prevents sending an unhelpful automated response");
+  if(configuredApiKey!==undefined)process.env.OPENROUTER_API_KEY=configuredApiKey;
+  const trustedReview = { customerName: "Renter", booking: {
+    _id: "booking-test", status: "pending_verification", idVerifyStatus: "manual_review",
+    idVerificationSource: "didit", verificationExpiresAt: Date.now() + 86400000,
+    verificationChecks: { identity: "approved", selfie: "approved", address: "review" },
+    lineItems: [{ title: "Sony FX3 camera", start: Date.now() + 86400000, end: Date.now() + 172800000 }],
+  } };
+  const verificationMessage = "My Didit upload is stuck";
+  const emailReview = await handleChat({ channel: "email", messages: [
+    { role: "user", content: "Can you check my Sony FX3 rental?" },
+    { role: "assistant", content: "I found it." },
+    { role: "user", content: verificationMessage },
+  ] }, trustedReview);
+  const { verificationRecovery } = load("shared/gafferVerificationGuidance.ts");
+  assert.equal(emailReview.reply, verificationRecovery(verificationMessage, { status: "manual_review", source: "didit", checks: trustedReview.booking.verificationChecks, expired: false }),
+    "trusted rental email and rental chat share the same provider-safe review guidance");
+  trustedReview.booking.idVerifyStatus = "verified";
+  const emailConflict = await handleChat({ channel: "email", messages: [{ role: "user", content: verificationMessage }] }, trustedReview);
+  assert.match(emailConflict.reply, /team needs to check the conflicting results/i);
+  assert.doesNotMatch(emailConflict.reply, /please open verification and uploads|upload again/i);
+  assert.equal(verificationRecovery(`${verificationMessage}, please connect me with the team`, { status: "manual_review" }), null,
+    "explicit human requests remain on the escalation path");
   let result = await run();
   assert.equal(result.sharedRefreshes, 1, "Gaffer refreshes the Rental Manager stock mirror once before quote stock reads");
   assert.equal(result.enquiry.days, 3, "72 hours is three days, not four inclusive calendar dates");
   assert.equal(result.enquiry.complete, true);
-  assert.equal(result.enquiry.total, 195, "3-day rates × billed days × allocated quantities");
+  assert.equal(result.enquiry.total, 212, "each 3-day total discount is applied before the final whole-pound ceiling and quantity allocation");
   const lines = result.enquiry.requests[0].lines;
   assert.equal(lines.find(x => x.listingId === a._id).quantity, 2);
   assert(!lines.some(x => x.listingId === duplicate._id), "another account's advert cannot duplicate the physical Rode pool");
   assert.equal(lines.filter(x => x.alternative).reduce((sum, x) => sum + x.quantity, 0), 2);
   assert(result.email.includes("(alternative; please confirm)"));
-  assert(result.email.includes("Total for this option: £195.00"));
+  assert(result.email.includes("Total for this option: £212.00"));
   assert.equal((result.email.match(/Rode Mic Pro Kit/g) || []).length, 1, "the proposed item must appear once, not repeat as an equipment-options section");
   assert(!result.email.includes("Multi-day rates per unit"), "do not append an irrelevant full rate ladder to every quote");
   assert(result.email.startsWith("Hi there,\n\n"), "email replies should start like a concise personal note");
   assert(!result.email.endsWith("DB Cinema Rentals Team"), "the quote formatter leaves the shared sign-off to the mail sender");
+  const sameDayEmail = await run(1, {
+    start: "2026-11-01", end: "2026-11-01", pickupTime: "10:00", returnTime: "18:00",
+    requests: [{ subject: "Rode Mic Pro", itemType: "wireless-mic", quantity: 1 }],
+  }, "Please quote one Rode Mic Pro kit for 1 November 2026, pickup at 10am and return at 6pm.");
+  assert.equal(sameDayEmail.enquiry.sameDayFee, 2.4, "the email planner applies the exact 10% same-day fee");
+  assert.match(sameDayEmail.email, /£24\.00 equipment \+ £2\.40 same-day fee = £26\.40/, "the customer email itemizes the exact fee and total");
   const deliveredHtml = brandedEmailHtml(`<html><body>${result.email}</body></html>`);
   assert(deliveredHtml.includes('data-dbc-email-footer="true"'));
   assert(deliveredHtml.includes("The DB Cinema Rentals Team"));
@@ -331,9 +366,9 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   result = await run(5);
   assert.equal(result.enquiry.complete, false);
   assert.equal(result.enquiry.requests[0].fulfilled, 4);
-  assert.equal(result.enquiry.total, 195);
+  assert.equal(result.enquiry.total, 212);
   assert(result.email.includes("4 of the 5 requested Rode Mic Pro"));
-  assert(result.email.includes("Total for this option: £195.00"));
+  assert(result.email.includes("Total for this option: £212.00"));
   result = await run(1, { start: "2030-11-20", end: "2030-11-21", pickupTime: "17:00", returnTime: "09:00" });
   assert.equal(result.enquiry.days, 1, "overnight rentals under 24h use one daily charge");
   assert.equal(result.enquiry.total, 24);
@@ -367,6 +402,14 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert(!result.email.endsWith("DB Cinema Rentals Team"), "the common mail sender adds the team sign-off after formatting");
   const locationQuoteResult = result;
   const locationRecommendationCall = recommendationCalls.at(-1);
+  lens.pricing.day7 = 10;
+  result = await run(1, {
+    subject: lens.title, itemTypes: ["lens"], start: "2030-11-20", end: "2030-11-27", pickupTime: "10:00", returnTime: "10:00",
+    requests: [{ subject: lens.title, itemType: "lens", quantity: 1 }],
+  }, "Please quote the Sony FE 24-70mm GM Lens from 20 November 2030 at 10am to 27 November 2030 at 10am.");
+  assert.equal(result.enquiry.days, 7, "Gaffer bills an exact seven-day timed rental");
+  assert.equal(result.enquiry.requests[0].lines[0].perDay, 12.71, "Gaffer derives its average per-day quote from the final whole-pound total");
+  assert.equal(result.enquiry.total, 89, "Gaffer applies the same 30% total rental discount and final pound ceiling as checkout");
   additionalAnswerForTest = "";
   const noisySupplement = [
     "Equipment options and stock checked by Gaffer",
@@ -639,7 +682,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(result.enquiry.requests[0].lines[0].listingId, pair._id);
   assert.equal(result.enquiry.requests[0].lines[0].quantity, 1, "one advertised package contains two verified camera bodies");
   assert.equal(result.enquiry.requests[0].lines[0].providedUnits, 2);
-  assert.equal(result.enquiry.total, 225, "the quote prices one whole package, not two packages");
+  assert.equal(result.enquiry.total, 243, "the quote prices one whole package using the current rounded three-day rate, not two packages");
   const fx30 = listing("Sony FX30 Body", unit("FX30 pool", 2), 20, 15, "camera-body");
   listings.push(fx30);
   result = await run(1, { requests: [{ subject: "Sony FX 3 camera body", itemType: "camera", quantity: 1 }] }, overnightEmail);
@@ -653,13 +696,13 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
     listings.push(equipment);
     result = await run(2, { requests: [{ subject: equipment.title, itemType, quantity: 2 }] });
     assert.equal(result.enquiry.complete, true, `${itemType} quantities must use the same physical-stock checks`);
-    assert.equal(result.enquiry.total, 120, `${itemType} must use the actual 3-day rate`);
+    assert.equal(result.enquiry.total, 136, `${itemType} must apply the exact 10% total discount before the final pound ceiling`);
   }
   result = await run(4, { requests: [{ subject: "wireless microphone kits", itemType: "wireless-mic", quantity: 4 }] });
   assert.equal(result.enquiry.complete, true, "all four distinct owned microphone kits must satisfy a generic four-kit request");
   assert.equal(result.enquiry.requests[0].fulfilled, 4);
-  assert.equal(result.enquiry.total, 195, "the complete mixed-brand basket uses each listing's actual three-day rate");
-  assert(result.email.includes("Total gear hire: £195.00 for 3 days"), "the concise email shows the exact mixed-kit total once");
+  assert.equal(result.enquiry.total, 212, "the complete mixed-brand basket applies each listing's total discount before final whole-pound rounding");
+  assert(result.email.includes("Total gear hire: £212.00 for 3 days"), "the concise email shows the exact mixed-kit total once");
   assert(result.enquiry.requests[0].lines.some(line => line.title === b.title), "the exact owner-listed DJI Mic Wireless offer counts as one complete kit despite its two lavaliers");
   assert(result.enquiry.requests[0].lines.some(line => line.title === c.title && !line.alternative), "a generic four-kit request should include Mic 2 as another matching kit, not a substitution");
   assert.equal(result.enquiry.requests[0].lines.reduce((sum, line) => sum + (line.providedUnits ?? line.quantity), 0), 4, "the confirmed total must sum owner-reviewed complete kit units, not microphone components");

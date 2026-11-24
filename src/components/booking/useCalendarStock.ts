@@ -4,7 +4,7 @@ import {useAction,useQuery} from "convex/react";
 import {api} from "@cvx/_generated/api";
 import {dayMs} from "@/lib/dates";
 import type {CartItem} from "../cart/CartProvider";
-type Days=Record<string,{available:number;ok:boolean;partial?:boolean}>;
+type Days=Record<string,{available:number;ok:boolean;partial?:boolean;stockStatus?:string}>;
 export function useCalendarStock(listingId:string,month:Date,items:Pick<CartItem,"listingId"|"start"|"end"|"pickupTime"|"returnTime">[],marketing:boolean,rangeStart:string|null){
   const key=JSON.stringify({listingId,monthStart:Date.UTC(month.getFullYear(),month.getMonth(),1),items:items.map(i=>({listingId:i.listingId,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime}))});
   const live=useQuery(api.availability.forCalendar,marketing?"skip":{...JSON.parse(key),...(rangeStart?{rangeStart:dayMs(rangeStart)}:{})});
@@ -26,10 +26,11 @@ export function useCalendarStock(listingId:string,month:Date,items:Pick<CartItem
   },[key,marketing,refresh]);
   useEffect(()=>{if(marketing)return;void retry();const check=()=>{if(!document.hidden)void retry();};const timer=setInterval(check,60000);window.addEventListener("focus",check);document.addEventListener("visibilitychange",check);return()=>{clearInterval(timer);window.removeEventListener("focus",check);document.removeEventListener("visibilitychange",check);scope.current.generation++;};},[retry,marketing]);
   const current=state?.key===key?state:null;
-  const ready=marketing||(current?.phase==="ready"&&!!live);
+  const stockUnknown=!!live&&Object.values(live).some((day:any)=>day?.stockStatus==="refresh_required");
+  const ready=marketing||(current?.phase==="ready"&&!!live&&!stockUnknown);
   const unavailable=new Set<string>();
   if(ready&&!marketing)for(const [day,result]of Object.entries(current?.days??{}))if(!result.ok||!live?.[day]?.ok)unavailable.add(day);
   const partial=new Set<string>();
   if(ready&&!marketing)for(const [day,result]of Object.entries(live??{}))if(result.ok&&result.partial)partial.add(day);
-  return {partial,ready,error:!marketing&&current?.phase==="error",unavailable,retry};
+  return {partial,ready,error:!marketing&&current?.phase==="error",unavailable,retry,refreshRequired:stockUnknown};
 }

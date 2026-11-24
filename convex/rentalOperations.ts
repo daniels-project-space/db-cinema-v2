@@ -8,6 +8,7 @@ import { schedulePickupHold } from "./pickupSecurity";
 import { bookingStockLines, londonRentalInstant, RENTAL_TIME_SLOTS, rentalWindow } from "../shared/rentalWindow";
 import { handoverScheduleFingerprint, pickupScheduleFingerprint, queueRentalEmail, refreshQueuedVerificationEmail } from "./lib/rentalEmailQueue";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
+import { storedBookingComponents } from "./lib/bookingComponentAllocation";
 import { accountForRental } from "./lib/rentalAccount";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { listingImages, listingRentalImages } from "./lib/catalogImages";
@@ -17,7 +18,9 @@ import {
   droneLicenceStatusForRental,
 } from "./lib/droneVerification";
 import { assertVerificationArchive } from "./verificationArchive";
+import { verificationWindowClosed } from "../shared/verificationProgress";
 import { rentalPaymentSources } from "./lib/rentalPaymentSources";
+import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
 import {
   mutation,
   query,
@@ -51,6 +54,10 @@ async function assertNoOpenRentalRequests(ctx: any, bookingId: any, ignoreId?: a
   if (summary.any) throw Error("A renter request is still awaiting a decision or completion. Review it before changing this rental.");
 }
 
+function confirmedRefundPence(refund: any) {
+  return confirmedRentalRefundPence([refund]);
+}
+
 /** Minimal server-only address lookup: a linked rental never falls back to a reused mailbox. */
 export const changeRecipient = internalQuery({
   args: { bookingId: v.id("bookings"), expectedAccountId: v.optional(v.id("accounts")), expectedRecipientEmail: v.optional(v.string()) },
@@ -76,6 +83,29 @@ export const alertRefundContactChange = internalMutation({
   },
 });
 
+function itemPaymentSources(booking: any, lineIndex: number) {
+  if (booking.itemPaymentLedgerVersion !== 1 || booking.itemPaymentLedger?.length !== booking.lineItems?.length) return null;
+  const row = booking.itemPaymentLedger[lineIndex], line = booking.lineItems[lineIndex], funding = booking.checkoutLineFunding?.[lineIndex];
+  if (!row || !line || !funding || String(row.listingId) !== String(line.listingId) || row.qty !== line.qty || String(funding.listingId) !== String(line.listingId) || funding.qty !== line.qty || !Array.isArray(row.sources) || !Number.isFinite(funding.card)) return null;
+  if (row.sources.some((source: any) => !source.paymentIntentId || !Number.isSafeInteger(source.amountPence) || source.amountPence <= 0) || new Set(row.sources.map((source: any) => source.paymentIntentId)).size !== row.sources.length || row.sources.reduce((sum: number, source: any) => sum + source.amountPence, 0) !== Math.round(funding.card * 100)) return null;
+  return row.sources as { paymentIntentId: string; amountPence: number }[];
+}
+
+async function addedItemRefundSource(ctx: any, booking: any, lineIndex: number, loadedAdditions?: any[]) {
+  const line = booking.lineItems?.[lineIndex];
+  if (!line) return null;
+  const matches = (candidate: any) => String(candidate.listingId) === String(line.listingId) && candidate.start === line.start && candidate.end === line.end && candidate.qty === line.qty && candidate.lineTotal === line.lineTotal;
+  if (booking.lineItems.filter(matches).length !== 1) return null;
+  const additions = loadedAdditions ?? await ctx.db.query("rental_additions").withIndex("by_booking", (q: any) => q.eq("bookingId", booking._id)).take(101);
+  if (additions.length > 100) return null;
+  const matching = additions.filter((addition: any) => addition.status === "applied" && !addition.draftReplacement && matches(addition));
+  if (matching.length !== 1) return null;
+  const addition = matching[0];
+  const cardPence = Math.round(line.lineTotal * 100);
+  if (!Number.isSafeInteger(cardPence) || cardPence <= 0 || !addition.paymentIntentId || addition.cardPaidPence !== cardPence || (addition.securityCharge ?? 0) !== 0 || (addition.membershipFee ?? 0) !== 0 || (addition.creditAppliedPence ?? 0) !== 0) return null;
+  return { paymentIntentId: addition.paymentIntentId, cardPence };
+}
+
 export const details = query({
   args: {
     token: v.string(),
@@ -97,8 +127,15 @@ export const details = query({
       .query("rental_refunds")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
       .collect();
+    const appliedSwap = await ctx.db.query("rental_item_swaps").withIndex("by_booking_status", q => q.eq("bookingId", bookingId).eq("status", "applied")).first();
+    let hasRefundablePayment = !!b.stripePaymentIntentId;
+    if(!hasRefundablePayment){try{hasRefundablePayment=(await rentalPaymentSources(ctx,b)).length>0;}catch{}}
+    const needsAdditionSources = b.lineItems.some((_line, index) => !b.checkoutLineFunding?.[index]);
+    const additions = needsAdditionSources ? await ctx.db.query("rental_additions").withIndex("by_booking", q => q.eq("bookingId", bookingId)).take(101) : [];
+    const addedItemCardPence = await Promise.all(b.lineItems.map(async (_line, index) => b.checkoutLineFunding?.[index] ? null : (await addedItemRefundSource(ctx, b, index, additions))?.cardPence ?? null));
     return {
       ...b,
+      verificationWindowClosed: verificationWindowClosed(b),
       documentAccountId: (await accountForRental(ctx,b))?._id ?? null,
       requiresDroneLicence: await requiresDroneLicence(ctx, b),
       droneLicenceStatus: await droneLicenceStatusForRental(ctx, b),
@@ -111,6 +148,9 @@ export const details = query({
         }),
       ),
       rentalRefunds: refunds,
+      hasRefundablePayment,
+      itemRefundSourceUncertain: !!appliedSwap,
+      addedItemCardPence,
       controlsSnapshot: rentalControlsSnapshot(b, refunds),
       cancellationKind: bookingCancelKind(b, Date.now()),
       cancellationTermsVersion: b.agreementDocs?.find((doc: { kind: string; version: string }) => doc.kind === "cancellation")?.version ?? "2026-10-v10",
@@ -366,7 +406,8 @@ export const changePickupTime = mutation({
     for(const line of lines){
       const listing=await ctx.db.get(line.listingId);
       const window=allocationMode==="legacy"?{start:line.start,end:line.end}:stockWindow(line,allocationMode==="precise");
-      for(const component of listing!.components)await ctx.db.insert("reservations",{inventoryUnitId:component.inventoryUnitId,listingId:line.listingId,bookingId:args.bookingId,...window,qty:component.qty*line.qty,source:"site",status:"confirmed"});
+      const components = await storedBookingComponents(ctx,line,args.bookingId) ?? listing!.components;
+      for(const component of components)await ctx.db.insert("reservations",{inventoryUnitId:component.inventoryUnitId,listingId:line.listingId,bookingId:args.bookingId,...window,qty:component.qty*line.qty,source:"site",status:"confirmed"});
     }
     const day=(value:number)=>new Date(value).toISOString().slice(0,10);
     const schedule=lines.map(line=>`${line.qty}× ${line.title}: ${day(line.start)} at ${line.pickupTime ?? "time to be confirmed"}`).join("; ");
@@ -426,7 +467,7 @@ export const changeHandoverTimes = mutation({
     if(booking.status==="active")for(const {id,...window} of activeUpdates)await ctx.db.patch(id,window);
     else {
       for(const reservation of reservations)if(["confirmed","hold"].includes(reservation.status))await ctx.db.patch(reservation._id,{status:"cancelled"});
-      for(const line of lines){const listing=await ctx.db.get(line.listingId);const window=allocationMode==="legacy"?{start:line.start,end:line.end}:stockWindow(line,allocationMode==="precise");for(const component of listing!.components)await ctx.db.insert("reservations",{inventoryUnitId:component.inventoryUnitId,listingId:line.listingId,bookingId:args.bookingId,...window,qty:component.qty*line.qty,source:"site",status:"confirmed"});}
+      for(const line of lines){const listing=await ctx.db.get(line.listingId);const window=allocationMode==="legacy"?{start:line.start,end:line.end}:stockWindow(line,allocationMode==="precise");const components=await storedBookingComponents(ctx,line,args.bookingId)??listing!.components;for(const component of components)await ctx.db.insert("reservations",{inventoryUnitId:component.inventoryUnitId,listingId:line.listingId,bookingId:args.bookingId,...window,qty:component.qty*line.qty,source:"site",status:"confirmed"});}
     }
     const day=(value:number)=>new Date(value).toISOString().slice(0,10);
     const detail=lineIndexes.map(index=>{const before=oldLines[index],after=lines[index],previous=args.kind==="pickup"?before.pickupTime:before.returnTime;return `${before.qty}× ${before.title} ${args.kind} on ${day(args.kind==="pickup"?after.start:after.end)} changed from ${previous??"time to be confirmed"} to ${args.time}`;}).join("; ")+".";
@@ -510,7 +551,8 @@ export const reschedule = mutation({
         allocationMode === "legacy"
           ? { start: li.start, end: li.end }
           : stockWindow(li, allocationMode === "precise");
-      for (const comp of listing!.components)
+      const components = await storedBookingComponents(ctx, li, bookingId) ?? listing!.components;
+      for (const comp of components)
         await ctx.db.insert("reservations", {
           inventoryUnitId: comp.inventoryUnitId,
           listingId: li.listingId,
@@ -577,12 +619,13 @@ export const prepareRefund = internalMutation({
     bookingId: v.id("bookings"),
     requestId: v.string(),
     amountPence: v.optional(v.number()),
+    lineIndex: v.optional(v.number()),
     reason: v.string(),
     expectedSnapshot: v.optional(v.string()),
   },
   handler: async (
     ctx,
-    { token, bookingId, requestId, amountPence, reason, expectedSnapshot },
+    { token, bookingId, requestId, amountPence, lineIndex, reason, expectedSnapshot },
   ) => {
     await assertAdmin(ctx, token, "rentalOperations.refund");
     if (!/^[a-zA-Z0-9-]{16,80}$/.test(requestId))
@@ -595,11 +638,19 @@ export const prepareRefund = internalMutation({
       if (prior.bookingId !== bookingId)
         throw Error("Refund request belongs to another rental");
       if (amountPence !== undefined && prior.amountPence !== amountPence) throw Error("Refund request amount changed");
+      if ((prior.lineAllocation?.lineIndex ?? undefined) !== lineIndex) throw Error("Refund item selection changed");
       if (prior.reason !== reason.trim().slice(0,400)) throw Error("Refund request reason changed");
+      if (prior.lineAllocation && !["succeeded", "failed"].includes(prior.status) && !prior.stripeRefundId && !prior.refundReceipts?.some(receipt => receipt.stripeRefundId || receipt.approvalRequestId)) {
+        const appliedSwap = await ctx.db.query("rental_item_swaps").withIndex("by_booking_status", q => q.eq("bookingId", bookingId).eq("status", "applied")).first();
+        const booking = appliedSwap ? await ctx.db.get(bookingId) : null;
+        const ledger = booking && itemPaymentSources(booking, prior.lineAllocation.lineIndex);
+        const line = booking?.lineItems[prior.lineAllocation.lineIndex];
+        if (appliedSwap && (!ledger || !line || String(line.listingId)!==String(prior.lineAllocation.listingId) || line.qty!==prior.lineAllocation.qty || !prior.lineAllocation.sourceCaps?.length || prior.lineAllocation.sourceCaps.reduce((sum,cap)=>sum+cap.amountPence,0)<prior.amountPence || !prior.lineAllocation.sourceCaps.every(cap => ledger.some(source => source.paymentIntentId === cap.paymentIntentId && source.amountPence >= cap.amountPence)))) throw Error("The item payment source changed after an equipment change. Review the payment history and use a rental-total refund instead.");
+      }
       return prior;
     }
     const b = await ctx.db.get(bookingId);
-    if (!b || !["confirmed","active"].includes(b.status) || !b.stripePaymentIntentId)
+    if (!b || !["confirmed","active"].includes(b.status) || (!b.stripePaymentIntentId && !(await rentalPaymentSources(ctx,b)).length))
       throw Error("Only a paid rental can receive a rental refund");
     await assertSwapStockReconciled(ctx, bookingId);
     if (
@@ -641,9 +692,48 @@ export const prepareRefund = internalMutation({
           0,
         ),
     );
-    const amount = amountPence ?? remaining;
+    let lineAllocation: {lineIndex:number;listingId:any;start:number;end:number;qty:number;paymentIntentId:string;amountPence:number;sourceCaps?:{paymentIntentId:string;amountPence:number}[]}|undefined;
+    let lineCardPence: number | undefined;
+    if(lineIndex!==undefined){
+      const appliedSwap = await ctx.db.query("rental_item_swaps").withIndex("by_booking_status", q => q.eq("bookingId", bookingId).eq("status", "applied")).first();
+      const ledger = itemPaymentSources(b,lineIndex);
+      if(appliedSwap&&!ledger)throw Error("The item payment source changed after an equipment change. Review the payment history and use a rental-total refund instead.");
+      if(!Number.isSafeInteger(lineIndex)||lineIndex<0||lineIndex>=b.lineItems.length)throw Error("Choose a booked item for this refund.");
+      const line=b.lineItems[lineIndex],funding=b.checkoutLineFunding?.[lineIndex];
+      const additionSource = funding ? null : await addedItemRefundSource(ctx, b, lineIndex);
+      if(!additionSource&&(!funding||String(funding.listingId)!==String(line.listingId)||funding.qty!==line.qty||!Number.isFinite(funding.card)||funding.card<0))throw Error("This item has no reliable original card allocation. Use a reviewed rental-total adjustment instead.");
+      const representedRefunds=new Set((ledger ? b.itemPaymentLedgerRefundIds??[] : []).map(String));
+      const legacyRefund=previous.some((r:any)=>!r.lineAllocation&&confirmedRefundPence(r)>0&&!representedRefunds.has(String(r._id)));
+      if(legacyRefund)throw Error("Earlier refunds are not itemized. Review the rental refund history before refunding a specific item.");
+      const alreadyForLine=previous.reduce((sum:number,r:any)=>{
+        const allocation=r.lineAllocation;
+        return allocation&&allocation.lineIndex===lineIndex&&String(allocation.listingId)===String(line.listingId)&&allocation.qty===line.qty
+          ? sum+confirmedRefundPence(r)
+          : sum;
+      },0);
+      lineCardPence=Math.max(0,(additionSource?.cardPence ?? Math.round(funding!.card*100))-alreadyForLine);
+      let sourceCaps: {paymentIntentId:string;amountPence:number}[] | undefined;
+      if(appliedSwap && ledger){
+        const remaining=new Map(ledger.map(source=>[source.paymentIntentId,source.amountPence]));
+        for(const refund of previous){
+          const allocation=refund.lineAllocation;
+          if(!allocation||allocation.lineIndex!==lineIndex||String(allocation.listingId)!==String(line.listingId)||allocation.qty!==line.qty)continue;
+          const parts=refund.parts?.filter(part=>part.status==="succeeded") ?? [];
+          if(parts.length){for(const part of parts){const available=remaining.get(part.paymentIntentId);if(available===undefined||part.amountPence>available)throw Error("The item payment history needs review before another refund.");remaining.set(part.paymentIntentId,available-part.amountPence);}}
+          else if(refund.status==="succeeded"){const available=remaining.get(allocation.paymentIntentId);if((allocation.sourceCaps?.length??0)>1||available===undefined||refund.amountPence>available)throw Error("The item payment history needs review before another refund.");remaining.set(allocation.paymentIntentId,available-refund.amountPence);}
+        }
+        sourceCaps=[...remaining].filter(([,amount])=>amount>0).map(([paymentIntentId,amountPence])=>({paymentIntentId,amountPence}));
+        if(sourceCaps.reduce((sum,source)=>sum+source.amountPence,0)!==lineCardPence||!sourceCaps.length)throw Error("The item payment history needs review before another refund.");
+      }
+      const paymentIntentId=sourceCaps?.[0]?.paymentIntentId ?? additionSource?.paymentIntentId ?? b.stripePaymentIntentId;
+      if(!paymentIntentId)throw Error("This item has no verified card payment to refund.");
+      lineAllocation={lineIndex,listingId:line.listingId,start:line.start,end:line.end,qty:line.qty,paymentIntentId,amountPence:0,...(sourceCaps?{sourceCaps}:{})};
+    }
+    const amount = amountPence ?? (lineCardPence === undefined ? remaining : Math.min(remaining, lineCardPence));
     if (!Number.isSafeInteger(amount) || amount <= 0 || amount > remaining)
       throw Error("Refund must be within the remaining rental payment");
+    if(lineCardPence!==undefined&&amount>lineCardPence)throw Error("Refund exceeds the amount charged to this item. Review the item’s recorded card amount.");
+    if(lineAllocation)lineAllocation.amountPence=amount;
     const recipient = await accountForRental(ctx, b);
     const recipientEmail = (b.accountId ? recipient?.email : recipient?.email ?? b.guestEmail)?.trim().toLowerCase() ?? "";
     const id = await ctx.db.insert("rental_refunds", {
@@ -653,6 +743,7 @@ export const prepareRefund = internalMutation({
       requestId,
       amountPence: amount,
       reason: reason.trim().slice(0, 400),
+      ...(lineAllocation?{lineAllocation}:{}),
       status: "prepared",
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -734,6 +825,7 @@ export const bindRefundAllocations = internalMutation({
   handler: async (ctx, { id, allocations }) => {
     const r = await ctx.db.get(id);
     if (!r) throw Error("Refund missing");
+    if(r.lineAllocation){const caps=r.lineAllocation.sourceCaps??[{paymentIntentId:r.lineAllocation.paymentIntentId,amountPence:r.amountPence}];if(allocations.some(allocation=>!caps.some(cap=>cap.paymentIntentId===allocation.paymentIntentId&&allocation.amountPence<=cap.amountPence)))throw Error("An item refund must come only from that item’s recorded payment.");}
     if (r.allocations) return r.allocations;
     if (
       new Set(allocations.map((p) => p.paymentIntentId)).size !==

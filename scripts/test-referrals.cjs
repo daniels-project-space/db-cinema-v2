@@ -6,7 +6,7 @@ const bookings=load('convex/bookings.ts'),catalog=load('convex/catalog.ts'),acco
 const {calculateRentalPrice}=load('convex/lib/rentalPrice.ts');
 const now=Date.now(),DAY=86400000;
 const jobs=[];const ctx={db,storage:{getUrl:async()=>null},scheduler:{runAfter:async(_delay,ref,args)=>jobs.push({ref,args})}};
-function approveDidit(booking){booking.idVerifyStatus='verified';booking.idVerifiedAt=now;booking.verificationExpiresAt=now+90*DAY;booking.documentExpiresAt=now+90*DAY;}
+function approveDidit(booking,paymentIntentId){booking.idVerifyStatus='verified';booking.idVerifiedAt=now;booking.diditDecisionAt=now;booking.pickupTime='10:00';booking.idVerificationSource='didit';booking.verificationChecks={identity:'approved',selfie:'approved',address:'approved'};booking.verificationExpiresAt=now+90*DAY;booking.documentExpiresAt=now+90*DAY;booking.stripeCheckoutSessionId??=`cs-${booking._id}`;booking.stripePaymentIntentId=paymentIntentId;booking.checkoutPaidAt=now;booking.checkoutPaymentAmountPence=Math.round((booking.total??0)*100);booking.checkoutPaymentCurrency=booking.currency??'GBP';booking.checkoutPaymentStatus='paid';}
 assert.equal(new Date(threeMonthsAfter(Date.UTC(2026,10,30,12))).toISOString(),'2027-02-28T12:00:00.000Z');
 assert.equal(new Date(threeMonthsAfter(Date.UTC(2027,0,31))).toISOString(),'2027-04-30T00:00:00.000Z');
 assert.equal(bestBenefit([{kind:'promo',savingPence:1000,label:'coupon'},{kind:'earned_credit',savingPence:900,label:'credit'}]).kind,'promo');
@@ -46,7 +46,11 @@ const pendingArgs=(p,a)=>({protection:p.protection,pricingVersion:p.pricingVersi
  assert.equal(await referral.qualify.handler(ctx,{bookingId:b._id}),null,'unpaid cannot earn');
  await bookings.expireUnpaidPending.handler(ctx,{bookingId:b._id});assert.equal((await ledger.referralEligibility(ctx,friend,owner.referralCode)).valid,true,'terminal unpaid claim can retry');
  const second=await bookings.createPending.handler(ctx,args),paid=await db.get(second.bookingId);
- approveDidit(paid);
+ approveDidit(paid,'pi_friend');
+ paid.diditDecisionAt=undefined;
+ await bookings.confirm.handler(ctx,{bookingId:paid._id,paymentIntentId:'pi_friend'});
+ assert.equal((await db.get(paid.referralRedemptionId)).state,'reserved','unattested verification timing cannot consume the referral');
+ paid.diditDecisionAt=now;
  await bookings.confirm.handler(ctx,{bookingId:paid._id,paymentIntentId:'pi_friend'});
  const redemption=await db.get(paid.referralRedemptionId);assert.equal(redemption.state,'paid');assert(friend.referralFirstUsedAt);
  await bookings.confirm.handler(ctx,{bookingId:paid._id,paymentIntentId:'pi_friend'});assert.equal((await db.query('referral_redemptions').collect()).filter(r=>r.state==='paid').length,1);
@@ -61,30 +65,33 @@ const pendingArgs=(p,a)=>({protection:p.protection,pricingVersion:p.pricingVersi
  const rewardArgs=pendingArgs(p,owner),claim=await bookings.createPending.handler(ctx,rewardArgs);
  await assert.rejects(bookings.createPending.handler(ctx,rewardArgs),/no longer available/);
  await bookings.expireUnpaidPending.handler(ctx,{bookingId:claim.bookingId});assert(await ledger.availableReferralReward(ctx,owner));
- const use=await bookings.createPending.handler(ctx,rewardArgs);approveDidit(await db.get(use.bookingId));await bookings.confirm.handler(ctx,{bookingId:use.bookingId,paymentIntentId:'pi_owner'});assert.equal(reward.state,'used');assert(owner.referralRewardUsedAt);
+ const use=await bookings.createPending.handler(ctx,rewardArgs);approveDidit(await db.get(use.bookingId),'pi_owner');await bookings.confirm.handler(ctx,{bookingId:use.bookingId,paymentIntentId:'pi_owner'});assert.equal(reward.state,'used');assert(owner.referralRewardUsedAt);
  await bookings._finalizeCancellation.handler(ctx,{bookingId:use.bookingId,accountId:owner._id,mode:'refund',refundAmount:100,creditAmount:0,currency:'GBP'});assert.equal(await ledger.availableReferralReward(ctx,owner),null,'paid cancellation does not reissue');
  reward.state='expired';assert.equal(await ledger.issueReferralReward(ctx,another),reward._id,'expiry cannot reset lifetime limit');
  const expiring=await account('expired-reward@example.invalid','expired-reward@example.invalid'),open=put('bookings',{guestEmail:expiring.email,status:'pending_payment'}),expiringReward=put('referral_rewards',{accountId:expiring._id,redemptionId:another._id,percent:40,state:'available',createdAt:now-1000,expiresAt:now-10,reservedBookingId:open._id});
  assert.equal(await ledger.availableReferralReward(ctx,expiring),null,'expiry is checked immediately, without waiting for cron');await referral.expire.handler(ctx,{});assert.equal(expiringReward.state,'available','a valid pending reservation may settle before its payment window closes');await db.patch(open._id,{status:'cancelled'});await referral.expire.handler(ctx,{});assert.equal(expiringReward.state,'expired','terminal reservation allows automatic expiry');
 
- // Earned credit is one alternative; customer refund money can still pay the balance.
+ // Earned and refund credits fund the balance after the selected promotion.
  const mixed=await account('mixed@example.invalid','mixed@example.invalid');mixed.loyaltyLevel=3;
  put('credits',{accountId:mixed._id,kind:'earned',remaining:20,amount:20,status:'active',createdAt:now-1000,expiresAt:now+DAY});
  put('credits',{accountId:mixed._id,kind:'refund',remaining:15,amount:15,status:'active',createdAt:now-1000,expiresAt:now+DAY});
- p=await calculateRentalPrice(pricing,{...input(mixed),promoCode:'SALE'});assert.equal(p.benefitKind,'promo');assert.equal(p.loyaltySaving,0);assert.equal(p.earnedCreditApplied,0);assert.equal(p.refundCreditApplied,15);assert.equal(p.totalDue,55+p.depositAmount);
- const reserve=await bookings.createPending.handler(ctx,pendingArgs(p,mixed));await assert.rejects(bookings.createPending.handler(ctx,pendingArgs(p,mixed)),/available credit changed/);approveDidit(await db.get(reserve.bookingId));await bookings.confirm.handler(ctx,{bookingId:reserve.bookingId,paymentIntentId:'pi_mixed'});
- assert.equal((await db.query('credits').collect()).find(c=>c.accountId===mixed._id&&c.kind==='earned').remaining,20);
+ p=await calculateRentalPrice(pricing,{...input(mixed),promoCode:'SALE'});assert.equal(p.benefitKind,'promo');assert.equal(p.loyaltySaving,0);assert.equal(p.earnedCreditApplied,20);assert.equal(p.refundCreditApplied,15);assert.equal(p.totalDue,35+p.depositAmount);
+ const reserve=await bookings.createPending.handler(ctx,pendingArgs(p,mixed));await assert.rejects(bookings.createPending.handler(ctx,pendingArgs(p,mixed)),/available credit changed/);approveDidit(await db.get(reserve.bookingId),'pi_mixed');await bookings.confirm.handler(ctx,{bookingId:reserve.bookingId,paymentIntentId:'pi_mixed'});
+ assert.equal((await db.query('credits').collect()).find(c=>c.accountId===mixed._id&&c.kind==='earned').remaining,0);
  await bookings._finalizeCancellation.handler(ctx,{bookingId:reserve.bookingId,accountId:mixed._id,mode:'credit',refundAmount:0,creditAmount:70,currency:'GBP'});
- const restored=(await db.query('credits').collect()).filter(c=>c.accountId===mixed._id&&c.bookingId===reserve.bookingId);assert.equal(restored.reduce((n,c)=>n+c.remaining,0),70);assert(restored.every(c=>c.kind==='refund'),'cash and refund origin remain customer money');
+ const restored=(await db.query('credits').collect()).filter(c=>c.accountId===mixed._id&&c.bookingId===reserve.bookingId);assert.equal(restored.reduce((n,c)=>n+c.remaining,0),70);assert.equal(restored.filter(c=>c.kind==='earned').reduce((n,c)=>n+c.remaining,0),20,'earned funding retains its source on restoration');
  // A later account earns progressive levels and cannot acknowledge an unearned one.
  const progressive=await account('levels@example.invalid','levels@example.invalid');
  for(let level=1;level<=3;level++){
-  const b=put('bookings',{accountId:progressive._id,guestEmail:progressive.email,status:'returned',stripeCheckoutSessionId:'cs_level_'+level,depositAmount:0,total:0,actualReturnedAt:now,
-   returnDecision:{inspection:[{key:'camera',title:'Camera',condition:'good',details:'',openCase:false}]},lineItems:[{start:start+level*DAY*5,end:start+level*DAY*5,qty:1,title:'Camera'}]});
+  const {dateLabel,londonRentalInstant}=load('shared/rentalWindow.ts');
+  const end=dateLabel(now-(level*4+2)*DAY),actualReturnedAt=londonRentalInstant(end,'20:00');
+  const inspection=[{key:'legacy:0:0',title:'Camera',condition:'good',details:'',openCase:false}];
+  const b=put('bookings',{accountId:progressive._id,guestEmail:progressive.email,status:'returned',idVerifyStatus:'verified',idVerifiedAt:now,verificationExpiresAt:now+90*DAY,stripeCheckoutSessionId:'cs_level_'+level,stripePaymentIntentId:'pi_level_'+level,depositAmount:0,total:100,subtotal:100,currency:'GBP',rentalPaidPence:10000,paidConfirmedAt:actualReturnedAt-DAY,checkoutPaidAt:actualReturnedAt-DAY,checkoutPaymentAmountPence:10000,checkoutExpectedAmountPence:10000,checkoutPaymentCurrency:'GBP',checkoutPaymentStatus:'paid',pickedUpAt:londonRentalInstant(end-DAY,'09:00'),actualReturnedAt,
+   returnDecision:{actualReturnedAt,damageKept:0,depositKept:0,chargeLate:false,inspection},returnStatement:{actualReturnedAt,inspection,rentalRefunded:0,securityPaid:0,securityRefunded:0,holdStatus:'not_applicable',damageTotal:0,damageFromHold:0,lateAssessed:0,lateWaived:0},lineItems:[{listingId:'legacy-camera',start:end-DAY,end,returnTime:'20:00',qty:1,title:'Camera'}]});
   b.reviewEligibilityFingerprint=load('convex/lib/reviewEligibility.ts').reviewSettlementFingerprint(await load('convex/lib/reviewContext.ts').reviewContext(ctx,b));
   await load('convex/reviews.ts').submitNative.handler(ctx,{token:progressive.email,bookingId:b._id,rating:1,text:'An honest account of this rental.'});
   const me=await accounts.me.handler(ctx,{token:progressive.email});assert.equal(me.loyaltyLevel,level);assert.equal(me.loyaltyPercent,[0,2,4,10][level]);
-  if(level<3)await assert.rejects(accounts.acknowledgeLoyalty.handler(ctx,{token:progressive.email,level:level+1}),/clean rental.*review/);
+  if(level<3)await assert.rejects(accounts.acknowledgeLoyalty.handler(ctx,{token:progressive.email,level:level+1}),/clean, settled rental/);
   await accounts.acknowledgeLoyalty.handler(ctx,{token:progressive.email,level});assert.equal(progressive.loyaltyCelebratedLevel,level);
  }
 

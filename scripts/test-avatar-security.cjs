@@ -104,6 +104,13 @@ const request = (token = "owner", body = jpeg, type = "image/jpeg", origin = "ht
   await upsertGoogle({ email: account.email, googleId: "google-fixture", picture: "https://example.invalid/photo", token: "new-google-session" }, { termsAndPrivacyAcknowledged: false });
   assert.equal((await db.get(account._id)).googleAvatarUrl, undefined, "Google sign-in cannot restore a removed photo");
   assert(files.has("foreign-private"), "untrusted legacy references cannot delete private files");
+  const guestAccountBefore = await db.get(account._id);
+  const guestStorageBefore = files.size;
+  const guestLedgerBefore = (tables.get("avatar_upload_ledger") ?? []).length;
+  assert.equal((await upload(ctx, request(""))).status, 403, "a guest without an authenticated account session cannot upload a profile photo");
+  assert.deepEqual(await db.get(account._id), guestAccountBefore, "anonymous checkout cannot bind a photo to whichever account is created or signed in later");
+  assert.equal(files.size, guestStorageBefore, "rejected guest upload creates no storage object");
+  assert.equal((tables.get("avatar_upload_ledger") ?? []).length, guestLedgerBefore, "rejected guest upload creates no pending ownership row");
   assert.equal((await upload(ctx, request("invalid"))).status, 403);
   assert.equal((await upload(ctx, request("owner", jpeg, "image/jpeg", "https://evil.invalid"))).status, 403);
   assert.equal((await upload(ctx, request("owner", Buffer.from("not an image")))).status, 403);
@@ -197,5 +204,11 @@ const request = (token = "owner", body = jpeg, type = "image/jpeg", origin = "ht
   await assert.rejects(() => accounts.commitAvatarUpload.handler(inner, { ...atomic, digest: "0".repeat(64) }));
   await assert.rejects(() => accounts.commitAvatarUpload.handler(inner, { ...atomic, chunks: [...chunks, new ArrayBuffer(1)] }));
   assert.equal(files.size, beforeAtomic + 1, "mismatched, oversize and stale retries cannot store files");
+  const superseded = await accounts.reserveAvatarUpload.handler(inner, { token: "other" });
+  const avatarBeforeSupersededUpload = await db.get(other._id);
+  await accounts.reserveAvatarUpload.handler(inner, { token: "other" });
+  await assert.rejects(() => accounts.commitAvatarUpload.handler(inner, { ...atomic, token: "other", accountId: other._id, revision: superseded.revision }), /Invalid upload/, "an older in-flight upload cannot overwrite a newer account photo reservation");
+  assert.deepEqual(await db.get(other._id), avatarBeforeSupersededUpload, "a superseded upload leaves the currently bound account photo unchanged");
+  assert.equal(files.size, beforeAtomic + 1, "a superseded upload creates no orphaned storage object");
   console.log("PASS Google identity binding, oversized credential rejection, profile-photo fallback/removal, avatar ownership, bounded cleanup, legacy preservation and stale binding");
 })().catch(error => { console.error(error); process.exitCode = 1; });

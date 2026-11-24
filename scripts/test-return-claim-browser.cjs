@@ -22,9 +22,10 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       returnTime: "20:00", returnDecision: null,
       lineItems: [{ listingId: "lens", title: "Fixture lens", qty: 1, start: Date.now() - 86400000, end: Date.now() - 86400000, lineTotal: 100, dailyRate: 100 }],
     };
+    const holdBooking = { ...booking, _id: "card-hold-booking-fixture", securityPolicyVersion: "2026-11-card-hold-v1", savedCardLimit: 0, depositHoldAmount: 50, returnDecision: null };
     const moduleStyles = [];
     const schedule = { legacy: true, items: [{ key: "legacy:0:0", title: "Fixture lens", imageSources: [], sku: "FX-01" }] };
-    const entry = `import React from 'react';import {createRoot} from 'react-dom/client';import {ReturnRentalForm} from './src/components/admin/ReturnRentalForm';createRoot(document.getElementById('root')).render(<ReturnRentalForm booking={${JSON.stringify(booking)}} token="fixture-token" onClose={()=>{}}/>);`;
+    const entry = `import React from 'react';import {createRoot} from 'react-dom/client';import {ReturnRentalForm} from './src/components/admin/ReturnRentalForm';const root=createRoot(document.getElementById('root'));window.renderHoldFixture=()=>root.render(<ReturnRentalForm booking={${JSON.stringify(holdBooking)}} token="fixture-token" onClose={()=>{}}/>);root.render(<ReturnRentalForm booking={${JSON.stringify(booking)}} token="fixture-token" onClose={()=>{}}/>);`;
     await esbuild.build({
       stdin: { contents: entry, resolveDir: root, loader: "tsx" },
       outfile: path.join(directory, "fixture.js"),
@@ -43,7 +44,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
           build.onLoad({ filter: /.*/, namespace: "fixture" }, (args) => {
             let contents;
             if (args.path.endsWith("_generated/api")) contents = `const refs=new Proxy({},{get:(_,group)=>new Proxy({},{get:(_,method)=>String(group)+'.'+String(method)})});export const api=refs;`;
-            else if (args.path === "convex/react") contents = `export const useQuery=ref=>ref==='returnInspections.schedule'?${JSON.stringify(schedule)}:null;export const useAction=()=>async()=>({});`;
+            else if (args.path === "convex/react") contents = `export const useQuery=ref=>ref==='returnInspections.schedule'?${JSON.stringify(schedule)}:ref==='securityChargeState.evidenceOptions'?[{id:'evidence-fixture',name:'condition.jpg',uploadedBy:'team',size:1024}]:null;export const useAction=()=>async()=>({});`;
             else if (args.path.includes("ReturnSettlementReview")) contents = `import React from 'react';export const ReturnSettlementReview=({enabled,onReview,paymentSummary})=><section>{paymentSummary}<button type="button" disabled={!enabled} onClick={onReview}>Review return</button></section>;`;
             else if (args.path.includes("SmartImage")) contents = `import React from 'react';export const SmartImage=({alt})=><span role="img" aria-label={alt}/>;`;
             else if (args.path.includes("pricing")) contents = `export const formatGbp=value=>'£'+Number(value).toFixed(2);`;
@@ -91,6 +92,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
         const reason = await client.evaluate(`(()=>{const label=[...document.querySelectorAll('label')].find(x=>x.textContent.includes('Reason for your claim'));const input=label?.querySelector('input');input?.focus();input?.select();return !!input})()`);
         assert.equal(reason, true, "the owner must be able to enter a reason before review");
         await client.cmd("Input.insertText", { text: "Documented late return claim for the browser fixture." });
+        await client.evaluate(`(()=>{const label=[...document.querySelectorAll('label')].find(x=>x.textContent.includes('condition.jpg'));label?.querySelector('input[type="checkbox"]')?.click()})()`);
         await client.evaluate(`(()=>[...document.querySelectorAll('button')].find(x=>x.textContent.includes('Review return'))?.click())()`);
         await wait(100);
         assert.equal(await client.evaluate(`!![...document.querySelectorAll('button')].find(x=>x.textContent.includes('Confirm return'))?.disabled`), true, "a reason and return preview still cannot authorize a money claim without the owner code");
@@ -113,8 +115,31 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       await client.evaluate(`document.querySelector('select')?.scrollIntoView({block:'center'})`);
       const basisScreenshot = await client.cmd("Page.captureScreenshot", { format: "png" });
       fs.writeFileSync(`/tmp/dbc-return-damage-basis-${width}.png`, Buffer.from(basisScreenshot.data, "base64"));
+
+      await client.evaluate(`window.renderHoldFixture()`);
+      await wait(100);
+      await client.evaluate(`(()=>[...document.querySelectorAll('button')].find(x=>x.textContent.includes('Issues found'))?.click())()`);
+      await wait(100);
+      await client.evaluate(`(()=>{const textarea=[...document.querySelectorAll('textarea')].find(x=>x.placeholder.includes('damage, loss'));textarea?.focus();textarea?.select()})()`);
+      await client.cmd("Input.insertText", { text: "Visible camera casing damage; supporting photo attached." });
+      await client.evaluate(`(()=>{const input=document.querySelector('.paymentSummary input[type="number"]');input?.focus();input?.select()})()`);
+      await client.cmd("Input.insertText", { text: "25" });
+      await client.evaluate(`(()=>{const label=[...document.querySelectorAll('label')].find(x=>x.textContent.includes('I am claiming this amount'));label?.querySelector('input')?.click()})()`);
+      await wait(100);
+      await client.evaluate(`(()=>{const textarea=[...document.querySelectorAll('textarea')].find(x=>x.placeholder.includes('amount calculation'));textarea?.focus();textarea?.select()})()`);
+      await client.cmd("Input.insertText", { text: "Camera casing damage; photo evidence attached; repair estimate £25." });
+      await client.evaluate(`(()=>{const select=[...document.querySelectorAll('select')].find(x=>[...x.options].some(option=>option.textContent==='Fixture lens'));if(select)select.value='legacy:0:0';select?.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+      const evidenceGate = await client.evaluate(`(()=>{const section=[...document.querySelectorAll('section')].find(x=>x.textContent.includes('Evidence to attach'));return {visible:!!section,checked:section?.querySelector('input[type="checkbox"]')?.checked,reviewDisabled:[...document.querySelectorAll('button')].find(x=>x.textContent.includes('Review return'))?.disabled}})()`);
+      assert.equal(evidenceGate.visible, true, "manual card-hold damage claims expose the rental-chat evidence picker");
+      assert.equal(evidenceGate.checked, false);
+      assert.equal(evidenceGate.reviewDisabled, true, "the owner cannot review a hold capture until evidence is selected");
+      await client.evaluate(`(()=>{const label=[...document.querySelectorAll('label')].find(x=>x.textContent.includes('condition.jpg'));label?.querySelector('input[type="checkbox"]')?.click()})()`);
+      const reviewState=await client.evaluate(`(()=>({button:[...document.querySelectorAll('button')].find(x=>x.textContent.includes('Review return'))?.disabled,evidence:[...document.querySelectorAll('label')].filter(x=>x.textContent.includes('condition.jpg')).map(x=>x.querySelector('input')?.checked),conditions:[...document.querySelectorAll('[aria-pressed]')].map(x=>[x.textContent,x.getAttribute('aria-pressed')]),selects:[...document.querySelectorAll('select')].map(x=>x.value),inputs:[...document.querySelectorAll('textarea')].map(x=>({placeholder:x.placeholder,value:x.value})),numbers:[...document.querySelectorAll('input[type="number"]')].map(x=>x.value),text:document.body.innerText.slice(-1000)}))()`);
+      assert.equal(reviewState.button, false, `selected item evidence enables review while the separate owner code still gates settlement: ${JSON.stringify(reviewState)}`);
+      const holdEvidenceScreenshot = await client.cmd("Page.captureScreenshot", { format: "png" });
+      fs.writeFileSync(`/tmp/dbc-return-hold-evidence-${width}.png`, Buffer.from(holdEvidenceScreenshot.data, "base64"));
     }
-    console.log("PASS return claim UI: late fee unchecked by default; claim reason required; no mobile/desktop overflow.");
+    console.log("PASS return claim UI: late fee unchecked; owner code and rental evidence gates work; no mobile/desktop overflow.");
   } finally {
     if (client) { client.close(); await fetch(`${process.env.DBC_CDP_URL || "http://localhost:9224"}/json/close/${client.tabId}`); }
     if (server) await new Promise((resolve) => server.close(resolve));

@@ -3,7 +3,7 @@ import {action,internalAction} from "./_generated/server";
 import {internal} from "./_generated/api";
 import {v} from "convex/values";
 import {createHmac,timingSafeEqual} from "node:crypto";
-import {operatorCancellationOptions,type OperatorCancellationPreview} from "../shared/operatorCancellationCredit";
+import {operatorCancellationCreditAllowed,operatorCancellationOptions,type OperatorCancellationPreview} from "../shared/operatorCancellationCredit";
 import {LEGAL_ARCHIVE} from "../shared/legalDocuments";
 import {readAgreementSnapshot} from "../shared/rentalAgreement";
 import {CANCELLATION_PROTECTION_LEGAL_VERSION} from "../src/lib/legal";
@@ -46,7 +46,7 @@ function cancellationTermsVersionFor(booking:any){
 export const prepareEmail=internalAction({args:{bookingId:v.id("bookings"),deliveryKey:v.string()},handler:async(ctx,a):Promise<MailInput|null>=>{
  const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId:a.bookingId});if(!b?.cancellationDecision?.operatorOfferId)return null;
  const context:any=await ctx.runQuery(internal.operatorCancellationState.byId,{offerId:b.cancellationDecision.operatorOfferId});
- if(!context||context.offer.state!=="email_pending"||context.account?.blockedAt!=null||context.account?.email!==context.offer.recipientEmail||Date.now()<context.offer.decisionAfter)return null;
+ if(!context||context.offer.state!=="email_pending"||!operatorCancellationCreditAllowed(context.account,context.offer)||context.account?.email!==context.offer.recipientEmail||Date.now()<context.offer.decisionAfter)return null;
  const offer=context.offer,options=amounts(offer),origin=new URL(process.env.APP_URL??"https://dbcinemarentals.com").origin;
  const link=(choice:string)=>`${origin}/cancellation-choice#${new URLSearchParams({offer:String(offer._id),proof:proofFor(offer),choice})}`;
  const deadline=new Date(offer.choiceDeadline).toLocaleString("en-GB",{timeZone:"Europe/London",dateStyle:"medium",timeStyle:"short"});
@@ -57,7 +57,7 @@ const linkArgs={offerId:v.id("operator_cancellation_offers"),proof:v.string()};
 export const preview=action({args:linkArgs,handler:async(ctx,a):Promise<OperatorCancellationPreview>=>{
  const context:any=await ctx.runQuery(internal.operatorCancellationState.byId,{offerId:a.offerId});verify(context?.offer,a.proof);
  if(!context.account||context.account.email!==context.offer.recipientEmail)throw Error("The account changed. Contact the team to review this cancellation.");
- const options=amounts(context.offer);return {state:context.offer.state,choice:context.offer.choice??null,choiceDeadline:context.offer.choiceDeadline,refund:options.refund,credit:options.credit,creditAllowed:context.account.blockedAt==null,bookingTitle:context.booking?.lineItems.map((i:any)=>i.title).join(", ")??"Rental",cancellationTermsVersion:cancellationTermsVersionFor(context.booking)};
+ const options=amounts(context.offer);return {state:context.offer.state,choice:context.offer.choice??null,choiceDeadline:context.offer.choiceDeadline,refund:options.refund,credit:options.credit,creditAllowed:operatorCancellationCreditAllowed(context.account,context.offer),bookingTitle:context.booking?.lineItems.map((i:any)=>i.title).join(", ")??"Rental",cancellationTermsVersion:cancellationTermsVersionFor(context.booking)};
 }});
 export const choose=action({args:{...linkArgs,choice:v.union(v.literal("refund"),v.literal("credit")),confirmed:v.boolean()},handler:async(ctx,a):Promise<{state:OperatorCancellationPreview["state"];choice:"refund"|"credit"}>=>{
  if(!a.confirmed)throw Error("Review and confirm your settlement choice.");

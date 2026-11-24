@@ -67,10 +67,26 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  assert.equal(snapshot.particulars.deliveryTermsAccepted,false);
  const privacy=snapshot.documents.find(d=>d.kind==='privacy');assert.equal(privacy.version,CURRENT_PRIVACY_NOTICE_VERSION);
  assert.deepEqual(privacy.text,CURRENT_PRIVACY_NOTICE,'The signed rental record retains the exact privacy notice shown at checkout');
+ const referral=snapshot.documents.find(d=>d.kind==='referrals'),referralArchive=load('shared/legalDocuments.ts').LEGAL_ARCHIVE;
+ assert.equal(referral.version,'2026-11-referrals-v3');
+ assert.deepEqual(referral.text,referralArchive[referral.version].referrals,'The signed copy uses the accepted referral version rather than the rental policy version');
+ assert.match(JSON.stringify(referral.text),/account credit can pay the remaining rental or delivery balance/i);
+ assert.match(JSON.stringify(referralArchive['2026-11-v27'].referrals),/earned store credit/i,'Previously signed referral wording remains unchanged');
+ const creditTerms=snapshot.documents.find(d=>d.kind==='credit-funding');
+ assert.equal(creditTerms.version,'2026-11-credit-funding-v2');
+ assert.deepEqual(creditTerms.text,LEGAL_ARCHIVE[creditTerms.version]['credit-funding']);
+ assert.match(JSON.stringify(creditTerms.text),/replaces any statement/i,'Signed addendum expressly resolves the earlier no-stacking term');
  const deliverySnapshot=JSON.parse(contract.snapshotAgreement({...args,fulfilment:'delivery',address:'123 Delivery fixture road, London',deliveryAccepted:true,agreementDocs:deliveryDocs},Date.now(),200,0));
  assert.equal(deliverySnapshot.particulars.deliveryTermsAccepted,true);
  assert.equal(deliverySnapshot.particulars.pickupArea,null);
  assert.equal(deliverySnapshot.particulars.address,'123 Delivery fixture road, London');
+ assert.equal(deliverySnapshot.particulars.deliveryLegs,'round_trip','legacy delivery acceptance safely defaults to round-trip collection');
+ assert.match(deliverySnapshot.documents.find(d=>d.kind==='delivery-disclaimer').text.sections[0].p,/courier collection/i);
+ const oneWayDeliverySnapshot=JSON.parse(contract.snapshotAgreement({...args,fulfilment:'delivery',deliveryLegs:'one_way',address:'123 Delivery fixture road, London',deliveryAccepted:true,agreementDocs:deliveryDocs},Date.now(),200,0));
+ assert.equal(oneWayDeliverySnapshot.particulars.deliveryLegs,'one_way');
+ assert.match(oneWayDeliverySnapshot.documents.find(d=>d.kind==='delivery-disclaimer').text.sections[0].p,/Trafalgar Square/i,'new one-way delivery terms disclose the general pickup area');
+ assert.doesNotMatch(oneWayDeliverySnapshot.documents.find(d=>d.kind==='delivery-disclaimer').text.sections[0].p,/Waterstones bookstore/i,'new terms defer the precise meetup point until the booking gates are passed');
+ assert.doesNotMatch(oneWayDeliverySnapshot.documents.find(d=>d.kind==='delivery-disclaimer').text.sections[0].p,/courier collection/i,'one-way delivery terms do not promise courier collection');
  assert.equal(snapshot.particulars.serialConditionSchedule,'pending-agreed-handover');
  assert.match(snapshot.documents.find(d=>d.kind==='rental-agreement').text.sections.find(s=>s.h==='4. Loss & damage').p,/theft.*non-return/);
  await assert.rejects(bookings.createPending.handler(ctx,args),/pending reconciliation/i,'a booking without a persisted payment session cannot start a second acceptance');
@@ -95,7 +111,7 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  await db.patch(b._id,{depositHoldExpiresAt:Date.now()+600000,idVerificationSource:'manual'});await assert.rejects(release(),/Didit verification must be approved/);
  await db.patch(b._id,{idVerifyStatus:'requires_input'});await assert.rejects(release(),/verification must/);
  await db.patch(b._id,{idVerifyStatus:'verified',idVerificationSource:'didit'});
- const acct=put('accounts',{email:args.customerEmail});put('sessions',{token:'agreement-renter',accountId:acct._id,expiresAt:Date.now()+600000});
+ const acct=put('accounts',{email:args.customerEmail,emailVerifiedAt:Date.now(),name:'Original Renter'});await db.patch(b._id,{accountId:acct._id,guestEmail:acct.email});put('sessions',{token:'agreement-renter',accountId:acct._id,expiresAt:Date.now()+600000});
  assert.equal(await bookings.invoiceData.handler(ctx,{bookingId:b._id,token:'foreign'}),null);
  assert.equal((await bookings.invoiceData.handler(ctx,{bookingId:b._id,token:process.env.ADMIN_TOKEN})).number,`DBC-${b._id.slice(-8).toUpperCase()}`,'Administrators can open the linked receipt');
  const unrelated=put('accounts',{email:'someone-else@agreement.invalid'});
@@ -110,18 +126,35 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  const historic=await bookings.invoiceData.handler(ctx,{bookingId:old._id,token:'agreement-renter'});
  assert.equal(historic.agreementSnapshot,null);assert.equal(historic.acceptedAgreementEvidence.documents[0].version,'2026-10-v8');assert.equal(old.agreementSnapshot,undefined);
  // PDF failure must not cause a raw agreement/code attachment; accepted evidence stays in the private account.
- let mail;setMock('./lib/mailer',{sendMail:async(m)=>{mail=m;return true;}});
- const invoiceModule=load('convex/invoice.ts'),originalFetch=global.fetch;global.fetch=async()=>({ok:false});process.env.INVOICE_SECRET='fixture-only';
- try{await invoiceModule.invoiceEmail.handler({runQuery:async()=>b},{bookingId:b._id});}finally{global.fetch=originalFetch;}
+ let mail;const sentMail=[];const emailInbox=load('convex/emailInbox.ts');
+ const mailer={sendMail:async(m)=>{mail=m;return true;},sendBusinessMailTracked:async(m)=>{mail=m;sentMail.push(m);return {sent:true,resendEmailId:`agreement-resend-${sentMail.length}`,ambiguous:false};}};
+ setMock('./lib/mailer',mailer);setMock('./mailer',mailer);
+ const invoiceModule=load('convex/invoice.ts'),originalFetch=global.fetch;global.fetch=async()=>({ok:false});process.env.INVOICE_SECRET='fixture-only';process.env.INBOUND_REPLY_ADDRESS='support@resend-inbox.example.invalid';
+ const invoiceCtx={db,runQuery:async(ref,a)=>{
+  if(String(ref)==='bookings.receiptContext')return bookings.receiptContext.handler({db},a);
+  if(String(ref)==='bookings.invoiceData')return bookings.invoiceData.handler({db},a);
+  throw Error(`Unexpected invoice query ${ref}`);
+ },runMutation:async(ref,a)=>{
+  if(String(ref)==='bookings.saveInitialInvoiceSnapshot')return bookings.saveInitialInvoiceSnapshot.handler({db},a);
+  if(String(ref)==='emailInbox.prepareRentalContextEmail')return emailInbox.prepareRentalContextEmail.handler({db},a);
+  if(String(ref)==='emailInbox.finishRentalContextEmail')return emailInbox.finishRentalContextEmail.handler({db},a);
+  throw Error(`Unexpected invoice mutation ${ref}`);
+ }};
+ try{await invoiceModule.invoiceEmail.handler(invoiceCtx,{bookingId:b._id});}finally{global.fetch=originalFetch;}
  assert.equal(mail.attachments.length,0);assert(!mail.html.includes('JSON agreement'));assert(!mail.html.includes('insurance excess'));assert.equal(b.agreementSnapshot,saved,'Accepted evidence is retained privately');
+ assert.equal(sentMail.length,1);assert.equal([...tables.get('email_messages')].filter(row=>row.providerId?.startsWith('rental-context:rental-invoice:')).length,1,'invoice email is durably tracked in the renter conversation');
  global.fetch=async()=>({ok:false});
- try{await invoiceModule.invoiceEmail.handler({runQuery:async()=>old},{bookingId:old._id});}finally{global.fetch=originalFetch;}
+ try{await invoiceModule.invoiceEmail.handler(invoiceCtx,{bookingId:b._id});}finally{global.fetch=originalFetch;}
+ assert.equal(sentMail.length,1,'replaying the same invoice delivery key does not send a duplicate');
+ global.fetch=async()=>({ok:false});
+ try{await invoiceModule.invoiceEmail.handler(invoiceCtx,{bookingId:old._id});}finally{global.fetch=originalFetch;}
  assert.equal(mail.attachments.length,0);assert(!mail.html.includes('not automatic liability caps'),'new liability wording must not be imposed on a historical agreement');
  assert.match(mail.html,/paid rental invoice/);
+ assert.equal(sentMail.length,2,'a distinct historical booking gets its own tracked invoice delivery');
  // Render the actual invoice component and inspect its decoded PDF text separately.
  const renderer=await import('@react-pdf/renderer');
  const jsx=ts.transpileModule(fs.readFileSync('src/lib/invoice/InvoiceDocument.tsx','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
- const m={exports:{}};new Function('require','module','exports',jsx)(n=>n==='@react-pdf/renderer'?renderer:n==='../site'?load('src/lib/site.ts'):n.endsWith('shared/rentalSecurity')?require('./lib/rentalTestHarness.cjs').load('shared/rentalSecurity.ts'):require(n),m,m.exports);
+ const m={exports:{}};new Function('require','module','exports',jsx)(n=>n==='@react-pdf/renderer'?renderer:n==='../site'?load('src/lib/site.ts'):n.endsWith('shared/rentalSecurity')?load('shared/rentalSecurity.ts'):n.endsWith('shared/pickupLocation')?load('shared/pickupLocation.ts'):require(n),m,m.exports);
  const pdf=await renderer.renderToBuffer(require('react').createElement(m.exports.InvoiceDocument,{data:invoice}));
  fs.writeFileSync('/tmp/dbc-agreement-fixture.pdf',pdf);assert.ok(pdf.length>1000);
  console.log('PASS rental agreements: missing/stale/duplicate/delivery assent, atomic attempt reuse and changed-particular rejection, immutable snapshots/history, release review/verification/hold/manual guards, private durable download, PDF rendering and email copy despite PDF failure.');

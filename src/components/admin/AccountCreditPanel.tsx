@@ -123,8 +123,8 @@ function CreditPanel({ token, accountId }: { token: string; accountId: string })
           <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3.5" y="6" width="17" height="12" rx="2.5"/><path d="M3.5 10h17M7 14h3"/><circle cx="16.5" cy="14" r="1.5"/></svg>
         </span>
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold tracking-tight text-white">Issue account credit</h3>
-          <p className="text-[11px] text-white/50">Added to balance · expires in 1 year</p>
+          <h3 className="text-sm font-semibold tracking-tight text-white">Account credit</h3>
+          <p className="text-[11px] text-white/50">Balance credit · 1 year</p>
         </div>
         <div aria-label="Available account credit" className="ml-auto shrink-0 text-right">
           <p className="text-[9px] font-medium uppercase tracking-[.11em] text-white/40">Available</p>

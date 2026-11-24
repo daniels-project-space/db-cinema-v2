@@ -86,6 +86,8 @@ export const send = action({
       text,
       replyKey,
     });
+    if (delivered?.uncertain) return "The email may have reached them, so I won’t send a duplicate. Our team needs to check delivery first.";
+    if (delivered?.rejected) return "The email provider did not accept the message. Please try again shortly.";
     if (!delivered?.ok) return "The follow-up is already being sent. Give it a moment before trying again.";
     try {
       await ctx.runAction(internal.notify.gafferFollowUpSentAlert, { to, summary: text });

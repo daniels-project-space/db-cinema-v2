@@ -4,8 +4,9 @@ const root=require('node:path').resolve(__dirname,'..');
 const src=fs.readFileSync(root+'/scripts/test-membership-browser.cjs','utf8');
 const connect=new Function('require',src.slice(0,src.indexOf('const { ConvexHttpClient }'))+'\nreturn connect;')(require);
 const {ConvexHttpClient}=require('convex/browser'),{api}=require('../convex/_generated/api.js');
+const {resolveConvexTestTarget}=require('./lib/convexTestTarget.cjs');
 const base=process.env.DBC_CHECKOUT_ROOT||process.env.DBC_BROWSER_ROOT||'http://localhost:41848';
-const cv=new ConvexHttpClient(process.env.DBC_CONVEX_URL||'https://deafening-stoat-340.convex.cloud');
+const cv=new ConvexHttpClient(resolveConvexTestTarget(process.env));
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{
  const r=await cv.query(api.catalog.listListings,{}),rows=(Array.isArray(r)?r:r.items??r.listings??[]).filter(x=>x.pricing&&!x.marketingOnly&&!x.displayOnly);
@@ -24,6 +25,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
   else assert(state.heading.toLowerCase().includes('saved card & future claims'),'Released security terms are shown for the current quote');
  }
  async function ensureTimePickers(){
+  await c.evaluate(`document.querySelector('[data-testid="checkout-step-heading-02"]').click()`);
   await c.evaluate(`document.querySelectorAll('[data-checkout-item-times]>button[aria-expanded="false"]').forEach(e=>e.click())`);
   await until(`document.querySelectorAll('[role="combobox"][aria-haspopup="listbox"]').length>=2`,'Rental time controls render');
  }
@@ -57,7 +59,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
    await until(`!!document.querySelector('[role=listbox]')`,'Custom time options must open');
    await c.evaluate(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText===${JSON.stringify(time)}).click()`);
   }
-  await ready();await until(`document.querySelector('[data-testid=rental-agreement-checkbox]')?.disabled===false`,'Current quote consent context');await c.evaluate(`document.querySelector('[data-testid=rental-agreement-checkbox]').click()`);await fill('co-sig','Draft Review Renter');await delay(400);
+  await ready();await c.evaluate(`document.querySelector('[data-testid="checkout-step-heading-03"]').click()`);await until(`document.querySelector('[data-testid=rental-agreement-checkbox]')?.disabled===false`,'Current quote consent context');await c.evaluate(`document.querySelector('[data-testid=rental-agreement-checkbox]').click()`);await fill('co-sig','Draft Review Renter');await delay(400);
   assert.equal(await c.evaluate(`document.querySelector('[data-testid=rental-agreement-checkbox]').checked`),true,'Typing signature must not uncheck terms');
   assert.equal(await c.evaluate(`document.getElementById('co-sig').value`),'Draft Review Renter');
   await fill('co-phone','07111111111');await delay(300);
@@ -70,6 +72,8 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
   await fill('co-sig','Draft Review Renter');
   const extendedEnd=new Date(end+86400000).toISOString().slice(0,10);
   await c.cmd('Page.navigate',{url:base+'/cart'});await until(`(document.body?.innerText??'').includes(${JSON.stringify(listing.title)})`,'Actual basket must render');
+  assert.equal(await c.evaluate(`document.querySelectorAll('[data-checkout-item-times]').length`),0,'The basket must not ask for exact pickup or return times');
+  assert.equal(await c.evaluate(`document.querySelectorAll('[role="combobox"][aria-haspopup="listbox"]').length`),0,'Time-slot controls appear only after entering checkout');
   await c.evaluate(`document.querySelector('[data-cart-dates] button').click()`);
   await until(`!!document.querySelector('input[type="date"][aria-label^="Return date for"]')`,'Cart date editor opens');
   await c.evaluate(`(()=>{const e=document.querySelector('input[type="date"][aria-label^="Return date for"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(extendedEnd)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
@@ -85,6 +89,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
   assert.equal(await timePickerText(1),'18:00');
   await until(`document.querySelector('[data-testid=rental-agreement-checkbox]')?.disabled===false`,'Updated quote consent context');
   assert.equal(await c.evaluate(`document.querySelector('[data-testid=rental-agreement-checkbox]').checked`),false,'Changing pickup or return times requires fresh quote consent');
+  await c.evaluate(`document.querySelector('[data-testid="checkout-step-heading-03"]').click()`);
   await c.evaluate(`document.querySelector('[data-testid=rental-agreement-checkbox]').click()`);
   await fill('co-sig','Draft Review Renter');
   assert.equal(await c.evaluate(`!!document.querySelector('.toast-in')`),false,'Checkout time changes do not cover agreement controls with a cart toast');
@@ -117,6 +122,6 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
    assert.equal(await c.evaluate(`!!document.querySelector('[role=listbox]')`),false);
   }
   console.log('PASS real checkout: signature preserves current-quote consent; signed-detail changes invalidate signature only; quote edits require renewed consent and clear old times; saved current-quote consent and time selections restore; no saved signature; custom picker keyboard/Escape/desktop/mobile placement. No payment submitted.');
- }catch(e){failure=e;console.error(e.message);console.error(await c.evaluate("JSON.stringify({title:document.title,url:location.href,cart:localStorage.getItem('dbc_cart_v1'),seed:sessionStorage.getItem('draft-browser-seeded'),draft:(()=>{try{const d=JSON.parse(sessionStorage.getItem('dbc_checkout_draft_v1:guest')||'null');return {keys:Object.keys(d?.fields??{}),hasConsent:typeof d?.fields?.securityConsentContext==='string',consentLength:d?.fields?.securityConsentContext?.length,consentPrefix:d?.fields?.securityConsentContext?.slice(0,24),agreed:d?.fields?.agreed}}catch{return null}})(),errors:[...document.querySelectorAll('[role=alert]')].map(e=>e.innerText),sig:!!document.getElementById('co-sig'),due:document.querySelector('[data-testid=checkout-due]')?.innerText,tail:document.querySelector('main')?.innerText.slice(-1200)})"));const shot=await c.cmd('Page.captureScreenshot',{format:'png'});fs.writeFileSync(output+'/failure.png',Buffer.from(shot.data,'base64'))}finally{c.close();await fetch(`${process.env.DBC_CDP_URL||'http://localhost:9224'}/json/close/${c.tabId}`)}
+ }catch(e){failure=e;console.error(e.message);console.error(await c.evaluate("JSON.stringify((()=>{const storage=(name,key)=>{try{return window[name].getItem(key)}catch{return null}};return {title:document.title,url:location.href,cart:storage('localStorage','dbc_cart_v1'),seed:storage('sessionStorage','draft-browser-seeded'),draft:(()=>{try{const d=JSON.parse(storage('sessionStorage','dbc_checkout_draft_v1:guest')||'null');return {keys:Object.keys(d?.fields??{}),hasConsent:typeof d?.fields?.securityConsentContext==='string',consentLength:d?.fields?.securityConsentContext?.length,consentPrefix:d?.fields?.securityConsentContext?.slice(0,24),agreed:d?.fields?.agreed}}catch{return null}})(),errors:[...document.querySelectorAll('[role=alert]')].map(e=>e.innerText),sig:!!document.getElementById('co-sig'),due:document.querySelector('[data-testid=checkout-due]')?.innerText,tail:document.querySelector('main')?.innerText.slice(-1200)}})())"));const shot=await c.cmd('Page.captureScreenshot',{format:'png'});fs.writeFileSync(output+'/failure.png',Buffer.from(shot.data,'base64'))}finally{c.close();await fetch(`${process.env.DBC_CDP_URL||'http://localhost:9224'}/json/close/${c.tabId}`)}
  if(failure)throw failure;
 })().catch(e=>{console.error(e.stack);process.exitCode=1});

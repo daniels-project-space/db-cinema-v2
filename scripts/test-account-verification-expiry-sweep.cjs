@@ -9,8 +9,8 @@ const queued = [];
 const pageCaps = [];
 const raceId = "accounts-000-race";
 let raceOnce = true;
-function add(id, expiresAt) {
-  const row = { _id: id, idVerified: true, rentalVerification: { sourceBookingId: `bookings-${id}`, verifiedAt: expiresAt - 90 * 86400000, expiresAt } };
+function add(id, expiresAt, verifiedAt = expiresAt - 90 * 86400000) {
+  const row = { _id: id, idVerified: true, rentalVerification: { sourceBookingId: `bookings-${id}`, verifiedAt, expiresAt } };
   rows.push(row);
   byId.set(id, row);
   return row;
@@ -20,7 +20,8 @@ function add(id, expiresAt) {
 const race = add(raceId, now - 1);
 for (let index = 1; index < 51; index++) add(`accounts-${String(index).padStart(3, "0")}`, now - 1);
 const exact = add("accounts-051-exact", now);
-const future = add("accounts-052-future", now + 86400000);
+const legacyCapped = add("accounts-052-capped", now, now - 30 * 86400000);
+const future = add("accounts-053-future", now + 86400000);
 const activeBooking = { _id: "bookings-active", status: "active", idVerifyStatus: "verified", verificationExpiresAt: now - 1 };
 const confirmedBooking = { _id: "bookings-confirmed", status: "confirmed", idVerifyStatus: "verified", verificationExpiresAt: now - 1 };
 
@@ -79,12 +80,14 @@ const ctx = { db, scheduler: { runAfter: async (_delay, reference, args) => queu
 
   assert.equal(exact.rentalVerification, undefined, "an expiry at the exact cutoff is no longer reusable");
   assert.equal(exact.idVerified, false);
+  assert.equal(legacyCapped.rentalVerification.expiresAt, now + 60 * 86400000, "a legacy document-expiry-capped row is normalized to the approval's full 90-day window");
+  assert.equal(legacyCapped.idVerified, true, "normalizing a still-valid legacy pass does not clear its badge");
   assert.equal(future.rentalVerification.expiresAt, now + 86400000, "future grants remain available");
   assert.equal(future.idVerified, true);
-  assert.equal(rows.filter(row => row.rentalVerification === undefined).length, 51, "all eligible records are eventually removed across pages; the concurrently renewed grant is retained");
+  assert.equal(rows.filter(row => row.rentalVerification === undefined).length, 51, "all truly expired records are eventually removed across pages; concurrent and canonical future grants are retained");
   assert.equal(activeBooking.idVerifyStatus, "verified", "the active rental's own provider approval is preserved");
   assert.equal(activeBooking.verificationExpiresAt, now - 1);
   assert.equal(confirmedBooking.idVerifyStatus, "verified", "the confirmed rental's own provider approval is preserved");
   assert(pageCaps.every(cap => cap.numItems === 50 && cap.maximumRowsRead === 50), "every page has an explicit 50-row bound");
-  console.log("PASS expired account verification cleanup: indexed 50-row pages, expiry cutoff, renewal concurrency guard, future grants, and unchanged confirmed/active booking approvals.");
+  console.log("PASS expired account verification cleanup: indexed 50-row pages, canonical 90-day cutoff, renewal concurrency guard, legacy capped grants, future grants, and unchanged confirmed/active booking approvals.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

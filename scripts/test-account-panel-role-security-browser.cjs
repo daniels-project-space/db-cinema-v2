@@ -13,6 +13,9 @@ const { makeFunctionReference } = require("convex/server");
 const root = path.resolve(__dirname, "..");
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const idempotent = fn => { let called = false; return async (...args) => { if (called) return; called = true; return fn(...args); }; };
+const renterActionsSource = fs.readFileSync(path.join(root, "src/components/rentals/RenterRentalTools.tsx"), "utf8");
+assert.match(renterActionsSource, /useMutation\(api\.rentalRequests\.submit\)/, "Renter-facing controls use the request-only API");
+assert.doesNotMatch(renterActionsSource, /api\.rentalRequests\.(?:review|approveAndApply)|api\.rentalOperations\.(?:reschedule|changeHandoverTimes)/, "Renter controls cannot invoke admin review or direct-apply mutations");
 
 async function browserRoleCheck() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "dbc-account-role-browser-"));
@@ -22,10 +25,11 @@ async function browserRoleCheck() {
     import { RentalConversation } from './src/components/rentals/RentalConversation';
     import { RenterChat } from './src/components/RenterChat';
     import { SavedCardCharges } from './src/components/rentals/SavedCardCharges';
-    const adminMode = new URLSearchParams(location.search).has('admin');
+    const params = new URLSearchParams(location.search);
+    const adminMode = params.has('admin');
     if (adminMode) {
       createRoot(document.getElementById('root')).render(<SavedCardCharges token="synthetic-admin" bookingId="booking-target" admin/>);
-    } else if (new URLSearchParams(location.search).has('identity')) {
+    } else if (params.has('identity') || params.has('attachment-upload')) {
       createRoot(document.getElementById('root')).render(<RentalConversation
         token="synthetic-renter-session" bookingId="booking-renter" title="Sony FX3 camera" stage="pending_verification" renterWorkspace
         workspaceIdentity={{name:'Synthetic leaked admin identity',phone:'+447700900000',privatePortrait:<span data-private-portrait>private portrait</span>,verified:true,membershipLabel:'Pro',encoreLabel:'Encore III'}}
@@ -41,18 +45,22 @@ async function browserRoleCheck() {
     const fixtureCharge = (id,state,extra={})=>({id,kind:'damage',claimBasis:'severe_cosmetic_damage',amount:12,reason:'Synthetic itemised fixture assessment',state,paid:12,createdAt:Date.UTC(2030,0,4),noticeAt:Date.UTC(2030,0,4),collectAfter:Date.UTC(2030,0,11),disputeReason:null,disputeResolution:null,disputeResolvedAt:null,refunded:0,refundStatus:null,refundReason:null,error:null,...extra});
     const renterCharges = {depositPaid:0,depositRetained:0,depositRefunded:0,remaining:88,limit:100,used:12,paid:12,reserved:0,cardStatus:'saved',damageAssessed:25,lateAssessed:0,returnedAt:adminBooking.actualReturnedAt,securityPolicyVersion:'2026-11-immediate-claim-v2',rows:[fixtureCharge('charge-paid','paid'),fixtureCharge('charge-bank','requires_action'),fixtureCharge('charge-uncertain','uncertain')]};
     const adminCharges = {...renterCharges,rows:[fixtureCharge('charge-paid','paid',{paid:12}),fixtureCharge('charge-bank','requires_action'),fixtureCharge('charge-uncertain','uncertain')]};
-    const bookingView = {_id:'booking-renter',status:'confirmed',start:Date.UTC(2030,0,2),end:Date.UTC(2030,0,4),items:[{title:'Sony FX3 camera',qty:1,heroImage:'/synthetic-camera.jpg',imageSources:['/synthetic-camera.jpg']}],handoverDetails:null,escalated:false,unreadRenter:0};
-    const requestContext = {status:'confirmed',actionReady:true,locked:false,cancellationKind:'full_refund',cancellationTermsVersion:'2026-11-v21',cancellationFullRefundDays:7,direct:false,items:[{index:0,title:'Sony FX3 camera',qty:1,heroImage:'/synthetic-camera.jpg',imageSources:['/synthetic-camera.jpg']}],paymentsEnabled:true};
+    const roleScenario = new URLSearchParams(window.location.search);
+    const rentalStatus = roleScenario.has('active') ? 'active' : 'confirmed';
+    const kitChangeReady = rentalStatus === 'confirmed';
+    const bookingView = {_id:'booking-renter',status:rentalStatus,start:Date.UTC(2030,0,2),end:Date.UTC(2030,0,4),items:[{title:'Sony FX3 camera',qty:1,heroImage:'/synthetic-camera.jpg',imageSources:['/synthetic-camera.jpg']}],handoverDetails:null,escalated:false,unreadRenter:0};
+    const requestContext = {status:rentalStatus,actionReady:true,canRequestKitChange:kitChangeReady,canPrepareKitQuote:kitChangeReady&&!roleScenario.has('kit-change-closed'),locked:false,cancellationKind:'full_refund',cancellationTermsVersion:'2026-11-v21',cancellationFullRefundDays:7,direct:false,items:[{index:0,title:'Sony FX3 camera',qty:1,heroImage:'/synthetic-camera.jpg',imageSources:['/synthetic-camera.jpg']}],paymentsEnabled:true};
   `;
   const plugin = { name: "account-role-synthetic-fixture", setup(build) {
     build.onResolve({ filter: /^(convex\/react|@cvx\/_generated\/api|next\/link|@stripe\/stripe-js|@\/components\/SmartImage|@\/components\/account\/BookingReview|@\/lib\/pricing|@\/lib\/rentalPresentation|@\/lib\/chatImageCopy|@\/lib\/dates|\.\/account\/AccountProvider|\.\/(RentalAdditionApproval|RentalPricePanel|RentalCreditOffer|RentalExtensionPanel|RentalVerificationSummary|RentalDeliveryQuoteApproval|AttachmentAdminControls|RentalSwapApproval|HumanHandoffOffer|GafferExtensionOfferCard|ChatIdentity|VerificationProgress|useVerificationRefresh|RentalRequestHistory))$/ }, args => ({ path: args.path, namespace: "role-fixture" }));
     build.onLoad({ filter: /.*/, namespace: "role-fixture" }, args => {
       const module = (loader, contents) => ({ loader, contents, resolveDir: root });
       if (args.path === "convex/react") return module("jsx", `${fixtureData}
-        export const useQuery=(ref,args)=>{if(args==='skip')return undefined;if(ref==='rentalChat.messages')return {page:[{_id:'message-fixture',sender:'renter',text:'Synthetic renter question',at:Date.UTC(2030,0,1),meta:{}}],isDone:true,continueCursor:'',escalated:false,replyState:{awaitingTeam:false,awaitingReply:false}};if(ref==='rentalChat.getConversation')return bookingView;if(ref==='rentalChat.unreadBreakdown')return {general:0};if(ref==='rentalRequests.context')return requestContext;if(ref==='cancellationRecovery.renterStatus')return null;if(ref==='rentalRequests.history')return [];if(ref==='bookings.verificationProgress')return renterBooking;if(ref==='rentalOperations.details')return adminBooking;if(ref==='securityChargeState.list')return args?.admin?adminCharges:renterCharges;return null;};
+        export const useQuery=(ref,args)=>{if(args==='skip')return undefined;if(ref==='rentalChat.messages')return {page:[{_id:'message-fixture',sender:'renter',text:'Synthetic renter question',at:Date.UTC(2030,0,1),meta:{}}],isDone:true,continueCursor:'',escalated:false,replyState:{awaitingTeam:false,awaitingReply:false}};if(ref==='rentalChat.getConversation')return bookingView;if(ref==='rentalChat.unreadBreakdown')return {general:0};if(ref==='rentalRequests.context')return requestContext;if(ref==='rentalOperations.renterReschedulePreview')return {ok:true,start:args.start,end:args.start+2*86400000,controlsSnapshot:'synthetic-reschedule-snapshot'};if(ref==='cancellationRecovery.renterStatus')return null;if(ref==='rentalRequests.history')return [];if(ref==='bookings.verificationProgress')return renterBooking;if(ref==='rentalOperations.details')return adminBooking;if(ref==='securityChargeState.list')return args?.admin?adminCharges:renterCharges;return null;};
         export const usePaginatedQuery=()=>({results:[bookingView],status:'Exhausted',loadMore:()=>{}});
         export const useMutation=ref=>async args=>{window.__mutationCalls.push({ref,args});return {status:'synthetic-only'};};
-        export const useAction=ref=>async args=>{window.__actionCalls.push({ref,args});return ref==='chatAttachments.availability'?true:{status:'synthetic-only'};};
+        import { useCallback } from 'react';
+        export const useAction=ref=>useCallback(async args=>{window.__actionCalls.push({ref,args});return ref==='chatAttachments.availability'?true:{status:'synthetic-only'};},[ref]);
         export const useConvex=()=>({query:async()=>({synthetic:true})});
       `);
       if (args.path.endsWith("_generated/api")) return module("js", `export const api=new Proxy({}, {get:(_,group)=>new Proxy({}, {get:(_,method)=>String(group)+'.'+String(method)})});`);
@@ -74,10 +82,10 @@ async function browserRoleCheck() {
   }};
   let browser, client, server;
   try {
-    const bundle = await esbuild.build({ stdin: { contents: entry, resolveDir: root, loader: "tsx" }, outfile: path.join(directory, "fixture.js"), bundle: true, platform: "browser", format: "iife", jsx: "automatic", loader: { ".css": "local-css" }, define: { "process.env.NODE_ENV": '"production"', "process.env": "{}" }, plugins: [plugin] });
+    const bundle = await esbuild.build({ stdin: { contents: entry, resolveDir: root, loader: "tsx" }, outfile: path.join(directory, "fixture.js"), bundle: true, platform: "browser", format: "iife", jsx: "automatic", loader: { ".css": "local-css" }, define: { "process.env.NODE_ENV": '"production"', "process.env": "{}", "process.env.NEXT_PUBLIC_CONVEX_URL": '"https://fixture.convex.cloud"' }, plugins: [plugin] });
     server = http.createServer((request, response) => {
       if (request.url === "/fixture.js") { response.setHeader("content-type", "text/javascript"); return response.end(fs.readFileSync(path.join(directory, "fixture.js"))); }
-      response.setHeader("content-type", "text/html"); response.end('<meta name="viewport" content="width=device-width,initial-scale=1"><main id="root"></main><script>window.__mutationCalls=[];window.__actionCalls=[];window.__starCalls=[];window.__errors=[];window.addEventListener("error",e=>window.__errors.push(String(e.error||e.message)))</script><script src="/fixture.js"></script>');
+      response.setHeader("content-type", "text/html"); response.end('<meta name="viewport" content="width=device-width,initial-scale=1"><main id="root"></main><script>window.__mutationCalls=[];window.__actionCalls=[];window.__starCalls=[];window.__errors=[];window.__attachmentRequests=[];window.__attachmentResponses=[];const nativeFetch=window.fetch.bind(window);window.fetch=async(url,options)=>{if(String(url).includes("/chat-attachment?")){window.__attachmentRequests.push(String(url));if(window.__holdAttachmentResponse){window.__attachmentRequested=true;await new Promise(resolve=>window.__releaseAttachmentResponse=resolve);window.__holdAttachmentResponse=false}const status=window.__attachmentResponses.shift()??200;return new Response(status===200?"ok":"Not shared",{status})}return nativeFetch(url,options)};window.addEventListener("error",e=>window.__errors.push(String(e.error||e.message)))</script><script src="/fixture.js"></script>');
     });
     await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
     const profile = path.join(directory, "chrome"); browser = spawn("/opt/google/chrome/chrome", ["--headless=new", "--no-sandbox", "--disable-gpu", "--disable-background-networking", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
@@ -98,16 +106,73 @@ async function browserRoleCheck() {
     assert.equal(await client.evaluate(`!!document.querySelector('textarea[aria-label="Message"]')`), true, "renter retains the chat composer");
     for (let attempt = 0; attempt < 100 && !await client.evaluate(`!!document.querySelector('button[aria-label^="Attach a JPG"]:not(:disabled)')`); attempt++) await wait(20);
     assert.equal(await client.evaluate(`!!document.querySelector('button[aria-label^="Attach a JPG"]:not(:disabled)')`), true, "renter retains image/text attachment control when the synthetic service is available");
-    for (const text of ["Reschedule", "Request kit change", "Cancel · refund options"]) assert(renter.body.includes(text), `real RenterChat shows its renter request action: ${text}`);
+    for (const [label, description] of [["Request a reschedule", "reschedule"], ["Request a kit change", "kit-change"], ["Request a pickup or return time change", "handover-time"], ["See cancellation options", "cancellation"]])
+      assert(renter.labels.some(item => item.label === label), `real RenterChat exposes the renter-only ${description} request control`);
+    await client.evaluate(`document.querySelector('[data-testid="renter-request-dates"]').click()`); await wait(60);
+    assert.equal(await client.evaluate(`document.querySelector('[data-testid="renter-rental-tools"] form h3')?.textContent`), "Request date change", "Reschedule opens a request form, not a direct booking mutation");
+    await client.evaluate(`(()=>{const date=document.querySelector('[aria-label="New collection date"]'),reason=document.querySelector('[aria-label="Reschedule reason"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(date,'2030-01-05');date.dispatchEvent(new Event('input',{bubbles:true}));date.dispatchEvent(new Event('change',{bubbles:true}));Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(reason,'The shoot moved by one day.');reason.dispatchEvent(new Event('input',{bubbles:true}));})()`); await wait(100);
+    await client.evaluate(`document.querySelector('[aria-label="Reschedule reason"]').closest('form').querySelector('button:not([type="button"])').click()`); await wait(100);
+    const renterRequestCall = await client.evaluate(`window.__mutationCalls.at(-1)`);
+    assert.equal(renterRequestCall.ref, "rentalRequests.submit", "Renter submission records a pending request only");
+    assert.equal(renterRequestCall.args.kind, "dates");
+    assert.equal(renterRequestCall.args.proposedStart, Date.UTC(2030, 0, 5));
+    assert.match(await client.evaluate(`document.querySelector('[data-testid="renter-rental-tools"] [role="status"]')?.textContent||''`), /team approval.*unchanged until the team approves and applies/i, "Renter is told the change waits for team approval");
+    assert.equal(await client.evaluate(`window.__mutationCalls.some(call=>/approveAndApply|rentalRequests\.review|rentalOperations\.reschedule/.test(String(call.ref)))`), false, "Renter UI never invokes direct approval or booking application");
     assert.equal(await client.evaluate(`!![...document.querySelectorAll('button')].find(node=>node.textContent.includes('Review and approve £12.00 with your bank'))`), true, "renter retains their bank authentication action");
     assert.equal(await client.evaluate(`!![...document.querySelectorAll('summary')].find(node=>node.textContent.includes('Raise a concern about this assessment'))`), true, "renter retains their dispute path");
     for (const text of ["Prepare an itemised assessment", "Refund collected claim", "Reconcile bank status", "Match an existing Stripe payment", "Download consent & evidence", "Restrict account", "Restore access", "Admin-only customer notes", "Account management", "Account details", "Verification needs review", "Possible identity match", "View private archive"]) {
       assert.equal(renter.body.includes(text), false, `renter DOM excludes admin-only control: ${text}`);
     }
+    for (const scenario of [
+      {query:'?kit-change-closed=1',label:'closed stock authority'},
+      {query:'?active=1',label:'active rental'}
+    ]) {
+      await client.cmd("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/${scenario.query}` }); await wait(180);
+      for (let attempt = 0; attempt < 100 && !await client.evaluate(`!!document.querySelector('[data-role="renter"]')`); attempt++) await wait(50);
+      const state = await client.evaluate(`({role:document.querySelector('[data-role]')?.getAttribute('data-role'),labels:[...document.querySelectorAll('button,a,summary')].map(node=>({text:(node.innerText||'').trim(),label:node.getAttribute('aria-label')})),body:document.body.innerText})`);
+      assert.equal(state.role, "renter", `${scenario.label} still renders renter-owned chat`);
+      assert.equal(state.labels.some(item => item.label === "Request a kit change"), scenario.query === '?kit-change-closed=1', `${scenario.label} exposes a request-only kit option only for a confirmed rental`);
+      if (scenario.query !== '?active=1')
+        assert.equal(state.labels.some(item => item.label === "Request a reschedule"), true, `${scenario.label} preserves the unaffected renter date-request control`);
+      for (const text of ["Prepare an itemised assessment", "Refund collected claim", "Reconcile bank status", "Restrict account", "Account management", "Verification needs review", "View private archive"])
+        assert.equal(state.body.includes(text), false, `${scenario.label} renter DOM excludes admin-only control: ${text}`);
+    }
     await client.cmd("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/?identity=1` }); await wait(180);
     for (let attempt = 0; attempt < 100 && !await client.evaluate(`!!document.querySelector('[data-role="renter"]')`); attempt++) await wait(50);
     assert.equal(await client.evaluate(`!!document.querySelector('[data-testid="admin-chat-profile-name"], [data-testid="admin-chat-phone"], a[href="tel:+447700900000"], [aria-label="Star customer"], [data-private-portrait]')`), false, "RentalConversation discards an injected admin identity, phone, private portrait and star callback in renter mode");
     assert.equal(await client.evaluate(`document.body.innerText.includes('Synthetic leaked admin identity')`), false, "renter does not see the injected admin profile name");
+    await client.cmd("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await client.cmd("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/?attachment-upload=1` }); await wait(180);
+    for (let attempt = 0; attempt < 100 && !await client.evaluate(`!!document.querySelector('button[aria-label^="Attach a JPG"]:not(:disabled)')`); attempt++) await wait(30);
+    await client.evaluate(`window.__attachmentResponses=[503,200,422,409,200];window.__holdAttachmentResponse=true;window.__attachmentRequested=false`);
+    const chooseFile = (name, type, body) => client.evaluate(`(()=>{const input=document.querySelector('input[type="file"][aria-label^="Choose a JPG"]');const transfer=new DataTransfer();transfer.items.add(new File([${JSON.stringify(body)}],${JSON.stringify(name)},{type:${JSON.stringify(type)}}));input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    await chooseFile("retry-photo.png", "image/png", "synthetic image bytes");
+    for (let attempt = 0; attempt < 100 && !await client.evaluate(`window.__attachmentRequested`); attempt++) await wait(20);
+    assert.equal(await client.evaluate(`document.querySelector('[data-testid="chat-attachment-upload-status"]')?.textContent.includes('Checking this file securely')`), true, "the renter sees a clear in-progress security check while upload is pending");
+    await client.evaluate(`window.__releaseAttachmentResponse()`);
+    for (let attempt = 0; attempt < 100 && !await client.evaluate(`!!document.querySelector('[data-testid="chat-attachment-retry"]')`); attempt++) await wait(25);
+    assert.equal(await client.evaluate(`document.querySelector('[data-testid="chat-attachment-upload-status"]')?.textContent.includes('temporarily unavailable')`), true, "a scanner outage is described separately and safely retryable");
+    await client.evaluate(`document.querySelector('[data-testid="chat-attachment-retry"]').click()`);
+    for (let attempt = 0; attempt < 100 && await client.evaluate(`!!document.querySelector('[data-testid="chat-attachment-upload-status"]')`); attempt++) await wait(25);
+    const retried = await client.evaluate(`window.__attachmentRequests.slice(0,2)`);
+    assert.equal(retried.length, 2); assert.equal(new URL(retried[0]).searchParams.get('key'), new URL(retried[1]).searchParams.get('key'), "a transient retry reuses its idempotency key");
+    await chooseFile("rejected-photo.png", "image/png", "different synthetic image bytes");
+    for (let attempt = 0; attempt < 100 && !await client.evaluate(`document.querySelector('[data-testid="chat-attachment-upload-status"]')?.textContent.includes('could not pass security checks')`); attempt++) await wait(25);
+    assert.equal(await client.evaluate(`document.querySelector('[data-testid="chat-attachment-upload-status"]')?.textContent.includes('It was not shared')`), true, "a security rejection is distinct and explicitly confirms the file was not sent");
+    assert.equal(await client.evaluate(`!!document.querySelector('[data-testid="chat-attachment-retry"]')`), false, "a rejected file is not offered as a blind retry");
+    await chooseFile("pending-note.txt", "text/plain", "synthetic note");
+    for (let attempt = 0; attempt < 100 && !await client.evaluate(`document.querySelector('[data-testid="chat-attachment-retry"]')?.textContent==='Check again'`); attempt++) await wait(25);
+    assert.equal(await client.evaluate(`document.querySelector('[data-testid="chat-attachment-upload-status"]')?.textContent.includes('Still checking')`), true, "an idempotent in-flight duplicate is shown as pending, not as a rejection");
+    await client.evaluate(`document.querySelector('[data-testid="chat-attachment-retry"]').click()`);
+    for (let attempt = 0; attempt < 100 && await client.evaluate(`!!document.querySelector('[data-testid="chat-attachment-upload-status"]')`); attempt++) await wait(25);
+    const attachmentRequests = await client.evaluate(`window.__attachmentRequests`);
+    assert.equal(attachmentRequests.length, 5, "retry recovery performs bounded intentional requests only");
+    assert.equal(new URL(attachmentRequests[3]).searchParams.get('key'), new URL(attachmentRequests[4]).searchParams.get('key'), "pending checks retry with the same request key");
+    assert.equal(await client.evaluate(`document.documentElement.scrollWidth>innerWidth`), false, "attachment status and retry controls fit a phone screen");
+    fs.writeFileSync("/tmp/dbc-renter-chat-attachment-390.png", Buffer.from((await client.cmd("Page.captureScreenshot", { format: "png" })).data, "base64"));
+    await client.cmd("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+    assert.equal(await client.evaluate(`document.documentElement.scrollWidth>innerWidth`), false, "attachment status and retry controls fit desktop width");
+    fs.writeFileSync("/tmp/dbc-renter-chat-attachment-desktop.png", Buffer.from((await client.cmd("Page.captureScreenshot", { format: "png" })).data, "base64"));
     await client.cmd("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/?admin=1` }); await wait(200);
     for (let attempt = 0; attempt < 100 && !await client.evaluate(`document.body.innerText.includes('Damage & late-fee collections')`); attempt++) await wait(50);
     const adminText = await client.evaluate("document.body.innerText");
@@ -140,13 +205,16 @@ async function backendRoleCheck() {
         const fields={status:'confirmed',guestEmail:email,lineItems:[],fulfilment:'pickup',deliveryFee:0,subtotal:0,discount:0,depositAmount:0,total:0,currency:'GBP'};
         const ownedBooking=await ctx.db.insert('bookings',{...fields,accountId:renter,securityPolicyVersion:'2026-11-immediate-claim-v2',savedCardLimit:100,savedCardStatus:'saved',savedCardChargePaidPence:1200,savedCardChargeReservedPence:0});
         const otherBooking=await ctx.db.insert('bookings',{...fields,accountId:other,guestEmail:'other@example.invalid'});
+        const requestMessage=await ctx.db.insert('messages',{accountId:renter,bookingId:ownedBooking,sender:'renter',text:'Please move my rental by one day.',at:now});
+        const renterRequest=await ctx.db.insert('rental_change_requests',{requestId:'synthetic-date-request-01',accountId:renter,bookingId:ownedBooking,kind:'dates',detail:'Move my rental by one day.',messageId:requestMessage,createdAt:now,status:'pending'});
         const archiveId=await ctx.db.insert('verification_archives',{bookingId:ownedBooking,accountId:renter,sessionId:'synthetic-session',email,status:'complete',attempts:0,dueAt:now,createdAt:now});
         const ownCharge=await ctx.db.insert('rental_security_charges',{bookingId:ownedBooking,accountId:renter,requestId:'synthetic-own-charge',kind:'damage',amountPence:1200,reason:'Synthetic own renter fixture',customerId:'cus_synthetic',paymentMethodId:'pm_synthetic',consentSnapshot:'synthetic',state:'paid',createdAt:now,updatedAt:now,paidPence:1200,attemptedAt:now,intentId:'pi_synthetic_own',receiptNoticeAt:now,refundReceipt:{paymentIntentId:'pi_synthetic_own',amountPence:1200,attemptedAt:now,approvalRequestId:'approval-synthetic',approvalUrl:'https://dashboard.stripe.com/test/synthetic-approval',status:'awaiting_approval'}});
         const charge=await ctx.db.insert('rental_security_charges',{bookingId:otherBooking,accountId:other,requestId:'synthetic-charge-request',kind:'damage',amountPence:1200,reason:'Synthetic fixture only',customerId:'cus_synthetic',paymentMethodId:'pm_synthetic',consentSnapshot:'synthetic',state:'paid',createdAt:now,updatedAt:now,paidPence:1200,attemptedAt:now,intentId:'pi_synthetic'});
-        return {renter,other,token,ownedBooking,otherBooking,archiveId,ownCharge,charge};
+        return {renter,other,token,ownedBooking,otherBooking,renterRequest,archiveId,ownCharge,charge};
       }});
       export const inspect = query({args:{accountId:v.id('accounts')},handler:async(ctx,{accountId})=>{const a=await ctx.db.get(accountId);return {blocked:!!a?.blockedAt,notes:await ctx.db.query('account_admin_notes').withIndex('by_account',q=>q.eq('accountId',accountId)).collect()};}});
       export const inspectControls = query({args:{accountId:v.id('accounts')},handler:async(ctx,{accountId})=>{const a=await ctx.db.get(accountId);const credits=await ctx.db.query('credits').collect(),issues=await ctx.db.query('credit_issues').collect();return {rentalTier:a?.adminMembershipTier??null,encoreTier:a?.adminEncoreLevel??null,credits:credits.filter(row=>String(row.accountId)===String(accountId)).length,creditIssues:issues.filter(row=>String(row.accountId)===String(accountId)).length};}});
+      export const inspectRequest = query({args:{id:v.id('rental_change_requests')},handler:async(ctx,{id})=>{const row=await ctx.db.get(id);return {status:row?.status,execution:row?.execution??null};}});
     `);
     child = spawn(cli, ["dev", "--typecheck", "disable", "--codegen", "disable", "--tail-logs", "disable"], { cwd: workspace, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
     let output = "", exited = false; child.stdout.on("data", data => { output += data; }); child.stderr.on("data", data => { output += data; }); child.on("exit", () => { exited = true; });
@@ -166,6 +234,9 @@ async function backendRoleCheck() {
     await assert.rejects(client.mutation(ref("accountAdmin:addNote"), {token:renterToken,accountId:fixture.renter,text:'forged internal note'}), "renter session cannot create an admin note");
     await assert.rejects(client.mutation(ref("accountAdmin:setBlocked"), {token:renterToken,accountId:fixture.renter,blocked:true,reason:'forged restriction',expected:{blockedAt:null,noticeId:null,reason:'',revision:0}}), "renter session cannot restrict an account");
     await assert.rejects(client.mutation(ref("accountAdmin:setRentalAccess"), {token:renterToken,accountId:fixture.renter,level:'pro',expectedLevel:'automatic',encoreLevel:3,expectedEncoreLevel:'automatic',reason:'forged membership change'}), "renter session cannot change membership or Encore access");
+    await assert.rejects(client.mutation(ref("rentalRequests:review"), {token:renterToken,bookingId:fixture.ownedBooking,id:fixture.renterRequest,decision:'approved',note:'Forged approval attempt'}), "renter can submit requests but cannot approve one");
+    await assert.rejects(client.action(ref("rentalRequests:approveAndApply"), {token:renterToken,bookingId:fixture.ownedBooking,id:fixture.renterRequest,note:'Forged direct apply attempt'}), "renter cannot execute or admin-approve a pending request");
+    assert.deepEqual(await client.query(ref("role_security_fixture:inspectRequest"), {id:fixture.renterRequest}), {status:'pending',execution:null}, "forged approval/apply attempts leave the renter request pending and unapplied");
     await assert.rejects(client.mutation(ref("accountCredits:grantAdmin"), {token:renterToken,accountId:fixture.renter,amount:12.5,requestId:'renter-forged-credit-0001',expectedRevision:0,reason:'forged credit grant'}), "renter session cannot grant account credit");
     await assert.rejects(client.query(ref("accountCredits:adminHistory"), {token:renterToken,accountId:fixture.renter}), "renter session cannot read admin credit history");
     await assert.rejects(client.action(ref("checkout:adminBillingPortal"), {token:renterToken,accountId:fixture.renter}), "renter session cannot open the Stripe billing portal");
@@ -174,8 +245,10 @@ async function backendRoleCheck() {
     assert.deepEqual(await client.query(ref("role_security_fixture:inspect"), {accountId:fixture.renter}), {blocked:false,notes:[]}, "forged restriction and note attempts made no changes");
     assert.deepEqual(await client.query(ref("role_security_fixture:inspectControls"), {accountId:fixture.renter}), {rentalTier:null,encoreTier:null,credits:0,creditIssues:0}, "forged membership, credit and payment-console attempts made no account or balance changes");
     assert.deepEqual(await client.query(ref("accountAdmin:possibleRestrictedIdentityMatches"), {token:renterToken,bookingId:fixture.ownedBooking}), {matches:[],more:false}, "renter token receives no restricted-account match data");
+    assert.deepEqual(await client.query(ref("accountAdmin:possibleRestrictedIdentityMatchesForAccount"), {token:renterToken,accountId:fixture.renter}), {matches:[],more:false}, "renter token receives no account-level restricted-identity match data");
     await assert.rejects(client.query(ref("verificationArchive:accountDocuments"), {token:renterToken,accountId:fixture.renter}), "renter session cannot list archived IDs");
     await assert.rejects(client.mutation(ref("verificationArchive:retry"), {token:renterToken,archiveId:fixture.archiveId}), "renter session cannot invoke archive retry mutation");
+    await assert.rejects(client.action(ref("didit:adminReview"), {token:renterToken,bookingId:fixture.ownedBooking,decision:'approve',note:'Forged renter approval attempt',requestId:'renter-forged-review-0001'}), "renter cannot approve a Didit verification case");
     await assert.rejects(client.mutation(ref("securityChargeState:prepare"), {token:renterToken,bookingId:fixture.ownedBooking,requestId:'synthetic-forged-claim-1234',kind:'damage',amount:12,reason:'forged itemised claim from renter'}), "renter session cannot create an admin assessment");
     const ownPaymentView=await client.query(ref("securityChargeState:list"),{token:renterToken,bookingId:fixture.ownedBooking});
     assert.equal(ownPaymentView.rows[0].refundApprovalUrl,undefined,"renter's own payment history omits the private Stripe approval URL");

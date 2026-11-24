@@ -41,6 +41,8 @@ async function main() {
     for (const [call, replacement] of calls) source = source.replace(call, replacement);
     fs.writeFileSync(scanner, source);
   } else fs.writeFileSync(scanner, `export const CHAT_ATTACHMENT_LIMIT=10*1024*1024;
+export class ChatAttachmentRejectedError extends Error{}
+export class ChatAttachmentScannerUnavailableError extends Error{}
 export function chatAttachmentsReady(){return true;}
 export async function chatAttachmentScannerHealthy(){return true;}
 export async function scanChatAttachment(bytes){

@@ -29,7 +29,7 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
     assert.equal(await client.evaluate('document.querySelector("[data-testid=rental-review-form] input[type=checkbox]").checked'), false, "Public profile-photo sharing is optional and off by default");
     assert.equal(await client.evaluate('document.querySelectorAll("[aria-label=\\"Rental rating\\"] button").length'), 5);
     assert.equal(await client.evaluate(`[...document.querySelectorAll('[aria-label="Rental rating"] button')].every(button=>{const rect=button.getBoundingClientRect();return rect.width>=44&&rect.height>=44})`), true, 'Every rating has a phone-friendly touch target');
-    assert.equal(await client.evaluate(`[...document.querySelectorAll('[data-testid="rental-review-form"] button')].find(button=>button.textContent.includes('Publish review')).disabled`), true);
+    assert.equal(await client.evaluate(`[...document.querySelectorAll('[data-testid="rental-review-form"] button')].find(button=>button.textContent.includes('Submit review')).disabled`), true);
     const screenshot = await client.cmd("Page.captureScreenshot", { format: "png" }); fs.writeFileSync("/tmp/dbc-inline-review-320.png", Buffer.from(screenshot.data, "base64"));
     for (const width of [390, 430]) {
       await client.cmd("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: true }); await wait(120);
@@ -49,9 +49,9 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
     assert.equal(await client.evaluate(`document.querySelector('[aria-label="4 stars"]').getAttribute('aria-pressed')`), "true");
     assert.equal(await client.evaluate("document.documentElement.scrollWidth > innerWidth"), false);
     const filled = await client.cmd("Page.captureScreenshot", { format: "png" }); fs.writeFileSync("/tmp/dbc-inline-review-filled-320.png", Buffer.from(filled.data, "base64"));
-    await client.evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent.includes('Publish review')).click()`); await wait(80);
+    await client.evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent.includes('Submit review')).click()`); await wait(80);
     assert.deepEqual(await client.evaluate("window.calls"), [{ token: "fixture-renter", bookingId: "fixture-rental", rating: 4, text: "Great gear and helpful service.", showProfilePhoto: true }]);
-    assert.match(await client.evaluate("document.body.textContent"), /Reviewed — thank you/);
+    assert.match(await client.evaluate("document.body.textContent"), /Review received\. It will appear after a team review/);
     console.log("PASS inline review: eye, rating, text, selected rental and submitted state at 320px; synthetic data only.");
   } finally { if (client) client.close(); if (chrome.exitCode === null) { const done = new Promise(resolve => chrome.once("exit", resolve)); chrome.kill(); await done; } server.close(); await wait(200); await fs.promises.rm(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

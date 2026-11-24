@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { rentalTitle } from "@/lib/rentalPresentation";
 import { londonStartOfDay } from "@/lib/bookingDisplay";
-import type { CalendarLine } from "@/lib/rentalCalendar";
+import { groupCalendarLinesByPeriod, type CalendarLine } from "@/lib/rentalCalendar";
 import styles from "./AdminDashboard.module.css";
 
 type Rental = { _id:string; customerName?:string|null; guestEmail?:string; status:string; calendarLines:CalendarLine[] };
@@ -22,17 +22,20 @@ export function OperationsCalendar({rentals,onRental,onCalendar}:{rentals:Rental
     <div className={styles.weekdays}>{weekdays.map(day=><span key={day}>{day}</span>)}</div>
     <div className={styles.monthGrid}>{Array.from({length:weeks},(_,week)=>{
       const weekStart=begin+week*7*DAY,weekEnd=weekStart+6*DAY;
-      const segments=rentals.flatMap(rental=>rental.calendarLines.flatMap((line,index)=>{
-        if(!Number.isFinite(line.start)||!Number.isFinite(line.end)||line.end<line.start)return [];
-        const from=Math.max(londonStartOfDay(line.start),weekStart,first),to=Math.min(londonStartOfDay(line.end),weekEnd,last);
+      const segments=rentals.flatMap(rental=>groupCalendarLinesByPeriod(rental.calendarLines).flatMap((period,index)=>{
+        const from=Math.max(period.start,weekStart,first),to=Math.min(period.end,weekEnd,last);
         if(to<from)return [];
-        return [{rental,line,index,start:(from-weekStart)/DAY,end:(to-weekStart)/DAY}];
+        return [{rental,lines:period.lines,index,start:(from-weekStart)/DAY,end:(to-weekStart)/DAY}];
       })).sort((a,b)=>a.start-b.start||b.end-a.end||a.rental._id.localeCompare(b.rental._id)||a.index-b.index);
       const lanes:number[]=[];
       const events=segments.map(segment=>{let lane=lanes.findIndex(end=>end<segment.start);if(lane<0)lane=lanes.length;lanes[lane]=segment.end;return {...segment,lane};});
       return <div key={week} className={styles.week}>
         <div className={styles.days}>{Array.from({length:7},(_,day)=>{const date=weekStart+day*DAY;return <span key={day} data-outside={date<first||date>last} data-today={date===today}>{new Date(date).getUTCDate()}</span>;})}</div>
-        <div className={styles.events} style={{gridTemplateRows:`repeat(${Math.max(lanes.length,1)},23px)`}}>{events.map(event=><button key={`${event.rental._id}-${event.index}`} onClick={()=>onRental(event.rental._id)} style={{gridColumn:`${event.start+1} / ${event.end+2}`,gridRow:event.lane+1}} title={`${event.line.qty} × ${event.line.title} · ${event.rental.customerName||event.rental.guestEmail||"Rental customer"}`} aria-label={`Manage ${event.line.qty} × ${event.line.title} for ${event.rental.customerName||event.rental.guestEmail||"rental customer"}`}><span>{event.line.qty>1?`${event.line.qty} × `:""}{rentalTitle(event.line.title)} · {event.rental.customerName||event.rental.guestEmail}</span></button>)}</div>
+        <div className={styles.events} style={{gridTemplateRows:`repeat(${Math.max(lanes.length,1)},23px)`}}>{events.map(event=>{
+          const equipment=event.lines.map(line=>`${line.qty>1?`${line.qty} × `:""}${rentalTitle(line.title)}`).join(" + ");
+          const customer=event.rental.customerName||event.rental.guestEmail||"Rental customer";
+          return <button key={`${event.rental._id}-${event.start}-${event.end}`} onClick={()=>onRental(event.rental._id)} style={{gridColumn:`${event.start+1} / ${event.end+2}`,gridRow:event.lane+1}} title={`${equipment} · ${customer}`} aria-label={`Manage ${equipment} for ${customer}`}><span>{equipment} · {customer}</span></button>;
+        })}</div>
       </div>;
     })}</div>
     <button className={styles.calendarLink} onClick={onCalendar}>Open full rental calendar →</button>

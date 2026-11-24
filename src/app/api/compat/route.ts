@@ -10,23 +10,27 @@ import { rentalPricingDays } from "../../../../shared/rentalDuration";
 
 export const maxDuration = 60;
 const msOf = (d: string) => { const t = Date.parse(/T/.test(d) ? d : d + "T00:00:00Z"); return Number.isNaN(t) ? 0 : t; };
+const unavailable = (error: string, status: number) => NextResponse.json(
+  { warnings: [], upgrades: [], unknown: true, error },
+  { status },
+);
 
 function currentQuote(listing: any, days: number) {
   const q = quote(listing.pricing, days);
-  const total = listing.quietDeal ? Math.round(q.total * (1 - listing.quietDeal / 100)) : q.total;
+  const total = q.total;
   return { ...q, total, perDay: Math.round(total / days * 100) / 100 };
 }
 
 export async function POST(req: NextRequest) {
   const rl = await rateLimit(req, "compat", 60, 60_000);
-  if (!rl.allowed) return NextResponse.json({ warnings: [], upgrades: [] }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
+  if (!rl.allowed) return NextResponse.json({ warnings: [], upgrades: [], unknown: true, error: "Compatibility check rate limit reached." }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   const b: any = await req.json().catch(() => ({}));
   if (!Array.isArray(b.items) || b.items.length > 100 || b.items.some((item: any) => !item || typeof item.listingId !== "string"))
-    return NextResponse.json({ warnings: [], upgrades: [], error: "Invalid basket." }, { status: 400 });
+    return unavailable("Invalid basket.", 400);
   const items: any[] = b.items;
   if (items.length === 0) return NextResponse.json({ warnings: [], upgrades: [] });
   if (items.some((item: any) => item.qty !== undefined && (!Number.isSafeInteger(item.qty) || item.qty < 1 || item.qty > 100)))
-    return NextResponse.json({ warnings: [], upgrades: [], error: "Invalid basket quantity." }, { status: 400 });
+    return unavailable("Invalid basket quantity.", 400);
   const window = items[0];
   const startMs = window?.start ? msOf(window.start) : 0;
   const endMs = window?.end ? msOf(window.end) : 0;
@@ -41,7 +45,7 @@ export async function POST(req: NextRequest) {
         pickupTime: i.pickupTime, returnTime: i.returnTime, qty: i.qty ?? 1,
       })) });
     } catch {
-      return NextResponse.json({ warnings: [], upgrades: [], error: "Live Rental Manager stock could not be refreshed." }, { status: 503 });
+      return unavailable("Live Rental Manager stock could not be refreshed.", 503);
     }
   }
   const getTypeListings = createTypeListingLoader(c);
@@ -49,9 +53,9 @@ export async function POST(req: NextRequest) {
   const ids = items.map((i) => i.listingId).filter(Boolean);
   let cards: any[] = [];
   try { cards = await c.query(api.catalog.listingsByIds, { ids: ids as any }); }
-  catch { return NextResponse.json({ warnings: [], upgrades: [], error: "Could not check the current catalogue." }, { status: 503 }); }
+  catch { return unavailable("Could not check the current catalogue.", 503); }
   const specOf = new Map(cards.map((cd) => [cd._id, cd]));
-  if (ids.some(id => !specOf.has(id))) return NextResponse.json({ warnings: [], upgrades: [], error: "Your basket needs to be refreshed." }, { status: 409 });
+  if (ids.some(id => !specOf.has(id))) return unavailable("Your basket needs to be refreshed.", 409);
   const days = startMs > 0 && endMs >= startMs
     ? rentalPricingDays(startMs, endMs, window.pickupTime, window.returnTime)
     : 1;

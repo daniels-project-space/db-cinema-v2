@@ -24,7 +24,7 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 
 type PaidCheckoutEvidence =
-  | { status: "succeeded"; paymentIntentId: string; checkoutSessionId: string; paidAt: number }
+  | { status: "succeeded"; paymentIntentId: string; paidAt: number }
   | { status: "no_payment_required"; checkoutSessionId: string; paidAt: number };
 import { v } from "convex/values";
 
@@ -55,50 +55,17 @@ export const push = internalAction({
       return result(false, "missing_config");
     }
 
-    try {
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-dbcinema-sync-token": secret,
-        },
-        body: JSON.stringify({ booking }),
-        signal: AbortSignal.timeout(20000),
-      });
-      if (!resp.ok) {
-        console.error(
-          `[rmv2_webhook] push rejected (${resp.status}) for booking ${bookingId}; fallback poll will reconcile`,
-        );
-        return result(false, `http_${resp.status}`);
-      }
-      const receipt = await resp.json();
-      const applied = receipt?.appliedRevision === revision && ["applied", "unchanged"].includes(receipt?.outcome);
-      const unpaid = booking.status === "pending_payment" && receipt?.outcome === "ignored" && receipt?.reason === "unpaid" && receipt?.appliedRevision === null;
-      const stock=(booking as typeof booking & {stockApplicationReceipt?:{kind?:string;swapId?:string;managerRequestId:string;fingerprint:string;executionKey:string;bookingRevision:number}}).stockApplicationReceipt,ack=receipt.stockAcknowledgement;
-      const receiptMatchesPush = receipt?.ok === true && receipt.version === 1 && receipt.bookingId === bookingId && receipt.receivedRevision === revision;
-      const deferredStock = receiptMatchesPush && !stock && receipt.outcome === "deferred_stock_claim" && Number.isSafeInteger(receipt.appliedRevision);
-      const verification = booking.verification;
-      // Every paid, unconfirmed Didit result remains a stock claim until an
-      // explicit cancellation or return closes the booking.
-      const paidPendingVerification = booking.status === "pending_verification" && verification?.provider === "didit" &&
-        typeof booking.checkoutPaidAt === "number" && booking.checkoutPaidAt > 0;
-      // A deferred manager mirror is acceptable only when this same delivery
-      // can create the paid booking claim below. Never acknowledge it and wait
-      // for a later retry: that would leave paid stock unclaimed in Rental
-      // Manager during the retry window.
-      if (!receiptMatchesPush || !applied && !unpaid && !(deferredStock && paidPendingVerification)) return result(false, "invalid_receipt");
-      if(stock&&(!applied||!ack||ack.managerRequestId!==stock.managerRequestId||ack.fingerprint!==stock.fingerprint||ack.executionKey!==stock.executionKey||ack.bookingRevision!==stock.bookingRevision))return result(false,"invalid_stock_acknowledgement");
+    const verification = booking.verification;
+    // Every paid, unconfirmed Didit result remains a stock claim until an
+    // explicit cancellation or return closes the booking. Acquire it before
+    // mirroring the pending_review row: RM availability intentionally ignores
+    // pending-review reservations, so reversing this order creates a gap if
+    // the mirror succeeds but the following claim request is delayed or lost.
+    const paidPendingVerification = booking.status === "pending_verification" && verification?.provider === "didit" &&
+      typeof booking.checkoutPaidAt === "number" && Number.isSafeInteger(booking.checkoutPaidAt) && booking.checkoutPaidAt > 0;
 
-      const releaseReason = booking.status === "returned" ? "booking_returned" as const
-        : booking.status === "cancelled" ? "booking_cancelled" as const : null;
-      if (releaseReason) {
-        const released = await ctx.runAction(internal.sharedStockBridge.send, { request: { operation: "releaseBooking", args: {
-          bookingId: String(booking.id), bookingRevision: revision,
-          eventId: `booking_${booking.id}_${revision}_${releaseReason}`, reason: releaseReason,
-        } } });
-        if (released.status !== "confirmed" || released.result.operation !== "releaseBooking" || released.result.bookingId !== String(booking.id))
-          return result(false, "shared_stock_release_unconfirmed");
-      } else if (paidPendingVerification) {
+    try {
+      if (paidPendingVerification) {
         // The generated API declaration predates this projection field; keep
         // the runtime payload tied to the explicit sync contract until Convex
         // codegen is available in the deployment workspace.
@@ -134,6 +101,46 @@ export const push = internalAction({
           outcome: paidClaim.outcome,
           holdsStock: paidClaim.holdsStock === true,
         };
+      }
+
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-dbcinema-sync-token": secret,
+        },
+        body: JSON.stringify({ booking }),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!resp.ok) {
+        console.error(
+          `[rmv2_webhook] push rejected (${resp.status}) for booking ${bookingId}; fallback poll will reconcile`,
+        );
+        return result(false, `http_${resp.status}`);
+      }
+      const receipt = await resp.json();
+      const applied = receipt?.appliedRevision === revision && ["applied", "unchanged"].includes(receipt?.outcome);
+      const unpaid = booking.status === "pending_payment" && receipt?.outcome === "ignored" && receipt?.reason === "unpaid" && receipt?.appliedRevision === null;
+      const stock=(booking as typeof booking & {stockApplicationReceipt?:{kind?:string;swapId?:string;managerRequestId:string;fingerprint:string;executionKey:string;bookingRevision:number}}).stockApplicationReceipt,ack=receipt.stockAcknowledgement;
+      const validRevision = Number.isSafeInteger(revision) && revision >= 0;
+      const receiptMatchesPush = validRevision && receipt?.ok === true && receipt.version === 1 && receipt.bookingId === bookingId && receipt.receivedRevision === revision;
+      const deferredStock = receiptMatchesPush && !stock && receipt.outcome === "deferred_stock_claim" &&
+        Number.isSafeInteger(receipt.appliedRevision) && receipt.appliedRevision >= 0 && receipt.appliedRevision === revision;
+      const releaseReason = booking.status === "returned" ? "booking_returned" as const
+        : booking.status === "cancelled" ? "booking_cancelled" as const : null;
+      // A deferred manager mirror is acceptable only when this same delivery
+      // already proved that the paid booking claim is held. Never acknowledge
+      // it and wait for a later retry without that proof.
+      if (!receiptMatchesPush || !applied && !unpaid && !(deferredStock && (paidPendingVerification || releaseReason))) return result(false, "invalid_receipt");
+      if(stock&&(!applied||!ack||ack.managerRequestId!==stock.managerRequestId||ack.fingerprint!==stock.fingerprint||ack.executionKey!==stock.executionKey||ack.bookingRevision!==stock.bookingRevision))return result(false,"invalid_stock_acknowledgement");
+
+      if (releaseReason) {
+        const released = await ctx.runAction(internal.sharedStockBridge.send, { request: { operation: "releaseBooking", args: {
+          bookingId: String(booking.id), bookingRevision: revision,
+          eventId: `booking_${booking.id}_${revision}_${releaseReason}`, reason: releaseReason,
+        } } });
+        if (released.status !== "confirmed" || released.result.operation !== "releaseBooking" || released.result.bookingId !== String(booking.id))
+          return result(false, "shared_stock_release_unconfirmed");
       }
       return result(true,undefined,stock?{...ack,...(stock.kind==="booking_confirmation"?{kind:"booking_confirmation"}:{swapId:stock.swapId})}:undefined);
     } catch (err) {

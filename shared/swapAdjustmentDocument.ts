@@ -13,14 +13,16 @@ export function swapAdjustmentDocumentIdentity(
   swapId: string,
   cardChargePence: number,
   cardRefundPence: number,
+  accountCreditAppliedPence = 0,
 ): SwapAdjustmentDocumentIdentity {
   if (!swapId || !Number.isSafeInteger(cardChargePence) || cardChargePence < 0 ||
       !Number.isSafeInteger(cardRefundPence) || cardRefundPence < 0 ||
+      !Number.isSafeInteger(accountCreditAppliedPence) || accountCreditAppliedPence < 0 ||
       (cardChargePence > 0 && cardRefundPence > 0)) {
     throw new Error("The equipment adjustment document identity is invalid.");
   }
 
-  const documentType: SwapAdjustmentDocumentType = cardChargePence > 0
+  const documentType: SwapAdjustmentDocumentType = cardChargePence > 0 || accountCreditAppliedPence > 0
     ? "supplementary_invoice"
     : cardRefundPence > 0
       ? "credit_note"

@@ -103,6 +103,7 @@ type InboundEmail = {
   text: string;
   noAutoReply?: boolean;
   replyThreadId?: any;
+  replyCapabilityKey?: string;
   priorMessage?: PriorEmailMessage;
 };
 
@@ -119,6 +120,20 @@ async function processGafferInboundEmail(message: InboundEmail) {
   let stored: any = null;
   let explicitlyRequestedHuman = false;
   try {
+    let replyThreadId: any;
+    let replyCapabilityKey: string | undefined;
+    const candidateReplyKey = message.replyCapabilityKey?.trim().toLowerCase();
+    if (candidateReplyKey && /^[a-f0-9]{24}$/.test(candidateReplyKey)) {
+      const resolved: any = await client.mutation(api.emailInbox.resolveReplyKey, {
+        secret,
+        replyKey: candidateReplyKey,
+        email: message.from,
+      });
+      if (resolved?.ok && (!message.replyThreadId || resolved.threadId === message.replyThreadId)) {
+        replyThreadId = resolved.threadId;
+        replyCapabilityKey = candidateReplyKey;
+      }
+    }
     stored = await client.mutation(api.emailInbox.ingest, {
       secret,
       providerId: message.providerId,
@@ -129,7 +144,7 @@ async function processGafferInboundEmail(message: InboundEmail) {
       text: message.text,
       ...(message.messageId ? { messageId: message.messageId } : {}),
       ...(message.inReplyTo ? { inReplyTo: message.inReplyTo } : {}),
-      ...(message.replyThreadId ? { replyThreadId: message.replyThreadId } : {}),
+      ...(replyThreadId && replyCapabilityKey ? { replyThreadId, replyCapabilityKey } : {}),
       ...(message.priorMessage ? { priorMessage: message.priorMessage } : {}),
     });
     if (message.noAutoReply) {
@@ -152,7 +167,10 @@ async function processGafferInboundEmail(message: InboundEmail) {
       );
     }
 
-    const assistant = await handleChat({ messages: claim.history, channel: "email", emailSubject: message.subject });
+    const assistant = await handleChat(
+      { messages: claim.history, channel: "email", emailSubject: message.subject },
+      claim.rentalContext ?? null,
+    );
     if (!assistant?.reply?.trim() || assistant.reply.includes("The assistant isn't configured yet.")) {
       throw new Error("Gaffer could not produce an email reply");
     }
@@ -218,7 +236,8 @@ async function processResendEmail(req: NextRequest, raw: string) {
   let event: any;
   try { event = JSON.parse(raw); } catch { return NextResponse.json({ error: "bad payload" }, { status: 400 }); }
   const eventName = String(event?.type ?? "");
-  const deliveryStatusByEvent: Record<string, ResendDeliveryStatus> = {
+  const deliveryStatusByEvent: Record<string, ResendDeliveryStatus | "sent"> = {
+    "email.sent": "sent",
     "email.delivered": "delivered",
     "email.delivery_delayed": "delivery_delayed",
     "email.bounced": "bounced",
@@ -245,6 +264,7 @@ async function processResendEmail(req: NextRequest, raw: string) {
         recipients: addressList(event?.data?.to).slice(0, 25),
         from: String(event?.data?.from ?? ""),
         occurredAt: Number.isFinite(date) ? date : Date.now(),
+        ...(typeof event?.data?.message_id === "string" ? { messageId: event.data.message_id } : {}),
         ...(reason ? { reason } : {}),
       });
       return NextResponse.json({ ok: true, ...result });
@@ -276,6 +296,7 @@ async function processResendEmail(req: NextRequest, raw: string) {
   const rawFrom = received?.from ?? headerValue(headers, "from");
   const from = senderFrom({ from: rawFrom, sender: rawFrom });
   const subject = String(received?.subject ?? event?.data?.subject ?? "Customer rental enquiry").trim().slice(0, 500);
+  const candidateReplyKey = replyKeyFrom(received?.received_for, ...recipientCandidates(received), event?.data?.to);
   const forwardingConfirmation = isGmailForwardingConfirmation(from, subject);
   const automated = headerValue(headers, "auto-submitted").trim().toLowerCase();
   if (!forwardingConfirmation && ((automated && automated !== "no") || /^(bulk|list|junk)$/i.test(headerValue(headers, "precedence").trim()))) {
@@ -291,6 +312,7 @@ async function processResendEmail(req: NextRequest, raw: string) {
     to: addressList(received?.received_for ?? received?.to ?? event?.data?.to)[0] ?? OWNER_EMAIL,
     subject,
     text: newTextOnly(typeof received?.text === "string" && received.text.trim() ? received.text : htmlToText(received?.html ?? "")),
+    ...(candidateReplyKey && /^[a-f0-9]{24}$/.test(candidateReplyKey) ? { replyCapabilityKey: candidateReplyKey } : {}),
     ...(forwardingConfirmation ? { noAutoReply: true } : {}),
   });
 }
@@ -330,6 +352,7 @@ async function processLegacyFollowUp(req: NextRequest, raw: string, secret: stri
         subject,
         text: body,
         replyThreadId: resolved.threadId,
+        replyCapabilityKey: replyKey,
       });
     }
 

@@ -9,6 +9,12 @@ export type OperatorCancellationPreview={
  refund:{cardRefundPence:number;restoredCreditPence:number};
  credit:{cardRefundPence:number;principalPence:number;bonusPence:number;creditPence:number;validDays:number};
 };
+export function operatorCancellationCreditAllowed(account:any,offer:any){
+ if(!account||account.blockedAt!=null)return false;
+ const revisionAtStart=offer?.restrictionRevisionAtStart;
+ if(Number.isSafeInteger(revisionAtStart))return (account.restrictionRevision??0)===revisionAtStart;
+ return (account.restrictionRevision??0)===0&&account.lastRestrictedAt==null;
+}
 function checked(value:number){if(!Number.isSafeInteger(value)||value<0)throw Error("Invalid cancellation payment amount.");return value;}
 function number(value:bigint){if(value>BigInt(Number.MAX_SAFE_INTEGER))throw Error("Cancellation settlement exceeds supported precision.");return Number(value);}
 export function operatorCancellationOptions(input:{cashRemainingPence:number;securityRemainingPence:number;spentCreditPence:number}){

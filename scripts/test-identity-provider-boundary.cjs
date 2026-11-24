@@ -37,5 +37,16 @@ const ctx={db:h.db,scheduler:{runAfter:async()=>{}},runQuery:async(ref,args)=>{a
  afterRetrieve=async()=>{legacy.status='cancelled'};await assert.rejects(identity.refresh.handler(ctx,{bookingId:legacy._id,token:'owner'}),/not available/);assert.equal(legacy.idVerifyStatus,'processing');legacy.status='confirmed';
  afterRetrieve=async()=>{account.blockedAt=Date.now()};await assert.rejects(identity.refresh.handler(ctx,{bookingId:legacy._id,token:'owner'}),/not available/);assert.equal(legacy.idVerifyStatus,'processing');delete account.blockedAt;afterRetrieve=undefined;
  assert.equal((await identity.refresh.handler(ctx,{bookingId:legacy._id,token:'owner'})).status,'verified');assert.equal(legacy.idVerifyStatus,'verified');
+ const accountNow=Date.now(),day=86400000,accountFixtures=new Map([
+  ['expired',{_id:'accounts-expired',idVerified:true,idSessionId:'vs_fixture',rentalVerification:{verifiedAt:accountNow-90*day,expiresAt:accountNow+day}}],
+  ['active',{_id:'accounts-active',idVerified:false,rentalVerification:{verifiedAt:accountNow-89*day,expiresAt:accountNow-1}}],
+  ['legacy',{_id:'accounts-legacy',idVerified:true,idSessionId:'vs_fixture'}],
+ ]);
+ const accountCtx={runQuery:async(ref,{token})=>{assert.equal(String(ref),'accounts._byToken');return accountFixtures.get(token)??null;},runMutation:async()=>{throw Error('an unbounded legacy flag must not be renewed');}};
+ const retrievalsBefore= retrieved;
+ assert.equal((await identity.refreshAccount.handler(accountCtx,{token:'expired'})).status,'required','the exact 90-day cutoff wins even if stored expiry is later and an old Stripe session exists');
+ assert.equal((await identity.refreshAccount.handler(accountCtx,{token:'active'})).status,'verified','a canonical grant before expiry remains verified even if its stored expiry field is stale');
+ assert.equal((await identity.refreshAccount.handler(accountCtx,{token:'legacy'})).status,'required','a legacy boolean without a time-bounded grant is not current verification');
+ assert.equal(retrieved,retrievalsBefore,'account refresh does not resurrect stale provider or legacy status without a current grant');
  console.log('PASS retired Stripe Identity creation and authorized legacy refresh: no provider spend, owner and checkout-session access, unknown/Didit isolation, exact provider binding and stale-session race. Synthetic provider and data only.');
 })().catch(error=>{console.error(error);process.exitCode=1});

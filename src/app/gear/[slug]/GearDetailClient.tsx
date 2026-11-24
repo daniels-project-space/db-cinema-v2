@@ -1,6 +1,7 @@
 "use client";
 
 import { pickRentalDates } from "@/lib/dateSelection";
+import { formatRate } from "@/lib/pricing";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TouchEvent as ReactTouchEvent } from "react";
@@ -10,6 +11,7 @@ import { getSessionId } from "@/lib/session";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { BookingPanel } from "@/components/booking/BookingPanel";
+import { GearDetailAlternatives } from "@/components/booking/GearDetailAlternatives";
 import {RentalContentsList} from "@/components/booking/RentalContentsList";
 import { Recommendations } from "@/components/Recommendations";
 import { useGafferFocus } from "@/components/gaffer/GafferFocus";
@@ -442,24 +444,14 @@ export default function GearDetailClient({ slug, initialListing }: { slug: strin
                 </button>
               </div>
             ) : (listing as any).bookable === false ? (
-              <div className="spot gradient-border rounded-2xl p-6">
-                <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-100">
-                  Inventory check
-                </span>
-                <h2 className="mt-3 font-display text-lg font-semibold text-white/90">
-                  Let’s check this kit for you
-                </h2>
-                <p className="mt-2 text-sm leading-relaxed text-white/60">
-                  We can’t offer online dates until the live equipment record is confirmed. Ask us to check whether we can supply this kit and what it includes. No booking or payment is created here.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => window.dispatchEvent(new CustomEvent("dbc:open-gaffer-chat"))}
-                  className="btn-primary mt-5 flex w-full items-center justify-center rounded-full py-3 text-sm font-semibold"
-                >
-                  Ask Gaffer to check
-                </button>
-              </div>
+              <GearDetailAlternatives
+                listing={listing as any}
+                start={start}
+                end={end}
+                month={month}
+                onPick={pick}
+                onMonthChange={setMonth}
+              />
             ) : (
               <BookingPanel
                 listing={listing as any}
@@ -467,6 +459,7 @@ export default function GearDetailClient({ slug, initialListing }: { slug: strin
                 end={end}
                 month={month}
                 onPick={pick}
+                onEndChange={setEnd}
                 onMonthChange={setMonth}
                 unavailable={unavailable}
                 demand={(listing as any).demandScore ?? 0}
@@ -487,7 +480,7 @@ export default function GearDetailClient({ slug, initialListing }: { slug: strin
         <div data-testid="mobile-booking-jump-bar" data-mobile-booking-dock="true" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-charcoal-950/95 px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-10px_36px_rgba(0,0,0,.35)] backdrop-blur-xl lg:hidden">
           <div className="mx-auto flex max-w-7xl items-center gap-3">
             <p className="min-w-0 shrink-0 whitespace-nowrap text-[11px] text-white/55 min-[360px]:text-xs">
-              From <strong className="ml-1 font-display text-sm text-accent-300 min-[360px]:text-base">£{listing.pricing.daily}</strong><span className="ml-0.5">/day</span>
+              From <strong className="ml-1 font-display text-sm text-accent-300 min-[360px]:text-base">£{formatRate(listing.pricing.daily)}</strong><span className="ml-0.5">/day</span>
             </p>
             <button
               type="button"

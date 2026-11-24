@@ -29,16 +29,10 @@ export function CheckoutMembership({
   variant = "basket",
   compact: compactLayout = false,
   loading = false,
-  accountTermsVersion,
-  accountPrivacyNoticeVersion,
 }: {
   variant?: "basket" | "checkout";
   compact?: boolean;
   loading?: boolean;
-  /** Current Terms version shown for new account creation at rental checkout. */
-  accountTermsVersion?: string;
-  /** Current Privacy Notice version shown for new account creation at rental checkout. */
-  accountPrivacyNoticeVersion?: string;
   suggestions?: Suggestion[];
   selected: MembershipSelection | null;
   onChange: (s: MembershipSelection | null) => void;
@@ -167,8 +161,6 @@ export function CheckoutMembership({
   const savingsHook =
     saving > 0 ? `Subscribe to save £${saving.toFixed(2)}` : null;
   const confirmed = !!selected?.termsAccepted;
-  const accountTermsPrivacyAccepted = !!selected && !!accountTermsVersion && !!accountPrivacyNoticeVersion &&
-    selected.accountTermsAcceptedVersion === accountTermsVersion && selected.privacyNoticeAcceptedVersion === accountPrivacyNoticeVersion;
   const confirmSelection = () => {
     if (current || confirmed) return;
     onChange({
@@ -188,20 +180,16 @@ export function CheckoutMembership({
     else onChange(null);
   };
   const benefits = [
-    `Pay £${displayTier.monthlyGbp}/month → £${displayTier.monthlyCredit.toFixed(2)} credit to spend`,
-    "Credit stacks monthly · valid for one year",
-    ...(displayTier.weekend
-      ? [
-          "Subscription-exclusive weekends · 2-for-1 / 3-for-2 · £100 saving cap",
-        ]
-      : []),
+    `£${displayTier.monthlyCredit.toFixed(2)} rental credit each paid month · rolls over for one year`,
+    displayTier.weekend
+      ? "Weekend 2-for-1 / 3-for-2 · save up to £100"
+      : "Use your monthly credit on rental charges",
     displayTier.key === "studio"
       ? "One London delivery included each month"
       : `${displayTier.deliveryPct}% off future delivery`,
-    "Security is shown in your quote · saved-card permission applies",
     displayTier.filmFund
       ? "Film Fund entry included when applications open"
-      : "Film Fund entry £15/project when applications open",
+      : "Film Fund entry £15 per project when applications open",
   ];
   return (
     <>
@@ -293,7 +281,19 @@ export function CheckoutMembership({
           </p>
           {compact && selected && <button type="button" data-testid="remove-membership" onClick={removeSelection} className="shrink-0 text-[10px] text-white/45 underline">Remove membership</button>}
         </div>
-        {!me && <p className="mt-2 text-[10px] leading-4 text-white/55">Membership requires an account. After successful payment, we create one using your booking details and email you a secure sign-in link.</p>}
+        {!me && <p className="mt-2 text-[10px] leading-4 text-white/55">Membership creates an account after payment. We’ll email you a secure sign-in link.</p>}
+        {!current && !pending && <ul
+          data-testid="membership-pitch-benefits"
+          aria-label="Four subscription benefits"
+          className={`mt-2 grid ${compact ? "grid-cols-2 gap-x-2 gap-y-1 text-[9px] leading-[13px]" : "gap-1.5 text-[11px]"} text-white/70`}
+        >
+          {benefits.map((benefit, index) => (
+            <li key={benefit} className="flex min-w-0 items-start gap-1.5">
+              <SubscriptionBenefitSymbol benefit={benefit} index={index} />
+              <span className={index === 0 ? "font-medium text-white/90" : undefined}>{benefit}</span>
+            </li>
+          ))}
+        </ul>}
         {compact ? (
           <>
             {!current && <label className="mt-1 flex cursor-pointer items-start gap-2 text-[9px] leading-[14px] text-white/55">
@@ -327,27 +327,6 @@ export function CheckoutMembership({
             {selected && <span role="status" className="sr-only">
                 {confirmed ? "Membership added · consent confirmed" : "Membership added · confirm terms"}
               </span>}
-            {variant === "checkout" && !me && selected && (
-              <label data-testid="guest-account-terms-consent" className="relative z-[4] mt-2 flex cursor-pointer items-start gap-2 text-[11px] leading-relaxed text-white/75 pointer-events-auto">
-                <input
-                  type="checkbox"
-                  data-testid="guest-account-terms-checkbox"
-                  className="mt-0.5 h-4 w-4 shrink-0 accent-[#acd17c]"
-                  checked={accountTermsPrivacyAccepted}
-                  onChange={event => onChange({
-                    ...selected,
-                    accountTermsAcceptedVersion: event.target.checked ? accountTermsVersion : undefined,
-                    privacyNoticeAcceptedVersion: event.target.checked ? accountPrivacyNoticeVersion : undefined,
-                  })}
-                />
-                <span>
-                  To create your account, I agree to the current{" "}
-                  <Link href={accountTermsVersion ? `/legal/terms?version=${encodeURIComponent(accountTermsVersion)}` : "/legal/terms"} target="_blank" rel="noreferrer" className="underline">Terms and Conditions</Link>{" "}
-                  and acknowledge the{" "}
-                  <Link href="/legal/privacy" target="_blank" rel="noreferrer" className="underline">Privacy Notice</Link>.
-                </span>
-              </label>
-            )}
           </>
         ) : (
           <>
@@ -355,28 +334,6 @@ export function CheckoutMembership({
               <p className="mt-1 text-[10px] text-white/45">
                 Net saving includes today’s membership fee.
               </p>
-            )}
-            {!current && (
-              <ul
-                aria-label="Future subscription benefits"
-                className="mt-3 grid gap-1.5 text-[11px] text-white/70"
-              >
-                {benefits.map((benefit, index) => (
-                  <li key={benefit} className="flex items-center gap-2">
-                    <SubscriptionBenefitSymbol
-                      benefit={benefit}
-                      index={index}
-                    />
-                    <span
-                      className={
-                        index === 0 ? "font-medium text-white/90" : undefined
-                      }
-                    >
-                      {benefit}
-                    </span>
-                  </li>
-                ))}
-              </ul>
             )}
             {!current && (
               <p

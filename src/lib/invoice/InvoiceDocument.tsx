@@ -3,12 +3,14 @@ import { CONTACT_EMAIL } from "../site";
 import type { AgreementSnapshot } from "../../../shared/rentalAgreement";
 import type { InspectionInput, InspectionItem } from "../../../shared/returnInspection";
 import { isCardHoldSecurityPolicy, isSetupIntentSecurityPolicy, isImmediateClaimSecurityPolicy } from "../../../shared/rentalSecurity";
+import { TRAFALGAR_PICKUP_ADDRESS, TRAFALGAR_PICKUP_INSTRUCTIONS } from "../../../shared/pickupLocation";
 
 export type InvoiceData = {
   number: string;
   issuedAt: number;
   supplierName?: string;
   supplierAddress?: string;
+  pickupDetailsVisible?: boolean;
   status: string;
   customerName: string | null;
   email: string | null;
@@ -19,6 +21,7 @@ export type InvoiceData = {
   subtotal: number;
   discount: number;
   deliveryFee: number;
+  sameDayFee?: number;
   creditApplied: number;
   membershipCreditApplied?: number;
   depositAmount: number;
@@ -27,6 +30,8 @@ export type InvoiceData = {
   agreementSnapshot?: AgreementSnapshot | null;
   acceptedAgreementEvidence?: {name:string|null;signedAt:number|null;documents:{kind:string;version:string}[]};
   returnStatement?: ReturnStatementData | null;
+  assessmentPayments?: {id:string;kind:string;reason:string;itemTitle?:string;itemDetails?:string;amount:number;paid:number;refunded:number;state?:string;evidence?:{name:string}[]}[];
+  assessmentClaims?: {id:string;kind:string;reason:string;itemTitle?:string;itemDetails?:string;amount:number;paid:number;refunded:number;state?:string;evidence?:{name:string}[]}[];
   rentalRefunds?:{reference:string;amount:number;status:string;reason:string}[];
   cancellationRefund?:number;accountCreditIssued?:number;accountCreditBonus?:number;
 };
@@ -36,7 +41,7 @@ export type { ReturnStatementData } from "../../../shared/returnStatement";
 
 const gbp = (n: number) => `£${(Math.round(n * 100) / 100).toLocaleString("en-GB", { minimumFractionDigits: 2 })}`;
 const COMPANY_NAME = "DB CINEMA RENTALS LTD";
-const COMPANY_ADDRESS = ["The Grand Building", "Trafalgar Square", "London", "WC2N 5EJ"];
+const COMPANY_ADDRESS = TRAFALGAR_PICKUP_ADDRESS.split(", ");
 const d = (ms: number) =>
   new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Europe/London" }).format(new Date(ms));
 const dateTime = (ms: number) =>
@@ -101,16 +106,16 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
             <View style={s.col}>
               <Text style={s.label}>Supplier</Text>
               <Text style={s.strong}>{COMPANY_NAME}</Text>
-              {COMPANY_ADDRESS.map((line) => <Text key={line}>{line}</Text>)}
+              {data.pickupDetailsVisible ? COMPANY_ADDRESS.map((line) => <Text key={line}>{line}</Text>) : null}
               <Text>{CONTACT_EMAIL}</Text>
             </View>
           </View>
           <View style={{ marginTop: 14 }}>
             <Text style={s.label}>Fulfilment</Text>
-            {data.fulfilment === "delivery" ? <Text>Delivery · {data.address ?? "Address confirmed separately"}</Text> : <>
-              <Text>Collection · The Grand Building, Trafalgar Square, London WC2N 5EJ</Text>
-              <Text style={s.note}>Please meet us at the confirmed time outside the Waterstones bookstore at Trafalgar Square.</Text>
-            </>}
+            {data.fulfilment === "delivery" ? <Text>Delivery · {data.address ?? "Address confirmed separately"}</Text> : data.pickupDetailsVisible ? <>
+              <Text>Collection · {TRAFALGAR_PICKUP_ADDRESS}</Text>
+              <Text style={s.note}>{TRAFALGAR_PICKUP_INSTRUCTIONS}</Text>
+            </> : <Text>Collection · Trafalgar Square, London</Text>}
           </View>
         </View>
 
@@ -140,6 +145,7 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
           {data.deliveryFee > 0 ? (
             <View style={s.totRow}><Text style={{ color: C.muted }}>Delivery</Text><Text style={s.totValue}>{gbp(data.deliveryFee)}</Text></View>
           ) : null}
+          {(data.sameDayFee ?? 0) > 0 ? <View style={s.totRow}><Text style={{ color: C.muted }}>Same-day booking fee</Text><Text style={s.totValue}>{gbp(data.sameDayFee!)}</Text></View> : null}
           {!!data.membershipCreditApplied && <Text style={s.note}>Store credit above includes {gbp(data.membershipCreditApplied)} from the first paid membership month. The subscription fee is itemised separately by Stripe.</Text>}
           <View style={s.grand}><Text style={s.grandTxt}>Total paid</Text><Text style={s.grandTxt}>{gbp(data.total)}</Text></View>
           {data.depositAmount > 0 ? (
@@ -161,13 +167,16 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
   );
 }
 
-export function AssessmentStatementDocument({ data, assessment }: { data: InvoiceData; assessment: { id: string; kind: string; reason: string; paid: number; refunded: number } }) {
-  return <Document title={`DB Cinema assessment statement ${data.number}`}>
+export function AssessmentStatementDocument({ data, assessment }: { data: InvoiceData; assessment: { id: string; kind: string; reason: string; itemTitle?:string;itemDetails?:string;amount?:number; paid: number; refunded: number; state?:string;evidence?:{name:string}[] } }) {
+  const paid=assessment.state==="paid"||assessment.state===undefined;
+  const amount=paid?assessment.paid:(assessment.amount??assessment.paid);
+  return <Document title={`DB Cinema ${paid?"assessment statement":"claim invoice"} ${data.number}`}>
     <Page size="A4" style={s.page}>
-      <View style={s.topbar}/><View style={s.headRow}><View><Text style={s.brand}>DB CINEMA</Text><Text style={s.brandSub}>RENTALS · LONDON</Text></View><View><Text style={s.docTitle}>ASSESSMENT</Text><Text style={s.meta}>Rental {data.number}</Text><Text style={s.meta}>Assessment {assessment.id.slice(-8).toUpperCase()}</Text></View></View>
-      <View style={s.section}><Text style={s.label}>Customer</Text>{data.customerName&&<Text style={s.strong}>{data.customerName}</Text>}<Text style={s.label}>Supplier</Text><Text style={s.strong}>{COMPANY_NAME}</Text>{COMPANY_ADDRESS.map(line=><Text key={line}>{line}</Text>)}<Text>{CONTACT_EMAIL}</Text></View>
-      <View style={s.section}><Text style={s.label}>{assessment.kind === "late" ? "Late-return assessment" : "Damage or loss assessment"}</Text><Text>{assessment.reason}</Text></View>
-      <View style={s.totals}><View style={s.totRow}><Text>Separate card payment confirmed</Text><Text>{gbp(assessment.paid)}</Text></View>{assessment.refunded>0&&<View style={s.totRow}><Text>Confirmed refund</Text><Text>−{gbp(assessment.refunded)}</Text></View>}<View style={s.grand}><Text style={s.grandTxt}>Net assessment payment</Text><Text style={s.grandTxt}>{gbp(Math.max(0,assessment.paid-assessment.refunded))}</Text></View><Text style={s.note}>This is a separate assessment payment, not a deposit or card hold. It does not replace the original rental invoice. DB Cinema Rentals Ltd is not VAT registered.</Text></View>
+      <View style={s.topbar}/><View style={s.headRow}><View><Text style={s.brand}>DB CINEMA</Text><Text style={s.brandSub}>RENTALS · LONDON</Text></View><View><Text style={s.docTitle}>{paid?"ASSESSMENT":"CLAIM INVOICE"}</Text><Text style={s.meta}>Rental {data.number}</Text><Text style={s.meta}>Assessment {assessment.id.slice(-8).toUpperCase()}</Text></View></View>
+      <View style={s.section}><Text style={s.label}>Customer</Text>{data.customerName&&<Text style={s.strong}>{data.customerName}</Text>}<Text style={s.label}>Supplier</Text><Text style={s.strong}>{COMPANY_NAME}</Text>{data.pickupDetailsVisible?COMPANY_ADDRESS.map(line=><Text key={line}>{line}</Text>):null}<Text>{CONTACT_EMAIL}</Text></View>
+      <View style={s.section}><Text style={s.label}>{assessment.kind === "late" ? "Late-return assessment" : "Damage or loss assessment"}</Text>{assessment.itemTitle&&<Text style={s.strong}>Affected item · {assessment.itemTitle}</Text>}{assessment.itemDetails&&<Text style={{marginTop:4,color:C.muted}}>Inspection · {assessment.itemDetails}</Text>}<Text style={{marginTop:6}}>{assessment.reason}</Text></View>
+      {assessment.evidence?.length ? <View style={s.section}><Text style={s.label}>Supporting evidence attached</Text>{assessment.evidence.map((file,index)=><Text key={`${file.name}-${index}`}>{file.name}</Text>)}</View> : null}
+      <View style={s.totals}><View style={s.totRow}><Text>{paid?"Separate card payment confirmed":"Proposed itemised claim · not yet collected"}</Text><Text>{gbp(amount)}</Text></View>{assessment.refunded>0&&<View style={s.totRow}><Text>Confirmed refund</Text><Text>−{gbp(assessment.refunded)}</Text></View>}<View style={s.grand}><Text style={s.grandTxt}>{paid?"Net assessment payment":"Current amount paid"}</Text><Text style={s.grandTxt}>{gbp(paid?Math.max(0,assessment.paid-assessment.refunded):0)}</Text></View><Text style={s.note}>{paid?"This is a separate assessment payment, not a deposit or card hold. It does not replace the original rental invoice.":"This statement records the proposed claim amount before any card attempt. No payment is confirmed by this document."} DB Cinema Rentals Ltd is not VAT registered.</Text></View>
     </Page>
   </Document>;
 }
@@ -178,7 +187,7 @@ export function ReturnStatementDocument({ data, draft = false }: { data: ReturnS
   const setupIntentPolicy = isSetupIntentSecurityPolicy(data.securityPolicyVersion);
   const cardHoldPolicy = isCardHoldSecurityPolicy(data.securityPolicyVersion);
   const immediateClaimPolicy = isImmediateClaimSecurityPolicy(data.securityPolicyVersion);
-  const rentalGross = data.subtotal - data.discount + data.deliveryFee;
+  const rentalGross = data.subtotal - data.discount + data.deliveryFee + (data.sameDayFee ?? 0);
   const damageFromPayment = Math.max(0, data.damageTotal - data.damageFromHold);
   const netCardPaid = data.checkoutPaid - (draft?data.securityRefunded:data.depositRefundState?data.securityRefundedConfirmed??0:data.securityRefunded) - (data.rentalRefunded??0) + data.damageFromHold;
   return <Document title={`Db Cinema Return Statement ${data.number}`}>
@@ -193,7 +202,7 @@ export function ReturnStatementDocument({ data, draft = false }: { data: ReturnS
         <View style={s.billRow}>
           <View style={s.col}>
             <Text style={s.label}>Supplier</Text><Text style={s.strong}>{COMPANY_NAME}</Text>
-            {COMPANY_ADDRESS.map((line) => <Text key={line}>{line}</Text>)}
+            {data.pickupDetailsVisible ? COMPANY_ADDRESS.map((line) => <Text key={line}>{line}</Text>) : null}
             <Text>{CONTACT_EMAIL}</Text>
           </View>
           <View style={s.col}>
@@ -211,6 +220,7 @@ export function ReturnStatementDocument({ data, draft = false }: { data: ReturnS
         <View style={s.totRow}><Text style={s.totLabel}>Rental subtotal</Text><Text style={s.totValue}>{gbp(data.subtotal)}</Text></View>
         {data.discount > 0 ? <View style={s.totRow}><Text style={s.totLabel}>Rental discount</Text><Text style={s.totValue}>−{gbp(data.discount)}</Text></View> : null}
         {data.deliveryFee > 0 ? <View style={s.totRow}><Text style={s.totLabel}>Delivery</Text><Text style={s.totValue}>{gbp(data.deliveryFee)}</Text></View> : null}
+        {(data.sameDayFee ?? 0) > 0 ? <View style={s.totRow}><Text style={s.totLabel}>Same-day booking fee</Text><Text style={s.totValue}>{gbp(data.sameDayFee!)}</Text></View> : null}
         <View style={s.grand}><Text style={[s.grandTxt,{maxWidth:"75%",flexShrink:1}]}>Rental charges</Text><Text style={s.grandTxt}>{gbp(rentalGross)}</Text></View>
         {data.creditApplied > 0 ? <View style={s.totRow}><Text style={s.totLabel}>Store credit used</Text><Text style={s.totValue}>−{gbp(data.creditApplied)}</Text></View> : null}
         {!setupIntentPolicy&&!cardHoldPolicy&&<View style={s.totRow}><Text style={s.totLabel}>Refundable security payment taken</Text><Text style={s.totValue}>{gbp(data.securityPaid)}</Text></View>}

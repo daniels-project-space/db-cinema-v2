@@ -14,11 +14,13 @@ type StagedChange = { lineIndex: number; action: ChangeAction; replacement?: Rep
 type ProposalChange =
   | { lineIndex: number; action: "replace"; newListingId: string }
   | { lineIndex: number; action: "remove" };
+type LineRentalTotal = { lineIndex: number; action: ChangeAction; oldTitle: string; newTitle: string | null; oldTotalPence: number; newTotalPence: number };
 type Review = {
   snapshot: string;
   requestId: string;
   deltaPence: number;
   creditPence: number;
+  lineRentalTotals: LineRentalTotal[];
   changes: ProposalChange[];
   rows: StagedChange[];
   singleReplacement: boolean;
@@ -54,8 +56,20 @@ function AmountSummary({ deltaPence }: { deltaPence: number }) {
   const title = deltaPence > 0 ? "Additional payment" : deltaPence < 0 ? "Refund to original card" : "No card difference";
   const amount = deltaPence === 0 ? formatGbp(0) : `${deltaPence > 0 ? "+" : "−"}${formatGbp(Math.abs(deltaPence) / 100)}`;
   return <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[#d8ae7a]/20 bg-[#d8ae7a]/[0.06] px-3 py-2.5">
-    <div className="min-w-0"><p className="text-[9px] font-semibold uppercase tracking-[0.13em] text-white/50">Net change</p><p className="mt-0.5 text-[10px] text-white/75">{title}</p></div>
+    <div className="min-w-0"><p className="text-[9px] font-semibold uppercase tracking-[0.13em] text-white/50">Whole-basket difference</p><p className="mt-0.5 text-[10px] text-white/75">{title}</p></div>
     <strong className="shrink-0 text-lg font-semibold tabular-nums text-[#f3d0a2]">{amount}</strong>
+  </div>;
+}
+
+function LineRentalTotals({ rows }: { rows?: LineRentalTotal[] }) {
+  if (!rows?.length) return null;
+  return <div className="mt-2 rounded-xl border border-white/[0.07] bg-black/15 px-2.5 py-2" data-testid="equipment-line-rental-totals">
+    <p className="text-[9px] font-medium uppercase tracking-[0.12em] text-white/45">Item rental totals · before shared discounts and credits</p>
+    <div className="mt-1.5 grid gap-1">{rows.map(row => <div key={`${row.lineIndex}:${row.action}`} className="flex min-w-0 items-center justify-between gap-3 text-[10px]">
+      <span className="min-w-0 truncate text-white/60">{row.oldTitle}{row.action === "remove" ? " · removed" : row.newTitle && row.newTitle !== row.oldTitle ? ` → ${row.newTitle}` : ""}</span>
+      <span className="shrink-0 tabular-nums text-white/80">{formatGbp(row.oldTotalPence / 100)} → {formatGbp(row.newTotalPence / 100)}</span>
+    </div>)}</div>
+    <p className="mt-1.5 text-[9px] leading-3 text-white/40">One payment or refund covers the full basket change; it is not split across items.</p>
   </div>;
 }
 
@@ -143,8 +157,8 @@ export function RentalSwapProposal({ token, bookingId, items, itemChangeRequest,
 
   if (ready === undefined) return null;
   if (!ready) return <section aria-label="Equipment changes unavailable" className="mt-3 rounded-2xl border border-white/10 bg-white/[0.025] p-3 text-sm text-white/70">
-    <p className="font-medium text-white/85">Equipment changes unavailable</p>
-    <p className="mt-1 text-xs leading-4 text-white/55">Shared stock coordination is not ready.</p>
+    <p className="font-medium text-white/85">Changes paused</p>
+    <p className="mt-1 text-xs leading-4 text-white/55">Stock checks aren’t ready. No proposal was sent.</p>
   </section>;
 
   const usedLines = new Set(staged.map(change => change.lineIndex));
@@ -168,6 +182,7 @@ export function RentalSwapProposal({ token, bookingId, items, itemChangeRequest,
     requestId: crypto.randomUUID(),
     deltaPence: value.quote.deltaPence,
     creditPence: value.quote.restore.reduce((sum: number, item: any) => sum + item.amountPence, 0),
+    lineRentalTotals: value.lineRentalTotals ?? [],
     changes,
     rows,
     singleReplacement,
@@ -229,6 +244,7 @@ export function RentalSwapProposal({ token, bookingId, items, itemChangeRequest,
         {singlePreview === undefined ? <p className="text-[10px] text-white/55">Checking availability and price…</p> : singlePreview === null ? <p className="text-[10px] text-white/55">Unable to load this quote.</p> : !singlePreview.ok ? <p role="status" className="text-[10px] leading-4 text-amber-100">{singlePreview.error}</p> : <>
           <ChangePair current={selectedLine} replacement={replacement} quantity={singlePreview.oldLine.qty} />
           <div className="mt-2.5"><AmountSummary deltaPence={singlePreview.quote.deltaPence} /></div>
+          <LineRentalTotals rows={singlePreview.lineRentalTotals} />
           {restoredCredit(singlePreview.quote) > 0 && <p className="mt-1.5 text-[10px] text-white/55">Credit restored · {formatGbp(restoredCredit(singlePreview.quote) / 100)}</p>}
           <button type="button" disabled={busy} onClick={() => startReview(singlePreview, selectedChanges, selectedRows, true)} className="mt-2.5 min-h-9 w-full rounded-xl border border-[#d8ae7a]/30 bg-[#d8ae7a]/[0.08] px-3 py-2 text-[10px] font-semibold text-[#f0d0a7] hover:bg-[#d8ae7a]/[0.14]">Review change</button>
         </>}
@@ -238,6 +254,7 @@ export function RentalSwapProposal({ token, bookingId, items, itemChangeRequest,
         {removalPreview === undefined ? <p className="text-[10px] text-white/55">Checking availability and price…</p> : removalPreview === null ? <p className="text-[10px] text-white/55">Unable to load this quote.</p> : !removalPreview.ok ? <p role="status" className="text-[10px] leading-4 text-amber-100">{removalPreview.error}</p> : <>
           <ChangePair current={selectedLine} action="remove" quantity={selectedLine.qty} />
           <div className="mt-2.5"><AmountSummary deltaPence={removalPreview.quote.deltaPence} /></div>
+          <LineRentalTotals rows={removalPreview.lineRentalTotals} />
           {restoredCredit(removalPreview.quote) > 0 && <p className="mt-1.5 text-[10px] text-white/55">Credit restored · {formatGbp(restoredCredit(removalPreview.quote) / 100)}</p>}
           <button type="button" disabled={busy} onClick={() => startReview(removalPreview, selectedChanges, selectedRows)} className="mt-2.5 min-h-9 w-full rounded-xl border border-[#d8ae7a]/30 bg-[#d8ae7a]/[0.08] px-3 py-2 text-[10px] font-semibold text-[#f0d0a7] hover:bg-[#d8ae7a]/[0.14]">Review removal</button>
         </>}
@@ -246,6 +263,7 @@ export function RentalSwapProposal({ token, bookingId, items, itemChangeRequest,
       {staged.length > 0 && !review && <div className="mt-3 rounded-2xl border border-white/[0.08] bg-black/15 p-2.5">
         {basketPreview === undefined ? <p className="text-[10px] text-white/55">Checking availability and price…</p> : basketPreview === null ? <p className="text-[10px] text-white/55">Unable to load this quote.</p> : !basketPreview.ok ? <p role="status" className="text-[10px] leading-4 text-amber-100">{basketPreview.error}</p> : <>
           <AmountSummary deltaPence={basketPreview.quote.deltaPence} />
+          <LineRentalTotals rows={basketPreview.lineRentalTotals} />
           {restoredCredit(basketPreview.quote) > 0 && <p className="mt-1.5 text-[10px] text-white/55">Credit restored · {formatGbp(restoredCredit(basketPreview.quote) / 100)}</p>}
           <button type="button" disabled={busy} onClick={() => startReview(basketPreview, basketEdits, stagedRows)} className="mt-2.5 min-h-9 w-full rounded-xl border border-[#d8ae7a]/30 bg-[#d8ae7a]/[0.08] px-3 py-2 text-[10px] font-semibold text-[#f0d0a7] hover:bg-[#d8ae7a]/[0.14]">{staged.length === 1 ? "Review change" : "Review combined change"}</button>
         </>}
@@ -258,6 +276,7 @@ export function RentalSwapProposal({ token, bookingId, items, itemChangeRequest,
           return current ? <ChangePair key={`${row.lineIndex}:${row.action}:${row.replacement?.id ?? "removed"}`} current={current} replacement={row.replacement} action={row.action} quantity={current.qty} /> : null;
         })}</div>
         <div className="mt-2.5"><AmountSummary deltaPence={review.deltaPence} /></div>
+        <LineRentalTotals rows={review.lineRentalTotals} />
         {review.creditPence > 0 && <p className="mt-1.5 text-[10px] text-white/55">Credit restored · {formatGbp(review.creditPence / 100)}</p>}
         <details className="mt-2.5 rounded-xl border border-white/[0.08] bg-black/15 px-2.5 py-2 text-[10px] text-white/65">
           <summary className="cursor-pointer list-none font-medium text-white/75">Before sending <span aria-hidden="true" className="float-right text-white/40">⌄</span></summary>

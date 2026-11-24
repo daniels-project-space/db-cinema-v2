@@ -23,7 +23,8 @@ assert.match(accountSetupSource, /minLength=\{8\} maxLength=\{256\}/, "Email set
 const common = `
 import {useEffect,useState} from 'react';
 export const api=new Proxy({}, {get:(_,namespace)=>new Proxy({}, {get:(_,name)=>String(namespace)+'.'+String(name)})});
-export const AccountCreditReceipts=()=>null,ReferralPanel=()=>null,EncoreCrest=()=>null,GearCard=()=>null,AccountFrame=({children})=><span>{children}</span>,AccountProfilePill=({children})=><span>{children}</span>,ChatAvatar=()=>null,RenterChat=()=>null,MembershipPlanCard=()=>null,AccentPicker=()=>null,CollectiveProfile=()=>null,RenterNotificationBell=()=>null,RenterOverview=()=>null,RentalCalendar=()=>null,ShootLists=()=>null,AvatarUpload=()=>null,ManagementShell=({children})=><div>{children}</div>,InvoiceLibrary=()=>null,PrivatePortraitPreference=()=>null,SiteHeader=()=> <header className="border-b border-white/10 bg-black px-4 py-3 text-sm">DB CINEMA <span className="ml-2 text-white/45">/ Account</span></header>;
+export const AccountCreditReceipts=()=>null,ReferralPanel=()=>null,EncoreCrest=()=>null,GearCard=()=>null,AccountFrame=({children})=><span>{children}</span>,AccountProfilePill=({children})=><span>{children}</span>,ChatAvatar=()=>null,RenterChat=()=>null,MembershipPlanCard=()=>null,AccentPicker=()=>null,CollectiveProfile=()=>null,RenterNotificationBell=()=>null,GuestChatHandoff=()=>null,RenterOverview=()=>null,RentalCalendar=()=>null,ShootLists=()=>null,AvatarUpload=()=>null,ManagementShell=({children})=><div>{children}</div>,InvoiceLibrary=()=>null,PrivatePortraitPreference=()=>null,SiteHeader=()=> <header className="border-b border-white/10 bg-black px-4 py-3 text-sm">DB CINEMA <span className="ml-2 text-white/45">/ Account</span></header>;
+export function useCreditBalance(){return null}
 export const REVIEW_PRIZE_GBP=100,tierByKey=()=>null,TIERS=[];
 export const ACCOUNT_AUTH_MESSAGES={SIGNUP_TERMS_UPDATED:'The Terms and Conditions or Privacy Notice changed. Review the current versions and try again.'}
 export function accountAuthErrorMessage(error,fallback){return error?.data?.code==='SIGNUP_TERMS_UPDATED'?ACCOUNT_AUTH_MESSAGES.SIGNUP_TERMS_UPDATED:fallback}
@@ -54,11 +55,11 @@ function pluginForAccountPage() {
 function pluginForAvatar() {
   // Keep the mobile visual check fully offline; the backend test separately
   // verifies the exact Google photo URL that is stored and returned.
-  const avatarCommon = `export const api=new Proxy({}, {get:(_,namespace)=>new Proxy({}, {get:(_,name)=>String(namespace)+'.'+String(name)})});export const useMutation=()=>async()=>{};export const useAccount=()=>({token:'synthetic-token',me:{name:'Riley Chen',email:'riley@example.invalid',avatarUrl:${JSON.stringify(googleSvg)}}});`;
+  const avatarCommon = `import {useEffect,useState} from 'react';export const api=new Proxy({}, {get:(_,namespace)=>new Proxy({}, {get:(_,name)=>String(namespace)+'.'+String(name)})});export const useMutation=()=>async()=>{};export const useAccount=()=>{const [url,setUrl]=useState(${JSON.stringify(googleSvg)});useEffect(()=>{const update=()=>setUrl(window.__avatarUrl);window.addEventListener('fixture-avatar',update);return()=>window.removeEventListener('fixture-avatar',update)},[]);return {token:'synthetic-token',me:{name:'Riley Chen',email:'riley@example.invalid',avatarUrl:url}}};`;
   return { name: "avatar-fixtures", setup(build) {
     build.onResolve({ filter: /^\.\/AccountProvider$|^@\/components\/account\/AccountProvider$/ }, () => ({ path: "avatar-stub", namespace: "fixture" }));
     build.onResolve({ filter: /^convex\/react$|^@cvx\/_generated\/api$/ }, () => ({ path: "avatar-stub", namespace: "fixture" }));
-    build.onLoad({ filter: /^avatar-stub$/, namespace: "fixture" }, () => ({ loader: "js", contents: avatarCommon }));
+    build.onLoad({ filter: /^avatar-stub$/, namespace: "fixture" }, () => ({ loader: "js", resolveDir: root, contents: avatarCommon }));
   } };
 }
 
@@ -163,12 +164,18 @@ async function build(entry, plugins, define = {}) {
     active = avatarJs;
     await browser.cmd("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/avatar` });
     await until(`!!document.querySelector('img[alt="Profile"]')`, "synthetic Google profile photo renders");
-    for (const width of [320, 390, 430, 768]) {
+    for (const width of [320, 390, 430, 768, 1280]) {
       await browser.cmd("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width < 768 }); await wait(80);
       const avatar = await browser.evaluate(`(()=>{const image=document.querySelector('img[alt="Profile"]'),r=image.getBoundingClientRect();return{width:innerWidth,scrollWidth:document.documentElement.scrollWidth,box:{left:r.left,right:r.right,width:r.width,height:r.height},buttons:[...document.querySelectorAll('button')].map(b=>b.innerText.trim())}})()`);
       assert(avatar.scrollWidth <= width, `Profile avatar stays within ${width}px`); assert(avatar.box.width === 64 && avatar.box.height === 64, "Profile image keeps its 64px crop"); assert(avatar.buttons.includes("Change photo") && avatar.buttons.includes("Remove"), "Google profile image can be changed or removed");
-      if (width === 320 || width === 768) { const shot = await browser.cmd("Page.captureScreenshot", { format: "png", captureBeyondViewport: false }); fs.writeFileSync(path.join(out, `account-${width}-avatar.png`), Buffer.from(shot.data, "base64")); }
+      if (width === 320 || width === 1280) { const position=await browser.evaluate(`(()=>{const r=document.querySelector('[aria-label="Change profile photo"]').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);await browser.cmd('Input.dispatchMouseEvent',{type:'mouseMoved',...position});await wait(200);assert.equal(await browser.evaluate(`!!document.querySelector('img[alt="Profile"]')`),true,'Hover keeps the actual photo visible');const shot = await browser.cmd("Page.captureScreenshot", { format: "png", captureBeyondViewport: false }); fs.writeFileSync(path.join(out, `account-${width}-avatar.png`), Buffer.from(shot.data, "base64")); }
     }
+    await browser.evaluate(`document.querySelector('img[alt="Profile"]').dispatchEvent(new Event('error'))`);
+    await until(`!document.querySelector('img[alt="Profile"]')`, 'Failed photo falls back to initials');
+    await browser.evaluate(`window.__avatarUrl=${JSON.stringify(googleSvg + '#alternate')};window.dispatchEvent(new Event('fixture-avatar'))`);
+    await until(`!!document.querySelector('img[alt="Profile"]')`, 'A replacement photo appears');
+    await browser.evaluate(`window.__avatarUrl=${JSON.stringify(googleSvg)};window.dispatchEvent(new Event('fixture-avatar'))`);
+    await until(`!!document.querySelector('img[alt="Profile"]')`, 'A previously failed URL is retried after the photo changes');
     console.log(`PASS synthetic account browser: 320/390/430/768px sign-in and signup, password/Google stale-terms re-acknowledgement, consent gating, signup errors, credential handoff, profile-avatar rendering and scrolling. No live auth, email or payment calls. Screenshots: ${out}`);
   } finally {
     if (browser) { browser.close(); await fetch(`${process.env.DBC_CDP_URL || "http://localhost:9224"}/json/close/${browser.tabId}`).catch(() => {}); }

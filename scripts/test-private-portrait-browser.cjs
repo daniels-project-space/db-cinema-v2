@@ -9,7 +9,7 @@ const other = put("accounts", { email: "other@example.invalid", createdAt: now -
 put("sessions", { token: "fixture-session", accountId: account._id, expiresAt: now + 600000 });
 put("sessions", { token: "other-session", accountId: other._id, expiresAt: now + 600000 });
 const booking = put("bookings", { accountId: account._id, diditSessionId: "fixture-verification" });
-account.rentalVerification = { sourceBookingId: booking._id };
+account.rentalVerification = { sourceBookingId: booking._id, verifiedAt: now - 90000000 };
 const archive = put("verification_archives", { accountId: account._id, bookingId: booking._id, sessionId: "fixture-verification", status: "complete" });
 const document = put("verification_documents", { accountId: account._id, bookingId: booking._id, archiveId: archive._id, kind: "selfie-0-reference_image", contentType: "image/png" });
 process.env.ADMIN_TOKEN = "fixture-admin";

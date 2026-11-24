@@ -120,7 +120,7 @@ const db = {
             return q;
           },
         };
-        fn(q);
+        if (fn) fn(q);
         return query;
       },
       filter(fn) {
@@ -185,6 +185,18 @@ module.exports = {
   load,
   db,
   put,
+  putFreshSharedStock: () => {
+    const now = Date.now();
+    const prior = (tables.get("rmv2_sync_state") ?? []).find(row => row.key === "shared-stock-v1");
+    const fields = {
+      key: "shared-stock-v1",
+      status: "ok",
+      lastSyncedAt: now,
+      cursor: JSON.stringify({ version: 2, turnaroundBufferMinutes: 60, checkedAt: now }),
+    };
+    if (prior) { Object.assign(prior, fields); return prior; }
+    return put("rmv2_sync_state", fields);
+  },
   tables,
   docs,
   confirmSyntheticSwapStock: (id) => {

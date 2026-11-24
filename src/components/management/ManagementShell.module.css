@@ -16,6 +16,19 @@
   .management .shell[data-management-role=admin][data-management-screen=accounts] .content { max-width:none; padding:24px 6px 24px 20px; }
 }
 @media (max-width: 640px) { .managementHeader { gap: 9px; padding: 8px 12px; min-height: 60px; } .managementHeader .headerLogo { font-size: 15px; gap: 3px; } .managementHeader .headerLogo small { display: none; } .managementHeader .breadcrumb { gap: 6px; } .managementHeader .breadcrumb i { display: inline; } .managementHeader .actor > span:not(.avatar) { display: none; } .managementHeader .actor { gap: 5px; } .managementHeader .avatar { display: none; } }
+@media (max-width: 400px) {
+  .management:has(.shell[data-management-role="renter"]) .managementHeader { gap: 5px; padding-inline: 8px; }
+  .management:has(.shell[data-management-role="renter"]) .managementHeader .headerLogo { font-size: 13px; gap: 2px; }
+  .management:has(.shell[data-management-role="renter"]) .managementHeader .breadcrumb { min-width: 0; gap: 2px; font-size: 9px; }
+  .management:has(.shell[data-management-role="renter"]) .managementHeader [data-testid="account-top-actions"] { gap: 2px; }
+  .management:has(.shell[data-management-role="renter"]) .managementHeader [data-testid="account-top-actions"] > a,
+  .management:has(.shell[data-management-role="renter"]) .managementHeader [data-testid="account-top-actions"] > button,
+  .management:has(.shell[data-management-role="renter"]) .managementHeader [data-testid="account-top-actions"] > div > button { width: 28px !important; height: 28px !important; }
+  .management:has(.shell[data-management-role="renter"]) .managementHeader [data-testid="account-credit-shortcut"] { width: 28px !important; min-width: 28px !important; height: 28px !important; padding-inline: 0; font-size: 8px; white-space: nowrap; }
+}
+@media (min-width: 401px) and (max-width: 640px) {
+  .management:has(.shell[data-management-role="renter"]) .managementHeader [data-testid="account-credit-shortcut"] { width: 32px !important; min-width: 32px !important; height: 32px !important; padding-inline: 0; font-size: 8px; white-space: nowrap; }
+}
 @media (max-width: 640px) {
   .management:has(.shell[data-management-role=admin][data-management-screen=accounts]) .managementHeader { gap: 6px; padding-inline: 9px; }
   .management:has(.shell[data-management-role=admin][data-management-screen=accounts]) .managementHeader .headerLogo { font-size: 14px; gap: 2px; }
@@ -48,6 +61,7 @@
 .actor { display: flex; align-items: center; gap: 12px; font-size: 11px; }
 .actor small { display: block; color: #8d8c89; font-size: 10px; margin-top: 3px; }
 .avatar { display: grid; place-items: center; height: 34px; width: 34px; border-radius: 50%; background: #baa18b; color: #1b1917; font-weight: 600; }
+.avatar img { height: 100%; width: 100%; border-radius: inherit; object-fit: cover; }
 .content { padding: 28px 30px 60px; max-width: 1720px; margin-inline: auto; }
 .heading h1 { font-family: Georgia, serif; font-size: clamp(29px, 3vw, 38px); letter-spacing: -.015em; font-weight: 400; line-height: 1.2; }
 .heading p { margin-top: 9px; color: #9c9b96; font-size: 13px; }
@@ -62,6 +76,7 @@
   .shell[data-management-role="admin"][data-management-screen="accounts"] .heading p { font-size: 14px; margin-top: 7px; }
 }
 .menuButton { display: none; }
+.mobileMenuActions { display: none; }
 .closeButton { display: none; }
 .shell :global(.btn-primary) { background: #a97756; color: #fff6ef; box-shadow: none; }
 .shell :global(.btn-primary:hover) { background: #b98765; }
@@ -70,6 +85,12 @@
 .shell :global(.management-kit-image) { border-radius: 8px; border: 1px solid #ffffff0b; background: #141514; }
 @media (max-width: 900px) { .shell { grid-template-columns: 180px minmax(0, 1fr); } .brand { padding-inline: 18px; } .brand > span { font-size: 28px; } .brand small { font-size: 14px; } .content { padding: 24px 20px 50px; } .topbar { padding-inline: 20px; } .nav button { padding-inline: 17px; font-size: 11px; gap: 10px; } }
 @media (max-width: 640px) { .shell { display: block; } .sidebar { display: none; position: fixed; width: 240px; z-index: 40; box-shadow: 20px 0 70px #000a; } .sidebar.open { display: flex; } .topbar { padding: 14px 16px; min-height: 65px; } .breadcrumb { gap: 8px; font-size: 11px; flex: 1; } .breadcrumb > span, .breadcrumb i { display: none; } .actor > span:not(.avatar) { display: none; } .menuButton { display: block; color: #e2d1c2; padding: 6px; z-index: 45; } .content { padding: 23px 16px 50px; } }
+@media (max-width: 640px) {
+  .mobileMenuActions { display: block; margin: 8px 16px 16px; }
+  .mobileMenuActions button { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 44px; padding: 10px 14px; border: 1px solid #ffffff16; border-radius: 10px; color: #c8b8a8; font-size: 13px; text-align: left; }
+  .mobileMenuActions button:hover { border-color: #b88769; background: #ffffff08; }
+  .management:has(.shell[data-management-role="renter"]) .managementHeader [data-testid="account-top-signout"] { display: none; }
+}
 @media (max-width: 640px) { .menuButton[aria-expanded=true] { visibility: hidden; } .closeButton { display: grid; place-items: center; position: absolute; top: 20px; right: 12px; width: 32px; height: 32px; color: #d3b499; border-radius: 6px; } .closeButton:hover { background: #ffffff0a; } .closeButton svg { width: 20px; height: 20px; } }
 
 .shell[data-management-role="renter"][data-management-screen="rentals"] .heading h1 { font-family: Georgia, "Times New Roman", serif; font-size: clamp(29px, 3vw, 40px); }
@@ -131,7 +152,7 @@
  .shell[data-management-role=renter][data-management-screen=messages] { height:calc(100dvh - var(--management-site-header-height)); min-height:0; overflow:hidden; }
  .shell[data-management-role=renter][data-management-screen=messages] .workspace { height:100%; min-height:0; overflow:hidden; }
  .shell[data-management-role=renter][data-management-screen=messages] .content { display:flex; flex-direction:column; height:100%; min-height:0; padding:0; overflow:hidden; }
- .shell[data-management-role=renter][data-management-screen=messages] .content > :not(.heading) { flex:1; min-height:0; margin:0; }
+ .shell[data-management-role=renter][data-management-screen=messages] .content > :not(.heading) { display:flex; flex:1; flex-direction:column; min-height:0; margin:0; }
 }
 
 @media(min-width:1000px) { .shell[data-management-role=admin][data-management-screen=overview] .heading h1 { font-family:var(--font-inter,Arial),sans-serif; font-weight:600; } .shell[data-management-role=admin][data-management-screen=overview] .content { padding-top:17px; } }

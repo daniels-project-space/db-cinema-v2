@@ -14,6 +14,7 @@ import { isSignOff, pageBrief } from "@/components/gaffer/callContext";
 import { createHintController } from "@/components/gaffer/hintTiming";
 import { createResponseTurnGate } from "@/components/gaffer/responseTurnGate";
 import { micState, requestMic } from "@/components/gaffer/micPermission";
+import { isVoiceProviderSetupFailure, VOICE_PROVIDER_SETUP_MESSAGE } from "@/components/gaffer/voiceFailure";
 
 const VOICE_SESSION_START_TIMEOUT_MS = 15_000;
 
@@ -150,6 +151,10 @@ function responseLength(value: unknown) {
   return typeof value === "string" ? Math.min(value.length, 200_000) : undefined;
 }
 
+function canStartAgentResponse(turn: { hasStartedResponse: boolean; hasUnansweredCallerTurn: boolean }, toolsInFlight: number, toolResponsePending: boolean, callerTurnInterrupted = false) {
+  return !callerTurnInterrupted && toolsInFlight === 0 && (!turn.hasStartedResponse || turn.hasUnansweredCallerTurn || toolResponsePending);
+}
+
 export function GafferSessionProvider({ children }: { children: ReactNode }) {
   const trackUsage=useMutation(api.analytics.track);
   const recordCallTelemetry=useMutation(api.analytics.recordGafferCallTelemetry);
@@ -190,16 +195,11 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   const agentResponseComplete = useRef(false);
   /** A complete set of client-tool results may open one continuation in that caller turn. */
   const toolResponsePending = useRef(false);
-  /**
-   * How many client tools are mid-flight.
-   *
-   * A tool call is the one stretch of a call where nobody is speaking and yet
-   * nothing is wrong: the caller has asked for something and is waiting for it.
-   * The watchdog only knew about `agentTalking`, which covers speech and not
-   * work, so a multi-item request — which fans out into a chain of lookups —
-   * looked exactly like a caller who had walked away.
-   */
-  const toolsInFlight = useRef(0);
+  const callerTurnNumber = useRef(0);
+  const toolsInFlightByCallerTurn = useRef(new Map<number, number>());
+  const callerTurnInterrupted = useRef(false);
+  const latestCallerMessage = useRef("");
+  const currentTurnToolsInFlight = () => toolsInFlightByCallerTurn.current.get(callerTurnNumber.current) ?? 0;
   /** The caller has spoken and is still waiting for a reply. Their silence is earned. */
   const awaitingAgent = useRef(false);
   const signingOff = useRef(false);
@@ -270,13 +270,16 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     pendingContextSnapshot.current = null;
     pendingContextEvents.current = [];
     contextUpdatesReady.current = false;
+    callerTurnNumber.current = 0;
+    toolsInFlightByCallerTurn.current.clear();
+    callerTurnInterrupted.current = false;
+    latestCallerMessage.current = "";
     interruptionAwaitingCaller.current = false;
     callerInterruptedAgentResponse.current = false;
     agentResponsePending.current = false;
     agentResponseTextFinished.current = false;
     agentResponseComplete.current = false;
     responseTurn.current.reset();
-    toolsInFlight.current = 0;
     toolResponsePending.current = false;
     autoReconnectTried.current = false;
     try { await conv.current?.endSession?.(); } catch { /* already gone */ }
@@ -301,7 +304,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
        * that prompted this. Hanging up there punishes them for the agent's
        * latency. Dead air is only dead air once Gaffer has had its say.
        */
-      if (agentTalking.current || signingOff.current || toolsInFlight.current > 0 || awaitingAgent.current ||
+      if (agentTalking.current || signingOff.current || currentTurnToolsInFlight() > 0 || awaitingAgent.current ||
           (agentResponsePending.current && !agentResponseComplete.current)) {
         lastActivity.current = Date.now();
         return;
@@ -372,7 +375,6 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     signingOff.current = false;
     hasSpoken.current = false;
     awaitingAgent.current = false;
-    toolsInFlight.current = 0;
     toolResponsePending.current = false;
     autoReconnectTried.current = false;
     lastActivity.current = Date.now();
@@ -385,7 +387,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       // just spoken, send the fresh page/basket state before the next answer
       // can be generated instead of waiting until that answer has finished.
       if ((!contextUpdatesReady.current && !beforeResponse) || agentTalking.current ||
-          toolsInFlight.current > 0 ||
+          currentTurnToolsInFlight() > 0 ||
           (!beforeResponse && (awaitingAgent.current ||
             (agentResponsePending.current && !agentResponseComplete.current))) ||
           interruptionAwaitingCaller.current || signingOff.current) return;
@@ -406,7 +408,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     };
     const settleAgentResponse = () => {
       if (!agentResponsePending.current || awaitingAgent.current || !agentResponseTextFinished.current || agentTalking.current ||
-          toolsInFlight.current > 0) return;
+          currentTurnToolsInFlight() > 0) return;
       agentResponseComplete.current = true;
       responseTurn.current.complete();
       flushContextUpdates();
@@ -460,6 +462,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       const myCall = callGeneration.current;
       const mine = () => generation.current === myGen;
       const startedAt = Date.now();
+      let providerError: unknown = null;
       let telemetryCallKey: string | null = null;
       try { telemetryCallKey = globalThis.crypto?.randomUUID?.() ?? null; } catch { /* telemetry is optional */ }
       let telemetrySequence = 0;
@@ -492,6 +495,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       };
       const continuity = memory.current.context();
       const firstMessage = continuity ? "I'm back — let's carry on where we left off." : opening;
+      let suppressStaleInterruptionEffects = false;
+      let acceptedAudioChunk: Uint8Array | null = null;
       setState("connecting");
       agentTalking.current = false;
       contextUpdatesReady.current = false;
@@ -510,6 +515,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         Object.keys(toolsRef.current).map((k) => [
           k,
           async (args: any) => {
+            const toolCallerTurn = callerTurnNumber.current;
             // Work counts as activity, at both ends: the caller is owed the
             // full silence window from when the answer lands, not from before
             // they asked for it.
@@ -518,28 +524,38 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
             agentResponseTextFinished.current = false;
             agentResponseComplete.current = false;
             toolResponsePending.current = false;
-            toolsInFlight.current += 1;
+            toolsInFlightByCallerTurn.current.set(toolCallerTurn,
+              (toolsInFlightByCallerTurn.current.get(toolCallerTurn) ?? 0) + 1);
             memory.current.add("tool", JSON.stringify({ name: k, args, status: "in progress; do not repeat until its outcome is known" }));
             lastActivity.current = Date.now();
             try {
               const result = await (toolsRef.current as any)[k](args);
-              if (myCall === callGeneration.current) {
+              const belongsToCurrentTurn = toolCallerTurn === callerTurnNumber.current && !callerTurnInterrupted.current;
+              if (myCall === callGeneration.current && belongsToCurrentTurn) {
                 const outcome = JSON.stringify({ name: k, args, result });
                 memory.current.add("tool", outcome);
                 if (!mine()) {
                   queueContextEvent("[Previous connection tool completed] " + outcome);
                 }
               }
+              if (!belongsToCurrentTurn) {
+                const latestQuestion = latestCallerMessage.current;
+                return latestQuestion
+                  ? `This lookup is outdated because the caller has since asked: “${latestQuestion}”. Do not use the old result. Answer only the latest question and run a fresh lookup if needed.`
+                  : "This lookup is outdated because the caller interrupted the request. Do not use its result; wait for and answer the caller's latest question.";
+              }
               return result;
             } finally {
               if (myCall === callGeneration.current) {
-                toolsInFlight.current = Math.max(0, toolsInFlight.current - 1);
-                // A parallel lookup set is one logical answer. Do not let
-                // the first result start a spoken conclusion while its
-                // siblings are still returning.
-                toolResponsePending.current = toolsInFlight.current === 0;
+                const remainingForTurn = Math.max(0, (toolsInFlightByCallerTurn.current.get(toolCallerTurn) ?? 1) - 1);
+                if (remainingForTurn === 0) toolsInFlightByCallerTurn.current.delete(toolCallerTurn);
+                else toolsInFlightByCallerTurn.current.set(toolCallerTurn, remainingForTurn);
+                if (toolCallerTurn === callerTurnNumber.current && !callerTurnInterrupted.current) {
+                  // Only the current caller turn may authorize its continuation.
+                  toolResponsePending.current = remainingForTurn === 0;
+                }
                 lastActivity.current = Date.now();
-                if (toolsInFlight.current === 0 && awaitingAgent.current) flushContextUpdates(true);
+                if (currentTurnToolsInFlight() === 0 && awaitingAgent.current) flushContextUpdates(true);
                 else settleAgentResponse();
               }
             }
@@ -554,6 +570,52 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           audioConcatProcessor: "/voice-worklets/audioConcatProcessor.js?v=1.12.0",
         },
         onAudioAlignment: (alignment: any) => { if (mine()) noteAgentAlignment(alignment); },
+        onAudio: (base64Audio: string) => {
+          if (!mine() || typeof base64Audio !== "string") return;
+          if (callerTurnInterrupted.current || responseTurn.current.suppressAudio) {
+            acceptedAudioChunk = null;
+            return;
+          }
+          const binaryAudio = atob(base64Audio);
+          const bytes = new Uint8Array(binaryAudio.length);
+          for (let index = 0; index < binaryAudio.length; index++) bytes[index] = binaryAudio.charCodeAt(index);
+          acceptedAudioChunk = bytes;
+        },
+        onConversationCreated: (session: any) => {
+          const updateMode = session?.updateMode?.bind(session);
+          const connection = session?.connection;
+          const handleConnectionMessage = connection?.handleMessage?.bind(connection);
+          const interruptOutput = session?.output?.interrupt?.bind(session.output);
+          const playOutput = session?.output?.playAudio?.bind(session.output);
+          if (!updateMode || !interruptOutput || !playOutput) return;
+          if (handleConnectionMessage) {
+            connection.handleMessage = (event: any) => {
+              if (event?.type === "interruption" &&
+                  !responseTurn.current.canInterrupt(event?.interruption_event ?? {})) return;
+              handleConnectionMessage(event);
+            };
+          }
+          session.updateMode = (mode: any) => {
+            if ((suppressStaleInterruptionEffects && mode === "listening") ||
+                (callerTurnInterrupted.current && mode === "speaking")) return;
+            updateMode(mode);
+          };
+          session.output.interrupt = () => {
+            if (suppressStaleInterruptionEffects) {
+              suppressStaleInterruptionEffects = false;
+              return;
+            }
+            acceptedAudioChunk = null;
+            interruptOutput();
+          };
+          session.output.playAudio = (audio: ArrayBuffer) => {
+            const actualBytes = new Uint8Array(audio);
+            const expectedBytes = acceptedAudioChunk;
+            acceptedAudioChunk = null;
+            if (!expectedBytes || expectedBytes.length !== actualBytes.length || !expectedBytes.every((byte, index) => byte === actualBytes[index])) return;
+            playOutput(audio);
+          };
+        },
         onConversationMetadata: (metadata: { conversation_id?: unknown }) => {
           if (!mine()) return;
           const id = metadata?.conversation_id;
@@ -562,13 +624,21 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         },
         onInterruption: (event: { event_id?: unknown; response_id?: unknown }) => {
           if (!mine()) return;
-          const agentWasSpeaking = agentTalking.current;
-          recordTelemetry("interruption", event?.event_id, undefined, { agentWasSpeaking });
+          const responseWasActive = agentTalking.current || responseTurn.current.hasActiveResponse ||
+            (agentResponsePending.current && !agentResponseComplete.current);
+          recordTelemetry("interruption", event?.event_id, undefined, { agentWasSpeaking: agentTalking.current });
           // The caller transcript can race this callback. If that turn has
           // already arrived, do not wait for a second caller event before
           // releasing its queued context after speech stops.
-          if (agentWasSpeaking) {
-            responseTurn.current.interrupt(event);
+          if (responseWasActive) {
+            if (!responseTurn.current.interrupt(event, awaitingAgent.current)) {
+              suppressStaleInterruptionEffects = true;
+              return;
+            }
+            if (currentTurnToolsInFlight() > 0) {
+              callerTurnInterrupted.current = true;
+              toolResponsePending.current = false;
+            }
             if (!awaitingAgent.current) interruptionAwaitingCaller.current = true;
             callerInterruptedAgentResponse.current = true;
           }
@@ -587,9 +657,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         },
         onAgentChatResponsePart: (event: { type?: unknown; event_id?: unknown; response_id?: unknown }) => {
           if (!mine()) return;
-          const allowNewResponse = !responseTurn.current.hasStartedResponse ||
-            (toolsInFlight.current === 0 &&
-              (responseTurn.current.hasUnansweredCallerTurn || toolResponsePending.current));
+          const allowNewResponse = canStartAgentResponse(responseTurn.current, currentTurnToolsInFlight(), toolResponsePending.current, callerTurnInterrupted.current);
           if (!responseTurn.current.acceptPart(event, allowNewResponse)) return;
           if (event?.type === "start") {
             toolResponsePending.current = false;
@@ -641,14 +709,17 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           // The brief is sent just after startSession resolves — see below for
           // why it cannot be sent from here.
         },
-        onDisconnect: () => {
+        onDisconnect: (details: unknown) => {
+          acceptedAudioChunk = null;
           recordTelemetry("disconnected");
           if (!mine()) return;
+          conv.current = null;
+          const setupFailure = isVoiceProviderSetupFailure(details, providerError);
           // An override the agent doesn't allow is not a thrown error: ElevenLabs
           // accepts the socket, then closes the conversation. startSession has
           // already resolved by then, so the only place this is visible is an
           // instant disconnect the customer didn't ask for.
-          if (withOverrides && !endedDeliberately.current && !signingOff.current && Date.now() - startedAt < OVERRIDE_PROBE_MS) {
+          if (!setupFailure && withOverrides && !endedDeliberately.current && !signingOff.current && Date.now() - startedAt < OVERRIDE_PROBE_MS) {
             overridesAllowed = false;
             rememberOverridesBlocked();
             console.warn(
@@ -669,16 +740,18 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
            * added survived this regardless of the socket. The reconnect just
            * gets Gaffer's ears back so the rest of the request isn't lost too.
            */
-          if (!endedDeliberately.current && !signingOff.current && !autoReconnectTried.current) {
+          if (!setupFailure && !endedDeliberately.current && !signingOff.current && !autoReconnectTried.current) {
             autoReconnectTried.current = true;
             console.warn("[Gaffer] unexpected disconnect mid-call — attempting one reconnect.");
             void start(withOverrides);
             return;
           }
 
+          if (setupFailure) setError(VOICE_PROVIDER_SETUP_MESSAGE);
+
           // The reconnect itself didn't hold either — say so rather than
           // leaving the customer looking at a call that just went quiet.
-          if (autoReconnectTried.current && !endedDeliberately.current) {
+          if (!setupFailure && autoReconnectTried.current && !endedDeliberately.current) {
             setError("The line dropped — try calling again.");
           }
           if (farewell.current) { clearTimeout(farewell.current); farewell.current = null; }
@@ -697,7 +770,6 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           agentResponseComplete.current = false;
           toolResponsePending.current = false;
           responseTurn.current.reset();
-          toolsInFlight.current = 0;
           memory.current.clear();
           resetPriceRequest();
           resetSpokenFocus();
@@ -712,10 +784,14 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           const responseWasActive = agentTalking.current || awaitingAgent.current || interruptionAwaitingCaller.current ||
             (agentResponsePending.current && !agentResponseComplete.current);
           if (source === "user" && !responseTurn.current.noteCallerTurn({ event_id, response_id })) return;
+          if (source === "user") {
+            callerTurnNumber.current += 1;
+            callerTurnInterrupted.current = false;
+            latestCallerMessage.current = String(message ?? "").trim().slice(0, 500);
+            toolResponsePending.current = false;
+          }
           if (source === "ai") {
-            const allowNewResponse = !responseTurn.current.hasStartedResponse ||
-              (toolsInFlight.current === 0 &&
-                (responseTurn.current.hasUnansweredCallerTurn || toolResponsePending.current));
+            const allowNewResponse = canStartAgentResponse(responseTurn.current, currentTurnToolsInFlight(), toolResponsePending.current, callerTurnInterrupted.current);
             if (!responseTurn.current.acceptMessage({ event_id, response_id, message }, allowNewResponse)) return;
             toolResponsePending.current = false;
           }
@@ -791,14 +867,16 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         },
         onError: (err: unknown) => {
           if (!mine()) return;
+          providerError = err;
           console.error("[Gaffer] session error", err);
-          setError("The call dropped — try again?");
+          setError(isVoiceProviderSetupFailure(err) ? VOICE_PROVIDER_SETUP_MESSAGE : "The call dropped — try again?");
           // Let onDisconnect perform the bounded reconnect. Clearing conv here
           // orphaned a still-connected session and discarded its context.
           setSpeaking(false);
         },
         onModeChange: (m: any) => {
           if (!mine()) return;
+          if (callerTurnInterrupted.current && m?.mode === "speaking") return;
           const talking = m?.mode === "speaking";
           contextUpdatesReady.current = true;
           if (talking !== agentTalking.current)
@@ -924,6 +1002,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       } catch (err: any) {
         if (!mine()) return;
         const failure = String(err?.message ?? err ?? "");
+        const setupFailure = isVoiceProviderSetupFailure(err);
         const audioFailure = /worklet|audiocontext|audio.*(?:initializ|start|process)/i.test(failure);
         const microphoneFailure = err?.name === "NotAllowedError" || err?.name === "SecurityError";
         const failedSession = conv.current;
@@ -932,13 +1011,15 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         if (failedSession) {
           try { await failedSession.endSession?.(); } catch { /* already gone */ }
         }
-        if (withOverrides && !audioFailure && !microphoneFailure) {
+        if (withOverrides && !setupFailure && !audioFailure && !microphoneFailure) {
           console.warn("[Gaffer] Connection failed — retrying once without the greeting override.", err);
           await start(false);
           return;
         }
         console.error("[Gaffer] failed to start session", err);
-        setError(audioFailure
+        setError(setupFailure
+          ? VOICE_PROVIDER_SETUP_MESSAGE
+          : audioFailure
           ? "Audio couldn't start on this device. Check your microphone and audio settings, then try again."
           : microphoneFailure
             ? "Microphone blocked — allow mic access to talk to Gaffer."

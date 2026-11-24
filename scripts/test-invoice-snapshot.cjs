@@ -5,7 +5,7 @@ const account=put("accounts",{email:"invoice@example.invalid",name:"Invoice Rent
 const listing=put("listings",{title:"Sony FX3",reviewedImageUrls:["https://images.example.invalid/fx3.jpg"]});
 const line={listingId:listing._id,title:"Sony FX3",start:Date.UTC(2030,0,2),end:Date.UTC(2030,0,4),qty:1,lineTotal:80};
 const booking=put("bookings",{
-  accountId:account._id,guestEmail:account.email,guestName:account.name,status:"confirmed",paidConfirmedAt:Date.now(),
+  accountId:account._id,guestEmail:account.email,guestName:account.name,status:"confirmed",idVerifyStatus:"verified",checkoutPaidAt:Date.now(),paidConfirmedAt:Date.now(),
   lineItems:[line],subtotal:80,discount:0,deliveryFee:0,creditApplied:0,membershipCreditApplied:0,depositAmount:50,total:80,
   fulfilment:"pickup",currency:"GBP",agreementDocs:[],
 });

@@ -18,8 +18,10 @@ const delay = milliseconds => new Promise(resolve => setTimeout(resolve, millise
   const statsComponent = pageSource.indexOf('<HomeStats');
   assert(reviewsSection >= 0 && reviewCarousel > reviewsSection && statsComponent > reviewCarousel,
     'Review stats remain below the carousel inside the reviews section');
-  assert(!heroSource.includes('1,300+') && !/renter reviews/i.test(heroSource),
-    'The hero no longer duplicates the review figure');
+  assert(!heroSource.includes('1,300+') && !/profile rating|items for hire/i.test(heroSource),
+    'The hero does not duplicate the full review and inventory stats');
+  assert(heroSource.includes('data-testid="hero-review-summary"'),
+    'The hero keeps only the compact review summary link');
 
   await require('esbuild').build({
     entryPoints: [path.join(__dirname, 'fixtures/home-stats.tsx')],
@@ -54,26 +56,41 @@ const delay = milliseconds => new Promise(resolve => setTimeout(resolve, millise
     browser = await connect('about:blank');
     await browser.cmd('Page.enable');
     await browser.cmd('Runtime.enable');
-    await browser.cmd('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
     await browser.cmd('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
-    await browser.cmd('Page.navigate', { url: `http://127.0.0.1:${server.address().port}` });
-    for (let attempt = 0; attempt < 80 && !(await browser.evaluate("!!document.querySelector('[aria-label=\"Rental and review figures\"]')")); attempt++) await delay(100);
     const selector = '[aria-label="Rental and review figures"]';
-    assert(await browser.evaluate(`!!document.querySelector('${selector}')`), 'Stats render');
-    assert.equal(await browser.evaluate(`document.querySelectorAll('${selector} [aria-hidden="true"]').length`), 3, 'All three figures render');
-    await browser.evaluate(`document.documentElement.style.scrollBehavior='auto';document.querySelector('${selector}').scrollIntoView({block:'center',behavior:'instant'})`);
+    const url = `http://127.0.0.1:${server.address().port}`;
+    for (const { width, height, deviceScaleFactor, mobile } of [
+      { width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
+      { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+    ]) {
+      await browser.cmd('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor, mobile });
+      const previousTimeOrigin = await browser.evaluate('performance.timeOrigin').catch(() => null);
+      await browser.cmd('Page.navigate', { url });
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const loaded = await browser.evaluate(`({ready:document.readyState,origin:performance.timeOrigin,href:location.href})`).catch(() => null);
+        if (loaded?.ready === 'complete' && loaded.href === url && loaded.origin !== previousTimeOrigin) break;
+        await delay(50);
+      }
+      for (let attempt = 0; attempt < 80 && !(await browser.evaluate(`!!document.querySelector('${selector}')`)); attempt++) await delay(100);
+      assert(await browser.evaluate(`!!document.querySelector('${selector}')`), `Stats render at ${width}px`);
+      assert.equal(await browser.evaluate(`document.querySelectorAll('${selector} [aria-hidden="true"]').length`), 3, `All three figures render at ${width}px`);
+      await browser.evaluate(`document.documentElement.style.scrollBehavior='auto';document.querySelector('${selector}').scrollIntoView({block:'center',behavior:'instant'})`);
 
-    const samples = [];
-    for (let index = 0; index < 18; index++) {
-      samples.push(await browser.evaluate(`Array.from(document.querySelectorAll('${selector} [aria-hidden="true"]')).map(item=>item.textContent)`));
-      await delay(110);
+      const samples = [];
+      for (let index = 0; index < 24; index++) {
+        samples.push(await browser.evaluate(`Array.from(document.querySelectorAll('${selector} [aria-hidden="true"]')).map(item=>item.textContent)`));
+        await delay(100);
+      }
+      assert(new Set(samples.map(sample => sample[1])).size > 2, `Review count visibly counts upward at ${width}px`);
+      assert.deepEqual(samples.at(-1), ['4.73', '1,300+', '175'], `Final values match the approved site figures at ${width}px`);
+      assert(await browser.evaluate(`Array.from(document.querySelectorAll('${selector} .sr-only')).map(item=>item.textContent).join('|') === '4.73|1,300+|175'`), `Accessible final values are present without visual duplication at ${width}px`);
+      await delay(500);
+      const settledValues = await browser.evaluate(`Array.from(document.querySelectorAll('${selector} [aria-hidden="true"]')).map(item=>item.textContent)`);
+      assert.deepEqual(settledValues, ['4.73', '1,300+', '175'], `Counters remain at final values after animation settles at ${width}px`);
+      const screenshot = await browser.cmd('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      fs.writeFileSync(`/tmp/dbc-home-stats-${width}.png`, Buffer.from(screenshot.data, 'base64'));
     }
-    assert(new Set(samples.map(sample => sample[1])).size > 2, 'Review count visibly counts upward');
-    assert.deepEqual(samples.at(-1), ['4.73', '1,300+', '175'], 'Final values match the approved site figures');
-    assert(await browser.evaluate(`Array.from(document.querySelectorAll('${selector} .sr-only')).map(item=>item.textContent).join('|') === '4.73|1,300+|175'`), 'Accessible final values are present without visual duplication');
-    const screenshot = await browser.cmd('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
-    fs.writeFileSync('/tmp/dbc-home-stats-390.png', Buffer.from(screenshot.data, 'base64'));
-    console.log('PASS: review figures stay below the carousel, the hero has no duplicate, and the 4.73 / 1,300+ / 175 count-up renders accessibly.');
+    console.log('PASS: mobile and desktop review figures count up, settle at 4.73 / 1,300+ / 175, and remain stable after animation.');
   } finally {
     if (browser) {
       browser.close();

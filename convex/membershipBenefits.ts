@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { studioDeliveryAvailable } from "./lib/memberDelivery";
 import { monthlyCreditPence, tierByKey, MEMBERSHIP_TERMS_VERSION } from "../shared/membership";
 import { membershipSnapshot } from "./lib/membershipSnapshot";
+import { firstEligibleRentalConfirmationAt } from "./lib/rentalBenefitAccount";
 import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
 import { assertAdmin } from "./adminAuth";
 import { legalVersionForPolicy, CURRENT_PRIVACY_NOTICE_VERSION } from "../shared/legalVersioning";
@@ -82,6 +83,10 @@ export const syncSubscription = internalMutation({
       // Completing a trial consumes the offer even though its first invoice is £0.
       if (checkout.intro !== "none") await ctx.db.patch(a.accountId, { membershipIntroUsed: true, membershipIntroChoice: checkout.intro });
     }
+    const savedFirstRentalPaidAt = account.firstRentalPaidAt;
+    const firstRentalPaidAt = typeof savedFirstRentalPaidAt === "number" && Number.isSafeInteger(savedFirstRentalPaidAt) && savedFirstRentalPaidAt > 0
+      ? savedFirstRentalPaidAt
+      : await firstEligibleRentalConfirmationAt(ctx, account);
     await ctx.db.patch(a.accountId, {
       membershipSubscriptionCreatedAt: a.subscriptionCreatedAt,
       stripeSubscriptionId: a.subscriptionId, membershipTier: a.tier,
@@ -89,6 +94,7 @@ export const syncSubscription = internalMutation({
       ...(a.paidThrough ? { membershipPaidThrough: a.paidThrough } : {}),
       membershipTrialEnd: a.trialEnd, membershipCancelAtPeriodEnd: a.cancelAtPeriodEnd,
       membershipSource: undefined,
+      ...(firstRentalPaidAt !== undefined ? { firstRentalPaidAt } : {}),
       // A lifecycle event cannot manufacture paid entitlement. Only paid invoices extend it.
       ...(!["active", "trialing"].includes(a.status) ? { membershipPaidThrough: undefined } : {}),
     });
@@ -106,10 +112,12 @@ export const grantPaidInvoice = internalMutation({
       } else await assertAdmin(ctx, a.adminRetryToken, "membershipBenefits.grantPaidInvoiceRetry");
     }
     if (!Number.isSafeInteger(a.paidMembershipPence) || a.paidMembershipPence <= 0 || !Number.isSafeInteger(a.periodEnd)) throw Error("Invalid paid membership invoice.");
+    if (a.initialRefundedPence !== undefined && (!Number.isSafeInteger(a.initialRefundedPence) || a.initialRefundedPence < 0)) throw Error("Invalid refunded membership amount.");
     const existing = await ctx.db.query("membership_credit_grants").withIndex("by_invoice", q => q.eq("invoiceId", a.invoiceId)).unique();
     if (existing) {
       if (existing.accountId !== a.accountId || existing.subscriptionId !== a.subscriptionId || existing.paidMembershipPence !== a.paidMembershipPence) throw Error("Membership invoice ownership mismatch.");
       if (a.historicalBonusPercent !== undefined && existing.historicalBonusPercent !== undefined && (existing.historicalBonusPercent !== a.historicalBonusPercent || existing.historicalPriceId !== a.historicalPriceId || existing.historicalTermsVersion !== a.historicalTermsVersion)) throw Error("Membership invoice historical terms mismatch.");
+      if (a.initialRefundedPence !== undefined) await revokeRefundedInvoiceInMutation(ctx, {invoiceId:a.invoiceId,membershipRefundedPence:a.initialRefundedPence});
       return existing._id;
     }
     let recoveryJob: any;

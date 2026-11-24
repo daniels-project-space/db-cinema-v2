@@ -24,14 +24,30 @@ export function HomeApertureTransitionProvider({ children }: { children: React.R
   const [run, setRun] = useState(0);
   const phaseRef = useRef<TransitionPhase>("idle");
   const timers = useRef<number[]>([]);
+  const gearPrefetchStarted = useRef(false);
   const clearTimers = useCallback(() => { timers.current.forEach(window.clearTimeout); timers.current = []; }, []);
   const setCurrentPhase = useCallback((next: TransitionPhase) => { phaseRef.current = next; setPhase(next); }, []);
+  const prefetchGear = useCallback(() => {
+    if (!gearPrefetchStarted.current) {
+      gearPrefetchStarted.current = true;
+      router.prefetch("/gear");
+    }
+    if (!document.head.querySelector('link[data-home-gear-preload="poster"]')) {
+      const poster = document.createElement("link");
+      poster.rel = "preload";
+      poster.as = "image";
+      poster.href = "/gear-loop-poster.jpg";
+      poster.setAttribute("fetchpriority", "high");
+      poster.dataset.homeGearPreload = "poster";
+      document.head.append(poster);
+    }
+  }, [router]);
 
   const begin = useCallback((source?: HTMLElement | null) => {
     if (phaseRef.current !== "idle" && phaseRef.current !== "canceling") return;
     clearTimers();
-    router.prefetch("/gear");
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { router.push("/gear"); return; }
+    prefetchGear();
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const aperture = source?.querySelector<HTMLElement>("[data-testid='home-aperture-iris']") ?? source;
     const rect = aperture?.getBoundingClientRect();
     setOrigin(rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, size: rect.width } : { x: window.innerWidth / 2, y: window.innerHeight / 2, size: 132 });
@@ -47,7 +63,7 @@ export function HomeApertureTransitionProvider({ children }: { children: React.R
         timers.current.push(window.setTimeout(() => { if (phaseRef.current === "navigating") setCurrentPhase("idle"); }, 15_000));
       }, 1700));
     }, CHARGE_MS));
-  }, [clearTimers, router, setCurrentPhase]);
+  }, [clearTimers, prefetchGear, router, setCurrentPhase]);
 
   const cancel = useCallback(() => {
     if (phaseRef.current !== "charging") return;
@@ -59,7 +75,7 @@ export function HomeApertureTransitionProvider({ children }: { children: React.R
   const openNow = useCallback((source?: HTMLElement | null) => {
     if (phaseRef.current === "committed" || phaseRef.current === "navigating" || phaseRef.current === "revealing") return;
     clearTimers();
-    router.prefetch("/gear");
+    prefetchGear();
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { setCurrentPhase("idle"); router.push("/gear"); return; }
     if (phaseRef.current !== "charging") {
       const aperture = source?.querySelector<HTMLElement>("[data-testid='home-aperture-iris']") ?? source;
@@ -70,7 +86,7 @@ export function HomeApertureTransitionProvider({ children }: { children: React.R
     setCurrentPhase("navigating");
     router.push("/gear");
     timers.current.push(window.setTimeout(() => { if (phaseRef.current === "navigating") setCurrentPhase("idle"); }, 15_000));
-  }, [clearTimers, router, setCurrentPhase]);
+  }, [clearTimers, prefetchGear, router, setCurrentPhase]);
 
   useLayoutEffect(() => {
     if (phase !== "navigating" || pathname !== "/gear") return;
@@ -93,6 +109,7 @@ export function HomeApertureTransitionProvider({ children }: { children: React.R
 
   useLayoutEffect(() => {
     if (phase === "idle") {
+      gearPrefetchStarted.current = false;
       delete document.body.dataset.apertureTransition;
       document.body.style.removeProperty("--aperture-main-x");
       document.body.style.removeProperty("--aperture-main-y");

@@ -62,12 +62,12 @@ const clientTool = (name, description, properties = {}, required = []) => ({
 });
 
 const DATES = {
-  start: str("Hire start date. Pass what the customer said, e.g. 'in a week from now', 'next Friday', or an ISO date."),
-  end: str("Hire end date, same format as start. Omit for a single day."),
+  start: str("First hire date. Pass exactly what the customer said or an ISO date; do not invent a date."),
+  end: str("Return date. Both dates are required for availability or a quote; for one-day hire pass the same date only when the customer explicitly said that."),
 };
 
 const NEW_TOOLS = [
-  clientTool("email_checkout_cart", "After the customer asks for or agrees to an email, save and email their exact current cart and hire dates as a private checkout link. It rechecks availability and offers replacements; it does not reserve or charge. Never claim it was emailed unless this tool succeeds.", {email:str("Customer email; omit when signed in.")}),
+  clientTool("email_checkout_cart", "After the customer asks for or agrees to an email, save and email the discussed basket or proposed kit as a private link. Undated catalogue items stay unquoted and unavailability-checked; the renter selects dates on the link before stock and price are calculated. Dated lines keep their selected dates. It never reserves or charges. Never claim it was emailed unless this tool succeeds.", {email:str("Customer email; omit when signed in.")}),
   clientTool("setup_account", "After they agree to create an account, collect name, phone and email. Emails a one-time code and opens the private code form; the customer must enter it themselves and immediately set a new password. Never ask for their code or password. Keeps their discussed cart linked.", {name:str("Full name"),phone:str("Phone number"),email:str("Email address")}, ["name","phone","email"]),
   clientTool("reset_password", "When asked to reset a forgotten password, email a one-time code and open the reset form. Customer enters the code privately and chooses a new password. Never ask for either; don't reveal whether an account exists.", {email:str("Account email address")}, ["email"]),
   clientTool("switch_unavailable", "Only after the customer chooses and confirms a replacement, replace one unavailable basket item with the exact currently available alternative, keeping its hire dates. Use exact titles from check_basket. Rechecks stock before switching.", {item:str("Exact unavailable basket item title"),replacement:str("Exact available replacement title")}, ["item","replacement"]),
@@ -122,19 +122,19 @@ const NEW_TOOLS = [
   clientTool("open_chat", "Open the customer's own chat thread, where you can reply after the call."),
   clientTool(
     "browse_for",
-    "Filter the catalogue on screen and report which of the results are actually free for the dates.",
+    "Filter the catalogue on screen. Check stock only when both hire dates are known; otherwise show catalogue options without claiming availability and ask for both dates.",
     { item: str("What they asked for, e.g. 'wide lens'."), category: str("Category, e.g. Lenses, Lighting, Cameras."), ...DATES },
   ),
   clientTool(
     "find_gear",
-    "Check what matches a request and which options are genuinely available for the dates, without leaving the page.",
+    "Find matching catalogue items. Check availability only when both dates are known; otherwise report catalogue options and ask for the missing date details.",
     { item: str("The gear they asked for."), ...DATES },
     ["item"],
   ),
   clientTool("select_item", "Highlight an item on screen without adding it to the basket.", { item: str("The gear to highlight.") }, ["item"]),
   clientTool(
     "suggest_alternatives",
-    "Offer same-category items that are actually free for the dates. Use when something is booked out.",
+    "Offer same-category items that are actually free for both requested dates. If either date is missing, ask for the complete date range without checking or claiming stock.",
     { item: str("The item that isn't available."), ...DATES },
     ["item"],
   ),

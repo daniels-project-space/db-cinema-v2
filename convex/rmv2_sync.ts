@@ -23,8 +23,21 @@ import { securityReady, verificationValidUntil } from "../shared/verificationPro
 import { stockWindow } from "./lib/stockWindows";
 import { bookingStockLines } from "../shared/rentalWindow";
 import { swapAuthorityAvailable } from "./lib/rentalSwapAuthority";
+import { bookingRentalRevenueBreakdown } from "./lib/rentalRevenue";
+import { TRAFALGAR_PICKUP_ADDRESS, TRAFALGAR_PICKUP_INSTRUCTIONS } from "../shared/pickupLocation";
+import { listingRentalImages } from "./lib/catalogImages";
 
 const PAID_STATUSES = new Set(["confirmed", "active", "returned"]);
+const UK_POSTCODE = /\b(?:[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}|GIR\s?0AA)\b/i;
+
+function postcodeFromAddress(address?: string | null) {
+  return address?.match(UK_POSTCODE)?.[0]?.replace(/\s+/g, " ").toUpperCase() ?? null;
+}
+
+function isPaidPendingDiditBooking(b: Doc<"bookings">): boolean {
+  return b.status === "pending_verification" && b.verificationProvider === "didit" &&
+    typeof b.checkoutPaidAt === "number" && Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt > 0;
+}
 
 /**
  * Map ONE booking doc into the `SiteBooking` shape RMv2 ingests.
@@ -50,7 +63,7 @@ export function mapBookingForSync(
     const listing = listingById.get(String(li.listingId));
     const unitsOut: Array<{ hyggloProductId: number; qty: number }> = [];
     if (listing) {
-      for (const comp of listing.components ?? []) {
+      for (const comp of li.physicalAllocation?.components ?? listing.components ?? []) {
         const u = unitById.get(String(comp.inventoryUnitId));
         if (u && typeof u.hyggloProductId === "number") {
           unitsOut.push({
@@ -62,7 +75,7 @@ export function mapBookingForSync(
       // Fallback: a listing that carries its own hyggloProductId but no
       // component breakdown.
       if (
-        unitsOut.length === 0 &&
+        unitsOut.length === 0 && !li.physicalAllocation &&
         typeof (listing as { hyggloProductId?: number }).hyggloProductId === "number"
       ) {
         unitsOut.push({
@@ -74,6 +87,10 @@ export function mapBookingForSync(
     return {
       title: li.title,
       qty: li.qty ?? 1,
+      imageUrl: (() => {
+        const image = listingRentalImages(listing)[0];
+        return image ? new URL(image, "https://dbcinemarentals.com").href : null;
+      })(),
       start: li.start,
       end: li.end,
       pickupTime:li.pickupTime===undefined?b.pickupTime??null:li.pickupTime,
@@ -86,8 +103,13 @@ export function mapBookingForSync(
   const starts = (b.lineItems ?? []).map((li) => li.start);
   const ends = (b.lineItems ?? []).map((li) => li.end);
 
+  // The 90-day clock governs reuse for future rentals, not the approval
+  // already recorded on this paid rental. Keep the RM projection aligned with
+  // the website's confirmed-rental gate; pending verification still requires
+  // a current reusable pass before it can be confirmed.
+  const bookingApprovalStillValid = PAID_STATUSES.has(b.status) || (verificationValidUntil(b) ?? 0) > Date.now();
   const documentsApproved = !!verificationReadiness?.accountId && b.idVerifyStatus === "verified" &&
-    (verificationValidUntil(b) ?? 0) > Date.now() &&
+    bookingApprovalStillValid &&
     verificationReadiness.archiveReady === true &&
     (!verificationReadiness.requiresDroneLicence || verificationReadiness.droneLicenceStatus === "approved");
 
@@ -105,7 +127,7 @@ export function mapBookingForSync(
     paidConfirmedAt: typeof b.paidConfirmedAt === "number" && Number.isSafeInteger(b.paidConfirmedAt) && b.paidConfirmedAt > 0 ? b.paidConfirmedAt : null,
     // Persisted only after the Stripe Checkout Session was retrieved and verified as paid or no-payment-required.
     ...(typeof b.checkoutPaidAt === "number" && Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt > 0 && b.stripePaymentIntentId && b.stripeCheckoutSessionId
-      ? { paymentEvidence: { status: "succeeded" as const, paymentIntentId: b.stripePaymentIntentId, checkoutSessionId: b.stripeCheckoutSessionId, paidAt: b.checkoutPaidAt } }
+      ? { paymentEvidence: { status: "succeeded" as const, paymentIntentId: b.stripePaymentIntentId, paidAt: b.checkoutPaidAt } }
       : typeof b.checkoutPaidAt === "number" && Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt > 0 && b.stripeCheckoutSessionId
         ? { paymentEvidence: { status: "no_payment_required" as const, checkoutSessionId: b.stripeCheckoutSessionId, paidAt: b.checkoutPaidAt } }
         : {}),
@@ -128,7 +150,11 @@ export function mapBookingForSync(
     customerName: cust?.name ?? b.guestName ?? null,
     customerEmail: cust?.email ?? b.guestEmail ?? null,
     fulfilment: b.fulfilment,
-    deliveryLegs: b.deliveryLegs,
+    deliveryLegs: b.fulfilment === "delivery" ? b.deliveryLegs ?? null : null,
+    deliveryAddress: b.fulfilment === "delivery" ? b.address?.trim() || null : null,
+    deliveryPostcode: b.fulfilment === "delivery" ? postcodeFromAddress(b.address) : null,
+    pickupAddress: TRAFALGAR_PICKUP_ADDRESS,
+    pickupInstructions: TRAFALGAR_PICKUP_INSTRUCTIONS,
     pickupTime: b.pickupTime ?? null,
     returnTime: b.returnTime ?? null,
     start: starts.length ? Math.min(...starts) : b._creationTime,
@@ -149,10 +175,10 @@ export function mapBookingForSync(
     })) } : {}),
     // This ledger was allocated at confirmation/change time. Catalogue edits
     // must not re-decompose a booked kit or extend all components to one period.
-    ...(reservations?.length ? { physicalReservations: reservations
+    ...(b.status === "pending_verification" || reservations?.length ? { physicalReservations: (reservations ?? [])
       .filter(r => r.source === "site" && (["confirmed", "active", "returned"].includes(r.status) ||
         b.status === "pending_verification" && b.verificationProvider === "didit" &&
-        typeof b.checkoutPaidAt === "number" && Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt > 0 && b.idVerifyStatus !== "rejected" &&
+        typeof b.checkoutPaidAt === "number" && Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt > 0 &&
         r.status === "hold" && !r.extensionRequestId && !r.externalRef))
       .map(r => {
         const unit = unitById.get(String(r.inventoryUnitId));
@@ -194,7 +220,7 @@ export const forRmv2Sync = query({
     }
 
     const rows = await ctx.db.query("bookings").order("desc").take(1000);
-    const paid = rows.filter((b) => PAID_STATUSES.has(b.status));
+    const paid = rows.filter((b) => PAID_STATUSES.has(b.status) || isPaidPendingDiditBooking(b));
 
     const listings = await ctx.db.query("listings").collect();
     const listingById = new Map(listings.map((l) => [String(l._id), l]));
@@ -203,7 +229,9 @@ export const forRmv2Sync = query({
     const customers = await ctx.db.query("customers").collect();
     const custById = new Map(customers.map((c) => [String(c._id), c]));
 
-    const bookings = await Promise.all(paid.map(async b => mapBookingForSync(b, listingById, unitById, custById, undefined, undefined, await verificationReadiness(ctx,b))));
+    const bookings = await Promise.all(paid.map(async b => isPaidPendingDiditBooking(b) || b.lineItems.some(line => line.physicalAllocation)
+      ? loadBookingProjection(ctx, b)
+      : withRentalRevenueProjection(ctx,b,mapBookingForSync(b, listingById, unitById, custById, undefined, undefined, await verificationReadiness(ctx,b)))));
 
     return { authorized: true as const, bookings };
   },
@@ -234,11 +262,10 @@ async function loadBookingProjection(ctx: any, b: Doc<"bookings">) {
     const unitById = new Map<string, Doc<"inventory_units">>();
     for (const li of b.lineItems ?? []) {
       const lKey = String(li.listingId);
-      if (listingById.has(lKey)) continue;
-      const listing = await ctx.db.get(li.listingId);
+      const listing = listingById.get(lKey) ?? await ctx.db.get(li.listingId);
       if (!listing) continue;
       listingById.set(lKey, listing);
-      for (const comp of listing.components ?? []) {
+      for (const comp of li.physicalAllocation?.components ?? listing.components ?? []) {
         const uKey = String(comp.inventoryUnitId);
         if (unitById.has(uKey)) continue;
         const unit = await ctx.db.get(comp.inventoryUnitId);
@@ -265,7 +292,7 @@ async function loadBookingProjection(ctx: any, b: Doc<"bookings">) {
       const unit = await ctx.db.get(record.inventoryUnitId);
       if (unit) unitById.set(String(unit._id), unit);
     }
-    const booking=mapBookingForSync(b, listingById, unitById, custById, reservations, damageCases, await verificationReadiness(ctx,b));
+    const booking=await withRentalRevenueProjection(ctx,b,mapBookingForSync(b, listingById, unitById, custById, reservations, damageCases, await verificationReadiness(ctx,b)));
     if(!swapAuthorityAvailable() || process.env.SHARED_STOCK_BRIDGE_EXPERIMENTAL!=="true")return booking;
     if(b.status==="pending_verification")return booking;
     const initial=await ctx.db.query("booking_stock_claims").withIndex("by_booking",(q:any)=>q.eq("bookingId",b._id)).unique();
@@ -289,6 +316,20 @@ async function loadBookingProjection(ctx: any, b: Doc<"bookings">) {
       if(JSON.stringify(saved)!==JSON.stringify(current))return booking;
     }
     return {...booking,stockApplicationReceipt:{swapId:String(receipt.swapId),bookingId:String(receipt.bookingId),bookingRevision:receipt.bookingRevision,managerRequestId:receipt.managerRequestId,fingerprint:receipt.fingerprint,executionKey:receipt.executionKey,appliedAt:receipt.appliedAt,windows:receipt.windows.map((window:any)=>({...window,reservationId:String(window.reservationId),inventoryUnitId:String(window.inventoryUnitId)}))}};
+}
+
+async function withRentalRevenueProjection(ctx: any, booking: Doc<"bookings">, projection: any) {
+  const hasSettledCheckout = booking.checkoutPaymentStatus === "paid" || booking.checkoutPaymentStatus === "no_payment_required";
+  if (!PAID_STATUSES.has(booking.status) && !isPaidPendingDiditBooking(booking) && !hasSettledCheckout) return projection;
+  let breakdown;
+  try { breakdown = await bookingRentalRevenueBreakdown(ctx, booking); }
+  catch { breakdown = { complete: false as const }; }
+  return {
+    ...projection,
+    rentalRevenue: breakdown.complete
+      ? { version: 1 as const, complete: true as const, currency: "GBP" as const, cashPence: breakdown.cashPence, creditPence: breakdown.creditPence }
+      : { version: 1 as const, complete: false as const, currency: "GBP" as const },
+  };
 }
 
 async function verificationReadiness(ctx: any, b: Doc<"bookings">) {

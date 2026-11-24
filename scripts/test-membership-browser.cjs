@@ -57,18 +57,25 @@ async function connect(url, existingId) {
 
 const { ConvexHttpClient } = require("convex/browser"),
   { api } = require("../convex/_generated/api.js");
+const { resolveConvexTestTarget } = require("./lib/convexTestTarget.cjs");
 const { marketingRedirect } = require("./lib/rentalTestHarness.cjs").load("convex/lib/marketingInventory.ts");
-const {ASSESSMENT_SECURITY_POLICY_VERSION,CARD_HOLD_SECURITY_POLICY_VERSION,REFUNDABLE_DEPOSIT_POLICY_VERSION,SECURITY_POLICY_VERSION,SETUP_INTENT_SECURITY_POLICY_VERSION,assessmentDepositFor,cardHoldFor,setupIntentSecurityLimit}=require("./lib/rentalTestHarness.cjs").load("shared/rentalSecurity.ts");
-// The shared staging deployment can contain a newer, unreleased policy. The
-// production UI must refuse it until its separately reviewed release lands.
+const {ASSESSMENT_SECURITY_POLICY_VERSION,CARD_HOLD_SECURITY_POLICY_VERSION,REFUNDABLE_DEPOSIT_POLICY_VERSION,SECURITY_POLICY_VERSION,SETUP_INTENT_SECURITY_POLICY_VERSION,IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION,assessmentDepositFor,cardHoldFor,setupIntentSecurityLimit,immediateClaimSecurityLimit,cardLimitForPolicy}=require("./lib/rentalTestHarness.cjs").load("shared/rentalSecurity.ts");
+// Shared staging still reports the previous v2 cap. Checkout must refuse it
+// until the scaled v3 backend and its reviewed agreement ship together.
 const STAGED_UNRELEASED_POLICY="2026-11-immediate-claim-v2";
 const isStagedUnreleasedPolicy=version=>version===STAGED_UNRELEASED_POLICY && (process.env.DBC_CONVEX_URL||'').includes('deafening-stoat-340.convex.cloud');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
-  const root = process.env.DBC_BROWSER_ROOT || "http://127.0.0.1:41795",
-    cv = new ConvexHttpClient(
-      process.env.DBC_CONVEX_URL || "https://veracious-wombat-196.convex.cloud",
+  const convexUrl = resolveConvexTestTarget(process.env);
+  if (process.env.NEXT_PUBLIC_CONVEX_URL) {
+    assert.equal(
+      convexUrl,
+      resolveConvexTestTarget({ NEXT_PUBLIC_CONVEX_URL: process.env.NEXT_PUBLIC_CONVEX_URL }),
+      "The browser app and membership test must use the same Convex deployment",
     );
+  }
+  const root = process.env.DBC_BROWSER_ROOT || "http://127.0.0.1:41795",
+    cv = new ConvexHttpClient(convexUrl);
   const checkoutEnabled = (await cv.query(api.settings.get, {})).checkoutEnabled === true;
   const r = await cv.query(api.catalog.listListings, {}),
     rows = (Array.isArray(r) ? r : (r.items ?? r.listings ?? [])).filter(l => !(l.marketingOnly ?? !!marketingRedirect(l)));
@@ -410,7 +417,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   }else if(paid.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION||isStagedUnreleasedPolicy(paid.securityPolicyVersion)){
     assert.equal(paid.depositAmount,0,'SetupIntent security does not charge a deposit');
     assert.equal(paid.depositHoldAmount,0,'SetupIntent security does not reserve card funds');
-    assert.equal(paid.savedCardLimit,setupIntentSecurityLimit(paid.replacementValue),'The saved-card claim ceiling follows the agreed value tier');
+    assert.equal(paid.savedCardLimit,setupIntentSecurityLimit(paid.replacementValue),'The previous staged policy keeps its original flat value tier');
+  }else if(paid.securityPolicyVersion===IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION){
+    assert.equal(paid.depositAmount,0,'Scaled immediate claims do not charge a deposit');
+    assert.equal(paid.depositHoldAmount,0,'Scaled immediate claims do not reserve card funds');
+    assert.equal(paid.savedCardLimit,immediateClaimSecurityLimit(paid.replacementValue),'The new saved-card ceiling scales with equipment value');
   }else if(paid.securityPolicyVersion===CARD_HOLD_SECURITY_POLICY_VERSION){
     assert.equal(paid.depositAmount,0,'A card hold replaces the cash deposit');
     assert.equal(paid.depositHoldAmount,paid.securityWaiverReason?0:cardHoldFor(paid.replacementValue),'The card hold follows the agreed value tier');
@@ -746,7 +757,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       return Math.round(value*10)/100;
     })();
     assert.equal(bandQuote.depositAmount,expectedDeposit);assert.equal(bandQuote.depositHoldAmount,expectedHold);
-    if(setupIntentPolicy||stagedUnreleased)assert.equal(bandQuote.savedCardLimit,setupIntentSecurityLimit(value));
+    if(setupIntentPolicy||stagedUnreleased)assert.equal(bandQuote.savedCardLimit,cardLimitForPolicy(version,value));
     else if(assessmentPolicy||cardHoldPolicy)assert.equal(bandQuote.savedCardLimit,0);
     else assert.equal(bandQuote.savedCardLimit,Math.round(value*10)/100);
     const bandItem={...weekdayItem,key:fixture._id+':security-band',listingId:fixture._id,title:fixture.title,slug:fixture.slug,heroImage:fixture.heroImage,deposit:fixture.depositAmount,total:bandQuote.items[0].total};
@@ -757,7 +768,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-chooser"]')`),false,'No checkout fallback chooser even when the recommendation is absent');
     if(!bandQuote.recommendations.some(r=>r.netSaving>0)) assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-upsell"]')`),false,'No positive savings means no membership card on checkout');
     assert.equal(await c.evaluate(`document.querySelectorAll('[data-testid="rental-consent"] input[type="checkbox"]').length`),1,'One combined rental consent checkbox');
-    const expectedSecurityHeading=assessmentPolicy?'Refundable deposit':setupIntentPolicy?'Saved card & future claims':cardHoldPolicy?'Card authorisation hold':currentSecurityPolicy?'Deposit & card limit':'Quote updating';
+    const expectedSecurityHeading=assessmentPolicy?'Refundable deposit':setupIntentPolicy?'Saved card':cardHoldPolicy?'Card authorisation hold':currentSecurityPolicy?'Deposit & card limit':'Quote updating';
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').textContent.includes(${JSON.stringify(expectedSecurityHeading)})`),true);
     if(stagedUnreleased)assert.equal(await c.evaluate(`document.querySelector('[data-testid="checkout-pay-button"]').disabled`),true,'Unreleased staging policy stays blocked');
     else if(!currentSecurityPolicy)assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').textContent.includes('£100.00')`),true);

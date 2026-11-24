@@ -9,7 +9,7 @@ process.env.DIDIT_APPLICATION_ID = "application-fixture";
 process.env.DIDIT_ENVIRONMENT = "sandbox";
 delete process.env.ADMIN_SESSION_DIDIT_REVIEW_V2;
 
-const { adminVerificationLink } = load("convex/didit.ts");
+const { adminVerificationLink, refreshProgress } = load("convex/didit.ts");
 const booking = put("bookings", {
   _id: "bookings-didit-link-fixture",
   status: "pending_verification",
@@ -31,9 +31,10 @@ let decision = {
   id_verifications: [{ document_number: "private" }],
 };
 let fetchCount = 0;
+let fetchStatus = 200;
 global.fetch = async () => {
   fetchCount++;
-  return new Response(JSON.stringify(decision), { status: 200, headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify(decision), { status: fetchStatus, headers: { "content-type": "application/json" } });
 };
 
 const ctx = {
@@ -42,6 +43,8 @@ const ctx = {
       if (args.token !== process.env.ADMIN_TOKEN) throw new Error("unauthorized");
       return;
     }
+    if (reference === "bookings.claimDiditProgressRefresh") return true;
+    if (reference === "bookings.flagDiditProcessingFailure") return;
     throw new Error(`Unexpected mutation ${reference}`);
   },
   runQuery: async (reference, args) => {
@@ -59,6 +62,20 @@ const ctx = {
   }, "only the provider URL and sanitized warnings are returned to the admin");
   assert.equal(JSON.stringify(result).includes("private"), false, "document data never enters the browser response");
   assert.equal(fetchCount, 1);
+  const originalDecision = decision;
+  decision = { ...decision, warnings: [], decision_trace: { status_warnings: [{ feature: 'POA', risk: 'DOCUMENT_BLURRED', short_description: '<b>Blurry bill</b>', long_description: 'Upload a clearer bill.', additional_data: { document_number: 'private' } }] },
+    id_verifications: [{ document_number: 'private', warnings: [{ risk: 'IMAGE_TOO_BLURRY' }] }],
+    poa_verifications: [{ address: 'PRIVATE ADDRESS', warnings: [{ risk: 'ADDRESS_MISMATCH', short_description: '<i>Address mismatch</i>', long_description: 'Please inspect the address.' }] }],
+    face_matches: [{ source_image: 'https://private.invalid/portrait', warnings: [{ risk: 'FACE_MISMATCH', short_description: 'Face match needs review' }] }] };
+  const nested = await adminVerificationLink.handler(ctx, args);
+  assert.deepEqual(nested.issues, [
+    { feature: 'POA', risk: 'DOCUMENT_BLURRED', summary: 'Blurry bill', detail: 'Upload a clearer bill.' },
+    { feature: 'Photo ID', risk: 'IMAGE_TOO_BLURRY', summary: 'IMAGE TOO BLURRY', detail: '' },
+    { feature: 'Face match', risk: 'FACE_MISMATCH', summary: 'Face match needs review', detail: '' },
+    { feature: 'Proof of address', risk: 'ADDRESS_MISMATCH', summary: 'Address mismatch', detail: 'Please inspect the address.' },
+  ], 'decision-trace and individual check warnings appear without raw documents or identity data');
+  assert.doesNotMatch(JSON.stringify(nested), /PRIVATE ADDRESS|private\.invalid|document_number/);
+  decision = originalDecision;
 
   const beforeUnauthorized = fetchCount;
   await assert.rejects(adminVerificationLink.handler(ctx, { ...args, token: "wrong" }), /unauthorized/);
@@ -83,5 +100,22 @@ const ctx = {
   process.env.ADMIN_SESSION_DIDIT_REVIEW_V2 = "enabled";
   const modernAuth = await adminVerificationLink.handler(ctx, args);
   assert.deepEqual(modernAuth, result, "the scoped admin-session permission also works");
+  const appId = process.env.DIDIT_APPLICATION_ID;
+  delete process.env.DIDIT_APPLICATION_ID;
+  await assert.rejects(adminVerificationLink.handler(ctx, args), /Didit is not configured.*API key, workflow, application ID, webhook secret and environment/,
+    "admin errors identify missing provider configuration instead of displaying a customer checkout prompt");
+  process.env.DIDIT_APPLICATION_ID = appId;
+  fetchStatus = 403;
+  await assert.rejects(adminVerificationLink.handler(ctx, args), /Didit denied the session read.*session-read permission.*no decision was changed/,
+    "provider permission errors point admins to the server key scope instead of asking them to retry blindly");
+  await assert.rejects(refreshProgress.handler(ctx, { bookingId: booking._id, accountToken: process.env.ADMIN_TOKEN, admin: true }),
+    /Didit denied the session read.*session-read permission.*no decision was changed/,
+    "admin refresh surfaces the same actionable provider permission error without changing verification state");
+  fetchStatus = 404;
+  await assert.rejects(adminVerificationLink.handler(ctx, args), /Didit returned 404.*Check the session ID in Didit Business Console.*not approved or reset/,
+    "a stale session is identified distinctly and never treated as an approval or reset");
+  fetchStatus = 422;
+  await assert.rejects(adminVerificationLink.handler(ctx, args), /Didit rejected the session read \(HTTP 422\).*Check the session and workflow.*no decision was changed/,
+    "other provider read failures tell admins to inspect the bound session without mutating the rental");
   console.log("PASS Didit admin case link: authenticated, bound to the open rental/workflow, allowlisted URL only.");
 })().catch((error) => { console.error(error); process.exitCode = 1; });

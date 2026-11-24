@@ -1,6 +1,10 @@
-const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),h=require('./lib/rentalTestHarness.cjs');
 process.env.ADMIN_TOKEN='credit-grant-fixture-admin';
+const rentalChat=h.load('convex/lib/rentalChat.ts'),creditMessages=[];
+h.setMock('./lib/rentalChat',{...rentalChat,postRentalMessage:async(_ctx,message)=>{creditMessages.push(message);return `credit-message-${creditMessages.length}`;}});
 const credits=h.load('convex/accountCredits.ts');
+const creditSource=fs.readFileSync(path.resolve(__dirname,'../convex/accountCredits.ts'),'utf8');
+assert.doesNotMatch(creditSource,/from\s+["']stripe["']|require\(["']stripe["']\)|runAction\(/,'Manual account credit is a ledger write, never a Stripe payment/refund action');
 const account=h.put('accounts',{email:'owner-credit@example.invalid'}),other=h.put('accounts',{email:'other@example.invalid'}),now=Date.now();
 h.put('sessions',{token:'owned-credit-token',accountId:account._id,expiresAt:now+86400000});
 const ctx={db:h.db,scheduler:{runAfter:async()=>{}}},args={token:process.env.ADMIN_TOKEN,accountId:account._id,amount:10,requestId:'fixture-admin-credit-012345',expectedRevision:0,reason:'Customer service goodwill'};
@@ -14,9 +18,11 @@ const ctx={db:h.db,scheduler:{runAfter:async()=>{}}},args={token:process.env.ADM
  await assert.rejects(credits.grantStatus.handler(ctx,{token:'wrong',accountId:account._id}),/unauthorized/i,'Credit balance projection stays admin-only');
  assert.equal((await credits.grantStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,accountId:account._id})).availablePence,0,'A new account starts with no available credit');
  const result=await credits.grantAdmin.handler(ctx,args);assert.equal(result.amount,10);assert.equal(result.replayed,false);
+ assert.equal(creditMessages.length,1,'An issued credit posts one renter-facing system notification');assert.equal(creditMessages[0].accountId,account._id);assert.equal(creditMessages[0].sender,'system');assert.match(creditMessages[0].text,/£10\.00 account credit has been added/);assert.match(creditMessages[0].text,/not a cash refund/i);assert.equal(creditMessages[0].bookingId,undefined,'A general account credit appears in the account-support thread, not an unrelated rental');
  const receipt=await credits.grantStatus.handler(ctx,{token:process.env.ADMIN_TOKEN,accountId:account._id,requestId:args.requestId});assert.equal(receipt.revision,1);assert.equal(receipt.receipt.amount,10);assert.equal(receipt.latest.requestId,args.requestId);assert.equal(receipt.availablePence,1000,'An issued grant increases the account balance');
  const row=await h.db.get(result.creditId);assert.equal(row.expiresAt-row.createdAt,365*86400000);assert.equal(row.kind,'earned');
  const oldNow=Date.now;Date.now=()=>now+86400000;try{const retry=await credits.grantAdmin.handler(ctx,args);assert.equal(retry.creditId,result.creditId);assert.equal(retry.expiresAt,result.expiresAt);assert.equal(retry.replayed,true);}finally{Date.now=oldNow}
+ assert.equal(creditMessages.length,1,'An idempotent retry does not duplicate the renter notification');
  assert.equal((await credits.statement.handler(ctx,{token:process.env.ADMIN_TOKEN,creditId:row._id})).amount,10);
  assert.equal((await credits.statement.handler(ctx,{token:'owned-credit-token',creditId:row._id})).email,account.email);
  h.put('sessions',{token:'other-credit-token',accountId:other._id,expiresAt:now+86400000});

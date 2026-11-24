@@ -13,7 +13,7 @@ export async function expireUnpaidCheckoutSession(args:{
   session:any;
   expireStripe:(sessionId:string)=>Promise<any>;
   retrieveStripe:(sessionId:string)=>Promise<any>;
-  expireBooking:(sessionId:string)=>Promise<boolean>;
+  expireBooking:(sessionId:string,sessionStatus:"expired",paymentStatus:"unpaid")=>Promise<boolean>;
 }){
   let current=args.session;
   if(checkoutSessionState(current)==="open_unpaid"){
@@ -23,6 +23,6 @@ export async function expireUnpaidCheckoutSession(args:{
   const state=checkoutSessionState(current);
   if(state==="paid")return {state:"paid" as const,session:current,bookingExpired:false};
   if(state!=="expired_unpaid")return {state:"indeterminate" as const,session:current,bookingExpired:false};
-  const bookingExpired=await args.expireBooking(current.id);
+  const bookingExpired=await args.expireBooking(current.id,"expired","unpaid");
   return {state:"expired_unpaid" as const,session:current,bookingExpired};
 }

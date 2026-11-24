@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { GafferCall } from "@/components/GafferCall";
-import { IconArrowRight } from "@/components/icons";
+import { IconArrowRight, IconStar } from "@/components/icons";
 
 type Cat = { name: string; count: number };
+type Rating = { ratingValue: number; reviewCountLabel: string };
+const STARTUP_PLAYBACK_TIMEOUT_MS = 8000;
 
 /**
  * Minimal gear callouts, mapped to the kit in the opening room frame.
@@ -28,19 +30,29 @@ const CALLOUTS: {
   { cat: "Audio", unit: "kits", dot: [1455, 420], label: [1245, 662], from: [1270, 650] },
 ];
 
-export function HeroCinematic({ categories }: { categories: Cat[] }) {
+export function HeroCinematic({ categories, rating }: { categories: Cat[]; rating: Rating }) {
   const c1Ref = useRef<HTMLVideoElement>(null);
   const c2Ref = useRef<HTMLVideoElement>(null);
   const loopRef = useRef<HTMLVideoElement>(null);
+  const userRequestedFilm = useRef(false);
+  const startupWatchdogRef = useRef<number | null>(null);
+  const stallWatchdogRef = useRef<number | null>(null);
+  const playbackStartedRef = useRef(false);
   const [t, setT] = useState(0);
   const [phase, setPhase] = useState<"c1" | "c2" | "loop">("c1");
   const [reduce, setReduce] = useState(false);
   const [playbackBlocked, setPlaybackBlocked] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [mobileCtaReady, setMobileCtaReady] = useState(false);
+  const [desktopCtaReady, setDesktopCtaReady] = useState(false);
 
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 767px)");
+    const timer = window.setTimeout(() => setDesktopCtaReady(true), 650);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 768px)");
     const update = () => setMobile(media.matches);
     update();
     media.addEventListener("change", update);
@@ -65,13 +77,68 @@ export function HeroCinematic({ categories }: { categories: Cat[] }) {
     c1.setAttribute("webkit-playsinline", "true");
     c2.setAttribute("webkit-playsinline", "true");
     loopV.setAttribute("webkit-playsinline", "true");
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const clearStartupWatchdog = () => {
+      if (startupWatchdogRef.current !== null) {
+        window.clearTimeout(startupWatchdogRef.current);
+        startupWatchdogRef.current = null;
+      }
+    };
+    const clearStallWatchdog = () => {
+      if (stallWatchdogRef.current !== null) {
+        window.clearTimeout(stallWatchdogRef.current);
+        stallWatchdogRef.current = null;
+      }
+    };
+    const armStartupWatchdog = () => {
+      clearStartupWatchdog();
+      playbackStartedRef.current = false;
+      startupWatchdogRef.current = window.setTimeout(() => {
+        startupWatchdogRef.current = null;
+        if (!playbackStartedRef.current) failPlayback();
+      }, STARTUP_PLAYBACK_TIMEOUT_MS);
+    };
     const failPlayback = () => {
+      clearStartupWatchdog();
+      clearStallWatchdog();
       setPlaybackBlocked(true);
       setReduce(true);
     };
     const playbackStarted = () => {
+      playbackStartedRef.current = true;
+      clearStartupWatchdog();
+      clearStallWatchdog();
+      if (motion.matches && !userRequestedFilm.current) {
+        c1.pause();
+        c2.pause();
+        loopV.pause();
+        setPlaybackBlocked(true);
+        setReduce(true);
+        return;
+      }
       setPlaybackBlocked(false);
       setReduce(false);
+    };
+    const pauseForReducedMotion = () => {
+      if (!motion.matches) return;
+      clearStartupWatchdog();
+      clearStallWatchdog();
+      userRequestedFilm.current = false;
+      c1.pause();
+      c2.pause();
+      loopV.pause();
+      setPlaybackBlocked(true);
+      setReduce(true);
+    };
+    const showBufferingFallback = (event: Event) => {
+      const video = event.currentTarget as HTMLVideoElement | null;
+      if (!video || video.paused || video.ended || !playbackStartedRef.current || stallWatchdogRef.current !== null) return;
+      stallWatchdogRef.current = window.setTimeout(() => {
+        stallWatchdogRef.current = null;
+        if (video.paused || video.ended || video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return;
+        setPlaybackBlocked(true);
+        setReduce(true);
+      }, 2800);
     };
 
     // keep the initial load light: don't touch clip 2 / loop until needed.
@@ -82,15 +149,20 @@ export function HeroCinematic({ categories }: { categories: Cat[] }) {
     const onTime = () => {
       setT(c1.currentTime);
       const d = c1.duration || 15;
-      if (!c2Queued && c1.currentTime > d * 0.4) {
+      if (!c2Queued && c1.currentTime > d * 0.2) {
         c2Queued = true;
         c2.preload = "auto";
         c2.load();
       }
     };
     const toC2 = () => {
-      setPhase("c2");
-      void c2.play().catch(failPlayback);
+      if (motion.matches && !userRequestedFilm.current) {
+        pauseForReducedMotion();
+        return;
+      }
+      // Keep the last frame of clip 1 visible until clip 2 actually starts.
+      // On a slow connection `play()` can wait for enough data to decode.
+      void c2.play().then(() => setPhase("c2")).catch(failPlayback);
       if (!loopQueued) {
         loopQueued = true;
         loopV.preload = "auto";
@@ -98,8 +170,12 @@ export function HeroCinematic({ categories }: { categories: Cat[] }) {
       }
     };
     const toLoop = () => {
-      setPhase("loop");
-      void loopV.play().catch(failPlayback);
+      if (motion.matches && !userRequestedFilm.current) {
+        pauseForReducedMotion();
+        return;
+      }
+      // The same buffer-safe handoff applies to the final looping shot.
+      void loopV.play().then(() => setPhase("loop")).catch(failPlayback);
     };
     c1.addEventListener("timeupdate", onTime);
     c1.addEventListener("ended", toC2);
@@ -110,15 +186,19 @@ export function HeroCinematic({ categories }: { categories: Cat[] }) {
     c1.addEventListener("error", failPlayback);
     c2.addEventListener("error", failPlayback);
     loopV.addEventListener("error", failPlayback);
+    c1.addEventListener("waiting", showBufferingFallback);
+    c2.addEventListener("waiting", showBufferingFallback);
+    loopV.addEventListener("waiting", showBufferingFallback);
+    c1.addEventListener("stalled", showBufferingFallback);
+    c2.addEventListener("stalled", showBufferingFallback);
+    loopV.addEventListener("stalled", showBufferingFallback);
+    motion.addEventListener("change", pauseForReducedMotion);
     // play from the top. on iOS, seeking a muted autoplay video while it is
     // still loading blacks it out a second in — so never set currentTime here.
-    const mobileViewport = window.matchMedia("(max-width: 767px)").matches;
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduceMotion && !mobileViewport) {
-      c1.pause();
-      setReduce(true);
-      setPlaybackBlocked(true);
+    if (motion.matches) {
+      pauseForReducedMotion();
     } else {
+      armStartupWatchdog();
       void c1.play().catch(failPlayback); // autoplay blocked -> show an explicit play control
     }
     return () => {
@@ -131,6 +211,15 @@ export function HeroCinematic({ categories }: { categories: Cat[] }) {
       c1.removeEventListener("error", failPlayback);
       c2.removeEventListener("error", failPlayback);
       loopV.removeEventListener("error", failPlayback);
+      c1.removeEventListener("waiting", showBufferingFallback);
+      c2.removeEventListener("waiting", showBufferingFallback);
+      loopV.removeEventListener("waiting", showBufferingFallback);
+      c1.removeEventListener("stalled", showBufferingFallback);
+      c2.removeEventListener("stalled", showBufferingFallback);
+      loopV.removeEventListener("stalled", showBufferingFallback);
+      motion.removeEventListener("change", pauseForReducedMotion);
+      clearStartupWatchdog();
+      clearStallWatchdog();
     };
   }, []);
 
@@ -138,7 +227,7 @@ export function HeroCinematic({ categories }: { categories: Cat[] }) {
   // mismatch. Retry the first muted play after the client has identified a
   // phone: Safari can reject the pre-hydration attempt before it is ready.
   useEffect(() => {
-    if (!mobile || phase !== "c1") return;
+    if (!mobile || reduce || window.matchMedia("(prefers-reduced-motion: reduce)").matches || phase !== "c1") return;
     const video = c1Ref.current;
     if (!video || !video.paused) return;
     video.muted = true;
@@ -160,13 +249,26 @@ export function HeroCinematic({ categories }: { categories: Cat[] }) {
     return () => {
       video.removeEventListener("canplay", retry);
     };
-  }, [mobile, phase]);
+  }, [mobile, phase, reduce]);
 
   const playFilm = () => {
     const first = c1Ref.current;
     const second = c2Ref.current;
     const loop = loopRef.current;
     if (!first) return;
+    userRequestedFilm.current = true;
+    playbackStartedRef.current = false;
+    if (startupWatchdogRef.current !== null) window.clearTimeout(startupWatchdogRef.current);
+    startupWatchdogRef.current = null;
+    if (stallWatchdogRef.current !== null) window.clearTimeout(stallWatchdogRef.current);
+    stallWatchdogRef.current = null;
+    startupWatchdogRef.current = window.setTimeout(() => {
+      startupWatchdogRef.current = null;
+      if (!playbackStartedRef.current) {
+        setPlaybackBlocked(true);
+        setReduce(true);
+      }
+    }, STARTUP_PLAYBACK_TIMEOUT_MS);
     second?.pause();
     loop?.pause();
     first.muted = true;
@@ -183,7 +285,7 @@ export function HeroCinematic({ categories }: { categories: Cat[] }) {
   };
 
   const gearVisible = !reduce && phase === "c1" && t > 0.5 && t < 4.6;
-  const ctaVisible = reduce || phase !== "c1" || t > (mobile ? 0.4 : 0) || (mobile && mobileCtaReady);
+  const ctaVisible = reduce || phase !== "c1" || t > (mobile ? 0.4 : 0) || (mobile ? mobileCtaReady : desktopCtaReady);
   const ctaTransition = mobile
     ? "opacity .7s cubic-bezier(0.16,1,0.3,1), transform .7s cubic-bezier(0.16,1,0.3,1)"
     : "opacity 1s cubic-bezier(0.16,1,0.3,1), transform 1s cubic-bezier(0.16,1,0.3,1)";
@@ -200,35 +302,32 @@ export function HeroCinematic({ categories }: { categories: Cat[] }) {
         aria-hidden
         className="absolute inset-0 h-full w-full object-cover object-center"
       />
-      {/* three stacked clips, instant hard-cut hand-off (clip 2 + loop preload while clip 1 plays) */}
+      {/* Keep the previous frame visible until each next clip can play. */}
       <video
         ref={c1Ref}
         className="absolute inset-0 h-full w-full object-cover object-center"
         // the clip1->clip2 anamorphic match is now baked into intro.mp4 itself
         // (scaleX 1.0325 scaleY 1.0125), so no CSS transform — alignment is in
         // the pixels and immune to window size / sub-pixel rendering.
-        style={{ opacity: reduce || phase === "c1" ? 1 : 0 }}
+        style={{ opacity: reduce || phase === "c1" ? 1 : 0, transition: reduce ? "none" : "opacity 360ms ease" }}
         poster="/intro-poster.jpg"
-        autoPlay={mobile && phase === "c1"}
+        autoPlay={mobile && !reduce && phase === "c1"}
         muted
         playsInline
         preload="auto"
         tabIndex={-1}
         aria-hidden
       >
-        {/* 1080p at ~3.4Mbps is five times more pixels than a phone can show
-            and was taking most of a mobile connection before the first frame.
-            Desktop source stays first so a browser that ignores `media` on
-            <source> falls back to exactly the previous behaviour. */}
         <source src="/intro.mp4" type="video/mp4" media="(min-width: 769px)" />
+        <source src="/intro-mobile-portrait.mp4" type="video/mp4" media="(max-width: 768px) and (orientation: portrait)" />
         <source src="/intro-mobile.mp4" type="video/mp4" />
       </video>
       <video
         ref={c2Ref}
         className="absolute inset-0 h-full w-full object-cover object-center"
-        style={{ opacity: !reduce && phase === "c2" ? 1 : 0 }}
+        style={{ opacity: !reduce && phase === "c2" ? 1 : 0, transition: reduce ? "none" : "opacity 360ms ease" }}
         poster="/intro2-poster.jpg"
-        autoPlay={mobile && phase === "c2"}
+        autoPlay={mobile && !reduce && phase === "c2"}
         muted
         playsInline
         preload="none"
@@ -236,14 +335,15 @@ export function HeroCinematic({ categories }: { categories: Cat[] }) {
         aria-hidden
       >
         <source src="/intro2.mp4" type="video/mp4" media="(min-width: 769px)" />
+        <source src="/intro2-mobile-portrait.mp4" type="video/mp4" media="(max-width: 768px) and (orientation: portrait)" />
         <source src="/intro2-mobile.mp4" type="video/mp4" />
       </video>
       <video
         ref={loopRef}
         className="absolute inset-0 h-full w-full object-cover object-center"
-        style={{ opacity: !reduce && phase === "loop" ? 1 : 0 }}
+        style={{ opacity: !reduce && phase === "loop" ? 1 : 0, transition: reduce ? "none" : "opacity 360ms ease" }}
         poster="/loop-poster.jpg"
-        autoPlay={mobile && phase === "loop"}
+        autoPlay={mobile && !reduce && phase === "loop"}
         muted
         loop
         playsInline
@@ -252,6 +352,7 @@ export function HeroCinematic({ categories }: { categories: Cat[] }) {
         aria-hidden
       >
         <source src="/loop.mp4" type="video/mp4" media="(min-width: 769px)" />
+        <source src="/loop-mobile-portrait.mp4" type="video/mp4" media="(max-width: 768px) and (orientation: portrait)" />
         <source src="/loop-mobile.mp4" type="video/mp4" />
       </video>
 
@@ -409,6 +510,22 @@ export function HeroCinematic({ categories }: { categories: Cat[] }) {
             className="col-span-2 min-h-11 justify-self-center !min-h-11 !px-4 !py-2 !text-xs !font-medium sm:!px-5 sm:!py-2.5 sm:!text-sm lg:!px-8 lg:!py-3 lg:!text-base"
           />
         </div>
+        <Link
+          href="/#reviews"
+          data-testid="hero-review-link"
+          className="mt-1.5 inline-flex items-center justify-center gap-1.5 px-2 py-0.5 text-[11px] text-white/70 transition-colors hover:text-white"
+          style={{ opacity: ctaVisible ? 1 : 0, transition: ctaTransition }}
+          aria-label={`Rated ${rating.ratingValue.toFixed(2)} out of 5 from ${rating.reviewCountLabel} renter reviews; read all reviews`}
+        >
+          <span className="inline-flex gap-0.5 text-accent-300" aria-hidden="true">
+            {Array.from({ length: 5 }).map((_, index) => <IconStar key={index} className="h-3 w-3" />)}
+          </span>
+          <span data-testid="hero-review-summary" className="font-mono text-[10px] sm:text-[11px]">
+            <span className="font-semibold text-white">{rating.ratingValue.toFixed(2)}</span>
+            <span className="text-white/45"> · </span>
+            <span>{rating.reviewCountLabel} renter reviews</span>
+          </span>
+        </Link>
       </div>
     </>
   );

@@ -61,7 +61,7 @@ root.render(<Fixture/>);`;
     if (request.url === "/bundle.js") { response.setHeader("content-type", "text/javascript"); return response.end(script); }
     if (request.url === "/style.css") { response.setHeader("content-type", "text/css"); return response.end(css); }
     response.setHeader("content-type", "text/html");
-    response.end(`<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><body style="margin:0;background:#101112;color:#eee;font:14px system-ui"><main style="max-width:760px;margin:24px auto;padding:12px"><div id="root"></div></main><script>window.fixture={offer:${JSON.stringify(offer)},bookingItems:[{index:0,title:'Sony FX3 camera',imageSources:[${JSON.stringify(photos.camera)}]},{index:1,title:'Sony 24–70mm lens',imageSources:[${JSON.stringify(photos.lens)}]}]};window.requests=0;window.prefill='';window.addEventListener('dbc:open-rental-extension',()=>window.requests++);window.addEventListener('dbc:prefill-rental-message',event=>window.prefill=event.detail?.text??'');window.addEventListener('error',event=>(window.errors??=[]).push(event.message))</script><script src="/bundle.js"></script>`);
+    response.end(`<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><body style="margin:0;background:#101112;color:#eee;font:14px system-ui"><main style="max-width:760px;margin:24px auto;padding:12px"><div id="root"></div></main><script>window.fixture={offer:${JSON.stringify(offer)},bookingItems:[{index:0,title:'Sony FX3 camera',imageSources:[${JSON.stringify(photos.camera)}]},{index:1,title:'Sony 24–70mm lens',imageSources:[${JSON.stringify(photos.lens)}]}]};window.requests=0;window.requestDetails=null;window.prefill='';window.addEventListener('dbc:open-rental-extension',event=>{window.requests++;window.requestDetails=event.detail});window.addEventListener('dbc:prefill-rental-message',event=>window.prefill=event.detail?.text??'');window.addEventListener('error',event=>(window.errors??=[]).push(event.message))</script><script src="/bundle.js"></script>`);
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "dbc-gaffer-extension-offer-"));
@@ -100,6 +100,14 @@ root.render(<Fixture/>);`;
     fs.writeFileSync("/tmp/dbc-gaffer-extension-offer-desktop.png", Buffer.from((await client.cmd("Page.captureScreenshot", { format: "png" })).data, "base64"));
     await client.cmd("Emulation.setDeviceMetricsOverride", { width: 320, height: 844, deviceScaleFactor: 1, mobile: true }); await wait(100);
     assert.equal(await client.evaluate(`document.documentElement.scrollWidth<=innerWidth`), true, "the renter extension card does not overflow a phone viewport");
+    const alternativeAskTarget = await client.evaluate(`(()=>{const button=document.querySelector('[data-testid="extension-offer-ask-alt-0"]'),rect=button?.getBoundingClientRect();return rect?{width:rect.width,height:rect.height}:null})()`);
+    assert(alternativeAskTarget && alternativeAskTarget.width >= 44 && alternativeAskTarget.height >= 44, `The alternative Ask team control has a comfortable 44px mobile tap target: ${JSON.stringify(alternativeAskTarget)}`);
+    assert(await client.evaluate(`document.querySelector('[data-testid="gaffer-extension-open"]').getBoundingClientRect().height >= 44`), "the Gaffer extension entry action is touch sized");
+    await client.cmd('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+    assert.equal(await client.evaluate(`getComputedStyle(document.querySelector('[data-testid="gaffer-extension-card"] svg[viewBox="0 0 100 100"]')).animationName`),'none','extension ornament respects reduced motion');
+    await client.cmd('Emulation.setEmulatedMedia',{features:[]});
+    assert.match(await client.evaluate(`document.querySelector('[data-testid="gaffer-extension-card"]').textContent`), /Estimate only · team approval required; payment applies only if due/);
+    assert.doesNotMatch(await client.evaluate(`document.querySelector('[data-testid="gaffer-extension-card"]').textContent`), /unavailable items keep their original return time/);
     const narrowTitle = await client.evaluate(`(()=>{const title=document.querySelector('[data-testid="extension-offer-available-items"] strong');return title?{text:title.textContent.trim(),textOverflow:getComputedStyle(title).textOverflow,overflow:getComputedStyle(title).overflow,whiteSpace:getComputedStyle(title).whiteSpace,rect:{left:title.getBoundingClientRect().left,right:title.getBoundingClientRect().right,width:title.getBoundingClientRect().width,height:title.getBoundingClientRect().height}}:null})()`);
     assert(narrowTitle?.text.includes("Sony FX3 camera"), `The narrow renter card keeps the whole listing name available: ${JSON.stringify(narrowTitle)}`);
     assert.notEqual(narrowTitle?.textOverflow, "ellipsis", `The 320px listing name wraps instead of disappearing behind an ellipsis: ${JSON.stringify(narrowTitle)}`);
@@ -107,8 +115,13 @@ root.render(<Fixture/>);`;
     fs.writeFileSync("/tmp/dbc-gaffer-extension-offer-320.png", Buffer.from((await client.cmd("Page.captureScreenshot", { format: "png" })).data, "base64"));
     await client.cmd("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true }); await wait(100);
     fs.writeFileSync("/tmp/dbc-gaffer-extension-offer-mobile.png", Buffer.from((await client.cmd("Page.captureScreenshot", { format: "png" })).data, "base64"));
-    await client.evaluate(`document.querySelector('[data-testid="gaffer-extension-open"]').click()`);
+    await client.evaluate(`document.querySelector('[data-testid="extension-offer-ask-alt-0"]').focus()`);
+    await client.cmd('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await client.cmd('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
+    assert(await client.evaluate(`(()=>{const button=document.querySelector('[data-testid="gaffer-extension-open"]');return document.activeElement===button&&button.matches(':focus-visible')&&getComputedStyle(button).outlineStyle!=='none'})()`),'request action has visible keyboard focus');
+    fs.writeFileSync('/tmp/dbc-gaffer-extension-offer-action.png', Buffer.from((await client.cmd('Page.captureScreenshot',{format:'png'})).data,'base64'));
+    await client.cmd('Input.dispatchKeyEvent',{type:'keyDown',key:' ',code:'Space',windowsVirtualKeyCode:32});await client.cmd('Input.dispatchKeyEvent',{type:'keyUp',key:' ',code:'Space',windowsVirtualKeyCode:32});await wait(50);
     assert.equal(await client.evaluate(`window.requests`), 1, "the card only opens the existing regular request form; it does not submit one");
+    assert.deepEqual(await client.evaluate(`window.requestDetails`), { extraDays: 2, lineItemIndexes: [0] }, "continuing carries the quoted duration and only live-available booking lines into the request form");
     const largeOffer = {
       version: 1,
       bookingId: "fixture-large-basket",
@@ -119,16 +132,29 @@ root.render(<Fixture/>);`;
       items: Array.from({ length: 10 }, (_, index) => ({ index, title: `Rental kit ${index + 1}` })),
     };
     await client.evaluate(`window.renderOffer(${JSON.stringify(largeOffer)})`);
+    await client.evaluate(`window.requestDetails=null;document.querySelector('[data-testid="gaffer-extension-open"]').click()`);
+    assert.deepEqual(await client.evaluate(`window.requestDetails`), { lineItemIndexes: [0, 1] }, "an offer without availableIndexes carries only its available lines, never the unavailable items");
     assert.equal(await client.evaluate(`document.querySelectorAll('[data-testid="extension-offer-unavailable-items"] [data-offer-status="unavailable"]').length`), 6, "a large basket keeps the first six unavailable lines compact");
     assert.equal(await client.evaluate(`document.querySelector('[data-testid="extension-offer-expand-items"]')?.textContent.includes('2 more')`), true, "the hidden count reflects the two omitted unavailable lines, not the unrelated items array");
+    assert(await client.evaluate(`document.querySelector('[data-testid="extension-offer-expand-items"]').getBoundingClientRect().height >= 44`), "the large-basket expand/collapse action is touch sized");
     await client.evaluate(`document.querySelector('[data-testid="extension-offer-expand-items"]').click()`);
     assert.equal(await client.evaluate(`document.querySelectorAll('[data-testid="extension-offer-unavailable-items"] [data-offer-status="unavailable"]').length`), 8, "expanding the kit shows every unavailable line and its original return time");
     assert.equal(await client.evaluate(`document.querySelector('[data-testid="extension-offer-unavailable-items"]')?.textContent.includes('Unavailable kit 8') && document.querySelector('[data-testid="extension-offer-unavailable-items"]')?.textContent.includes('Return as planned · 4 Jan 2030 · 17:00')`), true, "the final unavailable item and its deadline are visible after expansion");
     assert.equal(await client.evaluate(`document.querySelector('[data-testid="extension-offer-expand-items"]')?.textContent.includes('Show fewer items')`), true, "the expanded basket can collapse back to its compact view");
     await client.evaluate(`window.renderOffer(window.fixture.offer)`);
-    await client.evaluate(`window.renderOffer({version:1,bookingId:'fixture-booking',quoteStatus:'duration_required',availableIndexes:[],items:[{index:0,title:'Sony FX3 camera',qty:1,originalEnd:${Date.UTC(2030,0,4)},originalReturnTime:'17:00',imageSources:[${JSON.stringify(photos.camera)}],availability:'unchecked'}],unavailableItems:[],approvalRequired:true,paymentLinkAfterApprovalOnly:true,datesChanged:false})`);
+    await client.evaluate(`window.renderOffer({quoteStatus:'partial',availableItems:[{title:'Unknown line'}],unavailableItems:[{index:1,title:'Unavailable line'}]})`);
+    assert.equal(await client.evaluate(`document.querySelector('[data-testid="gaffer-extension-open"]')`), null, "a partial offer with no reliable item index cannot preselect an unrelated rental line");
+    assert.match(await client.evaluate(`document.querySelector('[data-testid="gaffer-extension-card"]').textContent`), /fresh extension estimate/, "a malformed offer tells the renter how to proceed");
+    await client.evaluate(`window.renderOffer({version:1,bookingId:'fixture-booking',quoteStatus:'unavailable',total:99,availableIndexes:[0],items:[{index:0,title:'Sony FX3 camera',lineTotal:99,imageSources:[${JSON.stringify(photos.camera)}]}],unavailableItems:[],approvalRequired:true,paymentLinkAfterApprovalOnly:true,datesChanged:false})`);
+    assert.equal(await client.evaluate(`document.querySelector('[data-testid="gaffer-extension-open"]')`), null, "an unavailable quote with no extendable items does not invite an impossible extension request");
+    assert.equal(await client.evaluate(`document.querySelector('[data-testid="gaffer-extension-card"]')?.textContent.includes('£99.00')`), false, "unavailable quote metadata never exposes stale totals or line prices");
+    assert.equal(await client.evaluate(`document.querySelector('[data-testid="extension-offer-available-items"]')`), null, "unavailable quote metadata cannot relabel a line as extendable");
+    await client.evaluate(`window.renderOffer({version:1,bookingId:'fixture-booking',quoteStatus:'duration_required',total:404,availableIndexes:[],items:[{index:0,title:'Sony FX3 camera',qty:1,lineTotal:404,originalEnd:${Date.UTC(2030,0,4)},originalReturnTime:'17:00',imageSources:[${JSON.stringify(photos.camera)}],availability:'unchecked'}],unavailableItems:[],approvalRequired:true,paymentLinkAfterApprovalOnly:true,datesChanged:false})`);
     assert.equal(await client.evaluate(`document.querySelector('[data-testid="extension-offer-unchecked-items"]')?.textContent.includes('Choose days')&&document.querySelector('[data-testid="extension-offer-unchecked-items"]')?.textContent.includes('Original return · 4 Jan 2030 · 17:00')`), true, "duration-required offers show original dates without claiming a quote or availability");
     assert.equal(await client.evaluate(`document.querySelector('[data-testid="gaffer-extension-card"]')?.textContent.includes('Proposed total')`), false, "duration-required offers do not show a price");
+    assert.equal(await client.evaluate(`document.querySelector('[data-testid="gaffer-extension-card"]')?.textContent.includes('£404.00')`), false, "duration-required offers hide stale total and line-price fields");
+    await client.evaluate(`window.requests=0;window.requestDetails=null;document.querySelector('[data-testid="gaffer-extension-open"]').click()`);
+    assert.deepEqual(await client.evaluate(`window.requestDetails`), { lineItemIndexes: [0] }, "a duration clarification preserves the exact matched booking item without inventing days");
     console.log("PASS Gaffer extension offer browser: real item and alternative photos, quoted available subset, accurate large-basket expansion with every original return deadline, duration-required state, and request-form-only action. Synthetic data only.");
   } finally {
     if (client) { client.close(); try { await fetch(`${process.env.DBC_CDP_URL}/json/close/${client.tabId}`); } catch {} }

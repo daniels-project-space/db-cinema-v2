@@ -121,6 +121,10 @@ export const download = internalMutation({ args: { ...scope, id: v.id("chat_atta
   const account = await resolveScope(ctx, args);
   const attempt = await ctx.db.get(args.id);
   if (!attempt || attempt.status !== "published" || attempt.accountId !== account._id || attempt.bookingId !== args.bookingId || !attempt.storageId || !attempt.messageId || !attempt.sha256 || !attempt.size || !attempt.name) throw Error("Attachment unavailable.");
+  if (!attempt.retentionHoldReason) {
+    const retention = await attachmentRetentionWindow(ctx, attempt);
+    if (!retention.caseArchived && retention.expiresAt !== null && retention.expiresAt <= Date.now()) throw Error("Attachment unavailable.");
+  }
   const message = await ctx.db.get(attempt.messageId);
   if (!message || message.accountId !== account._id || message.bookingId !== args.bookingId || message.meta?.attachmentId !== attempt._id) throw Error("Attachment unavailable.");
   return { storageId: attempt.storageId, messageId: attempt.messageId, sha256: attempt.sha256, size: attempt.size, name: attempt.name, contentType: attempt.contentType };
@@ -185,7 +189,10 @@ export const setRetentionHold=mutation({args:{token:v.string(),id:v.id("chat_att
   const attempt=await ctx.db.get(args.id);if(!attempt||attempt.status!=="published")throw Error("Attachment unavailable.");
   if((await attachmentRetentionWindow(ctx,attempt)).caseArchived)throw Error("This file is part of the permanent rental case archive.");
   if(!Number.isSafeInteger(args.expectedRevision)||args.expectedRevision<0||args.expectedRevision>=Number.MAX_SAFE_INTEGER||args.expectedRevision!==(attempt.retentionHoldRevision??0))throw Error("The retention hold changed. Review it and confirm again.");
-  if(args.hold&&attempt.retentionHoldReason===reason||!args.hold&&!attempt.retentionHoldReason)return;
+  if((args.hold&&attempt.retentionHoldReason===reason)||(!args.hold&&!attempt.retentionHoldReason))return;
+  const actionHistory=await ctx.db.query("chat_attachment_actions").withIndex("by_attachment",(q:any)=>q.eq("attachmentId",attempt._id)).take(100);
+  const actionLimit=args.hold?99:100;
+  if(actionHistory.length>=actionLimit)throw Error("This attachment has reached its retention-change limit. Resolve the current hold or review its history before changing it again.");
   await ctx.db.patch(attempt._id,{retentionHoldReason:args.hold?reason:undefined,retentionHoldRevision:args.expectedRevision+1});
   await ctx.db.insert("chat_attachment_actions",{attachmentId:attempt._id,accountId:attempt.accountId,...(attempt.bookingId?{bookingId:attempt.bookingId}:{}),action:args.hold?"hold_added":"hold_removed",reason,at:Date.now()});
 }});
@@ -226,7 +233,7 @@ export const sweep = internalMutation({ args: {}, handler: async ctx => {
 
 export const closeInactiveSupportThreads=internalMutation({args:{},handler:async ctx=>{
   const now=Date.now(),inactiveBefore=now-SUPPORT_IDLE_CLOSE_MS;
-  const rows=await ctx.db.query("chat_threads").withIndex("by_support_open_updated",(q:any)=>q.eq("bookingId",undefined).eq("closedAt",undefined).lt("updatedAt",inactiveBefore)).take(50);
+  const rows=await ctx.db.query("chat_threads").withIndex("by_support_open_updated",(q:any)=>q.eq("bookingId",undefined).eq("closedAt",undefined).lte("updatedAt",inactiveBefore)).take(50);
   let closed=0;
   for(const row of rows){
     const current=await ctx.db.get(row._id);
@@ -269,7 +276,17 @@ export const purgeExpiredActionAudits=internalMutation({args:{},handler:async ct
       if(row.purgeAfter!==undefined)continue;
       const attempt=await ctx.db.get(row.attachmentId);
       const removedAt=attempt?.removedAt;
-      if(!attempt||attempt.status!=="removed"||typeof removedAt!=="number"||!Number.isSafeInteger(removedAt))continue;
+      if(!attempt){
+        if(row.action!=="removed"&&row.action!=="retention_removed")continue;
+        const history=await ctx.db.query("chat_attachment_actions").withIndex("by_attachment",(q:any)=>q.eq("attachmentId",row.attachmentId)).take(101);
+        if(history.length>100)continue;
+        const removalTimes=history.filter((entry:any)=>entry.action==="removed"||entry.action==="retention_removed").map((entry:any)=>entry.at).filter((at:any)=>typeof at==="number"&&Number.isSafeInteger(at)&&at>0&&at<=now);
+        if(!removalTimes.length)continue;
+        const purgeAfter=Math.max(...removalTimes)+CHAT_AUDIT_RETENTION_MS;
+        for(const entry of history){if(entry.purgeAfter===undefined){await ctx.db.patch(entry._id,{purgeAfter});migrated++;}}
+        continue;
+      }
+      if(attempt.status!=="removed"||typeof removedAt!=="number"||!Number.isSafeInteger(removedAt))continue;
       await ctx.db.patch(row._id,{purgeAfter:removedAt+CHAT_AUDIT_RETENTION_MS});migrated++;
     }
     backfillDone=page.isDone;

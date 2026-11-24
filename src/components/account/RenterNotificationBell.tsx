@@ -1,11 +1,22 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import styles from "./RenterNotificationBell.module.css";
 import { IosNotificationSteps } from "./IosNotificationSteps";
+import { getRenterNotificationStatus } from "@/lib/renterNotificationStatus";
+import { clearChatNotificationOfferDismissal, dismissChatNotificationOffer } from "@/lib/chatNotificationOffer";
 type InstallEvent=Event&{prompt:()=>Promise<void>;userChoice:Promise<{outcome:string}>};
-export function RenterNotificationBell({token,accountId}:{token:string;accountId?:string;chatOpen?:boolean}) {
+class NotificationErrorBoundary extends Component<{children:ReactNode},{failed:boolean}> {
+  state={failed:false};
+  static getDerivedStateFromError() { return {failed:true}; }
+  componentDidCatch(error:unknown) { console.error("Rental notification settings failed to load",error); }
+  render() { return this.state.failed?null:this.props.children; }
+}
+export function RenterNotificationBell(props:{token:string;accountId?:string;chatOpen?:boolean}) {
+  return <NotificationErrorBoundary><RenterNotificationBellContent {...props}/></NotificationErrorBoundary>;
+}
+function RenterNotificationBellContent({token,accountId}:{token:string;accountId?:string;chatOpen?:boolean}) {
   const [open,setOpen]=useState(false),[deviceId,setDeviceId]=useState<string|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null);
   const [supported,setSupported]=useState(false),[ios,setIos]=useState(false),[android,setAndroid]=useState(false),[installed,setInstalled]=useState(false),[install,setInstall]=useState<InstallEvent|null>(null);
   const [connected,setConnected]=useState(false);
@@ -16,7 +27,7 @@ export function RenterNotificationBell({token,accountId}:{token:string;accountId
   const state=useQuery(api.renterNotifications.device,deviceId?{token,deviceId}:"skip");
   const subscribe=useMutation(api.renterNotifications.subscribe),disable=useMutation(api.renterNotifications.disable),preferences=useMutation(api.renterNotifications.preferences);
   useEffect(()=>{
-    try {let id=localStorage.getItem("dbc_renter_push_device");if(!id){id=crypto.randomUUID();localStorage.setItem("dbc_renter_push_device",id);}setDeviceId(id);}catch{setError("Allow website storage to save this device's notification settings.");}
+    try {let id=localStorage.getItem("dbc_renter_push_device");if(!id||!/^[A-Za-z0-9_-]{8,80}$/.test(id)){id=crypto.randomUUID();localStorage.setItem("dbc_renter_push_device",id);}setDeviceId(id);}catch{setError("Allow website storage to save this device's notification settings.");}
     const apple=/iPad|iPhone|iPod/.test(navigator.userAgent)||navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1;
     setIos(apple);setAndroid(/Android/i.test(navigator.userAgent));setInstalled(matchMedia("(display-mode: standalone)").matches||!!(navigator as Navigator&{standalone?:boolean}).standalone);
     setSupported(isSecureContext&&"serviceWorker"in navigator&&"PushManager"in window&&"Notification"in window);
@@ -63,32 +74,45 @@ export function RenterNotificationBell({token,accountId}:{token:string;accountId
       setPermission(Notification.permission);browserSubscription.current=subscription;const json=subscription.toJSON();
       if(!json.endpoint||!json.keys?.p256dh||!json.keys.auth)throw Error("The browser returned an incomplete subscription.");
       await subscribe({token,deviceId,endpoint:json.endpoint,p256dh:json.keys.p256dh,auth:json.keys.auth});
-      if(epoch.current===generation){setConnected(true);if(accountId)try{localStorage.setItem("dbc_chat_notification_offer:"+accountId,"dismissed");}catch{}}
+      if(epoch.current===generation){setConnected(true);if(accountId)dismissChatNotificationOffer(accountId);}
     }catch(e){if(epoch.current===generation){setPermission(Notification.permission);setError(e instanceof Error?e.message:"Notifications could not be enabled.");}}
     finally{if(epoch.current===generation)setBusy(false);}
   }
-  async function stop(){if(!deviceId||busy)return;const generation=epoch.current;setBusy(true);setError(null);try{await disable({token,deviceId});if(epoch.current!==generation)return;await browserSubscription.current?.unsubscribe();browserSubscription.current=null;setConnected(false);if(accountId)try{localStorage.removeItem("dbc_chat_notification_offer:"+accountId);}catch{}}catch(e){if(epoch.current===generation)setError(e instanceof Error?e.message:"Notifications could not be disabled.");}finally{if(epoch.current===generation)setBusy(false);}}
+  async function stop(){if(!deviceId||busy)return;const generation=epoch.current;setBusy(true);setError(null);try{await disable({token,deviceId});if(epoch.current!==generation)return;await browserSubscription.current?.unsubscribe();browserSubscription.current=null;setConnected(false);if(accountId)clearChatNotificationOfferDismissal(accountId);}catch(e){if(epoch.current===generation)setError(e instanceof Error?e.message:"Notifications could not be disabled.");}finally{if(epoch.current===generation)setBusy(false);}}
   async function change(kind:"messagesEnabled"|"bookingEnabled",value:boolean){if(!deviceId||!state)return;const generation=epoch.current;setBusy(true);setError(null);try{await preferences({token,deviceId,messagesEnabled:state.messagesEnabled,bookingEnabled:state.bookingEnabled,[kind]:value});}catch(e){if(epoch.current===generation)setError(e instanceof Error?e.message:"Preferences could not be saved.");}finally{if(epoch.current===generation)setBusy(false);}}
   const active=!!state?.enabled&&connected&&permission==="granted";
-  const deviceStatus = !state || supported && state.configured && (!ios || installed) && !ready && !error ? "unknown" : active && state.messagesEnabled !== false ? "active" : "inactive";
+  const deviceStatus = getRenterNotificationStatus({
+    stateLoaded: state !== undefined,
+    configured: !!state?.configured,
+    publicKey: state?.publicKey,
+    supported,
+    ios,
+    installed,
+    ready,
+    setupError: !!error,
+    enabled: !!state?.enabled,
+    connected,
+    permissionGranted: permission === "granted",
+    messagesEnabled: state?.messagesEnabled !== false,
+  });
   useEffect(() => {
     const publish = () => window.dispatchEvent(new CustomEvent("dbc:renter-notification-status", { detail: deviceStatus }));
     window.addEventListener("dbc:request-renter-notification-status", publish);
     publish();
     return () => window.removeEventListener("dbc:request-renter-notification-status", publish);
   }, [deviceStatus]);
-  useEffect(()=>{if(accountId&&active)try{localStorage.setItem("dbc_chat_notification_offer:"+accountId,"dismissed");}catch{}},[accountId,active]);
+  useEffect(()=>{if(accountId&&active)dismissChatNotificationOffer(accountId);},[accountId,active]);
   return <div className={styles.root}>
-    <button type="button" onClick={()=>setOpen(!open)} aria-expanded={open} aria-controls="renter-notification-settings" aria-label={active?"Manage enabled rental notifications":"Rental notifications"} className={styles.bell}><svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M18 8a6 6 0 00-12 0v5l-2 3v1h16v-1l-2-3V8ZM9 20h6"/></svg><span>{active?"Alerts on":"Notifications"}</span></button>
+    <button type="button" onClick={()=>setOpen(!open)} aria-expanded={open} aria-controls="renter-notification-settings" aria-label={active?"Rental notifications on — open settings":"Rental notifications off — open settings"} title={active?"Rental notifications on":"Rental notifications off"} data-enabled={active} data-testid="renter-notification-toggle" className={styles.bell}><svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M18 8a6 6 0 00-12 0v5l-2 3v1h16v-1l-2-3V8ZM9 20h6"/></svg><span className={styles.state} aria-hidden="true" /></button>
     {open&&<section id="renter-notification-settings" ref={panelRef} tabIndex={-1} className={styles.panel} aria-label="Rental notification settings"><header><span className={styles.panelIcon} aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M18 8a6 6 0 0 0-12 0v5l-2 3v1h16v-1l-2-3V8ZM9 20h6"/><path d="M18.5 3v3m-1.5-1.5h3"/></svg></span><h2>Stay connected</h2><button type="button" onClick={()=>setOpen(false)} aria-label="Close notification settings">×</button></header>
-      <p>Get team messages and booking updates on this device.</p>
+      <p>Choose which updates reach this device.</p>
       {!installed&&ios&&<IosNotificationSteps/>}
       {!installed&&!ios&&android&&<div className={styles.install}><h3>Optional: add to Home Screen</h3><p>Alerts work in your browser. For quicker access, choose Install app or Add to Home Screen.</p>{install&&<button type="button" onClick={async()=>{try{await install.prompt();await install.userChoice;setInstall(null);}catch{setError("The installation prompt could not open. Use your browser’s Add to Home Screen menu instead.");}}}>Add to Home Screen</button>}</div>}
-      {!supported&&!(ios&&!installed)&&<p>Push notifications are unavailable in this browser. Try a supported phone browser or keep using your rental chat here.</p>}
-      {!state?.configured&&<p>Device notifications are not configured yet. Your booking conversations remain available in Messages.</p>}
+      {!supported&&!(ios&&!installed)&&<p>Alerts aren’t available here. Your chats stay in your account.</p>}
+      {!state?.configured&&<p>Alerts aren’t ready yet. You can still use Messages.</p>}
       {active?<><label><input type="checkbox" checked={state.messagesEnabled} disabled={busy} onChange={e=>void change("messagesEnabled",e.target.checked)}/>Messages from the rental team</label><label><input type="checkbox" checked={state.bookingEnabled} disabled={busy} onChange={e=>void change("bookingEnabled",e.target.checked)}/>Booking and required-action updates</label><button type="button" disabled={busy} onClick={()=>void stop()}>Turn off on this device</button></>:<button type="button" disabled={busy||!ready||ios&&!installed} onClick={()=>void enable()}>{busy?"Enabling…":state?.enabled?"Reconnect notifications":"Enable notifications"}</button>}
       {(error||state?.lastError||permission==="denied")&&<p role="alert">{error??(permission==="denied"?"Notifications are blocked in your browser settings. Allow them there, then reopen your account.":state?.lastError)}</p>}
-      <small>Private messages and documents are only shown after signing in. Signing out stops future alerts for this session.</small>
+      <small>Alerts never show message or document details.</small>
     </section>}
   </div>;
 }

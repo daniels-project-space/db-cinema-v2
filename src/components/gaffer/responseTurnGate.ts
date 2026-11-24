@@ -33,10 +33,12 @@ export function createResponseTurnGate() {
   // arrives while one answer is open, following deltas without response IDs
   // cannot safely be assigned to either answer.
   let activeResponseAmbiguous = false;
+  let overlappingResponseObserved = false;
   let responsePartsObserved = false;
   let hasStartedResponse = false;
   let callerTurn = 0;
   let latestPartCallerTurn = -1;
+  let audioSuppressedForTurn = false;
   const closedResponseIds: string[] = [];
   const discardedResponseIds: string[] = [];
   const staleResponseText = new Map<string, string>();
@@ -66,6 +68,7 @@ export function createResponseTurnGate() {
     activeStopObserved = false;
     activeMessageObserved = false;
     activeResponseAmbiguous = false;
+    overlappingResponseObserved = false;
     activeResponseText = "";
   };
   const matchesActive = (event: AgentResponseEvent) => {
@@ -83,15 +86,30 @@ export function createResponseTurnGate() {
     }
     return false;
   };
+  const canInterrupt = (event: AgentResponseEvent = {}) => {
+    const incoming = eventId(event.event_id);
+    const incomingResponseId = responseId(event.response_id);
+    if (incoming !== null && latestCallerEventId !== null && incoming < latestCallerEventId) return false;
+    if (incoming !== null && latestStartEventId !== null && incoming < latestStartEventId) return false;
+    if (incoming !== null && activeStartEventId !== null && incoming < activeStartEventId) return false;
+    if (incomingResponseId && activeResponseId && incomingResponseId !== activeResponseId) return false;
+    return true;
+  };
 
   return {
     /** The caller's transcript closes any response that it interrupted. */
     noteCallerTurn(event: AgentResponseEvent = {}) {
       const incoming = eventId(event.event_id);
-      if (incoming !== null && latestCallerEventId !== null && incoming < latestCallerEventId) return false;
+      if (incoming !== null && latestCallerEventId !== null && incoming <= latestCallerEventId) return false;
+      // A transcript may arrive after the matching finalized agent message.
+      // ElevenLabs can associate both events with the same turn ID; accepting
+      // that late transcript as a fresh turn would discard audio still playing
+      // and authorize a duplicate response.
+      if (incoming !== null && latestAgentEventId !== null && incoming <= latestAgentEventId) return false;
       if (incoming !== null) latestCallerEventId = incoming;
       callerTurn += 1;
       discardActive();
+      audioSuppressedForTurn = responsePartsObserved;
       return true;
     },
 
@@ -100,12 +118,17 @@ export function createResponseTurnGate() {
      * arrive. An interruption event alone does not authorize another answer;
      * the caller transcript must arrive first.
      */
-    interrupt(event: AgentResponseEvent = {}) {
+    interrupt(event: AgentResponseEvent = {}, allowReplacement = false) {
       const incoming = eventId(event.event_id);
+      if (!canInterrupt(event)) return false;
       if (activeResponseId) remember(discardedResponseIds, activeResponseId);
       discardActive();
+      audioSuppressedForTurn = responsePartsObserved || !allowReplacement;
       if (incoming !== null && (latestStartEventId === null || incoming > latestStartEventId)) latestStartEventId = incoming;
+      return true;
     },
+    /** Check interruption ordering before the provider mutates its audio queue. */
+    canInterrupt,
 
     /**
      * A second start while a response is active is a duplicate/revision, not a
@@ -120,7 +143,17 @@ export function createResponseTurnGate() {
       if (type === "start") {
         if (incomingId && (closedResponseIds.includes(incomingId) || discardedResponseIds.includes(incomingId))) return false;
         if (incomingId && incomingId === activeResponseId) return false;
+        if (incomingEventId !== null && latestCallerEventId !== null && incomingEventId < latestCallerEventId) {
+          audioSuppressedForTurn = true;
+          if (incomingId) {
+            remember(discardedResponseIds, incomingId);
+            if (!staleResponseText.has(incomingId)) staleResponseText.set(incomingId, "");
+          }
+          return false;
+        }
         if (activeResponseId !== null || activeStartEventId !== null) {
+          overlappingResponseObserved = true;
+          audioSuppressedForTurn = true;
           if (incomingId) {
             remember(discardedResponseIds, incomingId);
             if (!staleResponseText.has(incomingId)) staleResponseText.set(incomingId, "");
@@ -133,6 +166,7 @@ export function createResponseTurnGate() {
           return false;
         }
         if (!allowNewResponse) {
+          audioSuppressedForTurn = true;
           if (incomingId) {
             remember(discardedResponseIds, incomingId);
             if (!staleResponseText.has(incomingId)) staleResponseText.set(incomingId, "");
@@ -151,6 +185,7 @@ export function createResponseTurnGate() {
         activeResponseId = incomingId;
         activeStartEventId = incomingEventId;
         activeResponseHasId = !!incomingId;
+        audioSuppressedForTurn = false;
         activeTextFinished = false;
         activeStopObserved = false;
         activeMessageObserved = false;
@@ -203,6 +238,11 @@ export function createResponseTurnGate() {
         // response IDs were observed in the stream, use their chunk text to
         // reject a final transcript that belongs to one of the stale streams.
         const matchesActiveText = !!text && text === normalizedText(activeResponseText);
+        // The SDK's final-message callback omits response_id. If a second
+        // response began while this one was active, accept that callback only
+        // when its text exactly matches the active stream; otherwise a newer
+        // final-only answer could replace the utterance already being spoken.
+        if (!incomingId && overlappingResponseObserved && !matchesActiveText) return false;
         const matchesStaleText = !!text && [...staleResponseText.values()].some(stale =>
           !!normalizedText(stale) && normalizedText(stale) === text);
         if (!incomingId && matchesStaleText && !matchesActiveText) return false;
@@ -236,6 +276,7 @@ export function createResponseTurnGate() {
 
     /** Seal only after both response text and audible speech have finished. */
     complete() {
+      if (responsePartsObserved) audioSuppressedForTurn = true;
       discardActive();
     },
 
@@ -249,11 +290,14 @@ export function createResponseTurnGate() {
       activeTextFinished = false;
       activeStopObserved = false;
       activeMessageObserved = false;
+      activeResponseAmbiguous = false;
+      overlappingResponseObserved = false;
       activeResponseText = "";
       responsePartsObserved = false;
       hasStartedResponse = false;
       callerTurn = 0;
       latestPartCallerTurn = -1;
+      audioSuppressedForTurn = false;
       closedResponseIds.length = 0;
       discardedResponseIds.length = 0;
       staleResponseText.clear();
@@ -263,5 +307,6 @@ export function createResponseTurnGate() {
     get hasUnansweredCallerTurn() { return callerTurn > latestPartCallerTurn; },
     get hasActiveResponse() { return activeResponseId !== null || activeStartEventId !== null; },
     get isAmbiguous() { return activeResponseAmbiguous; },
+    get suppressAudio() { return audioSuppressedForTurn; },
   };
 }

@@ -2,7 +2,7 @@ import {mutation,query,type MutationCtx,type QueryCtx} from "./_generated/server
 import {v} from "convex/values";
 import {paginationOptsValidator} from "convex/server";
 import {assertAdmin,checkAdminToken} from "./adminAuth";
-import {accountForToken} from "./lib/rentalChat";
+import {accountForToken,postRentalMessage} from "./lib/rentalChat";
 import {availableCreditRows} from "./lib/checkoutCredit";
 import {adminSessionMigrationReady,assertAdminScopeSession} from "./adminAccountSessionV2";
 async function creditAdminRead(ctx:QueryCtx,token:string):Promise<boolean>{
@@ -42,6 +42,7 @@ export const grantAdmin=mutation({args:{token:v.string(),accountId:v.id("account
  const nextRevision=revision+1;
  if(state)await ctx.db.patch(state._id,{revision:nextRevision,pendingIssueId:undefined});else await ctx.db.insert("admin_credit_grant_states",{accountId:account._id,revision:nextRevision});
  await ctx.db.insert("account_admin_changes",{accountId:account._id,kind:"credit_grant",before:"",after:"GBP "+(pence/100).toFixed(2),reason,at:now});
+ await postRentalMessage(ctx,{accountId:account._id,sender:"system",text:`£${(pence/100).toFixed(2)} account credit has been added to your balance. It is available until ${new Intl.DateTimeFormat("en-GB",{dateStyle:"long",timeZone:"Europe/London"}).format(new Date(expiresAt))} and can be selected at checkout. This is account credit, not a cash refund.`});
  return {creditId,amount:pence/100,expiresAt,revision:nextRevision,replayed:false};
 }});
 export const grantStatus=query({args:{token:v.string(),accountId:v.id("accounts"),requestId:v.optional(v.string())},handler:async(ctx,a)=>{

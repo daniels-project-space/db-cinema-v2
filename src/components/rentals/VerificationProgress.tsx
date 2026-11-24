@@ -9,7 +9,7 @@ import { IdVerify } from "@/components/IdVerify";
 import { formatGbp } from "@/lib/pricing";
 import {
   verificationCanStart,
-  verificationExpired,
+  bookingVerificationExpired,
   verificationValidUntil,
 } from "../../../shared/verificationProgress";
 import { verificationJourney, verificationLinkLabel } from "../../../shared/verificationJourney";
@@ -21,7 +21,6 @@ import styles from "./VerificationProgress.module.css";
 import { DroneLicenceUpload } from "./DroneLicence";
 import { VerificationReuseClaim } from "./VerificationReuseClaim";
 import { useVerificationRefresh } from "./useVerificationRefresh";
-import { rentalStageLabel } from "../../../shared/rentalReadiness";
 import {isSavedCardRental} from '../../../shared/savedCardSecurity';
 
 function SavedCardSetup({token,booking}:{token?:string|null;booking:any}) {
@@ -210,8 +209,9 @@ export function VerificationProgress({
     checkoutSessionId,
     false,
     !!booking &&
-      booking.verificationAvailable &&
-      booking.idVerifyStatus !== "verified",
+      booking.idVerifyStatus !== "verified" &&
+      (booking.verificationAvailable || booking.verificationSyncAvailable),
+    !!booking?.verificationWindowClosed,
   );
   if (
     account.loading ||
@@ -243,11 +243,12 @@ export function VerificationProgress({
   const journey = verificationJourney(booking, now),
     wide = presentation === "page";
   const ready = booking.verificationAvailable && verificationCanStart(booking);
+  const verificationWindowPassed = !!booking.verificationWindowClosed && booking.idVerifyStatus !== "verified";
   const approved = journey.reviewed;
   const approvalUnknown =
     booking.idVerifyStatus === "verified" &&
     verificationValidUntil(booking) == null;
-  const expired = verificationExpired(booking, now);
+  const expired = bookingVerificationExpired(booking, now);
   const providerApproved = booking.idVerifyStatus === "verified" && !expired && !approvalUnknown && journey.documents;
   const uploadStatus =
     expired && booking.idVerifyStatus === "verified"
@@ -260,38 +261,11 @@ export function VerificationProgress({
     address: "A recent bill, bank statement or official address document.",
   };
   const managerCapacityConflict = booking.verificationConfirmationIssue === "manager_capacity_conflict";
-  const stage =
-    booking.status === "pending_verification" && managerCapacityConflict
-      ? "Equipment reservation needs review"
-      : booking.status === "pending_verification" && booking.rentalManagerSyncPending
-      ? "Rental reservation syncing"
-      : booking.status === "pending_verification" && booking.verificationConfirmationIssue
-      ? booking.verificationConfirmationIssue === "inventory_unavailable" ? "Booking availability needs review" : "Booking confirmation needs review"
-      : approvalUnknown && !journey.closed
-      ? "Verification needs review"
-      : booking.cancellationPending
-        ? "Cancellation in progress"
-        : booking.returnPending
-          ? "Return being settled"
-          : !journey.closed && !approved && ready
-            ? booking.idVerifyStatus === "manual_review"
-              ? "Verification needs review"
-              : booking.idVerifyStatus === "processing"
-                ? "Verification in progress"
-              : expired || booking.idVerifyStatus === "requires_input"
-                ? "Documents needed"
-                : booking.idVerifyStatus === "rejected"
-                  ? "Verification needs attention"
-                  : booking.idVerifyStatus === "verified"
-                    ? journey.documents ? "Document storage not confirmed" : "Verification needs attention"
-                    : "Verification needed"
-            : rentalStageLabel(booking);
   const content = (
     <section aria-label="Rental verification" className={styles.journey}>
       {account.token && booking.idVerifyStatus === "verified" && <VerificationReuseClaim bookingId={bookingId} />}
       <div className={wide ? styles.layout : undefined}>
         <div className={styles.main}>
-          <span className={styles.badge}>{stage}</span>
           <VerificationBar booking={booking} now={now} />
           {refreshError && (
             <p role="status" className={styles.refresh}>
@@ -301,7 +275,9 @@ export function VerificationProgress({
           )}
           <div className={styles.panel}>
             <h2>
-              {journey.closed
+              {verificationWindowPassed
+                ? "This rental’s verification window has passed"
+                : journey.closed
                 ? booking.cancellationPending
                   ? "Cancellation in progress"
                   : booking.returnPending
@@ -327,9 +303,13 @@ export function VerificationProgress({
                         "Verify your identity")}
             </h2>
             <p role="status" aria-live="polite" className={styles.intro}>
-              {journey.closed
+              {verificationWindowPassed
+                ? "Verification closed two hours after the scheduled start. Your paid rental remains pending; this does not affect future rentals."
+                : journey.closed
                 ? "This rental no longer accepts document uploads."
-                : booking.status === "pending_verification"
+          : verificationWindowPassed
+            ? "This rental’s verification window has passed. Future rentals can still be verified normally."
+          : booking.status === "pending_verification"
                   ? managerCapacityConflict
                     ? "Rental Manager could not reserve the selected equipment after payment. This rental is not confirmed; our team is checking stock and payment. Please do not pay again."
                     : booking.rentalManagerSyncPending
@@ -347,7 +327,7 @@ export function VerificationProgress({
                       : booking.idVerifyStatus === "requires_input"
                         ? "Your payment is recorded, but this rental is not confirmed yet. Didit needs a replacement document; follow its instructions below. Please do not pay again."
                         : booking.idVerifyStatus === "rejected"
-                          ? "Didit has not approved verification, so this rental is not confirmed. Message the team here for help."
+                          ? "Didit has not approved verification, so this rental is not confirmed. Try again below or message the team for help."
                           : "Your payment is recorded, but this rental is not confirmed until Didit approves verification. Continue below; you do not need to pay again."
                 : !ready
                   ? booking.status === "pending_payment"
@@ -370,7 +350,7 @@ export function VerificationProgress({
                         : booking.idVerifyStatus === "requires_input"
                           ? "Please replace the requested document to continue."
                           : booking.idVerifyStatus === "rejected"
-                            ? "Verification could not be completed. Message the team for help."
+                            ? "Verification could not be completed. Try again below or message the team for help."
                       : "Have your photo ID and proof of address ready."}
             </p>
             {ready && !journey.closed && (
@@ -385,7 +365,7 @@ export function VerificationProgress({
                   const check = expired
                     ? "requires_input"
                     : (booking.verificationChecks?.[key] ??
-                      (journey.documents ? "approved" : booking.idVerifyStatus === "processing" ? "unknown" : "waiting"));
+                      (journey.documents ? "approved" : booking.idVerifyStatus === "required" ? "waiting" : "unknown"));
                   return (
                     <div
                       key={key}

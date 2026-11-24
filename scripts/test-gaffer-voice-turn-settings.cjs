@@ -1,9 +1,16 @@
 const assert = require("node:assert/strict");
 const {
   configuredGafferVoiceAgentIds,
+  proposedAgentTurnBehavior,
+  proposedTurnSettings,
   syncGafferVoiceTurnSettings,
   syncGafferVoiceTurnSettingsForAgents,
 } = require("./lib/gafferVoiceTurnSettings.cjs");
+
+assert.deepEqual(proposedAgentTurnBehavior, {
+  turn_eagerness: proposedTurnSettings.turn_eagerness,
+  speculative_turn: proposedTurnSettings.speculative_turn,
+}, "agent prompt updates and provider turn-setting updates share one turn-taking contract");
 
 const original = { conversation_config: {
   turn: { turn_eagerness: "eager", speculative_turn: true, turn_timeout: 7, silence_end_call_timeout: 90 },
@@ -26,9 +33,9 @@ const fetchImpl = async (_url, options) => {
   assert.equal((await syncGafferVoiceTurnSettings({ ...args, apply: true })).mode, "applied-and-verified");
   assert.deepEqual(calls.slice(1).map(call => call.method), ["GET", "PATCH", "GET"]);
   assert.deepEqual(calls[2].body, { conversation_config: { turn: {
-    turn_eagerness: "normal",
+    turn_eagerness: "patient",
     speculative_turn: false,
-    interruption_ignore_terms: ["mm-hmm", "mm hmm", "mhm", "uh-huh", "uh huh", "hmm"],
+    interruption_ignore_terms: ["mm-hmm", "mm hmm", "mhm", "uh-huh", "uh huh", "hmm", "right", "yeah", "okay"],
     merge_with_default_ignore_terms: true,
   } } });
   assert.equal(agent.conversation_config.turn.silence_end_call_timeout, 90);
@@ -56,6 +63,14 @@ const fetchImpl = async (_url, options) => {
     GAFFER_AGENT_ID: "same-agent",
     GAFFER_SUPPORT_AGENT_ID: "same-agent",
   }), ["same-agent"]);
+  assert.deepEqual(configuredGafferVoiceAgentIds({
+    GAFFER_AGENT_ID: "server-sales-agent",
+    NEXT_PUBLIC_GAFFER_AGENT_ID: "website-sales-agent",
+    GAFFER_SUPPORT_AGENT_ID: "server-support-agent",
+    NEXT_PUBLIC_GAFFER_SUPPORT_AGENT_ID: "website-support-agent",
+  }), ["server-sales-agent", "website-sales-agent", "server-support-agent", "website-support-agent"],
+  "turn-setting sync must include each distinct browser and server binding, not silently leave the browser agent unchanged");
+  assert.deepEqual(configuredGafferVoiceAgentIds({}), ["agent_4601kvk2pfznfrws6ah700jnxvfv"]);
 
   const agents = new Map([["sales-agent", structuredClone(original)], ["support-agent", structuredClone(original)]]);
   const multiCalls = [];
@@ -87,9 +102,9 @@ const fetchImpl = async (_url, options) => {
       merge_with_default_ignore_terms: agent.conversation_config.turn.merge_with_default_ignore_terms,
     },
     {
-      turn_eagerness: "normal",
+      turn_eagerness: "patient",
       speculative_turn: false,
-      interruption_ignore_terms: ["mm-hmm", "mm hmm", "mhm", "uh-huh", "uh huh", "hmm"],
+      interruption_ignore_terms: ["mm-hmm", "mm hmm", "mhm", "uh-huh", "uh huh", "hmm", "right", "yeah", "okay"],
       merge_with_default_ignore_terms: true,
     },
   );

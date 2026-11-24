@@ -7,7 +7,7 @@ import { rentalsForAccount, belongsToRentalAccount } from "./lib/rentalAccount";
 import { availableCreditRows } from "./lib/checkoutCredit";
 import { listingRentalImages } from "./lib/catalogImages";
 import { paginationOptsValidator } from "convex/server";
-import { accountVerificationReady } from "./lib/accountVerificationReady";
+import { accountVerificationBadge } from "./lib/accountVerificationReady";
 import { verificationValidUntil } from "../shared/verificationProgress";
 import { customerAdminVisual, customerSubscriptionTier } from "../shared/customerAdminVisual";
 import { earnedEncoreProgress } from "./lib/loyalty";
@@ -136,11 +136,6 @@ function effectiveAccessTier(account: any) {
   return membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard";
 }
 
-async function effectiveEncoreTier(ctx: any, account: any) {
-  const progress = await earnedEncoreProgress(ctx, account);
-  return progress.completed;
-}
-
 function tierFilterMatches(filter: string, subscriptionTier: string | null) {
   return filter === "all" || (filter === "standard" ? subscriptionTier == null : subscriptionTier === filter);
 }
@@ -242,34 +237,40 @@ export const directory = query({
       : args.paginationOpts;
     const result = await ctx.db.query("accounts").order("desc").paginate(pageOpts);
     const search = args.search.trim().toLocaleLowerCase("en-GB");
-    const checked=await Promise.all(result.page.map(async account=>({account,readiness:await accountVerificationReady(ctx,account),viewMatch:await matchesDirectoryView(ctx,account,args.view)})));
+    const checked=await Promise.all(result.page.map(async account=>{
+      const [badge,viewMatch]=await Promise.all([
+        accountVerificationBadge(ctx,account),
+        matchesDirectoryView(ctx,account,args.view),
+      ]);
+      return {account,badge,viewMatch};
+    }));
     const baseMatches = checked.filter(({account,viewMatch}) => {
       const subscriptionTier = customerSubscriptionTier(account);
       return viewMatch && (!search || `${account.name ?? ""} ${account.email}`.toLocaleLowerCase("en-GB").includes(search)) &&
         tierFilterMatches(args.tier, subscriptionTier);
     });
-    const matches = await Promise.all(baseMatches.map(async row => ({
-      ...row,
-      accessTier: effectiveAccessTier(row.account),
-      effectiveEncore: args.encore && ["1", "2", "3"].includes(args.encore)
-        ? await effectiveEncoreTier(ctx, row.account)
-        : row.account.adminEncoreLevel ?? 0,
-    })));
-    const filtered = matches.filter(({account,readiness,effectiveEncore,accessTier}) => {
-      const verified = !!readiness;
+    const matches = await Promise.all(baseMatches.map(async row => {
+      const progress=await earnedEncoreProgress(ctx,row.account);
+      return { ...row, earnedEncoreLevel:progress.completed,
+        accessTier: effectiveAccessTier(row.account),
+        effectiveEncore: row.account.adminEncoreLevel ?? progress.completed };
+    }));
+    const filtered = matches.filter(({account,badge,earnedEncoreLevel,accessTier}) => {
+      const verified = !!badge;
       const encoreMatch = !args.encore || args.encore === "all" ||
-        (args.encore === "automatic" ? account.adminEncoreLevel == null : effectiveEncore !== null && String(effectiveEncore) === args.encore);
+        (args.encore === "automatic" ? account.adminEncoreLevel == null : earnedEncoreLevel !== null && String(earnedEncoreLevel) === args.encore);
       return encoreMatch &&
         (!args.verification || args.verification === "all" || (args.verification === "verified" ? verified : !verified)) &&
         (args.filter === "all" || args.filter === "members" && accessTier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified);
     });
-    return { ...result, page: await Promise.all(filtered.map(async ({account,readiness,accessTier}) => ({
+    return { ...result, page: await Promise.all(filtered.map(async ({account,badge,accessTier,earnedEncoreLevel,effectiveEncore}) => ({
       id: account._id, email: account.email, name: account.name ?? "", createdAt: account.createdAt,
       tier: accessTier,
       override: account.adminMembershipTier ?? "automatic", encoreOverride: account.adminEncoreLevel == null ? "automatic" : String(account.adminEncoreLevel), blocked: account.blockedAt != null, restrictionClass: account.restrictionClass ?? null,
-      blockedReason: account.blockedReason ?? "", blockedAt: account.blockedAt ?? null, restrictionRevision: account.restrictionRevision ?? 0, restrictionNoticeId: account.restrictionNoticeId ?? null, hasSubscription: !!account.stripeSubscriptionId, visualTier: customerAdminVisual(account), starred: account.adminStarred === true,
+      blockedReason: account.blockedReason ?? "", blockedAt: account.blockedAt ?? null, restrictionRevision: account.restrictionRevision ?? 0, restrictionNoticeId: account.restrictionNoticeId ?? null, hasSubscription: !!account.stripeSubscriptionId,
+      earnedEncoreLevel, encoreLevel: effectiveEncore, visualTier: customerAdminVisual(account, earnedEncoreLevel ?? undefined), starred: account.adminStarred === true,
       subscriptionTier: customerSubscriptionTier(account),
-      verified: !!readiness, verifiedUntil: readiness?.proofExpiresAt ?? null,
+      verified: !!badge, verifiedUntil: badge?.expiresAt ?? null,
       avatarUrl: account.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
     }))) };
   },
@@ -309,15 +310,15 @@ export const searchMessages = query({
       if (!await belongsToCustomerConversation(ctx, account, message)) continue;
       seen.add(accountId);
       if (!await matchesDirectoryView(ctx, account, args.view)) continue;
-      const readiness = await accountVerificationReady(ctx, account);
-      const verified = !!readiness;
+      const badge = await accountVerificationBadge(ctx, account);
+      const verified = !!badge;
       const tier = effectiveAccessTier(account);
       const subscriptionTier = customerSubscriptionTier(account);
-      const effectiveEncore = args.encore && ["1", "2", "3"].includes(args.encore)
-        ? await effectiveEncoreTier(ctx, account)
-        : account.adminEncoreLevel ?? 0;
+      const progress = await earnedEncoreProgress(ctx, account);
+      const earnedEncoreLevel = progress.completed;
+      const effectiveEncore = account.adminEncoreLevel ?? earnedEncoreLevel;
       const encoreMatch = !args.encore || args.encore === "all" ||
-        (args.encore === "automatic" ? account.adminEncoreLevel == null : effectiveEncore !== null && String(effectiveEncore) === args.encore);
+        (args.encore === "automatic" ? account.adminEncoreLevel == null : earnedEncoreLevel !== null && String(earnedEncoreLevel) === args.encore);
       if (!tierFilterMatches(args.tier, subscriptionTier)) continue;
       if (!encoreMatch) continue;
       if (args.verification && args.verification !== "all" && (args.verification === "verified" ? !verified : verified)) continue;
@@ -325,8 +326,9 @@ export const searchMessages = query({
       page.push({
         id: account._id, email: account.email, name: account.name ?? "", createdAt: account.createdAt,
         tier, override: account.adminMembershipTier ?? "automatic", encoreOverride: account.adminEncoreLevel == null ? "automatic" : String(account.adminEncoreLevel),
-        blocked: account.blockedAt != null, blockedReason: account.blockedReason ?? "", blockedAt: account.blockedAt ?? null, restrictionClass: account.restrictionClass ?? null, restrictionRevision: account.restrictionRevision ?? 0, restrictionNoticeId: account.restrictionNoticeId ?? null, hasSubscription: !!account.stripeSubscriptionId, visualTier: customerAdminVisual(account),
-        subscriptionTier, verified, verifiedUntil: readiness?.proofExpiresAt ?? null, starred: account.adminStarred === true,
+        blocked: account.blockedAt != null, blockedReason: account.blockedReason ?? "", blockedAt: account.blockedAt ?? null, restrictionClass: account.restrictionClass ?? null, restrictionRevision: account.restrictionRevision ?? 0, restrictionNoticeId: account.restrictionNoticeId ?? null, hasSubscription: !!account.stripeSubscriptionId,
+        earnedEncoreLevel, encoreLevel: effectiveEncore, visualTier: customerAdminVisual(account, earnedEncoreLevel ?? undefined),
+        subscriptionTier, verified, verifiedUntil: badge?.expiresAt ?? null, starred: account.adminStarred === true,
         avatarUrl: account.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
         matchedMessage: message.text.slice(0, 150),
       });
@@ -344,7 +346,7 @@ export const directoryMetrics = query({
     if (args.accountIds.length > 11) throw Error("Invalid customer metrics page.");
     return Promise.all([...new Set(args.accountIds)].map(async id => {
       const account = await ctx.db.get(id);
-      if (!account) return { id, activeRentals: 0, activeRentalsMore: false, credit: 0, unreadMessages: 0, lastMessage: null, visualTier: "guest" as const, encoreLevel: 0 };
+      if (!account) return { id, activeRentals: 0, activeRentalsMore: false, credit: 0, unreadMessages: 0, lastMessage: null };
       const active = (q: any) => q.or(q.eq(q.field("status"), "active"), q.eq(q.field("status"), "confirmed"));
       const [owned, legacy, credits, unreadThreads, recentThreads] = await Promise.all([
         ctx.db.query("bookings").withIndex("by_account", q => q.eq("accountId", id)).filter(active).take(101),
@@ -359,15 +361,12 @@ export const directoryMetrics = query({
         Promise.all(recentThreads.map(thread => belongsToCustomerConversation(ctx, account, thread))),
       ]);
       const latestThread = recentThreads.find((_, index) => validRecent[index]);
-      const progress = await earnedEncoreProgress(ctx, account);
-      const earnedEncoreLevel = progress.completed;
       const count = owned.length + legacy.length;
       return { id, activeRentals: Math.min(count, 100), activeRentalsMore: count > 100,
         credit: credits.reduce((n: number, c: any) => n + c.availablePence, 0) / 100,
         unreadMessages: Math.min(100, unreadThreads.reduce((n, thread, index) => n + (validUnread[index] ? thread.unreadOwner ?? 0 : 0), 0)),
         lastMessage: typeof latestThread?.lastMessage === "string" ? latestThread.lastMessage.slice(0, 150) : null,
-        visualTier: customerAdminVisual(account, earnedEncoreLevel ?? undefined), earnedEncoreLevel,
-        encoreLevel: account.adminEncoreLevel ?? earnedEncoreLevel };
+      };
     }));
   },
 });
@@ -413,7 +412,7 @@ export const search = query({
           blockedReason: a.blockedReason ?? "",
           hasSubscription: !!a.stripeSubscriptionId,
           subscriptionTier: a.membershipTier ?? null,
-          verified: !!await accountVerificationReady(ctx,a),
+          verified: !!await accountVerificationBadge(ctx,a),
           avatarUrl: a.avatarStorageId && a.avatarStorageId === a.avatarOwnedStorageId
             ? await ctx.storage.getUrl(a.avatarStorageId)
             : (a.googleAvatarUrl ?? null),
@@ -785,6 +784,7 @@ export const detail = query({
     ).filter((t): t is NonNullable<typeof t> => !!t);
     return {
       id: account._id,
+      email: account.email,
       name: account.name ?? null,
       phone: account.phone ?? null,
       address: account.address ?? null,

@@ -14,6 +14,14 @@ function stripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY);
 }
 
+function cardDuePence(swap:any):number {
+  const delta=swap?.quote?.deltaPence,credit=swap?.creditAppliedPence??0;
+  if(!Number.isSafeInteger(delta)||!Number.isSafeInteger(credit)||credit<0||credit>Math.max(0,delta))throw Error("The accepted equipment credit allocation needs review.");
+  const expected=Math.max(0,delta-credit),due=swap.cardDuePence??expected;
+  if(!Number.isSafeInteger(due)||due!==expected||credit>0&&!swap.creditOptIn)throw Error("The accepted equipment payment allocation needs review.");
+  return due;
+}
+
 async function inspectAmbiguousRefundAttempts(ctx:any, client:Stripe, swap:any, job:any) {
   const ambiguity=job.refundAmbiguity,paymentIntentId=ambiguity?.paymentIntentId;
   const allocation=job.allocations?.find((row:any)=>row.paymentIntentId===paymentIntentId);
@@ -269,6 +277,8 @@ function expiredUnpaidEvidence(session:any) {
 
 async function ensureSession(ctx:any, swap:any) {
   const client = stripe();
+  const duePence=cardDuePence(swap);
+  if(duePence<=0)throw Error("No card payment is due for this equipment change.");
   if (swap.sessionId) {
     const session=await client.checkout.sessions.retrieve(swap.sessionId);
     if(session.status==="open")await reserveStock(ctx,swap._id);
@@ -279,7 +289,7 @@ async function ensureSession(ctx:any, swap:any) {
     for await (const found of client.checkout.sessions.list({created:{gte:Math.floor(swap.acceptedAt/1000)-5},limit:100})) {
       if (++scanned>100) throw Error("The original equipment payment needs receipt review.");
       if (found.metadata?.itemSwapId===swap._id) {
-        if(found.currency!=="gbp"||found.amount_total!==swap.quote.deltaPence)throw Error("The original equipment payment session needs review.");
+        if(found.currency!=="gbp"||found.amount_total!==duePence||found.metadata?.cardDuePence&&found.metadata.cardDuePence!==String(duePence)||swap.creditAppliedPence>0&&(found.metadata?.cardDuePence!==String(duePence)||found.metadata?.creditAppliedPence!==String(swap.creditAppliedPence)))throw Error("The original equipment payment session needs review.");
         if(found.status!=="complete"||found.payment_status!=="paid")await ctx.runMutation(internal.rentalSwapState.bindSession,{id:swap._id,sessionId:found.id,url:found.url??""});
         if(found.status==="open")await reserveStock(ctx,swap._id);
         return found;
@@ -291,7 +301,7 @@ async function ensureSession(ctx:any, swap:any) {
   if (process.env.RENTAL_CHECKOUT_ENABLED !== "true" && !/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "")) throw Error("Rental payments are not enabled.");
   const origin = new URL(process.env.APP_URL ?? "https://dbcinemarentals.com").origin;
   await ctx.runMutation(internal.rentalSwapState.markSessionCreationStarted,{id:swap._id});
-  const session = await client.checkout.sessions.create({mode:"payment",adaptive_pricing:{enabled:false},customer_email:swap.acceptedEmail,expires_at:Math.floor(swap.expiresAt/1000),line_items:[{quantity:1,price_data:{currency:"gbp",unit_amount:swap.quote.deltaPence,product_data:{name:"DB Cinema · equipment change",description:swapDescription(swap)}}}],success_url:`${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${origin}/account?rental=${swap.bookingId}#chat`,metadata:{itemSwapId:swap._id},payment_intent_data:{metadata:{itemSwapId:swap._id}}},{idempotencyKey:`dbc-rental-swap-${swap._id}`});
+  const session = await client.checkout.sessions.create({mode:"payment",adaptive_pricing:{enabled:false},customer_email:swap.acceptedEmail,expires_at:Math.floor(swap.expiresAt/1000),line_items:[{quantity:1,price_data:{currency:"gbp",unit_amount:duePence,product_data:{name:"DB Cinema · equipment change",description:swapDescription(swap)}}}],success_url:`${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${origin}/account?rental=${swap.bookingId}#chat`,metadata:{itemSwapId:swap._id,cardDuePence:String(duePence),creditAppliedPence:String(swap.creditAppliedPence??0)},payment_intent_data:{metadata:{itemSwapId:swap._id,cardDuePence:String(duePence),creditAppliedPence:String(swap.creditAppliedPence??0)}}},{idempotencyKey:`dbc-rental-swap-${swap._id}`});
   if(!session.url)throw Error("The equipment payment link is unavailable; retry to recover it.");
   await ctx.runMutation(internal.rentalSwapState.bindSession,{id:swap._id,sessionId:session.id,url:session.url});return session;
 }
@@ -300,10 +310,11 @@ async function finishPayment(ctx:any, session:Stripe.Checkout.Session):Promise<a
   const id=session.metadata?.itemSwapId;if(!id)throw Error("Equipment payment metadata is missing.");
   const context:any=await ctx.runQuery(internal.rentalSwapState.context,{id});if(!context)throw Error("Equipment proposal is missing.");let swap=context.swap;
   if(session.status!=="complete"||session.payment_status!=="paid")return {bookingId:swap.bookingId,paid:false};
-  if(swap.sessionId&&session.id!==swap.sessionId||session.currency!=="gbp"||session.amount_total!==swap.quote.deltaPence)throw Error("Equipment payment receipt does not match the accepted quote.");
+  const duePence=cardDuePence(swap);
+  if(duePence<=0||swap.sessionId&&session.id!==swap.sessionId||session.currency!=="gbp"||session.amount_total!==duePence||session.metadata?.cardDuePence&&session.metadata.cardDuePence!==String(duePence)||session.metadata?.creditAppliedPence&&session.metadata.creditAppliedPence!==String(swap.creditAppliedPence??0)||swap.creditAppliedPence>0&&(session.metadata?.cardDuePence!==String(duePence)||session.metadata?.creditAppliedPence!==String(swap.creditAppliedPence)))throw Error("Equipment payment receipt does not match the accepted quote.");
   const paymentId=typeof session.payment_intent==="string"?session.payment_intent:session.payment_intent?.id;if(!paymentId)throw Error("Equipment payment is missing.");
   const payment=await stripe().paymentIntents.retrieve(paymentId);
-  if(payment.status!=="succeeded"||payment.currency!=="gbp"||payment.amount_received!==session.amount_total||payment.metadata.itemSwapId!==id)throw Error("Stripe has not confirmed the equipment payment.");
+  if(payment.status!=="succeeded"||payment.currency!=="gbp"||payment.amount_received!==session.amount_total||payment.metadata.itemSwapId!==id||payment.metadata?.cardDuePence&&payment.metadata.cardDuePence!==String(duePence)||payment.metadata?.creditAppliedPence&&payment.metadata.creditAppliedPence!==String(swap.creditAppliedPence??0)||swap.creditAppliedPence>0&&(payment.metadata?.cardDuePence!==String(duePence)||payment.metadata?.creditAppliedPence!==String(swap.creditAppliedPence)))throw Error("Stripe has not confirmed the equipment payment.");
   if(!swap.sessionId||swap.paymentIntentId!==paymentId){await ctx.runMutation(internal.rentalSwapState.bindSession,{id,sessionId:session.id,url:session.url??"",paymentIntentId:paymentId});swap={...swap,sessionId:session.id,paymentIntentId:paymentId};}
   if(swap.status==="applied")return ctx.runMutation(internal.rentalSwapState.apply,{id,sessionId:session.id,paymentIntentId:paymentId,amountPence:payment.amount_received});
   if(swap.status==="refunded"&&swap.paymentIntentId===paymentId)return {refunded:true};
@@ -334,8 +345,9 @@ async function checkAsyncPaymentFailure(ctx:any,id:any):Promise<any> {
   if(!swap||swap.status!=="review"||!swap.asyncPaymentFailureAt||swap.asyncPaymentFailureResolvedAt)return {ignored:true};
   const snapshot={id:swap._id,expectedStatus:swap.status,expectedDue:swap.reconcileAfter};
   try {
-    if(!swap.sessionId||swap.quote.deltaPence<=0||swap.paymentIntentId||swap.refundJobId)throw Error("The stored equipment payment is not safe to close.");
-    const client=stripe(),expectedId=String(swap._id),expectedAmount=swap.quote.deltaPence;
+    const expectedAmount=cardDuePence(swap);
+    if(!swap.sessionId||expectedAmount<=0||swap.paymentIntentId||swap.refundJobId)throw Error("The stored equipment payment is not safe to close.");
+    const client=stripe(),expectedId=String(swap._id);
     const matchesSession=(session:any)=>session?.id===swap.sessionId&&session.metadata?.itemSwapId===expectedId&&session.currency==="gbp"&&session.amount_total===expectedAmount;
     let session:any=await client.checkout.sessions.retrieve(swap.sessionId);
     if(!matchesSession(session))throw Error("The stored Checkout Session does not match this equipment change.");
@@ -379,7 +391,7 @@ async function compensate(ctx:any,id:any):Promise<any> {
   const context:any=await ctx.runQuery(internal.rentalSwapState.context,{id});const swap=context?.swap;
   if(!swap||!swap.compensationStartedAt||!swap.paymentIntentId)throw Error("The compensation decision is unavailable.");
   if(swap.status==="refunded")return {refunded:true};
-  const initial:RefundReceipt=swap.compensationReceipt??{paymentIntentId:swap.paymentIntentId,amountPence:swap.quote.deltaPence,attemptedAt:swap.compensationStartedAt,status:"unknown"};
+  const initial:RefundReceipt=swap.compensationReceipt??{paymentIntentId:swap.paymentIntentId,amountPence:cardDuePence(swap),attemptedAt:swap.compensationStartedAt,status:"unknown"};
   const persist=async(receipt:RefundReceipt)=>ctx.runMutation(internal.rentalSwapState.recordCompensation,{id,receipt});await persist(initial);
   const receipt=await recoverApprovedRefund(stripe(),initial,{currency:"GBP",now:Date.now(),maxRefunds:100,persist,idempotencyKey:`dbc-swap-compensation-${id}`,metadata:{itemSwapCompensation:id},});await persist(receipt);
   if(receipt.status==="awaiting_approval"){await ctx.runMutation(internal.rentalSwapState.notifyApproval,{id});return {status:"awaiting_review"};}
@@ -452,11 +464,11 @@ async function finishRefund(ctx:any, swap:any) {
   return finish();
 }
 
-export const accept=action({args:{token:v.string(),id:v.id("rental_item_swaps"),expectedDeltaPence:v.number(),confirmed:v.boolean()},handler:async(ctx,args):Promise<any>=>{
+export const accept=action({args:{token:v.string(),id:v.id("rental_item_swaps"),expectedDeltaPence:v.number(),confirmed:v.boolean(),useAccountCredit:v.optional(v.boolean())},handler:async(ctx,args):Promise<any>=>{
   if (!args.confirmed) throw Error("Please acknowledge the equipment change and amount before accepting.");
   const swap:any=await ctx.runMutation(internal.rentalSwapState.accept,args);
   if(swap.status==="applied")return {applied:true};
-  if(swap.quote.deltaPence===0){await ensureStock(ctx,swap._id);return ctx.runMutation(internal.rentalSwapState.apply,{id:swap._id});}
+  if(swap.quote.deltaPence===0||swap.quote.deltaPence>0&&cardDuePence(swap)===0){await ensureStock(ctx,swap._id);return ctx.runMutation(internal.rentalSwapState.apply,{id:swap._id,...(swap.quote.deltaPence>0?{amountPence:0}:{})});}
   if(swap.quote.deltaPence<0)return finishRefund(ctx,swap);
   const session:any=await ensureSession(ctx,swap);if(session.status==="complete")return finishPayment(ctx,session);return {url:session.url};
 }});
@@ -471,17 +483,17 @@ export const refundPaidReview=action({args:{token:v.string(),id:v.id("rental_ite
   await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"rentalSwapPayments.refundPaidReview"});
   const reason=args.reason.trim();if(!args.confirmed||reason.length<5||reason.length>400)throw Error("Confirm the refund and provide a reason between 5 and 400 characters.");
   const context:any=await ctx.runQuery(internal.rentalSwapState.context,{id:args.id});const swap=context?.swap;
-  if(!swap||!swap.paymentIntentId||!swap.sessionId||swap.quote.deltaPence<=0)throw Error("A recorded paid equipment change is required.");
+  if(!swap||!swap.paymentIntentId||!swap.sessionId||cardDuePence(swap)<=0)throw Error("A recorded paid equipment change is required.");
   if(swap.status==="refunded")return {refunded:true,already:true};
   const client=stripe(),session=await client.checkout.sessions.retrieve(swap.sessionId),paymentId=typeof session.payment_intent==="string"?session.payment_intent:session.payment_intent?.id;
-  if(session.id!==swap.sessionId||session.status!=="complete"||session.payment_status!=="paid"||session.currency!=="gbp"||session.amount_total!==swap.quote.deltaPence||session.metadata?.itemSwapId!==String(swap._id)||!paymentId||paymentId!==swap.paymentIntentId)throw Error("The original equipment checkout needs review before refunding.");
+  if(session.id!==swap.sessionId||session.status!=="complete"||session.payment_status!=="paid"||session.currency!=="gbp"||session.amount_total!==cardDuePence(swap)||session.metadata?.itemSwapId!==String(swap._id)||!paymentId||paymentId!==swap.paymentIntentId)throw Error("The original equipment checkout needs review before refunding.");
   const payment=await client.paymentIntents.retrieve(paymentId);
-  if(payment.id!==swap.paymentIntentId||payment.status!=="succeeded"||payment.currency!=="gbp"||payment.amount_received!==swap.quote.deltaPence||payment.metadata?.itemSwapId!==String(swap._id))throw Error("The original equipment payment needs review before refunding.");
+  if(payment.id!==swap.paymentIntentId||payment.status!=="succeeded"||payment.currency!=="gbp"||payment.amount_received!==cardDuePence(swap)||payment.metadata?.itemSwapId!==String(swap._id))throw Error("The original equipment payment needs review before refunding.");
   const decision:any=await ctx.runMutation(internal.rentalSwapState.beginReviewedCompensation,{id:args.id,sessionId:session.id,paymentIntentId:payment.id,amountPence:payment.amount_received,reason});
   if(decision.refunded)return decision;
   return compensate(ctx,args.id);
 }});
-export const resumeReview=action({args:{token:v.string(),id:v.id("rental_item_swaps"),confirmed:v.boolean()},handler:async(ctx,args):Promise<any>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"rentalSwapPayments.resumeReview"});if(!args.confirmed)throw Error("Confirm resuming the original equipment settlement first.");const swap:any=await ctx.runMutation(internal.rentalSwapState.resumeReview,{id:args.id});if(swap.status==="awaiting_acceptance")return {status:"awaiting_acceptance"};if(swap.asyncPaymentFailureAt)return checkAsyncPaymentFailure(ctx,swap._id);if(swap.compensationStartedAt)return compensate(ctx,swap._id);if(swap.quote.deltaPence<0)return finishRefund(ctx,swap);if(swap.quote.deltaPence===0){await ensureStock(ctx,swap._id);return ctx.runMutation(internal.rentalSwapState.apply,{id:swap._id});}const session:any=await ensureSession(ctx,swap);return session.status==="complete"?finishPayment(ctx,session):{url:session.url};}});
+export const resumeReview=action({args:{token:v.string(),id:v.id("rental_item_swaps"),confirmed:v.boolean()},handler:async(ctx,args):Promise<any>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"rentalSwapPayments.resumeReview"});if(!args.confirmed)throw Error("Confirm resuming the original equipment settlement first.");const swap:any=await ctx.runMutation(internal.rentalSwapState.resumeReview,{id:args.id});if(swap.status==="awaiting_acceptance")return {status:"awaiting_acceptance"};if(swap.asyncPaymentFailureAt)return checkAsyncPaymentFailure(ctx,swap._id);if(swap.compensationStartedAt)return compensate(ctx,swap._id);if(swap.quote.deltaPence<0)return finishRefund(ctx,swap);if(swap.quote.deltaPence===0||swap.quote.deltaPence>0&&cardDuePence(swap)===0){await ensureStock(ctx,swap._id);return ctx.runMutation(internal.rentalSwapState.apply,{id:swap._id,...(swap.quote.deltaPence>0?{amountPence:0}:{})});}const session:any=await ensureSession(ctx,swap);return session.status==="complete"?finishPayment(ctx,session):{url:session.url};}});
 export const checkRefundApproval=action({args:{token:v.string(),id:v.id("rental_item_swaps")},handler:async(ctx,args):Promise<any>=>{
   await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"rentalSwapPayments.checkRefundApproval"});
   const context:any=await ctx.runQuery(internal.rentalSwapState.context,{id:args.id}),swap=context?.swap;
@@ -496,7 +508,7 @@ export const checkRefundApproval=action({args:{token:v.string(),id:v.id("rental_
     return compensate(ctx,swap._id);
   throw Error("This equipment change is not awaiting a Stripe refund approval.");
 }});
-export const withdraw=action({args:{token:v.string(),id:v.id("rental_item_swaps")},handler:async(ctx,args):Promise<any>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"rentalSwapPayments.withdraw"});const context:any=await ctx.runQuery(internal.rentalSwapState.context,{id:args.id});if(!context)throw Error("Equipment proposal missing.");const swap=context.swap;if(swap.refundJobId||swap.paymentIntentId)throw Error("The existing equipment settlement needs review before withdrawal.");let expiredSessionEvidence:any;if(swap.quote.deltaPence>0&&swap.acceptedAt){if(!swap.sessionId)throw Error("The original equipment payment needs review before withdrawal.");let session:any=await ensureSession(ctx,swap);if(session.status==="complete"){if(session.payment_status!=="paid")throw Error("The equipment payment is processing; wait for its result.");return finishPayment(ctx,session);}if(session.status==="open")session=await stripe().checkout.sessions.expire(session.id);if(session.status!=="expired")throw Error("The equipment payment needs review before withdrawal.");expiredSessionEvidence=expiredUnpaidEvidence(session);}await ctx.runMutation(internal.rentalSwapState.close,{id:swap._id,status:"withdrawn",expiredSessionEvidence});return {withdrawn:true};}});
+export const withdraw=action({args:{token:v.string(),id:v.id("rental_item_swaps")},handler:async(ctx,args):Promise<any>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"rentalSwapPayments.withdraw"});const context:any=await ctx.runQuery(internal.rentalSwapState.context,{id:args.id});if(!context)throw Error("Equipment proposal missing.");const swap=context.swap;if(swap.refundJobId||swap.paymentIntentId)throw Error("The existing equipment settlement needs review before withdrawal.");let expiredSessionEvidence:any;if(swap.quote.deltaPence>0&&cardDuePence(swap)>0&&swap.acceptedAt){if(!swap.sessionId)throw Error("The original equipment payment needs review before withdrawal.");let session:any=await ensureSession(ctx,swap);if(session.status==="complete"){if(session.payment_status!=="paid")throw Error("The equipment payment is processing; wait for its result.");return finishPayment(ctx,session);}if(session.status==="open")session=await stripe().checkout.sessions.expire(session.id);if(session.status!=="expired")throw Error("The equipment payment needs review before withdrawal.");expiredSessionEvidence=expiredUnpaidEvidence(session);}await ctx.runMutation(internal.rentalSwapState.close,{id:swap._id,status:"withdrawn",expiredSessionEvidence});return {withdrawn:true};}});
 export const closeAcceptedWithoutPayment=action({args:{token:v.string(),id:v.id("rental_item_swaps"),confirmed:v.boolean()},handler:async(ctx,args):Promise<any>=>{
   await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"rentalSwapPayments.closeAcceptedWithoutPayment"});
   if(!args.confirmed)throw Error("Confirm closing this accepted change without payment.");
@@ -512,7 +524,7 @@ export const reconcile=internalAction({args:{},handler:async(ctx):Promise<void>=
         if(swap.expiresAt<=Date.now())await ctx.runMutation(internal.rentalSwapState.close,{id:swap._id,status:"expired"});
       }else if(swap.compensationStartedAt)await compensate(ctx,swap._id);
       else if(swap.quote.deltaPence<0)await finishRefund(ctx,swap);
-      else if(swap.quote.deltaPence===0){await ensureStock(ctx,swap._id);await ctx.runMutation(internal.rentalSwapState.apply,{id:swap._id});}
+      else if(swap.quote.deltaPence===0||swap.quote.deltaPence>0&&cardDuePence(swap)===0){await ensureStock(ctx,swap._id);await ctx.runMutation(internal.rentalSwapState.apply,{id:swap._id,...(swap.quote.deltaPence>0?{amountPence:0}:{})});}
       else {
         const session:any=await ensureSession(ctx,swap);
         if(session.status==="complete")await finishPayment(ctx,session);

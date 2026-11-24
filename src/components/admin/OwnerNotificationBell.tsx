@@ -32,6 +32,11 @@ export function OwnerNotificationBell({token}:{token:string}) {
       if(!device?.configured||!device.publicKey)throw Error("Phone notifications are not configured yet.");
       if(!registration.current||!ready)throw Error("Notifications are still initialising. Try again in a moment.");
       if(Notification.permission==="denied")throw Error("Allow notifications in your browser or phone settings, then reopen this page.");
+      if(Notification.permission==="default"){
+        const permission=await Notification.requestPermission();
+        if(epoch.current!==generation)return;
+        if(permission!=="granted")throw Error("Allow phone alerts in the browser prompt to continue.");
+      }
       const key=Uint8Array.from(atob(device.publicKey.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
       // Starts in the customer's tap; the scoped worker was activated beforehand.
       const current=subscription.current??await Promise.race([registration.current.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key}),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error("Your push service did not respond. Try again.")),20000);})]);

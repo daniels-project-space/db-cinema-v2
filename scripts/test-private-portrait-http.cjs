@@ -15,7 +15,7 @@ process.env.ADMIN_TOKEN = token;
 process.env.PRIVATE_VERIFICATION_PHOTO_ENABLED = 'true';
 const account = harness.put('accounts', { email: 'portrait@example.invalid', createdAt: now - 90000000, privateVerificationPortraitNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION, privateVerificationPortraitConsentVersion: CURRENT_PRIVACY_NOTICE_VERSION, privateVerificationPortraitNotifiedAt: now - 10000, privateVerificationPortraitConsentedAt: now - 9000 });
 const booking = harness.put('bookings', { accountId: account._id, diditSessionId: 'fixture' });
-account.rentalVerification = { sourceBookingId: booking._id };
+account.rentalVerification = { sourceBookingId: booking._id, verifiedAt: now - 90000000 };
 const archive = harness.put('verification_archives', { accountId: account._id, bookingId: booking._id, sessionId: 'fixture', status: 'complete' });
 const document = harness.put('verification_documents', { accountId: account._id, bookingId: booking._id, archiveId: archive._id, kind: 'selfie-0-reference_image', contentType: 'image/png' });
 let revokeDuringRead = false, backendCalls = 0;

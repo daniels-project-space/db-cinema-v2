@@ -5,8 +5,9 @@ import { api } from "@cvx/_generated/api";
 import styles from "./RentalRequestHistory.module.css";
 import { RentalRequestApply } from "./RentalRequestApply";
 import { cancellationTimingBasis, isNoRefundWithin48HoursCancellationVersion } from "@/lib/cancellationPolicy";
+import { renterFacingError } from "@/lib/renterFacingError";
 
-const labels = { dates: "Date change", items: "Kit change", extension: "Extension", cancel: "Cancellation", handover: "Pickup / return time" };
+const labels = { dates: "Date change", items: "Kit change", extension: "Extension", cancel: "Cancellation", handover: "Pickup / return time", refund: "Refund review", delivery: "Delivery quote" };
 
 type BlockingRequestActions = { any: boolean; dates: boolean; cancel: boolean; handover: boolean };
 type ItemChangeQuoteRequest = { requestId: string; lineIndexes: number[] };
@@ -52,6 +53,7 @@ function RequestHistory({ token, bookingId, admin = false, onBlockingRequests, o
       const request = requests.find(row => row._id === selected);
       if (!request) throw Error("Refresh the rental request and try again.");
       if (decision === "approved" && request.kind === "handover" && (!request.requestId || !request.requestedSnapshot || !request.requestedHandover)) throw Error("This time request is incomplete. Ask the renter to send it again.");
+      if (decision === "approved" && request.kind === "delivery" && !request.requestedDeliveryLegs) throw Error("This delivery request is incomplete. Ask the renter to submit it again.");
       const structuredRequest = request.kind === "dates"
         ? request.requestedStart !== undefined && request.requestedEnd !== undefined && !!request.requestedSnapshot
         : request.kind === "handover"
@@ -68,8 +70,12 @@ function RequestHistory({ token, bookingId, admin = false, onBlockingRequests, o
             : "Approved. The change is processing and will update automatically when settlement finishes.");
       } else {
         await review({ token, bookingId: bookingId as any, id: selected as any, decision, note });
-        setNotice(decision === "approved" && request.kind === "extension"
+        setNotice(decision === "declined" && request.status === "approved"
+          ? "Unapplied request closed. No change was applied from this request."
+          : decision === "approved" && request.kind === "extension"
           ? "Approved for a live quote. The rental stays unchanged until the renter accepts and pays."
+          : decision === "approved" && request.kind === "delivery"
+            ? "Approved for a live quote. Delivery remains inactive until the renter accepts its terms and payment succeeds."
           : decision === "approved" && (request.kind === "dates" || request.kind === "cancel" || request.kind === "handover")
             ? "Approval saved. This older request needs a fresh availability and terms review before it can be applied."
             : "Decision saved and shared in this rental conversation.");
@@ -77,7 +83,7 @@ function RequestHistory({ token, bookingId, admin = false, onBlockingRequests, o
       setSelected(null); setNote("");
     } catch (e: any) {
       if (decision === "approved") { setSelected(null); setNote(""); }
-      setError(e.data?.message ?? e.message ?? "The decision could not be saved. Please retry.");
+      setError(admin ? e.data?.message ?? e.message ?? "The decision could not be saved. Please retry." : renterFacingError(e, "Your decision could not be saved. Your rental is unchanged; please try again."));
     } finally { inFlight.current = false; setBusy(false); }
   }
   return <section className={styles.root} aria-label={admin ? "Review customer requests" : "Your rental requests"}>
@@ -87,14 +93,15 @@ function RequestHistory({ token, bookingId, admin = false, onBlockingRequests, o
         const requestedItems = request.requestedItems;
         const requestId = request.requestId;
         return <article key={request._id} className={styles.card}>
-        <div className={styles.heading}><h4>{labels[request.kind]}</h4><span className={styles.status} data-status={request.status}>{request.execution?.status === "applied" ? "Completed" : request.execution?.status === "processing" ? "Settlement processing" : request.kind === "extension" && request.status === "approved" ? "Needs live quote" : request.status === "approved" ? "Approved for arrangement" : request.status === "declined" ? "Declined" : "Awaiting team review"}</span></div>
+        <div className={styles.heading}><h4>{labels[request.kind]}</h4><span className={styles.status} data-status={request.status}>{request.execution?.status === "applied" ? "Completed" : request.execution?.status === "processing" ? "Settlement processing" : (request.kind === "extension" || request.kind === "delivery") && request.status === "approved" ? "Needs live quote" : request.kind === "refund" && request.status === "approved" ? "Approved · no refund sent" : request.status === "approved" ? "Approved for arrangement" : request.status === "declined" ? "Declined" : "Awaiting team review"}</span></div>
         <time dateTime={new Date(request.createdAt).toISOString()}>{new Date(request.createdAt).toLocaleString("en-GB", { timeZone: "Europe/London", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })} · London</time>
         <p>{request.detail}</p>
         {admin && request.kind === "dates" && request.requestedStart !== undefined && <p className={styles.explanation}>Renter’s proposal: {new Date(request.requestedStart).toISOString().slice(0, 10)} → {request.requestedEnd === undefined ? "return date unavailable" : new Date(request.requestedEnd).toISOString().slice(0, 10)} · all items move together; original duration and handover times stay the same.</p>}
+        {request.kind === "delivery" && request.requestedDeliveryLegs && <p className={styles.explanation}>{request.requestedDeliveryLegs === "one_way" ? "One-way delivery · renter returns to Trafalgar Square." : "Delivery + courier collection."} {admin ? "Approve to prepare the live price quote; no address is included in the chat request." : "Your rental remains pickup-only until a quote is accepted and paid."}</p>}
         {request.kind === "items" && requestedItems && <div className={styles.explanation} data-testid={`requested-item-lines-${request._id}`}>
           <p>Selected: {request.itemChangeItems?.map((item: { qty: number; title: string }) => `${item.qty}× ${item.title}`).join(", ") ?? `${requestedItems.lineIndexes.length} booked items`}.</p>
           {admin && request.itemSelectionStale && <p className={styles.error} data-testid={`stale-item-selection-${request._id}`}>The kit changed after this request. Ask the renter to select the items again.</p>}
-          {admin && request.status === "approved" && !request.execution && requestId && onPrepareItemChange && !request.itemSelectionStale && request.currentLineIndexes?.length === requestedItems.lineIndexes.length && <button type="button" data-testid={`prepare-item-quote-${request._id}`} className="mt-2 min-h-10 rounded-xl border border-[#d5a474]/30 bg-[#d5a474]/[.08] px-3 text-xs font-semibold text-[#edc89f]" onClick={() => onPrepareItemChange({ requestId, lineIndexes: request.currentLineIndexes! })}>Prepare live quote</button>}
+          {admin && request.status === "approved" && !request.execution && requestId && onPrepareItemChange && !request.itemQuoteUnavailable && !request.itemSelectionStale && request.currentLineIndexes?.length === requestedItems.lineIndexes.length && <button type="button" data-testid={`prepare-item-quote-${request._id}`} className="mt-2 min-h-10 rounded-xl border border-[#d5a474]/30 bg-[#d5a474]/[.08] px-3 text-xs font-semibold text-[#edc89f]" onClick={() => onPrepareItemChange({ requestId, lineIndexes: request.currentLineIndexes! })}>Prepare live quote</button>}
         </div>}
         {admin && request.kind === "items" && !request.requestedItems && <p className={styles.explanation}>Older request · ask the renter to select the kit items again.</p>}
         {request.kind === "extension" && !admin && <p className={styles.explanation}>Your current return times stay in place. Send a priced extension request from the rental controls.</p>}
@@ -109,21 +116,28 @@ function RequestHistory({ token, bookingId, admin = false, onBlockingRequests, o
               ? "At request time: account credit only under the accepted terms."
               : "At request time: no rental refund or account credit under the accepted terms."}
         </p>}
+        {admin && request.kind === "cancel" && request.creditOfferId && <p className={styles.explanation} data-testid={`linked-credit-offer-${request._id}`}><span className="font-medium">Linked credit offer:</span> <code className="break-all">{String(request.creditOfferId)}</code></p>}
         {admin && request.kind === "cancel" && isNoRefundWithin48HoursCancellationVersion(request.cancellationTermsVersion) && request.cancellationKindAtRequest === "full_refund" && !request.cancellationChoice && <p className={styles.error}>This older request has no recorded renter choice. Ask them to submit a fresh cancellation request before processing.</p>}
         {request.decisionNote && <div className={styles.reply}><strong>Team reply</strong><p>{request.decisionNote}</p></div>}
         {request.execution?.status === "applied" ? <div className={styles.reply}><strong>Completed update</strong><p>{request.execution.detail}</p></div>
           : request.execution?.status === "processing" ? <p className={styles.explanation}>Cancellation and settlement are processing. The rental remains reserved until payment and any security settlement under the accepted terms are complete.</p>
-          : request.status === "approved" && <p className={styles.explanation}>{request.kind === "extension" || request.kind === "items" ? "Your rental stays unchanged until you accept the live quote and any payment or refund." : "This approved request still needs its saved availability and terms checks before the rental can change."}</p>}
+          : request.status === "approved" && <p className={styles.explanation}>{request.kind === "refund" ? "This is not a refund confirmation. Any amount and payment will be confirmed separately under your accepted terms." : request.kind === "extension" || request.kind === "items" || request.kind === "delivery" ? "Your rental stays unchanged until you accept the live quote and any payment or refund." : "This approved request still needs its saved availability and terms checks before the rental can change."}</p>}
+        {admin && request.kind === "items" && request.status === "approved" && !request.execution && request.itemQuoteUnavailable && <p role="status" data-testid={`item-quote-unavailable-${request._id}`} className={styles.explanation}>Approved for a live quote. Stock coordination is offline, so the kit, price and payment remain unchanged until a fresh quote is available.</p>}
         {admin && request.status === "approved" && !request.execution && (request.kind === "dates" || request.kind === "cancel" || request.kind === "handover") && <RentalRequestApply token={token} bookingId={bookingId} id={request._id} requestId={request.requestId} kind={request.kind} decisionNote={request.decisionNote} requestedStart={request.requestedStart} requestedEnd={request.requestedEnd} requestedSnapshot={request.requestedSnapshot} requestedHandover={request.requestedHandover} handoverItems={request.handoverItems} cancellationKindAtRequest={request.cancellationKindAtRequest} cancellationTermsVersion={request.cancellationTermsVersion} cancellationChoice={request.cancellationChoice} disabled={busy || request.kind === "cancel" && isNoRefundWithin48HoursCancellationVersion(request.cancellationTermsVersion) && request.cancellationKindAtRequest === "full_refund" && !request.cancellationChoice} />}
+        {admin && request.status === "approved" && !request.execution && (request.kind === "dates" || request.kind === "cancel" || request.kind === "handover") && <div className={styles.actions}>
+          <button type="button" data-testid={`close-approved-request-${request._id}`} disabled={busy} onClick={() => open(request._id, "declined")}>Decline &amp; close request</button>
+        </div>}
         {admin && request.status === "pending" && <div className={styles.actions}>
-          {request.kind !== "extension" && <button type="button" data-testid={`approve-request-${request.kind}-${request._id}`} disabled={busy || request.approvalBlocked} onClick={() => open(request._id, "approved")}>{request.kind === "handover" ? "Review & apply time" : "Approve request"}</button>}
+          {request.kind !== "extension" && <button type="button" data-testid={`approve-request-${request.kind}-${request._id}`} disabled={busy || request.approvalBlocked} onClick={() => open(request._id, "approved")}>{request.kind === "handover" ? "Review & apply time" : request.kind === "delivery" ? "Approve for quote" : "Approve request"}</button>}
           <button type="button" disabled={busy} onClick={() => open(request._id, "declined")}>Decline request</button>
         </div>}
         {admin && request.status === "pending" && request.approvalBlocked && <p className={styles.explanation}>Finish the active rental operation before approving this request.</p>}
+        {admin && request.status === "pending" && request.kind === "items" && request.itemQuoteUnavailable && <p className={styles.explanation} data-testid={`item-quote-unavailable-${request._id}`}>Stock coordination is offline. You can approve the request for a later quote or decline it; nothing changes until a live quote is accepted.</p>}
         {admin && selected === request._id && <form onSubmit={e => { e.preventDefault(); void submit(); }}>
-          <label>{decision === "approved" ? "Explain the agreed next step" : "Explain why this cannot be arranged"}<textarea aria-label="Reply to request" required minLength={5} maxLength={1000} disabled={busy} value={note} onChange={e => setNote(e.target.value)} /></label>
-          {decision === "approved" && <p className={styles.explanation}>{request.kind === "extension" || request.kind === "items" ? "Approval opens the live quote and payment step. No booking or price changes until the renter accepts." : "Approval rechecks availability and applies the saved change to the rental calendar."}</p>}
-          <div className={styles.actions}><button data-testid={`approve-request-submit-${request.kind}`} disabled={busy}>{busy ? "Applying…" : decision === "approved" && request.kind === "dates" ? "Approve & apply dates" : decision === "approved" && request.kind === "cancel" ? "Approve & process cancellation" : decision === "approved" && request.kind === "handover" ? "Approve & apply time" : decision === "approved" && (request.kind === "extension" || request.kind === "items") ? "Approve for live quote" : decision === "approved" ? "Approve request" : "Decline request"}</button><button type="button" disabled={busy} onClick={() => { setSelected(null); setError(""); }}>Back</button></div>
+          <label>{decision === "approved" ? "Explain the agreed next step" : request.status === "approved" ? "Why could this approved change not be completed?" : "Explain why this cannot be arranged"}<textarea aria-label="Reply to request" required minLength={5} maxLength={1000} disabled={busy} value={note} onChange={e => setNote(e.target.value)} /></label>
+          {decision === "approved" && <p className={styles.explanation}>{request.kind === "refund" ? "Approval records the review decision only. It does not issue money; any refund must be handled separately." : request.kind === "extension" || request.kind === "items" ? "Approval opens the live quote and payment step. No booking or price changes until the renter accepts." : request.kind === "delivery" ? "Approval records the request only. Prepare a separate checkout-calculated quote; delivery starts only after renter acceptance and successful payment." : "Approval rechecks availability and applies the saved change to the rental calendar."}</p>}
+          {decision === "declined" && request.status === "approved" && <p className={styles.explanation}>This closes the saved approval only. It does not change rental dates, times, or payments, and does not start a cancellation or refund.</p>}
+          <div className={styles.actions}><button data-testid={`approve-request-submit-${request.kind}`} disabled={busy}>{busy ? "Saving…" : decision === "approved" && request.kind === "dates" ? "Approve & apply dates" : decision === "approved" && request.kind === "cancel" ? "Approve & process cancellation" : decision === "approved" && request.kind === "handover" ? "Approve & apply time" : decision === "approved" && (request.kind === "extension" || request.kind === "items" || request.kind === "delivery") ? "Approve for live quote" : decision === "approved" ? "Approve request" : request.status === "approved" ? "Decline & close" : "Decline request"}</button><button type="button" disabled={busy} onClick={() => { setSelected(null); setError(""); }}>Back</button></div>
         </form>}
       </article>;
       })}

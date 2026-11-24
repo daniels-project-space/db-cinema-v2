@@ -19,15 +19,23 @@ async function ensureSession(ctx: any, requestId: any, reason: string, approvedR
   if (initial.request.status === "applied") return { applied: true };
   const requestedAmount = initial.request.priceDelta;
   if (!Number.isFinite(requestedAmount) || requestedAmount < 0) throw Error("The extension quote is invalid.");
-  if (requestedAmount > 0) paymentGate();
+  const initialCardDuePence = initial.request.cardDuePence ?? Math.round(requestedAmount * 100);
+  if (!Number.isSafeInteger(initialCardDuePence) || initialCardDuePence < 0) throw Error("The extension payment allocation is invalid.");
+  if (initialCardDuePence > 0) paymentGate();
 
   const r: any = await ctx.runMutation(internal.rentalExtensions.prepare, { requestId, reason, ...(approvedReturnTime ? { approvedReturnTime } : {}) });
+  if (r.status === "expired") throw Error("This account-credit extension request expired. Ask the team for a fresh quote.");
   if (r.status === "applied") return { applied: true };
-  if (r.priceDelta === 0) {
+  if (!["approved", "awaiting_payment"].includes(r.status)) throw Error("This extension request is no longer awaiting approval.");
+  const cardDuePence=r.cardDuePence??Math.round((r.priceDelta??0)*100);
+  if (cardDuePence === 0) {
     if (r.stripePaymentLinkId || r.paymentLinkUrl) throw Error("This zero-balance extension has an older payment session and needs reconciliation.");
     const settled = await ctx.runMutation(internal.rentalExtensions.applyPaid, { requestId, amountPence: 0, approvedZero: true });
-    if (!settled?.ok) throw Error("The approved zero-balance extension could not be applied. Refresh availability and review the request again.");
-    return { applied: true, zeroAmount: true };
+    if (!settled?.ok) {
+      if (settled?.closed) await ctx.runMutation(internal.rentalExtensions.close, { requestId });
+      throw Error("The approved zero-balance extension could not be applied. Refresh availability and review the request again.");
+    }
+    return { applied: true, zeroAmount: true,accountCredit:r.creditAppliedPence??0 };
   }
   if (!Number.isFinite(r.priceDelta) || r.priceDelta < 0) throw Error("The extension quote is invalid.");
   paymentGate();
@@ -52,11 +60,11 @@ async function ensureSession(ctx: any, requestId: any, reason: string, approvedR
     customer_email: state.booking.guestEmail,
     expires_at: Math.floor(r.expiresAt / 1000),
     custom_text: { submit: { message: `Pay for the owner-approved extra rental days under our [rental terms](${origin}/legal/rental-terms). New return time: ${r.approvedReturnTime} London time. Existing security remains unchanged.` } },
-    line_items: [{ quantity: 1, price_data: { currency: "gbp", unit_amount: Math.round(r.priceDelta * 100), product_data: { name: `DB Cinema · ${r.extraDays} extra rental day${r.extraDays === 1 ? "" : "s"}`, description: r.quoteItems.map((i: any) => `${i.qty}× ${i.title}: return ${new Date(i.end).toISOString().slice(0, 10)} at ${r.approvedReturnTime} London time · £${i.lineTotal.toFixed(2)}`).join("; ").slice(0, 500) } } }],
+    line_items: [{ quantity: 1, price_data: { currency: "gbp", unit_amount: cardDuePence, product_data: { name: `DB Cinema · ${r.extraDays} extra rental day${r.extraDays === 1 ? "" : "s"}`, description: `${r.quoteItems.map((i: any) => `${i.qty}× ${i.title}: return ${new Date(i.end).toISOString().slice(0, 10)} at ${r.approvedReturnTime} London time · £${i.lineTotal.toFixed(2)}`).join("; ")}. Account credit £${((r.creditAppliedPence??0)/100).toFixed(2)}; card balance £${(cardDuePence/100).toFixed(2)}.`.slice(0, 500) } } }],
     success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/account?rental=${r.bookingId}#chat`,
-    metadata: { changeRequestId: requestId },
-    payment_intent_data: { metadata: { changeRequestId: requestId } },
+    metadata: { changeRequestId: requestId,cardDuePence:String(cardDuePence),creditAppliedPence:String(r.creditAppliedPence??0) },
+    payment_intent_data: { metadata: { changeRequestId: requestId,cardDuePence:String(cardDuePence),creditAppliedPence:String(r.creditAppliedPence??0) } },
   }, { idempotencyKey: `dbc-approved-extension-${requestId}` });
   if (!session.url) throw Error("Stripe did not provide a payment link. Retry approval to recover it.");
   await ctx.runMutation(internal.rentalExtensions.bindPayment, { requestId, sessionId: session.id, url: session.url });
@@ -104,11 +112,16 @@ async function fulfill(ctx: any, session: Stripe.Checkout.Session) {
   const r = state.request;
   // Unpaid sessions never mutate rental dates or claim a payment.
   if (session.status !== "complete" || session.payment_status !== "paid") return { bookingId: r.bookingId, paid: false, closed: false };
-  if (session.id !== r.stripePaymentLinkId || session.currency !== "gbp" || session.amount_total !== Math.round((r.priceDelta ?? -1) * 100)) throw Error("Extension session does not match its approved quote.");
+  const cardDuePence=r.cardDuePence??Math.round((r.priceDelta??-1)*100);
+  const legacyCardOnly = r.cardDuePence === undefined && r.creditAppliedPence === undefined && r.creditReservationId === undefined && r.useAccountCredit !== true;
+  const metadataMatches = (metadata: Stripe.Metadata | null | undefined) =>
+    (metadata?.cardDuePence === String(cardDuePence) && metadata?.creditAppliedPence === String(r.creditAppliedPence ?? 0)) ||
+    (legacyCardOnly && metadata?.cardDuePence === undefined && metadata?.creditAppliedPence === undefined);
+  if (session.id !== r.stripePaymentLinkId || session.currency !== "gbp" || session.amount_total !== cardDuePence || !metadataMatches(session.metadata)) throw Error("Extension session does not match its approved quote.");
   const intentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
   if (!intentId) throw Error("Extension payment is missing.");
   const intent = await stripe().paymentIntents.retrieve(intentId);
-  if (intent.status !== "succeeded" || intent.currency !== "gbp" || intent.amount_received !== session.amount_total || intent.metadata.changeRequestId !== id) throw Error("Extension payment has not been confirmed by Stripe.");
+  if (intent.status !== "succeeded" || intent.currency !== "gbp" || intent.amount_received !== session.amount_total || intent.metadata.changeRequestId !== id || !metadataMatches(intent.metadata) || intent.metadata.cardDuePence !== session.metadata?.cardDuePence || intent.metadata.creditAppliedPence !== session.metadata?.creditAppliedPence) throw Error("Extension payment has not been confirmed by Stripe.");
   const result: any = await ctx.runMutation(internal.rentalExtensions.applyPaid, { requestId: id, sessionId: session.id, paymentIntentId: intent.id, amountPence: intent.amount_received });
   if (result.closed) {
     if (r.status !== "refunded") {
@@ -129,6 +142,7 @@ export const finalize = internalAction({
 export const reconcile = internalAction({
   args: {},
   handler: async ctx => {
+    await ctx.runMutation(internal.rentalExtensions.expirePendingCreditRequests, {});
     const rows: any[] = await ctx.runQuery(internal.rentalExtensions.pendingPayments, {});
     for (const r of rows) {
       try {

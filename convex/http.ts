@@ -2,12 +2,156 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { droneDocumentType, DRONE_DOCUMENT_LIMIT } from "./lib/droneDocument";
-import { chatAttachmentsReady, chatAttachmentScannerHealthy, scanChatAttachment, CHAT_ATTACHMENT_LIMIT } from "./lib/chatAttachmentScanner";
+import { chatAttachmentsReady, chatAttachmentScannerHealthy, scanChatAttachment, CHAT_ATTACHMENT_LIMIT, ChatAttachmentRejectedError, ChatAttachmentScannerUnavailableError } from "./lib/chatAttachmentScanner";
 import { chatAttachmentName } from "./lib/chatAttachmentName";
 import { adminSessionMigrationReady } from "./adminAccountSessionV2";
 import { CHAT_TEXT_LIMIT, isChatAttachmentNameMatched, isChatAttachmentType, isChatImageType } from "../shared/chatAttachmentPolicy";
+import { RETURN_EVIDENCE_DOWNLOAD_TTL_MS, returnEvidenceRecipientHash, signReturnEvidenceLink, verifyReturnEvidenceLink } from "../shared/returnEvidenceLink";
 
 const http = httpRouter();
+
+function returnEvidenceHtmlEscape(value: unknown) {
+  return String(value ?? "").replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+}
+
+async function returnEvidenceDigest(value: string) {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+  return Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function returnEvidenceBytesDigest(value: Uint8Array) {
+  const buffer = new ArrayBuffer(value.byteLength);
+  new Uint8Array(buffer).set(value);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", buffer));
+  return Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function returnEvidenceHeaders(contentType: string) {
+  return {
+    "Cache-Control": "private, no-store, max-age=0",
+    "Content-Type": contentType,
+    "Content-Security-Policy": "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+  };
+}
+
+function returnEvidencePage(title: string, body: string) {
+  return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${returnEvidenceHtmlEscape(title)}</title><body style="margin:0;background:#111;color:#f4efe8;font:16px/1.5 Arial,sans-serif"><main style="max-width:620px;margin:10vh auto;padding:28px;border:1px solid #67513d;border-radius:16px;background:#191817"><p style="margin:0 0 12px;color:#c89972;font-size:12px;letter-spacing:.16em">DB CINEMA RENTALS</p><h1 style="margin:0 0 18px;font:28px/1.2 Georgia,serif">${returnEvidenceHtmlEscape(title)}</h1>${body}</main></body></html>`, { status: 200, headers: returnEvidenceHeaders("text/html; charset=utf-8") });
+}
+
+function returnEvidenceSiteUrl() {
+  const value = process.env.CONVEX_SITE_URL?.trim();
+  if (!value) throw Error("Return evidence delivery is unavailable.");
+  const site = new URL(value);
+  if (site.protocol !== "https:" || site.username || site.password || site.search || site.hash) throw Error("Return evidence delivery is unavailable.");
+  return site;
+}
+
+function returnEvidencePath(site: URL) {
+  const target = new URL(site);
+  target.pathname = `${site.pathname.replace(/\/$/, "")}/return-evidence`;
+  target.search = "";
+  target.hash = "";
+  return target;
+}
+
+async function readBoundedReturnEvidenceBody(request: Request, maximumBytes: number): Promise<string | null> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && (!/^\d+$/.test(contentLength) || Number(contentLength) > maximumBytes)) return null;
+  const reader = request.body?.getReader();
+  if (!reader) return null;
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const part = await reader.read();
+    if (part.done) break;
+    total += part.value.byteLength;
+    if (total > maximumBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(part.value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
+
+http.route({ path: "/return-evidence", method: "GET", handler: httpAction(async (ctx, request) => {
+  const url = new URL(request.url);
+  const downloadToken = url.searchParams.get("download");
+  const token = downloadToken ?? url.searchParams.get("token");
+  const secret = process.env.RETURN_EVIDENCE_LINK_SECRET?.trim() || process.env.INVOICE_SECRET?.trim() || "";
+  if (!token || token.length > 4096 || secret.length < 24) return new Response("Evidence link unavailable", { status: 404, headers: returnEvidenceHeaders("text/plain; charset=utf-8") });
+  const claims = await verifyReturnEvidenceLink(token, secret);
+  if (!claims) return new Response("Evidence link expired or unavailable", { status: 404, headers: returnEvidenceHeaders("text/plain; charset=utf-8") });
+  const evidence: any = await ctx.runQuery(internal.bookings.returnEvidenceLinkFiles, {
+    bookingId: claims.bookingId as any,
+    caseId: claims.caseId as any,
+    expiresAt: claims.expiresAt,
+    recipientHash: claims.recipientHash,
+    ...(claims.downloadExpiresAt !== undefined ? { downloadExpiresAt: claims.downloadExpiresAt } : {}),
+    ...(claims.fileIndex !== undefined ? { fileIndex: claims.fileIndex } : {}),
+  });
+  if (!evidence) return new Response("Evidence link expired or unavailable", { status: 404, headers: returnEvidenceHeaders("text/plain; charset=utf-8") });
+
+  if (downloadToken) {
+    if (claims.fileIndex === undefined || claims.downloadExpiresAt === undefined || !evidence.storageId || !evidence.sha256) return new Response("Evidence unavailable", { status: 404, headers: returnEvidenceHeaders("text/plain; charset=utf-8") });
+    const blob = await ctx.storage.get(evidence.storageId as any);
+    if (!blob || blob.size !== evidence.size) return new Response("Evidence unavailable", { status: 404, headers: returnEvidenceHeaders("text/plain; charset=utf-8") });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const actualHash = await returnEvidenceBytesDigest(bytes);
+    if (actualHash !== evidence.sha256) return new Response("Evidence unavailable", { status: 404, headers: returnEvidenceHeaders("text/plain; charset=utf-8") });
+    let filename: string;
+    try { filename = chatAttachmentName(evidence.name, evidence.contentType); }
+    catch { return new Response("Evidence unavailable", { status: 404, headers: returnEvidenceHeaders("text/plain; charset=utf-8") }); }
+    const headers = returnEvidenceHeaders(evidence.contentType);
+    return new Response(bytes, { status: 200, headers: { ...headers, "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}` } });
+  }
+
+  if (claims.fileIndex !== undefined || claims.downloadExpiresAt !== undefined) return new Response("Evidence unavailable", { status: 404, headers: returnEvidenceHeaders("text/plain; charset=utf-8") });
+  const actionUrl = returnEvidencePath(returnEvidenceSiteUrl());
+  actionUrl.searchParams.set("token", token);
+  return returnEvidencePage("View return evidence", `<p>For privacy, confirm the email address used for this rental before viewing the damage photos.</p><form method="post" action="${returnEvidenceHtmlEscape(actionUrl.toString())}"><label for="email">Rental email address</label><input id="email" name="email" type="email" autocomplete="email" required maxlength="254" style="display:block;box-sizing:border-box;width:100%;margin:8px 0 16px;padding:12px;border:1px solid #67513d;border-radius:8px;background:#111;color:#f4efe8"><button style="border:0;border-radius:8px;padding:12px 18px;background:#bd8a62;color:#111;font-weight:700">Continue securely</button></form><p style="color:#aaa;font-size:13px">This private link expires after 30 days. File downloads expire after 15 minutes.</p>`);
+}) });
+
+http.route({ path: "/return-evidence", method: "POST", handler: httpAction(async (ctx, request) => {
+  const headers = returnEvidenceHeaders("text/html; charset=utf-8");
+  if (!/^application\/x-www-form-urlencoded(?:\s*;|$)/i.test(request.headers.get("content-type") ?? "")) return new Response("Invalid request", { status: 415, headers });
+  let raw: string | null;
+  try { raw = await readBoundedReturnEvidenceBody(request, 1024); }
+  catch { raw = null; }
+  if (raw === null) return new Response("Invalid request", { status: 413, headers });
+  const form = new URLSearchParams(raw);
+  const email = form.get("email")?.trim() ?? "";
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token") ?? "";
+  const secret = process.env.RETURN_EVIDENCE_LINK_SECRET?.trim() || process.env.INVOICE_SECRET?.trim() || "";
+  if (!token || token.length > 4096 || !email || email.length > 254 || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(email) || secret.length < 24)
+    return new Response("Evidence link unavailable", { status: 404, headers });
+  const claims = await verifyReturnEvidenceLink(token, secret);
+  if (!claims || claims.fileIndex !== undefined || claims.downloadExpiresAt !== undefined) return new Response("Evidence link expired or unavailable", { status: 404, headers });
+  const tokenHash = await returnEvidenceDigest(token);
+  const allowed = await ctx.runMutation(internal.bookings.returnEvidenceAccessAttempt, { tokenHash });
+  if (!allowed) return new Response("Too many attempts. Try again tomorrow.", { status: 429, headers: { ...headers, "Retry-After": "86400" } });
+  if (await returnEvidenceRecipientHash(email, secret) !== claims.recipientHash) return returnEvidencePage("Could not confirm this rental", `<p>The email address did not match this rental. Check it and try again, or reply to the return email for help.</p>`);
+  const evidence = await ctx.runQuery(internal.bookings.returnEvidenceLinkFiles, {
+    bookingId: claims.bookingId as any, caseId: claims.caseId as any, expiresAt: claims.expiresAt, recipientHash: claims.recipientHash,
+  });
+  if (!evidence || !Array.isArray(evidence.files) || !evidence.files.length || evidence.files.length > 5) return new Response("Evidence link expired or unavailable", { status: 404, headers });
+  const site = returnEvidencePath(returnEvidenceSiteUrl());
+  const expiresAt = Math.min(claims.expiresAt, Date.now() + RETURN_EVIDENCE_DOWNLOAD_TTL_MS);
+  const links = await Promise.all(evidence.files.map(async (file: any, fileIndex: number) => {
+    const download = await signReturnEvidenceLink({ ...claims, fileIndex, downloadExpiresAt: expiresAt }, secret);
+    const target = new URL(site);
+    target.searchParams.set("download", download);
+    return `<li style="margin:12px 0"><span>${returnEvidenceHtmlEscape(file.name)}</span> <span style="color:#aaa">(${Math.ceil(file.size / 1024)} KB)</span> · <a href="${returnEvidenceHtmlEscape(target.toString())}" style="color:#d3a77f">Download photo</a></li>`;
+  }));
+  return returnEvidencePage("Damage evidence", `<p>These photos were recorded for <strong>${returnEvidenceHtmlEscape(evidence.itemTitle)}</strong> during your rental return. The links below are private and expire after 15 minutes.</p><ul>${links.join("")}</ul><p style="color:#aaa;font-size:13px">If a download link expires, reopen the original email link and confirm your rental email again.</p>`);
+}) });
 
 // Rental Manager → storefront marketing tags. The shared secret is the same
 // server-to-server credential used for the existing Rental Manager reads.
@@ -137,6 +281,41 @@ http.route({ path: "/renter-avatar", method: "POST", handler: httpAction(async (
     return new Response("Photo could not be uploaded. Choose a JPG, PNG or WebP up to 5 MB.", { status: 403, headers });
   }
 }) });
+http.route({ path: "/signup-avatar", method: "OPTIONS", handler: httpAction(async (_ctx, req) => {
+  const cors = documentCors(req); return new Response(null, { status: cors ? 204 : 403, headers: cors ?? {} });
+}) });
+http.route({ path: "/signup-avatar", method: "POST", handler: httpAction(async (ctx, req) => {
+  const cors=documentCors(req);
+  if(!cors)return new Response("Forbidden",{status:403});
+  const headers={...cors,"Cache-Control":"private, no-store, max-age=0","X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer"};
+  try{
+    const token=req.headers.get("authorization")?.replace(/^Bearer /,"")??"";
+    if(!/^[A-Za-z0-9_-]{43}$/.test(token))throw Error("Invalid request.");
+    const hash=await returnEvidenceDigest(token);
+    if(new URL(req.url).searchParams.get("preview")==="1"){
+      const storageId=await ctx.runQuery(internal.accountCodeClaims.pendingAvatar,{setupHash:hash});
+      if(!storageId)return new Response(null,{status:404,headers});
+      const photo=await ctx.storage.get(storageId);
+      if(!photo)return new Response(null,{status:404,headers});
+      return new Response(photo,{headers:{...headers,"Content-Type":photo.type,"Content-Security-Policy":"default-src 'none'; sandbox"}});
+    }
+    const leaseKey=crypto.randomUUID();
+    if(!await ctx.runMutation(internal.accountCodeClaims.reserveAvatar,{challengeHash:hash,leaseKey}))return Response.json({ok:true},{headers});
+    try{
+    const limit=5*1024*1024;
+    if(Number(req.headers.get("content-length"))>limit)throw Error("Image too large.");
+    const reader=req.body?.getReader();if(!reader)throw Error("Missing image.");
+    const chunks:Uint8Array[]=[];let size=0;
+    while(true){const part=await reader.read();if(part.done)break;size+=part.value.length;if(size>limit){await reader.cancel();throw Error("Image too large.");}chunks.push(part.value);}
+    const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+    const contentType=droneDocumentType(bytes,req.headers.get("content-type")??"");
+    if(!contentType.startsWith("image/"))throw Error("Invalid image.");
+    const parts:ArrayBuffer[]=[];for(let start=0;start<bytes.length;start+=512*1024)parts.push(bytes.slice(start,start+512*1024).buffer);
+    await ctx.runMutation(internal.accountCodeClaims.stageAvatar,{challengeHash:hash,leaseKey,contentType,chunks:parts});
+    return Response.json({ok:true},{headers});
+    }finally{await ctx.runMutation(internal.accountCodeClaims.releaseAvatar,{challengeHash:hash,leaseKey});}
+  }catch{return new Response("Photo could not be prepared. Choose a JPG, PNG or WebP up to 5 MB.",{status:400,headers});}
+}) });
 http.route({ path: "/chat-attachment", method: "OPTIONS", handler: httpAction(async (_ctx, req) => {
   const cors = documentCors(req); return new Response(null, { status: cors ? 204 : 403, headers: cors ?? {} });
 }) });
@@ -213,8 +392,10 @@ http.route({ path: "/chat-attachment", method: "POST", handler: httpAction(async
     if (storedHash !== sha256) throw Error("File unavailable.");
     await ctx.runMutation(internal.chatAttachments.publish, { ...scope, id, marker, storageId, name });
     return Response.json({ ok: true }, { headers });
-  } catch {
+  } catch (error) {
     if (id && marker) try { await ctx.runMutation(internal.chatAttachments.fail, { id, marker, storageId }); } catch {}
+    if (error instanceof ChatAttachmentRejectedError) return new Response("This file could not pass the security check, so it was not shared.", { status: 422, headers });
+    if (error instanceof ChatAttachmentScannerUnavailableError) return new Response("File security checks are temporarily unavailable. Please retry.", { status: 503, headers });
     return new Response("Attachment unavailable.", { status: 403, headers });
   }
 }) });

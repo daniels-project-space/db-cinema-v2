@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
@@ -21,9 +21,11 @@ export function AvatarUpload() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [failedPhoto, setFailedPhoto] = useState<string | null>(null);
 
   const url = (me as any)?.avatarUrl as string | null;
+  useEffect(() => { setFailedPhoto(null); }, [url]);
 
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -31,12 +33,14 @@ export function AvatarUpload() {
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) { setErr("Please choose a JPEG, PNG or WebP image."); e.target.value = ""; return; }
     if (file.size > 5 * 1024 * 1024) { setErr("Image must be under 5MB."); e.target.value = ""; return; }
     setErr(null);
+    setNotice(null);
     setBusy(true);
     try {
       const origin = process.env.NEXT_PUBLIC_CONVEX_URL?.replace(".convex.cloud", ".convex.site");
       if (!origin) throw new Error("Photo upload is unavailable.");
       const res = await fetch(`${origin}/renter-avatar`, { method: "POST", headers: { "Content-Type": file.type, Authorization: `Bearer ${account.token!}` }, body: file });
       if (!res.ok) throw new Error("Upload failed");
+      setNotice("Photo saved to your account.");
     } catch (e: any) {
       setErr(e?.message ?? "Upload failed");
     } finally {
@@ -47,9 +51,11 @@ export function AvatarUpload() {
 
   async function remove() {
     setErr(null);
+    setNotice(null);
     setBusy(true);
     try {
       await setAvatar({ token: account.token! });
+      setNotice("Photo removed from your account.");
     } catch {
       setErr("Could not remove your photo. Please try again.");
     } finally {
@@ -73,11 +79,11 @@ export function AvatarUpload() {
             {initials(me?.name, me?.email)}
           </span>
         )}
-        <span className="absolute inset-0 hidden items-center justify-center bg-black/50 text-[10px] font-medium text-white group-hover:flex">
-          {busy ? "…" : "Change"}
+        <span data-testid="profile-photo-hover-cue" aria-hidden="true" className="pointer-events-none absolute bottom-0.5 right-0.5 grid h-5 w-5 place-items-center rounded-full border border-white/40 bg-black/80 text-white shadow-[0_2px_8px_#000a] transition-transform duration-200 group-hover:scale-110 group-focus-visible:scale-110">
+          <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6.5h3l1-2h5l1 2h4v9H3z"/><circle cx="10" cy="11" r="2.8"/></svg>
         </span>
       </button>
-      <div>
+      <div className="min-w-0 flex-1">
         <button onClick={() => inputRef.current?.click()} disabled={busy} className="btn-ghost px-3 py-1.5 text-xs">
           {busy ? "Uploading…" : url ? "Change photo" : "Upload photo"}
         </button>
@@ -87,8 +93,9 @@ export function AvatarUpload() {
           </button>
         )}
         {err && <div role="alert" className="mt-1 text-xs text-red-300">{err}</div>}
+        {notice && <p data-testid="profile-photo-saved" role="status" className="mt-1 text-xs text-emerald-200">{notice}</p>}
       </div>
-      <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={onPick} />
+      <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" aria-label="Choose a profile photo" className="hidden" onChange={onPick} />
     </div>
   );
 }

@@ -122,6 +122,14 @@ const args = {
     !helper.replacementCompatible(old, { ...next, specs: { mount: "EF" } }),
   );
   assert(!helper.replacementCompatible(old, { ...next, marketingOnly: true }));
+  const waiverOldUnit=put("inventory_units",{name:"Waiver source",quantityOwned:1}),waiverNextUnit=put("inventory_units",{name:"Waiver candidate",quantityOwned:1});
+  const waiverOld=put("listings",{title:"Waiver source",category:"Waiver Cameras",itemType:"camera-body",specs:{mount:"E"},stockMappingStatus:"complete",active:true,depositAmount:500,pricing:{daily:40},unavailableDates:["2030-02-01"],components:[{inventoryUnitId:waiverOldUnit._id,qty:1}]});
+  const waiverNext=put("listings",{title:"Waiver candidate",category:"Waiver Cameras",itemType:"camera-body",specs:{mount:"E"},stockMappingStatus:"complete",active:true,depositAmount:600,pricing:{daily:40},components:[{inventoryUnitId:waiverNextUnit._id,qty:1}]});
+  const waiverBooking=put("bookings",{status:"confirmed",securityPolicyVersion:"2026-10-refundable-assessment-v2",securityWaiverReason:"new_paid_membership",depositAmount:0,lineItems:[{listingId:waiverOld._id,qty:1,start,end,lineTotal:80}],replacementValues:[{listingId:waiverOld._id,unitPence:50000}]});
+  put("reservations",{bookingId:waiverBooking._id,listingId:waiverOld._id,inventoryUnitId:waiverOldUnit._id,start,end,qty:1,source:"site",status:"confirmed"});
+  const waiverOptions=await replacements.options.handler(ctx,{token,bookingId:waiverBooking._id,lineIndex:0});assert.equal(waiverOptions.options.length,0,"quick-reply substitutions do not offer an item that requires security using a legacy membership waiver label");
+  waiverBooking.securityWaiverReason="active_membership";
+  const validWaiverOptions=await replacements.options.handler(ctx,{token,bookingId:waiverBooking._id,lineIndex:0});assert.equal(validWaiverOptions.options.length,1,"the canonical server-qualified waiver stays consistent across the admin option path");
   console.log(
     "Legacy replacement endpoint: new direct writes blocked, exact old receipt replay preserved, mismatched replay rejected; replacement suggestions remain read-only",
   );

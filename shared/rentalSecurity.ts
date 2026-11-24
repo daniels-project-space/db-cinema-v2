@@ -24,7 +24,7 @@ export function cardLimitForPolicy(version:string|undefined,value:number){
   return savedCardChargeLimit(value);
 }
 export function depositForBookingPolicy(b:any,value:number){
- if(b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION)return b.securityWaiverReason ? 0 : assessmentDepositFor(value);
+ if(b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION)return ["active_membership","encore"].includes(b.securityWaiverReason??"") ? 0 : assessmentDepositFor(value);
  return refundableDepositFor(value);
 }
 export function refundableDepositFor(replacementSum: number) {
@@ -45,7 +45,7 @@ export function setupIntentSecurityLimit(replacementSum: number) {
   return cardHoldFor(replacementSum);
 }
 
-/** Current immediate-claim ceiling: £50 below £1k, £100 below £4k, then £200 plus 10% of value above £4k. */
+/** Current immediate-claim ceiling: £50 below £1k, £100 below £4k, then £200 plus £100 per additional £1,000, scaled continuously to the penny. */
 export function immediateClaimSecurityLimit(replacementSum: number) {
   if (!Number.isFinite(replacementSum) || replacementSum < 0 || !Number.isSafeInteger(Math.round(replacementSum * 100)))
     throw Error("Invalid equipment replacement value.");

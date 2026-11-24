@@ -2,6 +2,7 @@ import { cronJobs } from "convex/server";
 import { api, internal } from "./_generated/api";
 
 const crons = cronJobs();
+crons.interval("purge-component-replacement-quotes", { hours: 1 }, (internal as any).componentReplacementQuoteState.purgeExpired, {});
 crons.interval("recover-membership-refunds", { minutes: 5 }, (internal as any).membershipRefundJobs.dispatchDue, {});
 
 // Durable pickup scheduling recovery; requests only due/new-policy bookings.
@@ -28,6 +29,7 @@ crons.interval("retry-owner-phone-alerts", { minutes: 5 }, internal.adminPushDel
 crons.interval("restricted-identity-alerts", { minutes: 1 }, internal.restrictedIdentityAlerts.dispatchDue, {});
 crons.interval("retry-owner-telegram-alerts", { minutes: 2 }, internal.ownerTelegram.retryDue, {});
 crons.interval("recover-gaffer-inquiry-alerts", { minutes: 5 }, internal.chat.recoverGafferAlerts, {});
+crons.interval("purge-rental-chat-reminder-metadata", { hours: 24 }, (internal as any).rentalChatReminders.purgeMetadata, {});
 crons.interval("purge-gaffer-inquiry-alerts", { hours: 1 }, internal.chat.purgeGafferAlerts, {});
 crons.interval("purge-gaffer-call-telemetry", { hours: 24 }, internal.analytics.purgeGafferCallTelemetry, {});
 crons.interval("retry-rental-account-links", { minutes: 5 }, internal.accountAccess.retryRentalAccess, {});
@@ -42,6 +44,8 @@ crons.interval("sweep-orphan-avatar-uploads", { hours: 1 }, internal.accounts.sw
 
 // Pickup-tomorrow / return-today reminders (email + Telegram).
 crons.interval("send-reminders", { hours: 12 }, internal.notify.sendReminders, {});
+crons.interval("schedule-rental-chat-reminders", { hours: 1 }, (internal as any).rentalChatReminders.backfill, {});
+crons.interval("recover-rental-chat-reminders", { minutes: 2 }, (internal as any).rentalChatReminders.recover, {});
 crons.daily("review-story-prize-deadlines", { hourUTC: 8, minuteUTC: 15 }, internal.reviewPrize.maintenance, {});
 crons.interval("settled-rental-review-emails", { hours: 12 }, internal.reviewFollowUp.processDue, {});
 crons.interval("verify-archived-document-readability", { minutes: 5 }, internal.verificationArchive.scheduleReadProofs, {});
@@ -67,6 +71,7 @@ crons.interval("expire-rental-verifications", { hours: 1 }, internal.bookings.ex
 
 // Expire store credit past its one-year window (Phase 3).
 crons.interval("expire-credits", { hours: 24 }, internal.credits.expire, {});
+crons.interval("purge-expired-shared-checkout-carts", { hours: 24 }, internal.checkoutCartData.purgeExpired, {});
 
 // Keep the storefront catalog fresh from RMv2 (listings, pricing, images-source).
 crons.interval("sync-rmv2-catalog", { minutes: 30 }, internal.sync.syncFromRmv2, {});
@@ -92,8 +97,6 @@ crons.interval("sweep-rate-limits", { hours: 24 }, internal.rateLimit.sweep, {})
 // Notify "tell me when it's free" waiters whose item has opened up for their dates.
 crons.interval("waitlist-check", { minutes: 15 }, internal.waitlist.checkAndNotify, {});
 
-// Keep "quiet deals" only on genuinely-owned, idle stock (re-checks ownership + demand).
-crons.interval("refresh-quiet-deals", { hours: 12 }, internal.catalog.refreshQuietDeals, {});
 
 crons.interval("automatic-basket-followups", { minutes: 1 }, internal.checkoutRecoveryMail.processDue, {});
 crons.interval("consented-film-fund-opening", { minutes: 15 }, internal.filmFundNotifications.processOpeningAnnouncements, {});

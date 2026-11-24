@@ -7,11 +7,14 @@ const LIVE = process.env.NEXT_PUBLIC_SITE_LIVE === "true";
 export default function robots(): MetadataRoute.Robots {
   if (!LIVE) return { rules: { userAgent: "*", disallow: "/" } };
   return {
-    rules: {
-      userAgent: "*",
-      allow: "/",
-      disallow: ["/admin", "/checkout", "/account", "/verify", "/cart", "/plan", "/kit/", "/cancellation-choice", "/api/"],
-    },
+    rules: [
+      {
+        userAgent: "*",
+        allow: "/",
+        disallow: ["/verify", "/kit/", "/cancellation-choice", "/api/"],
+      },
+      { userAgent: ["GPTBot", "ClaudeBot", "CCBot", "Google-Extended"], disallow: "/" },
+    ],
     sitemap: `${SITE_URL}/sitemap.xml`,
     host: SITE_URL,
   };

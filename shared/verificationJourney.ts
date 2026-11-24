@@ -1,4 +1,4 @@
-import { securityReady, verificationExpired, verificationValidUntil } from "./verificationProgress";
+import { bookingVerificationExpired, securityReady, verificationValidUntil } from "./verificationProgress";
 import type { VerificationBooking } from "./rentalReadiness";
 import {isSavedCardRental} from './savedCardSecurity';
 
@@ -29,7 +29,7 @@ export function verificationJourney(
     !!booking.cancellationPending ||
     !!booking.returnPending;
   const paid = ["pending_verification", "confirmed", "active", "returned"].includes(booking.status);
-  const unexpired = !verificationExpired(booking, now);
+  const unexpired = !bookingVerificationExpired(booking, now);
   const checksPassed = ["identity", "selfie", "address"].every(
     (key) => booking.verificationChecks?.[key] === "approved",
   );

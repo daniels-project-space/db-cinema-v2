@@ -10,7 +10,7 @@ process.env.ADMIN_TOKEN = "fixture-admin";
 process.env.PRIVATE_VERIFICATION_PHOTO_ENABLED = "true";
 const now = Date.now(), account = put("accounts", { email: "portrait@example.invalid", name: "Portrait Customer", address: "1 Example Road", createdAt: now - 2 * 86400000, privateVerificationPortraitNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION, privateVerificationPortraitNotifiedAt: now - 86400000, privateVerificationPortraitConsentVersion: CURRENT_PRIVACY_NOTICE_VERSION, privateVerificationPortraitConsentedAt: now - 86400000 });
 const booking = put("bookings", { accountId: account._id, accountAccessRequired: false, guestEmail: account.email, agreementName: account.name, billingAddress: account.address, diditSessionId: "portrait-session", status: "active", idVerifyStatus: "verified", idVerificationSource: "didit", renterPersonKey: "fixture", verificationChecks: { identity: "approved", selfie: "approved", address: "approved" } });
-account.rentalVerification = { sourceBookingId: booking._id, name: "portrait customer", address: "1 example road", verifiedAt: now - 1000, expiresAt: now + 90 * 86400000 - 1000 };
+account.rentalVerification = { sourceBookingId: booking._id, name: "portrait customer", address: "1 example road", verifiedAt: now - 23 * 60 * 60 * 1000, expiresAt: now + 90 * 86400000 - 23 * 60 * 60 * 1000 };
 const archive = put("verification_archives", { accountId: account._id, bookingId: booking._id, sessionId: booking.diditSessionId, status: "complete", source: "didit" });
 seedVerificationFiles(put, archive);
 const bytes = Buffer.from([255, 216, 255, 217]), sha256 = createHash("sha256").update(bytes).digest("hex"), storage = put("_storage", { sha256, size: bytes.length, contentType: "image/jpeg" });
@@ -18,6 +18,9 @@ const selfie = put("verification_documents", { accountId: account._id, bookingId
 const ctx = { db }, args = { token: "fixture-admin", accountId: account._id, refresh: 0 };
 (async () => {
  assert.equal(await portrait.selected.handler(ctx, { ...args, token: "wrong" }), null);
+ assert.equal(await portrait.selected.handler(ctx, args), null, "The portrait stays hidden until 24 hours after the first successful verification, even when the account is older");
+ account.rentalVerification.verifiedAt = now - 25 * 60 * 60 * 1000;
+ account.rentalVerification.expiresAt = now + 90 * 86400000 - 25 * 60 * 60 * 1000;
  assert.deepEqual(await portrait.selected.handler(ctx, args), { documentId: selfie._id });
  put("sessions", { token: "portrait-owner", accountId: account._id, createdAt: now, expiresAt: now + 60000 });
  const renterProfile = await accounts.me.handler({ db, storage: { getUrl: async () => "https://storage.example.invalid/profile" } }, { token: "portrait-owner" });

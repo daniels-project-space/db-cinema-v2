@@ -74,7 +74,7 @@ export default function MembershipPage() {
             <summary className="cursor-pointer text-white/80">Joining with a rental: thresholds and first-booking details</summary>
             <p className="mt-2">Starter is available from £100 of rental and delivery charges before VAT; Pro from £200; Studio from £300. Any separately payable rental-security amount does not count towards these thresholds. A paid plan added in rental checkout includes a one-time joining credit: £5 for Starter or £10 for Pro and Studio.</p>
             <p className="mt-2">Refund credit is separate: it can pay remaining eligible rental and delivery charges after a saving. It cannot pay membership fees or any separately payable rental-security amount.</p>
-            <p className="mt-2">Your first paid month’s credit can be used on that rental when it gives the better saving. Membership does not itself waive rental-security terms or authorise future rental claims; those are shown in the final quote and accepted rental agreement. Other member perks begin after that combined booking is confirmed. A separately purchased membership follows its activation status.</p>
+            <p className="mt-2">Your first paid month’s credit can pay the remaining rental charge after savings. Membership does not itself waive rental-security terms or authorise future rental claims; those are shown in the final quote and accepted rental agreement. Other member perks begin after that combined booking is confirmed. A separately purchased membership follows its activation status.</p>
           </details>
         </section>
         {!current && <section className="membership-welcome mx-auto mt-8 max-w-2xl" aria-label="Choose your welcome offer">
