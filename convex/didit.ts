@@ -517,10 +517,12 @@ export const webhook = internalAction({
     const bookingId = event.vendor_data.slice("dbc-booking-".length);
     try {
       let decision = event.decision;
-      const approvedDecisionTraceMissing = event.status === "Approved" && !decision?.decision_trace?.decided_by;
+      const approvedHasUntracedReview = event.status === "Approved" && !decision?.decision_trace?.decided_by &&
+        ["id_verifications", "liveness_checks", "face_matches", "poa_verifications"].some(field =>
+          Array.isArray(decision?.[field]) && decision[field].some((item: any) => item?.status === "In Review"));
       if (event.status === "Declined" || event.status === "Approved" && (
         !["id_verifications", "liveness_checks", "face_matches", "poa_verifications"].every(field => Array.isArray(decision?.[field]) && decision[field].length) ||
-        approvedDecisionTraceMissing
+        approvedHasUntracedReview
       )) {
         const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, {bookingId: bookingId as any});
         if (!booking || booking.diditSessionId !== event.session_id || !booking.guestEmail) throw Error("Verification case does not match this rental.");
