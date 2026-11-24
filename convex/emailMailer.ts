@@ -17,7 +17,7 @@ export const sendBusinessReply = internalAction({
     references: v.array(v.string()),
   },
   handler: async (_ctx, args) => {
-    return sendBusinessMailTracked({
+    const result = await sendBusinessMailTracked({
       deliveryKey: args.deliveryKey,
       to: args.to,
       cc: args.cc,
@@ -27,5 +27,14 @@ export const sendBusinessReply = internalAction({
       inReplyTo: args.inReplyTo,
       references: args.references,
     });
+    if (!result.sent || result.messageId || !result.resendEmailId || !/^[a-zA-Z0-9_-]{1,128}$/.test(result.resendEmailId) || !process.env.RESEND_API_KEY) return result;
+    try {
+      const response = await fetch(`https://api.resend.com/emails/${encodeURIComponent(result.resendEmailId)}`, { headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}` }, signal: AbortSignal.timeout(15_000) });
+      if (response.ok) {
+        const value = await response.json() as { message_id?: unknown };
+        if (typeof value.message_id === "string" && /^<[^<>\r\n\s]{1,510}>$/.test(value.message_id)) return { ...result, messageId: value.message_id };
+      }
+    } catch {}
+    return result;
   },
 });
