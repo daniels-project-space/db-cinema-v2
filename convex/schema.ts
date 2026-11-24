@@ -1219,6 +1219,7 @@ export default defineSchema({
     lastAt: v.number(),
     lastDirection: v.union(v.literal("in"), v.literal("out")),
     lastText: v.string(),
+    lastInboundMessageId: v.optional(v.id("email_messages")),
     unreadOwner: v.number(),
     humanNotifiedAt: v.optional(v.number()),
     humanNotifiedMessageId: v.optional(v.id("email_messages")),

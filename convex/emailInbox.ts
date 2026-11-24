@@ -243,6 +243,7 @@ export const ingest = mutation({
       state: "received",
       humanRequested: false,
     });
+    await ctx.db.patch(thread._id, { lastInboundMessageId: inboundId });
 
     if (account && account.blockedAt == null) {
       const profileMessageId = await postRentalMessage(ctx, {
@@ -407,7 +408,7 @@ export const claimAutomaticReply = internalMutation({
 });
 
 export const finishAutomaticReply = internalMutation({
-  args: { threadId: v.id("email_threads"), inboundId: v.id("email_messages"), outboundId: v.id("email_messages"), text: v.string(), messageId: v.optional(v.string()), humanRequested: v.boolean() },
+  args: { threadId: v.id("email_threads"), inboundId: v.id("email_messages"), outboundId: v.id("email_messages"), text: v.string(), messageId: v.optional(v.string()), humanRequested: v.boolean(), resolvedInquiry: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const thread = await ctx.db.get(args.threadId);
     const inbound = await ctx.db.get(args.inboundId);
@@ -416,16 +417,32 @@ export const finishAutomaticReply = internalMutation({
     if (outbound.state === "sent") return { ok: true, duplicate: true };
     const now = Date.now();
     const references = [...new Set([...(inbound.references ?? []), inbound.messageId].filter((value): value is string => typeof value === "string" && value.length > 0))].slice(-20);
+    const isLatestInbound = thread.lastInboundMessageId
+      ? thread.lastInboundMessageId === args.inboundId
+      : thread.lastDirection === "in" && thread.lastAt === inbound.at;
+    const humanPending = args.humanRequested || thread.status === "human_requested";
+    const resolved = isLatestInbound && args.resolvedInquiry === true && !humanPending;
     await ctx.db.patch(args.outboundId, { state: "sent", at: now, messageId: args.messageId, inReplyTo: inbound.messageId, references, leaseUntil: undefined, error: undefined });
     await ctx.db.patch(args.inboundId, { state: args.humanRequested ? "handoff" : "replied", leaseUntil: undefined, error: undefined, humanRequested: args.humanRequested });
-    await ctx.db.patch(args.threadId, {
-      status: args.humanRequested ? "human_requested" : "open",
-      updatedAt: now,
-      lastAt: now,
-      lastDirection: "out",
-      lastText: args.text.slice(0, 280),
-      ...(args.humanRequested ? { humanNotifiedAt: now } : {}),
-    });
+    if (isLatestInbound) {
+      await ctx.db.patch(args.threadId, {
+        status: humanPending ? "human_requested" : resolved ? "closed" : "open",
+        updatedAt: now,
+        lastAt: now,
+        lastDirection: "out",
+        lastText: args.text.slice(0, 280),
+        unreadOwner: humanPending ? Math.max(thread.unreadOwner ?? 0, 1) : 0,
+        ...(args.humanRequested ? { humanNotifiedAt: now } : {}),
+      });
+      if (resolved) {
+        await ctx.scheduler.runAfter(0, internal.notify.emailResolvedSummary, {
+          threadId: args.threadId,
+          inboundId: args.inboundId,
+          outboundId: args.outboundId,
+          attempt: 0,
+        });
+      }
+    }
     if (thread.accountId) {
       const profileMessageId = await postRentalMessage(ctx, { accountId: thread.accountId, sender: "bot", text: args.text, meta: { channel: "email", emailThreadId: String(thread._id), emailMessageId: String(args.outboundId) } });
       await ctx.db.patch(args.outboundId, { profileMessageId });
@@ -458,6 +475,19 @@ export const replyContext = internalQuery({
   },
 });
 
+export const resolvedSummaryContext = internalQuery({
+  args: { threadId: v.id("email_threads"), inboundId: v.id("email_messages"), outboundId: v.id("email_messages") },
+  handler: async (ctx, args) => {
+    const [thread, inbound, outbound] = await Promise.all([
+      ctx.db.get(args.threadId),
+      ctx.db.get(args.inboundId),
+      ctx.db.get(args.outboundId),
+    ]);
+    if (!thread || !inbound || !outbound || inbound.threadId !== thread._id || outbound.threadId !== thread._id || inbound.direction !== "in" || outbound.direction !== "out" || inbound.state !== "replied" || outbound.state !== "sent") return null;
+    return { thread, inbound, outbound };
+  },
+});
+
 function safeHtml(text: string) {
   const escaped = text.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]!));
   const inline = escaped
@@ -479,7 +509,7 @@ function replySubject(subject: string) {
 }
 
 export const sendAssistantReply = action({
-  args: { secret: v.string(), threadId: v.id("email_threads"), inboundId: v.id("email_messages"), text: v.string(), humanRequested: v.boolean() },
+  args: { secret: v.string(), threadId: v.id("email_threads"), inboundId: v.id("email_messages"), text: v.string(), humanRequested: v.boolean(), resolvedInquiry: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     assertInboundSecret(args.secret);
     const text = args.text.trim().slice(0, 12_000);
@@ -507,8 +537,7 @@ export const sendAssistantReply = action({
       to: thread.email,
       subject: replySubject(thread.subject),
       html: safeHtml(text),
-      replyTo: [...new Set([replyTo,OWNER_EMAIL])],
-      ...(thread.email !== OWNER_EMAIL ? { cc: [OWNER_EMAIL] } : {}),
+      replyTo,
       deliveryKey,
       inReplyTo: inbound.messageId,
       references,
@@ -525,6 +554,7 @@ export const sendAssistantReply = action({
       text,
       ...(delivery.messageId?{messageId:delivery.messageId}:{}),
       humanRequested: args.humanRequested,
+      resolvedInquiry: args.resolvedInquiry === true,
     });
     return { ok: true };
   },
