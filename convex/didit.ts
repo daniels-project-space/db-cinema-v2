@@ -260,8 +260,9 @@ export const adminReview = action({
     if (decision === "approve") {
       if (!["Approved", "In Review"].includes(session.status))
         throw new Error("This Didit case cannot be approved; request resubmission for failed documents.");
+      const manualApprovalOverride = session.status === "Approved" && session.decision_trace?.decided_by === "manual";
       const fields = ["id_verifications", "liveness_checks", "face_matches", "poa_verifications"] as const;
-      const valid = fields.every(field => Array.isArray(session[field]) && session[field].length > 0 && session[field].every((item:any) =>
+      const valid = manualApprovalOverride || fields.every(field => Array.isArray(session[field]) && session[field].length > 0 && session[field].every((item:any) =>
         item?.status === "Approved" || session.status === "In Review" && item?.status === "In Review"));
       if (!valid) throw new Error("All required Didit checks must be approved or awaiting review; request resubmission for failed or missing checks.");
       if (session.status === "Approved") {
@@ -323,7 +324,9 @@ async function refreshBoundProgress(ctx: any, bookingId: any, booking: any): Pro
     // document changes; identical progress must not reset a completed archive.
     const advisoryCannotChange = booking.identityRiskNotice === "Didit approved the identity, but cross-account identity matching is unavailable." && !mapped.personKey;
     const needsConfirmationRepair = booking.status === "confirmed" && mapped.status !== "verified";
-    if (!needsConfirmationRepair && (!booking.identityRiskNotice || advisoryCannotChange) && booking.idVerifyStatus === mapped.status && (["identity", "selfie", "address"] as const).every(key => booking.verificationChecks?.[key] === mapped.checks[key]) &&
+    const manualApprovalAuditMissing = mapped.manualApprovalOverride &&
+      (booking.diditManualApprovalSessionId !== booking.diditSessionId || typeof booking.diditManualApprovalAt !== "number");
+    if (!needsConfirmationRepair && !manualApprovalAuditMissing && (!booking.identityRiskNotice || advisoryCannotChange) && booking.idVerifyStatus === mapped.status && (["identity", "selfie", "address"] as const).every(key => booking.verificationChecks?.[key] === mapped.checks[key]) &&
         (booking.verificationNote ?? null) === (mapped.note ?? null) && (booking.documentExpiresAt ?? null) === (mapped.documentExpiresAt ?? null) &&
         (!mapped.personKey || booking.renterPersonKey === mapped.personKey)) return {status: "unchanged"};
     const saved = await ctx.runMutation(internal.bookings.setDiditResult, {
@@ -422,6 +425,7 @@ function validSignature(secret: string, signature: string | undefined, content: 
 
 function mapDecision(rawStatus: unknown, decision: any): {
   status: "processing" | "manual_review" | "verified" | "requires_input" | "rejected";
+  manualApprovalOverride?: boolean;
   note?: string;
   poaPostcodes: string[];
   documentExpiresAt?: number;
@@ -460,11 +464,14 @@ function mapDecision(rawStatus: unknown, decision: any): {
   const secret = process.env.RESTRICTED_IDENTITY_HMAC_SECRET || process.env.INVOICE_SECRET;
   const personKey = secret && keys.length && new Set(keys).size === 1 ? createHmac("sha256", secret).update(`dbc-person-v1:${keys[0]}`).digest("hex") : undefined;
   const checks = verificationChecks(decision);
-  if (rawStatus === "Approved" && !["identity", "selfie", "address"].every(key => checks[key as keyof typeof checks] === "approved")) {
+  const requiredChecks = ["identity", "selfie", "address"] as const;
+  const checksApproved = requiredChecks.every(key => checks[key] === "approved");
+  const manualApprovalOverride = rawStatus === "Approved" && decision?.decision_trace?.decided_by === "manual";
+  if (rawStatus === "Approved" && !checksApproved && !manualApprovalOverride) {
     status = "manual_review";
     note = "Your verification needs a team review because one or more required checks could not be confirmed.";
   }
-  return { status, note, poaPostcodes, checks, ...(personKey ? { personKey } : {}), ...(documentExpiresAt ? { documentExpiresAt } : {}) };
+  return { status, ...(manualApprovalOverride ? { manualApprovalOverride: true } : {}), note, poaPostcodes, checks, ...(personKey ? { personKey } : {}), ...(documentExpiresAt ? { documentExpiresAt } : {}) };
 }
 
 /** Didit v3 webhooks sign the complete canonical JSON with X-Signature-V2.
@@ -510,7 +517,13 @@ export const webhook = internalAction({
     const bookingId = event.vendor_data.slice("dbc-booking-".length);
     try {
       let decision = event.decision;
-      if (event.status === "Declined" || event.status === "Approved" && !["id_verifications", "liveness_checks", "face_matches", "poa_verifications"].every(field => Array.isArray(decision?.[field]) && decision[field].length)) {
+      const approvedHasUntracedReview = event.status === "Approved" && !decision?.decision_trace?.decided_by &&
+        ["id_verifications", "liveness_checks", "face_matches", "poa_verifications"].some(field =>
+          Array.isArray(decision?.[field]) && decision[field].some((item: any) => item?.status === "In Review"));
+      if (event.status === "Declined" || event.status === "Approved" && (
+        !["id_verifications", "liveness_checks", "face_matches", "poa_verifications"].every(field => Array.isArray(decision?.[field]) && decision[field].length) ||
+        approvedHasUntracedReview
+      )) {
         const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, {bookingId: bookingId as any});
         if (!booking || booking.diditSessionId !== event.session_id || !booking.guestEmail) throw Error("Verification case does not match this rental.");
         const report = await retrieveSession(cfg.apiKey, event.session_id, bookingId, booking.guestEmail);

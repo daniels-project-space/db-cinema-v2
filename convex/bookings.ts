@@ -12,7 +12,8 @@ import { securityReturnPlan } from "./lib/rentalPaymentPlan";
 import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
 import { queueRentalEmail } from "./lib/rentalEmailQueue";
 import {assertRentalAllocation} from "./lib/rentalAllocation";
-import { bookingStockLines, rentalWindow } from "../shared/rentalWindow";
+import { stockAllocationFingerprint } from "../shared/stockAllocationFingerprint";
+import { bookingStockLines, londonRentalInstant, rentalWindow } from "../shared/rentalWindow";
 import { stockTimePrecision, stockWindow } from "./lib/stockWindows";
 import { CHECKOUT_CARD_HOLD_POLICY, CHECKOUT_HOLD_POLICY, PICKUP_HOLD_RENEWAL_LEAD_MS, isCheckoutHoldPolicy, isPickupHoldPolicyVersion } from "../shared/pickupSecurity";
 import { availableCreditRows,creditPlan,creditKind,reconcileReleasedCredit } from "./lib/checkoutCredit";
@@ -453,12 +454,6 @@ export const createPending = internalMutation({
   },
 });
 
-function stockAllocationFingerprint(booking:any,rows:any[]) {
- const lines=bookingStockLines<any>(booking).map(li=>[String(li.listingId),li.start,li.end,li.pickupTime??null,li.returnTime??null,li.qty]).map(line=>JSON.stringify(line)).sort();
- const physical=rows.map(r=>JSON.stringify([String(r.inventoryUnitId),String(r.listingId),r.start,r.end,r.qty,r.endExclusive===true,r.turnaroundBufferMinutes??0])).sort();
- return JSON.stringify({lines,physical});
-}
-
 /** Tracks the quoted stock allocation for payment recovery; it never blocks availability. */
 export const placeHolds = internalMutation({
   args: { bookingId: v.id("bookings"), ttlMs: v.number() },
@@ -686,6 +681,30 @@ export const confirm = internalMutation({
         await ctx.scheduler.runAfter(0, internal.didit.reuseVerification, { bookingId });
       await queueRmv2Sync(ctx, bookingId);
       return { awaitingVerification: true };
+    }
+    const now = Date.now();
+    const expiredRentalLine = booking.lineItems.find((line:any) => {
+      try {
+        return londonRentalInstant(line.start, line.pickupTime ?? booking.pickupTime ?? "00:00") <= now;
+      } catch {
+        return true;
+      }
+    });
+    if (booking.verificationProvider === "didit" && verificationApproved && expiredRentalLine) {
+      await ctx.db.patch(bookingId, {
+        verificationConfirmationIssue: "rental_window_expired",
+        stripePaymentIntentId: paymentIntentId ?? booking.stripePaymentIntentId,
+      });
+      const account = await accountForRental(ctx, booking);
+      await queueOwnerNotification(ctx, {
+        eventKey: `verification-date-review:${bookingId}:${expiredRentalLine.start}`,
+        kind: "verification_failure",
+        ...(account ? { accountId: account._id } : {}),
+        bookingId,
+        title: "Paid rental dates need an update",
+        body: "Didit approved verification, but the scheduled pickup time has passed. The booking is not confirmed and no pickup message was sent. Update the dates through the normal reschedule workflow, then review current availability.",
+      });
+      return { awaitingDateCorrection: true };
     }
     const sharedClaim=bookingClaimEnabled()?await assertBookingClaimExecution(ctx,booking,paymentIntentId):null;
     if (isCardHoldSecurityPolicy(booking.securityPolicyVersion) && rentalManagerCheckedAt === undefined)
@@ -1832,6 +1851,9 @@ export const verificationAccess = internalQuery({
       idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId,
       idVerificationSource: b.idVerificationSource, diditEventId: b.diditEventId ?? null,
       diditEventAt: b.diditEventAt ?? null, diditManualDecisionAt: b.diditManualDecisionAt ?? null,
+      diditManualApprovalAt: b.diditManualApprovalAt ?? null,
+      diditManualApprovalEventId: b.diditManualApprovalEventId ?? null,
+      diditManualApprovalSessionId: b.diditManualApprovalSessionId ?? null,
       verificationChecks: b.verificationChecks ?? null,
       verificationNote: b.verificationNote ?? null,
       verificationConfirmationIssue: b.verificationConfirmationIssue ?? null,
@@ -1962,6 +1984,9 @@ export const setDiditSession = internalMutation({
         diditEventId: undefined,
         diditEventAt: undefined,
         diditManualDecisionAt: undefined,
+        diditManualApprovalAt: undefined,
+        diditManualApprovalEventId: undefined,
+        diditManualApprovalSessionId: undefined,
         diditReconciledAt: undefined,
         idVerifyStatus: "processing",
         verificationUpdatedAt: Date.now(),
@@ -1991,6 +2016,7 @@ export const setDiditResult = internalMutation({
     documentExpiresAt: v.optional(v.number()),
     personKey: v.optional(v.string()),
     checks: v.optional(v.object({ identity: v.string(), selfie: v.string(), address: v.string() })),
+    manualApprovalOverride: v.optional(v.boolean()),
     reconciliation: v.optional(v.boolean()),
     requireApplied: v.optional(v.boolean()),
     sweepGeneration: v.optional(v.number()),
@@ -1999,7 +2025,7 @@ export const setDiditResult = internalMutation({
     expectedManualDecisionAt: v.optional(v.union(v.number(), v.null())),
     adminReviewSessionToken: v.optional(v.string()),
   },
-  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, reconciliation, requireApplied, sweepGeneration, expectedEventId, expectedEventAt, expectedManualDecisionAt, adminReviewSessionToken }) => {
+  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, manualApprovalOverride, reconciliation, requireApplied, sweepGeneration, expectedEventId, expectedEventAt, expectedManualDecisionAt, adminReviewSessionToken }) => {
     if (adminReviewSessionToken !== undefined) {
       if (!adminSessionMigrationReady()) throw Error("Admin session migration is not ready.");
       await assertAdminScopeSession(ctx, adminReviewSessionToken, "verification:write");
@@ -2016,16 +2042,25 @@ export const setDiditResult = internalMutation({
       providerStatus === "Approved" && status === "manual_review";
     // An overall provider approval is not evidence that every required step
     // passed. Keep incomplete approvals in review until the checks are verified.
+    const requiredChecks = ["identity", "selfie", "address"] as const;
+    const allChecksApproved = !!checks && requiredChecks.every(key => checks[key] === "approved");
+    const manualOverrideIsValid = manualApprovalOverride === true && status === "verified" && providerStatus === "Approved";
+    const preservingManualApprovalAudit = status === "verified" && providerStatus === "Approved" &&
+      b.diditManualApprovalSessionId === sessionId && typeof b.diditManualApprovalAt === "number";
+    if (manualApprovalOverride === true && !manualOverrideIsValid) return false;
+    // Enforce provider-check completeness at the shared persistence boundary,
+    // so an internal caller cannot mark a booking verified by skipping the mapper.
+    if (status === "verified" && checks && !allChecksApproved && !manualOverrideIsValid) return false;
     const incompleteApproved = providerStatus === "Approved" && !!checks &&
-      ["identity", "selfie", "address"].some(key => checks[key as "identity" | "selfie" | "address"] !== "approved");
+      requiredChecks.some(key => checks[key] !== "approved");
     if (status === "manual_review" && providerStatus !== "In Review" && !preservingVerifiedManualDecision && !incompleteApproved) return false;
     if (status!=="processing" || providerStatus==="In Progress" || Object.values(checks??{}).some(check=>check!=="waiting")) {
       const changed=b.idVerifyStatus!==status || (["identity","selfie","address"] as const).some(key=>b.verificationChecks?.[key]!==checks?.[key]) || (b.documentExpiresAt??null)!==(documentExpiresAt??null);
       await queueVerificationArchive(ctx,b,!reconciliation || changed);
     }
-    // A deliberate admin approval can override a feature-level review. Didit
-    // still sends top-level Approved with the original feature decisions; keep
-    // that human decision, while allowing an actual later decline to revoke it.
+    // Didit's signed provider decision can override feature-level review. Keep
+    // the audit for the same approved session if a later reconciliation omits
+    // its trace; a later non-approved decision still clears it.
     if (preservingVerifiedManualDecision) {
       await ctx.db.patch(bookingId, { verificationChecks: checks ?? b.verificationChecks, diditEventId: eventId, diditEventAt: eventAt });
       await queueRmv2Sync(ctx, bookingId);
@@ -2064,6 +2099,15 @@ export const setDiditResult = internalMutation({
       idVerifiedAt: verifiedAt,
       verificationNote: note?.slice(0, 400),
       identityRiskNotice: status === "verified" ? identityRiskNotice : undefined,
+      ...(manualOverrideIsValid ? {
+        diditManualApprovalAt: eventAt,
+        diditManualApprovalEventId: eventId,
+        diditManualApprovalSessionId: sessionId,
+      } : preservingManualApprovalAudit ? {} : {
+        diditManualApprovalAt: undefined,
+        diditManualApprovalEventId: undefined,
+        diditManualApprovalSessionId: undefined,
+      }),
       verificationUpdatedAt: Date.now(),
     });
     // A failed document check does not cancel a paid rental or release its stock.

@@ -260,7 +260,7 @@ export function VerificationProgress({
   };
   const stage =
     booking.status === "pending_verification" && booking.verificationConfirmationIssue
-      ? booking.verificationConfirmationIssue === "inventory_unavailable" ? "Booking availability needs review" : "Booking confirmation needs review"
+      ? booking.verificationConfirmationIssue === "inventory_unavailable" ? "Booking availability needs review" : booking.verificationConfirmationIssue === "rental_window_expired" ? "Rental dates need updating" : "Booking confirmation needs review"
       : approvalUnknown && !journey.closed
       ? "Verification needs review"
       : booking.cancellationPending
@@ -322,6 +322,8 @@ export function VerificationProgress({
                 : booking.status === "pending_verification"
                   ? booking.verificationConfirmationIssue === "inventory_unavailable"
                     ? "Didit approved your verification, but equipment availability needs a team check. This rental is not confirmed yet. We will update you here; please do not pay again."
+                    : booking.verificationConfirmationIssue === "rental_window_expired"
+                      ? "Your scheduled rental dates have passed, so this booking is not confirmed. Contact the rental team about new dates; please do not pay again."
                     : booking.verificationConfirmationIssue
                       ? "Didit approved your verification, but the booking could not be finalized automatically. The team has been alerted. This rental is not confirmed yet; please do not pay again."
                       : booking.idVerifyStatus === "verified"

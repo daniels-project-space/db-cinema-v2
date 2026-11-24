@@ -89,6 +89,9 @@ export function RentalOrderTools({
     { initialNumItems: 40 },
   );
   if (!b) return null;
+  const paidDiditDateCorrection = b.status === "pending_verification" &&
+    b.verificationProvider === "didit" && b.idVerifyStatus === "verified" &&
+    b.verificationConfirmationIssue === "rental_window_expired";
   const processing = b.rentalRefunds.find(
     (r) => r.status === "prepared" || r.status === "pending",
   );
@@ -133,7 +136,9 @@ export function RentalOrderTools({
           reason,
         });
         setResult(
-          "Rental dates updated. The customer will receive confirmation.",
+          paidDiditDateCorrection
+            ? "Rental dates updated. Current availability is being checked before the paid booking can be confirmed."
+            : "Rental dates updated. The customer will receive confirmation.",
         );
       }
       if (mode === "pickup-time" || mode === "return-time") {
@@ -232,6 +237,10 @@ export function RentalOrderTools({
         <p className="font-semibold">Checkout completed · equipment needs review</p>
         <p className="mt-1">This booking is not confirmed. Check live availability and contact the renter before arranging an alternative. If the booking cannot be fulfilled, review the original payment and any refund in Stripe using the normal approval process. Do not mark the rental confirmed without available stock.</p>
       </div>}
+      {b.verificationConfirmationIssue === "rental_window_expired" && <div role="alert" className="mb-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-xs text-amber-100">
+        <p className="font-semibold">Paid rental dates have passed · booking not confirmed</p>
+        <p className="mt-1">Update the dates through the normal reschedule workflow and check current availability before arranging pickup. No pickup confirmation was sent.</p>
+      </div>}
       <InventoryConflictRefund key={`${token}:${bookingId}`} token={token} bookingId={bookingId}/>
       <RentalRequestHistory token={token} bookingId={bookingId} admin />
       <RentalSwapRecovery key={JSON.stringify([token,bookingId])} token={token} bookingId={bookingId} />
@@ -285,7 +294,7 @@ export function RentalOrderTools({
             Add items
           </button>
         )}
-        {b.status === "confirmed" && (
+        {(b.status === "confirmed" || paidDiditDateCorrection) && (
           <button
             disabled={
               busy ||
