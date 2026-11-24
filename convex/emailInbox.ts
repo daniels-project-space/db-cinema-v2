@@ -16,12 +16,8 @@ function makeReplyKey() {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function gafferReplyAddress(replyKey: string, rawDomain = process.env.INBOUND_EMAIL_DOMAIN) {
-  const directReply = process.env.INBOUND_REPLY_ADDRESS?.trim().toLowerCase();
-  if (directReply && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(directReply)) return directReply;
-  const domain = rawDomain?.trim().toLowerCase();
-  if (!/^[a-f0-9]{24}$/i.test(replyKey) || !domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return null;
-  return `gaffer+${replyKey}@${domain}`;
+export function gafferReplyAddress() {
+  return OWNER_EMAIL;
 }
 
 function assertInboundSecret(secret: string) {
@@ -523,15 +519,7 @@ export const sendAssistantReply = action({
     if (claim.state === "sent") return { ok: true, duplicate: true };
     if (claim.state === "busy") return { ok: false, busy: true };
     const { thread, inbound, outboundId, deliveryKey } = claim;
-    const replyTo = gafferReplyAddress(thread.replyKey);
-    if (!replyTo) {
-      await ctx.runMutation(internal.emailInbox.markSendFailed, {
-        outboundId,
-        inboundId: args.inboundId,
-        error: "INBOUND_EMAIL_DOMAIN is not configured",
-      });
-      throw new Error("Gaffer email reply routing is not configured");
-    }
+    const replyTo = gafferReplyAddress();
     const references = [...new Set([...(inbound.references ?? []), inbound.messageId].filter((value): value is string => typeof value === "string" && value.length > 0))].slice(-20);
     const delivery = await ctx.runAction(internal.emailMailer.sendBusinessReply, {
       to: thread.email,
@@ -576,7 +564,7 @@ export const adminThread = query({
     if (!checkAdminToken(token)) return { authorized: false as const, thread: null, messages: [] };
     const thread = await ctx.db.get(threadId);
     const connection = await ctx.db.query("gmail_connections").first();
-    const replyConfigured = Boolean(gafferReplyAddress("a".repeat(24)) && connection && process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET && process.env.GMAIL_TOKEN_ENCRYPTION_KEY);
+    const replyConfigured = Boolean(gafferReplyAddress() && connection && process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET && process.env.GMAIL_TOKEN_ENCRYPTION_KEY);
     if (!thread) return { authorized: true as const, thread: null, messages: [], replyConfigured };
     const messages = (await threadMessages(ctx, threadId, 40)).reverse();
     return { authorized: true as const, thread, messages, replyConfigured };

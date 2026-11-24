@@ -14,15 +14,12 @@ setMock("./lib/mailer", {
   sendBusinessMail: async () => true,
 });
 process.env.INBOUND_EMAIL_SECRET = "fixture-inbound-secret";
+process.env.INBOUND_REPLY_ADDRESS = "43e66195@elduubdra.resend.app";
+process.env.INBOUND_EMAIL_DOMAIN = "elduubdra.resend.app";
 
 const { gafferReplyAddress, ingest, resolveReplyKey } = load("convex/emailInbox.ts");
 
-assert.equal(
-  gafferReplyAddress("abcdef0123456789abcdef01", " DBcinemarentals.com "),
-  "gaffer+abcdef0123456789abcdef01@dbcinemarentals.com",
-);
-assert.equal(gafferReplyAddress("abcdef0123456789abcdef01", ""), null, "never fall back to the owner inbox when Gaffer routing is unconfigured");
-assert.equal(gafferReplyAddress("bad-key", "dbcinemarentals.com"), null);
+assert.equal(gafferReplyAddress(), "info@dbcinemarentals.com", "Gaffer replies always return to the Gmail mailbox watched by Gmail sync");
 
 function input(from, providerId, extra = {}) {
   return {
