@@ -114,7 +114,8 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
   assert.equal(await webhook.handler(ctx, signed({...event, event_id:'event-warning', decision:flagged})), true);
   assert.equal(result.status, 'verified', 'an informational warning does not override Didit approval');
   assert.equal(await webhook.handler(ctx, signed({...event, event_id:'event-approved-feature-review', decision:{...event.decision,id_verifications:[{status:'In Review'}]}})), true);
-  assert.equal(result.status, 'manual_review', 'an unconfirmed required feature cannot be presented as fully verified');
+  assert.equal(result.status, 'verified', 'Didit’s explicit manual approval overrides an individual feature review');
+  assert.equal(result.manualApproval, true, 'the reviewer decision is carried to the shared booking transition');
   assert.deepEqual(result.checks, {identity:'review',selfie:'approved',address:'approved'}, 'the stored checks reflect the provider evidence rather than invented approval');
   const providerReviewEvent = {...event, event_id:'event-provider-review', status:'In Review', decision:{
     ...event.decision,

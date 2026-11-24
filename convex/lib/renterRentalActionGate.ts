@@ -4,12 +4,16 @@
  * expiry must not force re-verification in the middle of this rental.
  */
 export function hasBookingDiditApproval(booking: any): boolean {
+  const hasManualApprovalAudit = Number.isSafeInteger(booking?.diditManualApprovalAt) && booking.diditManualApprovalAt > 0 &&
+    typeof booking.diditManualApprovalEventId === "string" && !!booking.diditManualApprovalEventId &&
+    booking.diditManualApprovalSessionId === booking.diditSessionId;
   return !!booking &&
     booking.verificationProvider === "didit" &&
     booking.idVerifyStatus === "verified" &&
     ["didit", "reused_didit"].includes(booking.idVerificationSource) &&
     Number.isSafeInteger(booking.idVerifiedAt) && booking.idVerifiedAt > 0 &&
-    ["identity", "selfie", "address"].every(key => booking.verificationChecks?.[key] === "approved");
+    ["identity", "selfie", "address"].every(key => booking.verificationChecks?.[key] === "approved" ||
+      hasManualApprovalAudit && booking.verificationChecks?.[key] === "review");
 }
 
 export function renterHandoverDetailsReady(booking: any): boolean {

@@ -853,7 +853,7 @@ async function refreshBoundProgress(ctx: any, bookingId: any, booking: any, admi
     const deadline = verificationDeadlineAt(booking);
     const onTimeApproval = mapped.status === "verified" && deadline !== null &&
       mapped.decisionAt !== undefined && mapped.decisionAt < deadline;
-    const lateResult = verificationWindowClosed(booking) && !booking.verificationLateOverrideAt && !onTimeApproval;
+    const lateResult = verificationWindowClosed(booking) && !booking.verificationLateOverrideAt && !onTimeApproval && !mapped.manualApproval;
     return {status: lateResult ? mapped.status === "verified" ? "late_approved" : "late" : "updated"};
     } catch (error) {
       try { await ctx.runMutation(internal.bookings.flagDiditProcessingFailure, {bookingId, sessionId:booking.diditSessionId}); }
@@ -1008,6 +1008,7 @@ function mapDecision(rawStatus: unknown, decision: any, eventResubmitInfo?: any)
   documentExpiresAt?: number;
   personKey?: string;
   checks?: ReturnType<typeof verificationChecks>;
+  manualApproval?: boolean;
   resubmissionFeatures?: ("identity" | "selfie" | "address")[];
 } | null {
   let status: "processing" | "manual_review" | "verified" | "requires_input" | "rejected";
@@ -1035,9 +1036,17 @@ function mapDecision(rawStatus: unknown, decision: any, eventResubmitInfo?: any)
   const expiries = (Array.isArray(decision?.id_verifications) ? decision.id_verifications : [])
     .map((item: any) => /^\d{4}-\d{2}-\d{2}$/.test(item.expiration_date ?? "") ? Date.parse(`${item.expiration_date}T00:00:00Z`) : NaN);
   const documentExpiresAt = expiries.length && expiries.every(Number.isFinite) ? Math.min(...expiries) : undefined;
+  const checks = rawStatus === "Resubmitted" ? undefined : verificationChecks(decision);
+  // A Didit reviewer can approve a complete session that automation left in
+  // review. Preserve the per-check evidence, but carry the provider's explicit
+  // human decision through the shared site transition as an override.
+  const manualApproval = rawStatus === "Approved" && decision?.decision_trace?.decided_by === "manual" &&
+    !!checks && (["identity", "selfie", "address"] as const).every(key =>
+      ["approved", "review"].includes(checks[key]));
   // Use provider-attested biographical identity across emails; never store raw DOB or ID numbers.
   const identities = (Array.isArray(decision?.id_verifications) ? decision.id_verifications : [])
-    .filter((item: any) => item.status === "Approved" && /^\d{4}-\d{2}-\d{2}$/.test(item.date_of_birth ?? "") && typeof item.full_name === "string" && item.full_name.trim());
+    .filter((item: any) => (item.status === "Approved" || manualApproval && item.status === "In Review") &&
+      /^\d{4}-\d{2}-\d{2}$/.test(item.date_of_birth ?? "") && typeof item.full_name === "string" && item.full_name.trim());
   const keys = identities.map((item: any) => JSON.stringify([item.full_name.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " "), item.date_of_birth]));
   // This key must remain stable for the lifetime of restricted-account
   // identity records. Keep the invoice secret as a backwards-compatible
@@ -1045,15 +1054,17 @@ function mapDecision(rawStatus: unknown, decision: any, eventResubmitInfo?: any)
   // value before enabling it so current person keys continue to match.
   const secret = process.env.RESTRICTED_IDENTITY_HMAC_SECRET || process.env.INVOICE_SECRET;
   const personKey = secret && keys.length && new Set(keys).size === 1 ? createHmac("sha256", secret).update(`dbc-person-v1:${keys[0]}`).digest("hex") : undefined;
-  const checks = rawStatus === "Resubmitted" ? undefined : verificationChecks(decision);
-  if (rawStatus === "Approved" && (!checks || !["identity", "selfie", "address"].every(key => checks[key as keyof typeof checks] === "approved"))) {
+  const allChecksApproved = !!checks && (["identity", "selfie", "address"] as const).every(key => checks[key] === "approved");
+  if (rawStatus === "Approved" && !allChecksApproved && !manualApproval) {
     status = "manual_review";
     note = "Your verification needs a team review because one or more required checks could not be confirmed.";
+  } else if (manualApproval && !allChecksApproved) {
+    note = "Didit reviewer manually approved this verification.";
   }
   const decisionAt = typeof decision?.decision_trace?.decided_at === "string"
     ? Date.parse(decision.decision_trace.decided_at)
     : NaN;
-  return { status, note, poaPostcodes, checks, ...(resubmission?.features.length ? { resubmissionFeatures: resubmission.features } : {}), ...(Number.isSafeInteger(decisionAt) && decisionAt > 0 ? { decisionAt } : {}), ...(personKey ? { personKey } : {}), ...(documentExpiresAt ? { documentExpiresAt } : {}) };
+  return { status, note, poaPostcodes, checks, ...(manualApproval ? { manualApproval: true } : {}), ...(resubmission?.features.length ? { resubmissionFeatures: resubmission.features } : {}), ...(Number.isSafeInteger(decisionAt) && decisionAt > 0 ? { decisionAt } : {}), ...(personKey ? { personKey } : {}), ...(documentExpiresAt ? { documentExpiresAt } : {}) };
 }
 
 /** Didit v3 webhooks sign the complete canonical JSON with X-Signature-V2. */

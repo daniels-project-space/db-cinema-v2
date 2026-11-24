@@ -10,6 +10,7 @@ setMock('./lib/verificationArchiveLink',{retainVerificationArchiveLink:async()=>
 const {refreshProgress,refreshForGaffer,bookingSession,retryRejected}=load('convex/didit.ts');
 const {claimDiditProgressRefresh,adminAllowLateVerification,setDiditResult,setDiditSession}=load('convex/bookings.ts');
 const {verificationUpdateMessage}=load('convex/lib/verificationReuse.ts');
+const {hasBookingDiditApproval}=load('convex/lib/renterRentalActionGate.ts');
 const {rentalStageLabel}=load('shared/rentalReadiness.ts');
 const {rentalProgress}=load('shared/rentalProgress.ts');
 const {verificationDeadlineAt,verificationWindowClosed,verificationCanStart}=load('shared/verificationProgress.ts');
@@ -183,7 +184,7 @@ const {customerReviewGate,reviewSuppressed}=load('convex/lib/reviewEligibility.t
   Object.assign(booking,{status:'pending_verification',idVerifyStatus:'manual_review',lineItems:[{start:Date.UTC(2026,10,6),end:Date.UTC(2026,10,7),pickupTime:'16:00'}],pickupTime:'16:00'});mutations=[];
   const delayedFinalApproval=await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});const delayedApprovalArgs=mutations.find(([ref])=>ref==='bookings.setDiditResult')[1];
   assert.equal(delayedFinalApproval.status,'updated','an existing session can reconcile an approval made before the deadline after the rental window closes');assert.equal(delayedApprovalArgs.status,'verified');assert.ok(delayedApprovalArgs.decisionAt<verificationDeadlineAt(booking)&&delayedApprovalArgs.eventAt>verificationDeadlineAt(booking),'the provider decision time, not delayed delivery time, determines eligibility');
-  provider.decision_trace={decided_at:new Date(verificationDeadlineAt(booking)+60_000).toISOString(),decided_by:'manual',automatic_status:'In Review'};mutations=[];
+  provider.decision_trace={decided_at:new Date(verificationDeadlineAt(booking)+60_000).toISOString(),decided_by:'automatic',automatic_status:'In Review'};mutations=[];
   const lateFinalApproval=await refreshProgress.handler(actionCtx,{bookingId:'booking-1',accountToken:'owner'});const lateApprovalArgs=mutations.find(([ref])=>ref==='bookings.setDiditResult')[1];
   assert.equal(lateFinalApproval.status,'late_approved','a final Didit approval after the cutoff is reported distinctly from a provider manual review');assert.equal(lateApprovalArgs.status,'verified');
   provider.decision_trace={decided_at:'2026-11-05T16:41:24.177118Z',decided_by:'manual',automatic_status:'In Review'};mutations=[];
@@ -227,7 +228,7 @@ const {customerReviewGate,reviewSuppressed}=load('convex/lib/reviewEligibility.t
  const latePollStart=Date.UTC(2026,10,19);
  const latePollBooking=put('bookings',{_id:'late-poll-booking',accountId:latePollOwner._id,guestEmail:latePollOwner.email,status:'pending_verification',verificationProvider:'didit',diditSessionId:'late-poll-session',idVerifyStatus:'processing',checkoutPaidAt:Date.now()-86400000,lineItems:[{start:latePollStart,end:latePollStart+86400000,pickupTime:'16:00'}]});
  const latePollDeadline=verificationDeadlineAt(latePollBooking);
- const latePollProvider={session_id:latePollBooking.diditSessionId,session_kind:'user',vendor_data:`dbc-booking-${latePollBooking._id}`,contact_details:{email:latePollOwner.email},workflow_id:'workflow-1',status:'Approved',decision_trace:{decided_at:new Date(latePollDeadline+60000).toISOString(),decided_by:'manual'},id_verifications:[{status:'Approved'}],liveness_checks:[{status:'Approved'}],face_matches:[{status:'Approved'}],poa_verifications:[{status:'Approved'}]};
+ const latePollProvider={session_id:latePollBooking.diditSessionId,session_kind:'user',vendor_data:`dbc-booking-${latePollBooking._id}`,contact_details:{email:latePollOwner.email},workflow_id:'workflow-1',status:'Approved',decision_trace:{decided_at:new Date(latePollDeadline+60000).toISOString(),decided_by:'automatic'},id_verifications:[{status:'Approved'}],liveness_checks:[{status:'Approved'}],face_matches:[{status:'Approved'}],poa_verifications:[{status:'Approved'}]};
  const latePollCtx={runQuery:async(ref)=>ref==='bookings.verificationAccess'?latePollBooking:ref==='accounts._byToken'?latePollOwner:null,runMutation:async(ref,args)=>{
   if(ref==='bookings.claimDiditProgressRefresh')return true;
   if(ref==='bookings.setDiditResult')return bookingHandlers.setDiditResult.handler(alertCtx,args);
@@ -255,6 +256,33 @@ const {customerReviewGate,reviewSuppressed}=load('convex/lib/reviewEligibility.t
  const latePollAccepted=await setDiditResult.handler(ctx,{bookingId:latePollBooking._id,sessionId:latePollBooking.diditSessionId,eventId:'late-poll-approved-after-override',status:'verified',providerStatus:'Approved',poaPostcodes:[],eventAt:latePollBooking.verificationLateBlockedEventAt+1,decisionAt:latePollDeadline+120000,checks:{identity:'approved',selfie:'approved',address:'approved'}});
  assert.equal(latePollAccepted,true,'an explicitly overridden provider approval applies through the ordinary verification path');
  assert((tables.get('admin_notifications')??[]).filter(row=>row.bookingId===latePollBooking._id&&row.title==='Didit approved after cutoff').every(row=>row.read),'accepting the overridden result resolves all prior alerts for the same Didit session');
+ const manualOwner=put('accounts',{_id:'manual-approval-owner',email:'manual-approval@example.test'});
+ const manualStart=Date.UTC(2026,10,20);
+ const manualBooking=put('bookings',{_id:'manual-approval-booking',accountId:manualOwner._id,guestEmail:manualOwner.email,status:'pending_verification',verificationProvider:'didit',diditSessionId:'manual-approval-session',idVerifyStatus:'manual_review',checkoutPaidAt:Date.now()-86400000,lineItems:[{start:manualStart,end:manualStart+86400000,pickupTime:'16:00'}]});
+ const manualDeadline=verificationDeadlineAt(manualBooking),manualDecisionAt=manualDeadline+60000;
+ const manualProvider={session_id:manualBooking.diditSessionId,session_kind:'user',vendor_data:`dbc-booking-${manualBooking._id}`,contact_details:{email:manualOwner.email},workflow_id:'workflow-1',status:'Approved',decision_trace:{decided_at:new Date(manualDecisionAt).toISOString(),decided_by:'manual',automatic_status:'In Review'},id_verifications:[{status:'Approved'}],liveness_checks:[{status:'Approved'}],face_matches:[{status:'Approved'}],poa_verifications:[{status:'In Review'}]};
+ const manualApprovalCtx={runQuery:async(ref)=>ref==='bookings.verificationAccess'?manualBooking:ref==='accounts._byToken'?manualOwner:null,runMutation:async(ref,args)=>{
+  if(ref==='bookings.claimDiditProgressRefresh')return true;
+  if(ref==='bookings.setDiditResult')return setDiditResult.handler(alertCtx,args);
+  if(ref==='bookings.flagDiditProcessingFailure')return bookingHandlers.flagDiditProcessingFailure.handler(alertCtx,args);
+  throw Error(`Unexpected manual-approval mutation: ${ref}`);
+ }};
+ global.fetch=async()=>({ok:true,json:async()=>manualProvider});
+ try {
+  assert.equal((await refreshProgress.handler(manualApprovalCtx,{bookingId:manualBooking._id,accountToken:'owner'})).status,'updated','a Didit reviewer approval overrides a feature still in review and is not mislabeled as late-blocked');
+ } finally {global.fetch=previousFetch;}
+ assert.equal(manualBooking.idVerifyStatus,'verified','the site records the reviewer-approved session as verified');
+ assert.deepEqual(manualBooking.verificationChecks,{identity:'approved',selfie:'approved',address:'review'},'the reviewer override preserves the provider’s per-feature evidence');
+ assert.equal(manualBooking.diditManualApprovalAt,manualDecisionAt,'the site records when Didit manually approved the case');
+ assert.equal(manualBooking.diditManualApprovalEventId,manualBooking.diditEventId,'the approval audit record is tied to the applied provider event');
+ assert.equal(manualBooking.diditManualApprovalSessionId,manualBooking.diditSessionId,'the approval audit record is bound to this Didit session');
+ assert.equal(manualBooking.verificationLateOverrideSource,'didit_manual_approval','a paid late reviewer approval is recorded as this rental’s late override');
+ assert.equal(manualBooking.verificationLateOverrideEventId,manualBooking.diditEventId,'the late override is tied to the same applied Didit event');
+ assert.equal(manualBooking.status,'pending_verification','verification approval does not bypass the normal payment and live-stock confirmation checks');
+ assert.equal(hasBookingDiditApproval(manualBooking),true,'the shared confirmation and renter-action gate recognizes this exact Didit manual approval');
+ assert.equal(hasBookingDiditApproval({...manualBooking,diditManualApprovalSessionId:'another-session'}),false,'a manual approval from a different Didit session cannot release this rental');
+ assert.equal(hasBookingDiditApproval({...manualBooking,diditManualApprovalEventId:undefined}),false,'a feature-level review without an applied approval audit event cannot release this rental');
+ assert(scheduled.some(([,ref,args])=>String(ref).includes('confirmAfterVerification')&&args.bookingId===manualBooking._id),'the accepted reviewer approval queues the normal paid-booking confirmation path');
  const row=put('bookings',{_id:'claimed-booking',status:'confirmed',diditSessionId:'claimed-session'});
  assert.equal(await claimDiditProgressRefresh.handler(ctx,{bookingId:row._id,sessionId:row.diditSessionId}),true);
  assert.equal(await claimDiditProgressRefresh.handler(ctx,{bookingId:row._id,sessionId:row.diditSessionId}),false,'concurrent replay throttled');

@@ -317,11 +317,12 @@ export function RentalVerificationSummary({ bookingId, token, admin = false }: {
       {!admin && <div className="mb-3 text-center"><ChatAperture /><h3 className="mt-1 text-xl font-semibold tracking-tight text-white">Your verification</h3></div>}
       <p className="mb-3 text-[11px] font-semibold uppercase tracking-[.14em] text-accent-200">{rentalStageLabel(booking)}</p>
       {lateOverrideActive && <div data-testid="late-verification-override-active" role="status" className="mb-3 rounded-2xl border border-emerald-200/20 bg-emerald-200/[.06] px-3 py-2.5 text-xs text-emerald-50/90">
-        <p className="font-semibold">Verification reopened for this rental</p>
-        <p className="mt-1 text-white/65">Didit must still pass. This does not approve the booking or change payment, stock, or other rentals.</p>
+        <p className="font-semibold">{owner?.verificationLateOverrideSource === "didit_manual_approval" ? "Manual Didit approval recorded for this rental" : "Verification reopened for this rental"}</p>
+        <p className="mt-1 text-white/65">{owner?.verificationLateOverrideSource === "didit_manual_approval" ? "The reviewer’s approval is recorded as this rental’s late override. Payment, live stock, and other booking checks must still pass before confirmation." : "Didit must still pass. This does not approve the booking or change payment, stock, or other rentals."}</p>
         {admin && owner?.verificationLateOverrideReason && <p className="mt-1 text-white/65">Reason: {owner.verificationLateOverrideReason}</p>}
         {lateMessage && <p className="mt-2 text-white/70">{lateMessage}</p>}
       </div>}
+      {admin && owner?.idVerifyStatus === "verified" && typeof owner?.diditManualApprovalAt === "number" && owner?.verificationLateOverrideSource !== "didit_manual_approval" && <p data-testid="didit-manual-approval-recorded" role="status" className="mb-3 rounded-xl border border-emerald-200/20 bg-emerald-200/[.06] px-3 py-2.5 text-xs text-emerald-50/90">Didit’s manual approval is recorded on this rental. The site will confirm it only after payment, live stock, and the remaining booking checks pass.</p>}
       {booking.verificationWindowClosed && <div role="status" className="mt-3 rounded-2xl border border-amber-200/20 bg-amber-200/[.06] px-3 py-2.5 text-xs text-amber-50/90">
         <p className="font-semibold">{lateApprovalBlocked ? "Didit approved after the cutoff" : "Verification window passed"}</p>
         <p className="mt-1 text-white/65">{lateApprovalBlocked ? "This rental remains unconfirmed. An admin can allow this rental only, then the site will sync Didit automatically." : "New checks are closed. We’ll still sync an on-time result from this rental’s existing Didit session."}</p>

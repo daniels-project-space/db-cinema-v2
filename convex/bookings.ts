@@ -2900,7 +2900,11 @@ export const adminAllowLateVerification = mutation({
         booking.cancellationDecision || booking.returnDecision || deadline === null || deadline > now)
       throw new Error("Only this paid Didit rental can be reopened after its verification window has passed.");
     const alreadyAllowed = !!booking.verificationLateOverrideAt;
-    if (!alreadyAllowed) await ctx.db.patch(bookingId, { verificationLateOverrideAt: now, verificationLateOverrideReason: recordedReason });
+    if (!alreadyAllowed) await ctx.db.patch(bookingId, {
+      verificationLateOverrideAt: now,
+      verificationLateOverrideReason: recordedReason,
+      verificationLateOverrideSource: "admin",
+    });
     await ctx.scheduler.runAfter(0, internal.didit.reconcileLateVerificationOverride, { bookingId });
     return { allowed: true, alreadyAllowed };
   },
@@ -2938,6 +2942,7 @@ export const setDiditResult = internalMutation({
     documentExpiresAt: v.optional(v.number()),
     personKey: v.optional(v.string()),
     checks: v.optional(v.object({ identity: v.string(), selfie: v.string(), address: v.string() })),
+    manualApproval: v.optional(v.boolean()),
     resubmissionFeatures: v.optional(v.array(v.union(v.literal("identity"), v.literal("selfie"), v.literal("address")))),
     reconciliation: v.optional(v.boolean()),
     requireApplied: v.optional(v.boolean()),
@@ -2948,7 +2953,7 @@ export const setDiditResult = internalMutation({
     expectedLateBlockedEventId: v.optional(v.union(v.string(), v.null())),
     expectedLateBlockedEventAt: v.optional(v.union(v.number(), v.null())),
   },
-  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, decisionAt, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, resubmissionFeatures, reconciliation, requireApplied, sweepGeneration, expectedEventId, expectedEventAt, expectedManualDecisionAt, expectedLateBlockedEventId, expectedLateBlockedEventAt }) => {
+  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, decisionAt, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, manualApproval, resubmissionFeatures, reconciliation, requireApplied, sweepGeneration, expectedEventId, expectedEventAt, expectedManualDecisionAt, expectedLateBlockedEventId, expectedLateBlockedEventAt }) => {
     if (sweepGeneration !== undefined && !(await currentDiditSweep(ctx, sweepGeneration))) return false;
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
@@ -2964,6 +2969,10 @@ export const setDiditResult = internalMutation({
           address: resubmissionFeatures.includes("address") ? "requires_input" : b.verificationChecks?.address ?? "waiting",
         }
       : b.verificationChecks);
+    const manualProviderApproval = manualApproval === true && status === "verified" && providerStatus === "Approved" &&
+      !!verificationChecks && (["identity", "selfie", "address"] as const).every(key =>
+        ["approved", "review"].includes(verificationChecks[key]));
+    if (manualApproval === true && !manualProviderApproval) return false;
     if (expectedEventId !== undefined && ((b.diditEventId ?? null) !== expectedEventId || (b.diditEventAt ?? null) !== expectedEventAt ||
         (b.diditManualDecisionAt ?? null) !== expectedManualDecisionAt)) return !requireApplied;
     if (expectedLateBlockedEventId !== undefined && ((b.verificationLateBlockedEventId ?? null) !== expectedLateBlockedEventId ||
@@ -2991,13 +3000,17 @@ export const setDiditResult = internalMutation({
     const verificationDecisionAt = status === "verified" && providerStatus === "Approved"
       ? providerDecisionAt ?? eventAt
       : eventAt;
+    const providerManualLateOverride = manualProviderApproval && b.status === "pending_verification" &&
+      typeof b.checkoutPaidAt === "number" && Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt > 0 &&
+      !b.cancellationDecision && !b.returnDecision && verificationDeadline !== null &&
+      verificationDecisionAt >= verificationDeadline;
     const lateWatermark = b.verificationLateBlockedEventAt ?? b.verificationLateBlockedAt ?? 0;
     const blockedEventIsStale = lateWatermark > eventAt ||
       (lateWatermark === eventAt && !!b.verificationLateBlockedEventId && b.verificationLateBlockedEventId !== eventId);
     const blockedProviderResultChanged = (b.verificationLateBlockedDecisionAt ?? null) !== (providerDecisionAt ?? null) ||
       (b.verificationLateBlockedProviderStatus ?? null) !== (providerStatus ?? status);
     const lateResultIsStale = (b.diditEventAt ?? 0) > eventAt || (b.diditManualDecisionAt ?? 0) >= eventAt || blockedEventIsStale;
-    if (verificationDeadline !== null && verificationDecisionAt >= verificationDeadline && !b.verificationLateOverrideAt && !priorApprovalWasInTime && !lateResultIsStale) {
+    if (verificationDeadline !== null && verificationDecisionAt >= verificationDeadline && !b.verificationLateOverrideAt && !priorApprovalWasInTime && !lateResultIsStale && !providerManualLateOverride) {
       if (b.verificationLateBlockedEventId !== eventId || (b.verificationLateBlockedEventAt ?? 0) < eventAt || blockedProviderResultChanged) {
         await ctx.db.patch(bookingId, {
           verificationLateBlockedAt: Date.now(),
@@ -3052,9 +3065,9 @@ export const setDiditResult = internalMutation({
       // rewrite or release stock still claimed by an unacknowledged swap.
       await assertSwapStockReconciled(ctx, bookingId);
     }
-    const incompleteApproved = providerStatus === "Approved" && !!checks &&
+    const incompleteApproved = providerStatus === "Approved" && !!checks && !manualProviderApproval &&
       ["identity", "selfie", "address"].some(key => checks[key as "identity" | "selfie" | "address"] !== "approved");
-    if (status === "verified" && ["identity", "selfie", "address"].some(key => verificationChecks?.[key as "identity" | "selfie" | "address"] !== "approved")) return false;
+    if (status === "verified" && !manualProviderApproval && ["identity", "selfie", "address"].some(key => verificationChecks?.[key as "identity" | "selfie" | "address"] !== "approved")) return false;
     if (status === "manual_review" && providerStatus !== "In Review" && !preservingVerifiedManualDecision && !incompleteApproved) return false;
     if (!repeatApprovedIdentityRecovery && (status!=="processing" || providerStatus==="In Progress" || Object.values(checks??{}).some(check=>check!=="waiting"))) {
       const changed=b.idVerifyStatus!==status || (["identity","selfie","address"] as const).some(key=>b.verificationChecks?.[key]!==verificationChecks?.[key]) || (b.documentExpiresAt??null)!==(documentExpiresAt??null);
@@ -3129,6 +3142,17 @@ export const setDiditResult = internalMutation({
       diditSessionApprovalSeen: status === "verified" || priorApprovalSeen || undefined,
       diditSessionApprovedAt: status === "verified" ? verifiedAt : priorApprovedAt,
       diditDecisionAt: status === "verified" ? providerDecisionAt ?? (existingApproval ? b.diditDecisionAt : undefined) : undefined,
+      ...(manualProviderApproval ? {
+        diditManualApprovalAt: providerDecisionAt ?? eventAt,
+        diditManualApprovalEventId: eventId,
+        diditManualApprovalSessionId: sessionId,
+      } : {}),
+      ...(providerManualLateOverride && !b.verificationLateOverrideAt ? {
+        verificationLateOverrideAt: Date.now(),
+        verificationLateOverrideReason: "Didit reviewer manually approved this paid rental after its verification deadline.",
+        verificationLateOverrideSource: "didit_manual_approval",
+        verificationLateOverrideEventId: eventId,
+      } : {}),
       idVerifyStatus: status,
       ...(b.status === "confirmed" && status !== "verified" ? { status: "pending_verification" } : {}),
       idVerificationSource: "didit",
