@@ -126,11 +126,13 @@ async function processGafferInboundEmail(message: InboundEmail) {
     const customerEmailText = `${message.subject}\n${message.text}`;
     const humanRequested = explicitlyRequestedHuman || assistant.humanRequested === true ||
       hasSpecificModelQuoteMismatch(customerEmailText, assistant.enquiry);
+    const quote = assistant.enquiry;
+    const completeQuoteResolved = Boolean(quote?.timed && quote.start && quote.end && quote.complete && quote.stockVerified);
+    const resolvedInquiry = !humanRequested && (assistant.resolvedInquiry === true || completeQuoteResolved);
     if (humanRequested) {
       await client.mutation(api.emailInbox.markHumanRequested, { secret, inboundId: stored.inboundId });
     }
     let preparedBasketUrl: string | undefined;
-    const quote = assistant.enquiry;
     const proposedLines = quote ? minimumRentalBasketLines(quote) : null;
     if (quote?.timed && quote.start && quote.end && ((quote.complete && quote.stockVerified) || proposedLines)) {
       const lines = proposedLines ?? quote.requests.flatMap(request => request.lines.flatMap(line =>
@@ -148,6 +150,7 @@ async function processGafferInboundEmail(message: InboundEmail) {
       inboundId: stored.inboundId,
       text: replyText,
       humanRequested,
+      resolvedInquiry,
     });
     if (!delivered?.ok) {
       return NextResponse.json(
@@ -155,7 +158,7 @@ async function processGafferInboundEmail(message: InboundEmail) {
         { status: 503, headers: { "Retry-After": "120" } },
       );
     }
-    return NextResponse.json({ ok: true, replied: true, humanRequested, linkedProfile: !!stored.accountId });
+    return NextResponse.json({ ok: true, replied: true, humanRequested, resolvedInquiry, linkedProfile: !!stored.accountId });
   } catch (error) {
     if (stored?.inboundId) {
       // A failed answer needs visible human attention as well as a retry.

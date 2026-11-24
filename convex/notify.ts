@@ -260,6 +260,51 @@ export const contactAutoReply = internalAction({
   },
 });
 
+/** Send one branded owner digest only after Gaffer has fully resolved a customer issue. */
+export const emailResolvedSummary = internalAction({
+  args: {
+    threadId: v.id("email_threads"),
+    inboundId: v.id("email_messages"),
+    outboundId: v.id("email_messages"),
+    attempt: v.optional(v.number()),
+  },
+  handler: async (ctx, a) => {
+    const context: any = await ctx.runQuery(internal.emailInbox.resolvedSummaryContext, {
+      threadId: a.threadId,
+      inboundId: a.inboundId,
+      outboundId: a.outboundId,
+    });
+    if (!context) return { ok: false, skipped: true };
+
+    const { thread, inbound, outbound } = context;
+    const app = (process.env.APP_URL ?? "https://dbcinemarentals.com").replace(/\/+$/, "");
+    const subjectLine = `Gaffer resolved: ${String(thread.subject || "Customer email").replace(/[\r\n\t]+/g, " ").trim().slice(0, 180)}`;
+    const preview = `${thread.name || thread.email} — Gaffer answered their email.`;
+    const messageBlock = (title: string, text: string) =>
+      `<h2 style="margin:22px 0 8px;font-size:15px;color:#191817">${emailEscape(title)}</h2><p style="margin:0;white-space:pre-wrap">${emailEscape(text).replace(/\r?\n/g, "<br>")}</p>`;
+    const html = rentalEmail({
+      title: "Gaffer resolved a customer email",
+      preview,
+      url: `${app}/admin`,
+      button: "Open admin inbox",
+      helpText: "No follow-up is pending unless you choose to review the conversation.",
+      body: `<p><strong>Customer:</strong> ${emailEscape(thread.name || "Renter")} &lt;${emailEscape(thread.email)}&gt;</p><p><strong>Subject:</strong> ${emailEscape(thread.subject)}</p>${messageBlock("Customer asked", inbound.text)}${messageBlock("Gaffer replied", outbound.text)}`,
+    });
+    const deliveryKey = `gaffer-resolved:${String(thread._id)}:${String(inbound._id)}`;
+    const sent = await email(ctx, OWNER_EMAIL(), subjectLine, html, undefined, undefined, deliveryKey);
+    if (sent) return { ok: true };
+
+    const attempt = Math.max(0, Math.floor(a.attempt ?? 0));
+    const delays = [120_000, 300_000, 900_000];
+    if (attempt < delays.length) {
+      await ctx.scheduler.runAfter(delays[attempt], internal.notify.emailResolvedSummary, { ...a, attempt: attempt + 1 });
+      return { ok: false, retrying: true };
+    }
+    console.error("[email] Gaffer resolution summary could not be delivered", String(thread._id));
+    return { ok: false, escalated: true };
+  },
+});
+
 const esc = (s: string) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 

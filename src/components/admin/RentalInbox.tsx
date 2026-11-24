@@ -92,6 +92,7 @@ function EmailConversationPanel({
             <h3 className="break-words text-lg font-semibold text-white">{thread.subject || "Customer email"}</h3>
             <p className="mt-1 break-all text-xs text-white/55">{thread.name ? `${thread.name} · ` : ""}{thread.email}</p>
             {thread.status === "human_requested" && <p role="status" className="mt-3 inline-flex rounded-full border border-rose-300/25 bg-rose-300/[0.08] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-rose-100">Human requested · urgent</p>}
+            {thread.status === "closed" && <p role="status" className="mt-3 inline-flex rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-100">Resolved by Gaffer</p>}
           </div>
           {thread.accountId && (
             <button type="button" onClick={() => onOpenRenterChat(String(thread.accountId))} className="rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-2 text-xs text-emerald-100/80 hover:bg-emerald-300/[0.12]">
@@ -470,6 +471,7 @@ export function RentalInbox({
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-300/20 bg-sky-300/[0.08] px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-sky-100"><span aria-hidden="true">✉</span> Email</span>
                   <div className="flex flex-wrap items-center gap-2">
                     {thread.status === "human_requested" && <span className="rounded-full border border-rose-300/25 bg-rose-300/[0.08] px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.1em] text-rose-100">Human requested · urgent</span>}
+                    {thread.status === "closed" && <span className="rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.1em] text-emerald-100">Resolved</span>}
                     {(thread.unreadOwner ?? 0) > 0 && <span className="rounded-full bg-sky-200 px-2 py-0.5 text-[10px] font-semibold text-slate-950">{thread.unreadOwner}</span>}
                   </div>
                 </div>
