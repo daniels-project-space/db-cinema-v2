@@ -7,7 +7,7 @@ const scheduled=[];const ctx={db:h.db,scheduler:{runAfter:async(ms,ref,args)=>sc
  runMutation:async(ref,a)=>{assert.equal(ref,'rentalEmailDelivery.recordProviderStatus');return delivery.recordProviderStatus.handler(ctx,a)}};
 const booking=h.put('bookings',{guestEmail:'fixture@example.invalid',status:'pending_verification'});
 const row=h.put('rental_email_deliveries',{bookingId:booking._id,kind:'paid_verification',key:'fixture',sequence:1,state:'sending',generation:1,attempts:1,dueAt:now+60000,createdAt:now,updatedAt:now});
-let provider='sent';global.fetch=async(url,options)=>{assert.match(url,/^https:\/\/api\.resend\.com\/emails\/fixture-id$/);assert.equal(options.headers.authorization,'Bearer fixture');if(provider==='offline')throw Error('offline');return new Response(JSON.stringify({last_event:provider,message_id:'<rental@example.invalid>'}),{status:200,headers:{'content-type':'application/json'}})};
+let provider='accepted';global.fetch=async(url,options)=>{assert.match(url,/^https:\/\/api\.resend\.com\/emails\/fixture-id$/);assert.equal(options.headers.authorization,'Bearer fixture');if(provider==='offline')throw Error('offline');return new Response(JSON.stringify({last_event:provider,message_id:'<rental@example.invalid>'}),{status:200,headers:{'content-type':'application/json'}})};
 (async()=>{
  // Keep this legacy receipt record representative of a Resend delivery made before Gmail OAuth.
  assert.equal(await delivery.finish.handler(ctx,{deliveryId:row._id,generation:1,result:'sent',providerMessageId:'fixture-id'}),true);
