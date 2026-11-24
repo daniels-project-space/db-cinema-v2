@@ -1832,6 +1832,9 @@ export const verificationAccess = internalQuery({
       idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId,
       idVerificationSource: b.idVerificationSource, diditEventId: b.diditEventId ?? null,
       diditEventAt: b.diditEventAt ?? null, diditManualDecisionAt: b.diditManualDecisionAt ?? null,
+      diditManualApprovalAt: b.diditManualApprovalAt ?? null,
+      diditManualApprovalEventId: b.diditManualApprovalEventId ?? null,
+      diditManualApprovalSessionId: b.diditManualApprovalSessionId ?? null,
       verificationChecks: b.verificationChecks ?? null,
       verificationNote: b.verificationNote ?? null,
       verificationConfirmationIssue: b.verificationConfirmationIssue ?? null,
@@ -1962,6 +1965,9 @@ export const setDiditSession = internalMutation({
         diditEventId: undefined,
         diditEventAt: undefined,
         diditManualDecisionAt: undefined,
+        diditManualApprovalAt: undefined,
+        diditManualApprovalEventId: undefined,
+        diditManualApprovalSessionId: undefined,
         diditReconciledAt: undefined,
         idVerifyStatus: "processing",
         verificationUpdatedAt: Date.now(),
@@ -1991,6 +1997,7 @@ export const setDiditResult = internalMutation({
     documentExpiresAt: v.optional(v.number()),
     personKey: v.optional(v.string()),
     checks: v.optional(v.object({ identity: v.string(), selfie: v.string(), address: v.string() })),
+    manualApprovalOverride: v.optional(v.boolean()),
     reconciliation: v.optional(v.boolean()),
     requireApplied: v.optional(v.boolean()),
     sweepGeneration: v.optional(v.number()),
@@ -1999,7 +2006,7 @@ export const setDiditResult = internalMutation({
     expectedManualDecisionAt: v.optional(v.union(v.number(), v.null())),
     adminReviewSessionToken: v.optional(v.string()),
   },
-  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, reconciliation, requireApplied, sweepGeneration, expectedEventId, expectedEventAt, expectedManualDecisionAt, adminReviewSessionToken }) => {
+  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, manualApprovalOverride, reconciliation, requireApplied, sweepGeneration, expectedEventId, expectedEventAt, expectedManualDecisionAt, adminReviewSessionToken }) => {
     if (adminReviewSessionToken !== undefined) {
       if (!adminSessionMigrationReady()) throw Error("Admin session migration is not ready.");
       await assertAdminScopeSession(ctx, adminReviewSessionToken, "verification:write");
@@ -2016,8 +2023,16 @@ export const setDiditResult = internalMutation({
       providerStatus === "Approved" && status === "manual_review";
     // An overall provider approval is not evidence that every required step
     // passed. Keep incomplete approvals in review until the checks are verified.
+    const requiredChecks = ["identity", "selfie", "address"] as const;
+    const allChecksApproved = !!checks && requiredChecks.every(key => checks[key] === "approved");
+    const manualOverrideIsValid = manualApprovalOverride === true && status === "verified" && providerStatus === "Approved" && !!checks &&
+      requiredChecks.every(key => checks[key] === "approved" || checks[key] === "review");
+    if (manualApprovalOverride === true && !manualOverrideIsValid) return false;
+    // Enforce provider-check completeness at the shared persistence boundary,
+    // so an internal caller cannot mark a booking verified by skipping the mapper.
+    if (status === "verified" && checks && !allChecksApproved && !manualOverrideIsValid) return false;
     const incompleteApproved = providerStatus === "Approved" && !!checks &&
-      ["identity", "selfie", "address"].some(key => checks[key as "identity" | "selfie" | "address"] !== "approved");
+      requiredChecks.some(key => checks[key] !== "approved");
     if (status === "manual_review" && providerStatus !== "In Review" && !preservingVerifiedManualDecision && !incompleteApproved) return false;
     if (status!=="processing" || providerStatus==="In Progress" || Object.values(checks??{}).some(check=>check!=="waiting")) {
       const changed=b.idVerifyStatus!==status || (["identity","selfie","address"] as const).some(key=>b.verificationChecks?.[key]!==checks?.[key]) || (b.documentExpiresAt??null)!==(documentExpiresAt??null);
@@ -2064,6 +2079,9 @@ export const setDiditResult = internalMutation({
       idVerifiedAt: verifiedAt,
       verificationNote: note?.slice(0, 400),
       identityRiskNotice: status === "verified" ? identityRiskNotice : undefined,
+      diditManualApprovalAt: manualOverrideIsValid ? eventAt : undefined,
+      diditManualApprovalEventId: manualOverrideIsValid ? eventId : undefined,
+      diditManualApprovalSessionId: manualOverrideIsValid ? sessionId : undefined,
       verificationUpdatedAt: Date.now(),
     });
     // A failed document check does not cancel a paid rental or release its stock.

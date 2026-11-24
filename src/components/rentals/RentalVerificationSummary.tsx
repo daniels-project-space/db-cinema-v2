@@ -143,10 +143,13 @@ export function RentalVerificationSummary({ bookingId, token, admin = false }: {
   if (!booking || !verificationBookingOpen(booking.status)) return null;
 
   const needsDiditReview = admin && owner?.verificationProvider === "didit" && owner.idVerifyStatus === "manual_review";
+  const diditManualApprovalAt = admin && owner && owner.idVerifyStatus === "verified" &&
+    owner.diditManualApprovalSessionId === owner.diditSessionId ? owner.diditManualApprovalAt : undefined;
 
   return (
     <section aria-label="Rental verification progress" className="mt-4 rounded-3xl border border-white/10 bg-gradient-to-br from-white/[.07] via-[#171819]/95 to-amber-950/10 p-4 shadow-[0_18px_48px_rgba(0,0,0,.22)] backdrop-blur-2xl">
       <p className="mb-3 text-[11px] font-semibold uppercase tracking-[.14em] text-accent-200">{rentalStageLabel(booking)}</p>
+      {typeof diditManualApprovalAt === "number" && <p role="status" className="mb-3 rounded-xl border border-emerald-200/20 bg-emerald-200/[.06] px-3 py-2 text-xs text-emerald-100">Didit manual approval override recorded · {new Date(diditManualApprovalAt).toLocaleString("en-GB", { timeZone: "Europe/London" })} London</p>}
       {admin && owner?.verificationProvider === "didit" && owner.diditSessionId && <div className="mb-2 flex flex-wrap items-center gap-2"><button type="button" disabled={checking} onClick={() => void checkNow()} className="rounded-full border border-white/20 px-3 py-2 text-xs text-white hover:bg-white/10 disabled:opacity-50">{checking ? "Checking Didit…" : "Check Didit now"}</button>{owner.idVerifyStatus !== "verified" && <span className="text-[10px] text-white/50">Auto-checks while this case is open</span>}</div>}
       {checkMessage && <p role="status" className="mb-2 text-xs text-white/70">{checkMessage}</p>}
       <VerificationBar booking={booking} compact={admin} />
