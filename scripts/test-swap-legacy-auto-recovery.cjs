@@ -37,12 +37,13 @@ function legacyFixture(label, { changedAllocation = false, badClaim = false } = 
   assert.equal(changed.receipt.deliveryState, undefined, 'changed allocations remain fenced for individual reconciliation');
   assert.equal(changed.booking.activeItemSwapId, undefined);
   assert.equal(mismatched.receipt.deliveryState, undefined, 'a mismatched manager claim is never retried');
-  assert.equal(scheduled.length, 1, 'one matching receipt queues exactly one manager sync');
+  assert.equal(scheduled.filter(([, ref, args]) => ref === 'rmv2_webhook.push' && args.bookingId === good.booking._id).length, 1, 'one matching receipt queues exactly one manager sync');
+  assert.equal(scheduled.filter(([, ref]) => ref === 'rentalChatReminders.recover').length, 1, 'reminder recovery is scheduled independently');
 
   const repeated = await audit.recoverSafeLegacyReceipts.handler(ctx, {});
   assert.equal(repeated.queued, 0, 'repeat sweeps do not bump the booking revision or queue duplicate syncs');
   assert.equal(good.booking.rmv2Revision, 5);
-  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled.length, 2, 'replay queues neither a second manager sync nor reminder recovery');
 
   const olderAmbiguous = Array.from({ length: 11 }, (_, index) => legacyFixture(`backlog-${index}`, { changedAllocation: true }));
   const afterAmbiguous = legacyFixture('after-backlog');

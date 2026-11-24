@@ -4,7 +4,7 @@ const sharedStockState=putFreshSharedStock();
 const sessions=new Map(),intents=new Map(),refunds=new Map();let creates=0,refundCreates=0;
 class Stripe {
  checkout={sessions:{
-  create:async(p,opts)=>{assert(!('payment_method_types' in p));assert(opts.idempotencyKey);creates++;const s={id:'cs_ext_'+creates,url:'https://checkout.stripe.com/fixture-'+creates,status:'open',payment_status:'unpaid',currency:'gbp',amount_total:p.line_items[0].price_data.unit_amount,metadata:p.metadata,params:p};sessions.set(s.id,s);return s;},
+  create:async(p,opts)=>{assert(!('payment_method_types' in p));assert(opts.idempotencyKey);creates++;const id='cs_test_ext_'+creates,s={id,url:'https://checkout.stripe.com/c/pay/'+id,status:'open',payment_status:'unpaid',currency:'gbp',amount_total:p.line_items[0].price_data.unit_amount,metadata:p.metadata,params:p};sessions.set(s.id,s);return s;},
   retrieve:async id=>{assert(sessions.has(id));return sessions.get(id)},
   expire:async id=>{const s=sessions.get(id);s.status='expired';return s},
   list:async function*(){yield* sessions.values()}

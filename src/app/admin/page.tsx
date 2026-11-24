@@ -37,6 +37,7 @@ export default function AdminPage() {
   >("overview");
   const [promotionSection, setPromotionSection] = useState<"campaigns" | "fund" | "stories" | "vouchers">("campaigns");
   const [customerSection, setCustomerSection] = useState<"customers" | "invoices">("customers");
+  const [accountControlFocus, setAccountControlFocus] = useState<{accountId:string; email:string; bookingId?:string; controlId:string} | null>(null);
   const [calendarExpanded, setCalendarExpanded] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [supportAccountId, setSupportAccountId] = useState<string | null>(null);
@@ -219,7 +220,7 @@ export default function AdminPage() {
         { key: "insights", label: "Insights", icon: "reports" },
         { key: "promotions", label: "Promotional actions", icon: "people" },
         { key: "settings", label: "Settings", icon: "settings" },
-      ]} onNavigate={key => {setDocumentsOpen(null);setTab(key as typeof tab);window.history.replaceState(null, "", window.location.pathname);}}
+      ]} onNavigate={key => {setDocumentsOpen(null);setAccountControlFocus(null);setTab(key as typeof tab);window.history.replaceState(null, "", window.location.pathname);}}
 
       actions={<><OwnerNotificationBell token={token} /><a href="/admin/reviews" className="rounded-lg border border-white/15 px-3 py-2 text-[10px] text-white/65 hover:border-[#d4a574]/40 hover:text-white/85">Review queue</a><button onClick={lock} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] text-white/65">Lock</button></>}>
 
@@ -254,7 +255,7 @@ export default function AdminPage() {
               </div>
               {otherRequestError && <p role="status" className="mt-2 text-[10px] leading-4 text-amber-100/70">{otherRequestError}</p>}
             </details>}
-          <RentalInbox token={token} focusBookingId={conversationId} focusAccountId={supportAccountId} focusEmailThreadId={emailThreadId} focusRevision={conversationNavigation} focusEmail={focusEmailAddress} focusEmailRevision={emailNavigation} />
+          <RentalInbox token={token} focusBookingId={conversationId} focusAccountId={supportAccountId} focusEmailThreadId={emailThreadId} focusRevision={conversationNavigation} focusEmail={focusEmailAddress} focusEmailRevision={emailNavigation} onOpenAccountControl={target => {setAccountControlFocus(target); setCustomerSection("customers"); setDocumentsOpen(null); setTab("accounts");}} />
         </>}
         {tab === "insights" && <AdminInsights token={token} onInventory={() => setTab("settings")} />}
 
@@ -301,7 +302,7 @@ export default function AdminPage() {
         {tab === "promotions" && promotionSection === "campaigns" && <div className="admin-tool-panel"><ReferralCampaignAdmin token={token}/></div>}
         {tab === "accounts" && !documentsOpen && <div className="admin-section-tabs" role="group" aria-label="Customer pages"><button aria-pressed={customerSection === "customers"} onClick={() => setCustomerSection("customers")}>Customers & members</button><button aria-pressed={customerSection === "invoices"} onClick={() => setCustomerSection("invoices")}>Invoices & PDFs</button></div>}
         {tab === "accounts" && customerSection === "invoices" && <AdminInvoiceLibrary token={token}/>}
-        {tab === "accounts" && customerSection === "customers" && <AccountAdmin token={token} onDocumentsChange={setDocumentsOpen} onRental={id => { setDetailId(id); setTab("bookings"); }} onEmail={email => { setEmailThreadId(null); setFocusEmailAddress(email); setEmailNavigation(value => value + 1); setConversationId(null); setSupportAccountId(null); setTab("inbox"); window.history.replaceState(null, "", `${window.location.pathname}#messages`); }} onConversation={(accountId, bookingId) => { setEmailThreadId(null); setFocusEmailAddress(null); setEmailNavigation(0); setConversationId(bookingId); setSupportAccountId(bookingId ? null : accountId); setConversationNavigation(v => v + 1);setTab("inbox"); }} />}
+        {tab === "accounts" && customerSection === "customers" && <AccountAdmin token={token} initialControlFocus={accountControlFocus} onDocumentsChange={setDocumentsOpen} onRental={id => { setDetailId(id); setTab("bookings"); }} onEmail={email => { setEmailThreadId(null); setFocusEmailAddress(email); setEmailNavigation(value => value + 1); setConversationId(null); setSupportAccountId(null); setTab("inbox"); window.history.replaceState(null, "", `${window.location.pathname}#messages`); }} onConversation={(accountId, bookingId) => { setEmailThreadId(null); setFocusEmailAddress(null); setEmailNavigation(0); setConversationId(bookingId); setSupportAccountId(bookingId ? null : accountId); setConversationNavigation(v => v + 1);setTab("inbox"); }} />}
 
         {tab === "promotions" && promotionSection === "stories" && <StoryPrizeAdmin token={token}/>}
 

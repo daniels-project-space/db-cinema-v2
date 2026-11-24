@@ -74,9 +74,49 @@ function hasDedicatedMessageCard(meta: any, admin: boolean) {
   if (meta?.kind === "extension_request" || meta?.kind === "extension_payment") {
     return Array.isArray(meta.items) && meta.items.length > 0;
   }
+  if (meta?.kind === "late_extension_offer") return true;
   if (!admin && meta?.kind === "delivery_quote") return typeof meta.quoteId === "string" && meta.quoteId.length > 0;
   if (!admin && (meta?.kind === "rental_item_swap" || meta?.type === "rental_item_swap")) return typeof meta.swapId === "string" && meta.swapId.length > 0;
   return false;
+}
+
+export function LateExtensionOffer({ token, meta, admin }: { token: string; meta: any; admin: boolean }) {
+  const validAmount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+  const validCustom = meta.customFee == null || typeof meta.customFee.description === "string" && validAmount(meta.customFee.amountPence);
+  const valid = typeof meta.requestId === "string" && meta.requestId.length > 0 && typeof meta.fingerprint === "string" && /^[a-f0-9]{64}$/.test(meta.fingerprint) && typeof meta.amount === "number" && Number.isFinite(meta.amount) && meta.amount > 0 && [meta.latePence, meta.extensionPence, meta.discountPence].every(validAmount) && validCustom && meta.discountPence <= meta.extensionPence && Math.round(meta.amount * 100) === meta.latePence + meta.extensionPence - meta.discountPence + (meta.customFee?.amountPence ?? 0) && Number.isSafeInteger(meta.targetEnd) && Number.isFinite(new Date(meta.targetEnd).getTime()) && typeof meta.returnTime === "string" && Array.isArray(meta.items) && meta.items.length > 0 && meta.items.every((item: any) => typeof item?.title === "string" && Number.isSafeInteger(item.qty) && item.qty > 0 && (item.imageSources == null || Array.isArray(item.imageSources)));
+  return <section data-testid="late-extension-offer" aria-label="Late rental extension offer" className="mt-3 max-w-3xl overflow-hidden rounded-[26px] border border-white/20 bg-[radial-gradient(ellipse_at_100%_100%,rgba(169,111,49,.2),transparent_42%),linear-gradient(145deg,#292a2c,#17181b_48%,#1c1b1b)] p-4 shadow-[inset_0_1px_rgba(255,255,255,.1),0_16px_40px_rgba(0,0,0,.25)] sm:p-6">
+    <div className="text-center"><ChatAperture /><p className="mt-1 text-[10px] font-semibold uppercase tracking-[.15em] text-amber-100/70">Rental update</p><h4 className="mt-2 text-xl font-semibold tracking-tight text-white">Extra time for your kit</h4></div>
+    {valid ? <>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">{meta.items.map((item: any, index: number) => <article key={`${item.lineIndex ?? index}`} className="flex min-w-0 items-center gap-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+        <SmartImage fit="contain" src={item.imageSources?.[0]} fallbackSources={item.imageSources?.slice(1)} alt={`${item.title} listing photo`} className="h-16 w-[68px] shrink-0 rounded-xl bg-white/[0.025]" /><div className="min-w-0"><p className="break-words text-xs font-semibold text-white/90">{item.qty}× {rentalTitle(item.title)}</p><p className="mt-1 text-[11px] text-white/65">Return {new Date(meta.targetEnd).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })} · {meta.returnTime} London</p></div>
+      </article>)}</div>
+      <dl className="mt-4 space-y-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-xs text-white/75"><div className="flex justify-between gap-3"><dt>Overdue rental time</dt><dd>£{(meta.latePence / 100).toFixed(2)}</dd></div><div className="flex justify-between gap-3"><dt>Additional extension</dt><dd>£{(meta.extensionPence / 100).toFixed(2)}</dd></div>{meta.discountPence > 0 && <div className="flex justify-between gap-3 text-emerald-200"><dt>Extension savings</dt><dd>−£{(meta.discountPence / 100).toFixed(2)}</dd></div>}{typeof meta.customFee?.description === "string" && validAmount(meta.customFee.amountPence) && meta.customFee.amountPence > 0 && <div className="flex justify-between gap-3"><dt className="break-words">{meta.customFee.description}</dt><dd>£{(meta.customFee.amountPence / 100).toFixed(2)}</dd></div>}</dl>
+      <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-amber-100/20 bg-white/[.05] px-4 py-3"><span className="text-xs text-white/75">Amount to pay</span><strong className="text-xl font-semibold text-amber-100">£{meta.amount.toFixed(2)}</strong></div>
+      <p className="mt-3 text-xs leading-relaxed text-white/70">The original return time remains in place until payment succeeds.</p>
+      {!admin && <LateExtensionAccept token={token} requestId={meta.requestId} fingerprint={meta.fingerprint} />}
+    </> : <p role="status" className="mt-3 text-xs text-amber-100/75">Offer details are unavailable. Please ask the team for an updated offer.</p>}
+  </section>;
+}
+
+function LateExtensionAccept({ token, requestId, fingerprint }: { token: string; requestId: string; fingerprint: string }) {
+  const accept = useAction((api as any).rentalExtensionPayments.acceptLateAndPay);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function pay() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await accept({ token, requestId, expectedFingerprint: fingerprint });
+      const url = approvedStripeCheckoutUrl(result?.url);
+      if (!url) throw new Error("The secure payment link is unavailable. Please ask the team for help.");
+      window.location.assign(url);
+    } catch (failure) {
+      setError(renterFacingError(failure, "Could not open payment. Please try again."));
+      setBusy(false);
+    }
+  }
+  return <><button type="button" data-testid="late-extension-accept" onClick={() => void pay()} disabled={busy} className="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-gradient-to-r from-[#ffda90] to-[#c99452] px-4 py-2 text-sm font-semibold text-[#17120d] disabled:opacity-50">{busy ? "Opening secure payment…" : "Accept and pay securely"}</button>{error && <p role="alert" className="mt-2 text-xs text-amber-100/80">{error}</p>}</>;
 }
 
 export function RentalConversation(props: RentalConversationProps) {
@@ -841,6 +881,7 @@ function RentalConversationContent({
                     <p className="mt-3 text-xs leading-relaxed text-white/70">Your original return time stays in place until payment succeeds. Payment link expires in 24 hours.</p>
                     {paymentUrl ? <a data-testid="extension-payment-chat-link" href={paymentUrl} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-gradient-to-r from-[#ffda90] to-[#c99452] px-4 py-2 text-sm font-semibold text-[#17120d] shadow-[inset_0_1px_rgba(255,255,255,.35)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-100">Pay securely &amp; confirm</a> : <p role="status" className="mt-3 text-[11px] text-amber-100/75">Payment link unavailable · ask us here for a new link.</p>}
                   </section>}
+                  {m.meta?.kind === "late_extension_offer" && <LateExtensionOffer token={token} meta={m.meta} admin={admin} />}
                   {m.sender === "bot" && Array.isArray(m.meta?.catalogueItems) && m.meta.catalogueItems.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Gaffer gear suggestions">
                     {m.meta.catalogueItems.slice(0, 4).map((item: any) => {
                       const listingPath = approvedGearListingPath(item.slug);

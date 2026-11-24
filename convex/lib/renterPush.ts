@@ -51,6 +51,7 @@ export function renterPushNotice(sender: string, bookingId: unknown, meta: any =
   }
   if (kind === "review_invitation") return "review_invitation";
   if (kind === "delivery_quote") return "delivery_quote";
+  if (kind === "late_extension_offer") return "extension_options";
   if (kind === "extension_payment") return "extension_payment";
   if (kind === "rental_item_swap" || type === "rental_item_swap") return "kit_change";
   if (kind === "rental_price_proposal" || type === "rental_price_proposal") return "rental_price";

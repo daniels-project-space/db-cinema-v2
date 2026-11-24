@@ -24,6 +24,7 @@ call convex/rentalAdditions.ts:checkout.finalize
 call convex/rentalAdditions.ts:rentalAdditionState.customerState
 call convex/rentalDelivery.ts:delivery.quote
 call convex/rentalDelivery.ts:settings.get
+call convex/rentalExtensionPayments.ts:rentalExtensions.acceptAdminLateOffer
 call convex/rentalPricePayments.ts:checkout.refundRental
 call convex/rentalPricePayments.ts:rentalPriceState.preview
 call convex/rentalRequests.ts:checkout.cancelByAdmin
@@ -651,6 +652,7 @@ export convex/adminAuth.ts:assertAdmin
 export convex/adminAuth.ts:assertAdminInternal
 export convex/adminAuth.ts:checkAdminToken
 export convex/adminAuth.ts:verify
+export convex/adminGaffer.ts:answer
 export convex/adminNotifications.ts:acknowledge
 export convex/adminNotifications.ts:acknowledgeConversationBatch
 export convex/adminNotifications.ts:claim
@@ -1723,10 +1725,13 @@ export convex/rentalEmailDelivery.ts:ready
 export convex/rentalEmailDelivery.ts:recordProviderStatus
 export convex/rentalEmailMail.ts:checkProvider
 export convex/rentalEmailMail.ts:deliver
+export convex/rentalExtensionPayments.ts:acceptLateAndPay
 export convex/rentalExtensionPayments.ts:approve
 export convex/rentalExtensionPayments.ts:approveFromOwnerWebhook
+export convex/rentalExtensionPayments.ts:confirmReplacementRefund
 export convex/rentalExtensionPayments.ts:finalize
 export convex/rentalExtensionPayments.ts:reconcile
+export convex/rentalExtensionPayments.ts:sendLateOffer
 export convex/rentalExtensionPayments.ts:withdraw
 export convex/rentalExtensions.ts:acceptAdminLateOffer
 export convex/rentalExtensions.ts:adminLatePreview
@@ -1742,6 +1747,7 @@ export convex/rentalExtensions.ts:gafferPreview
 export convex/rentalExtensions.ts:pendingPayments
 export convex/rentalExtensions.ts:prepare
 export convex/rentalExtensions.ts:quote
+export convex/rentalExtensions.ts:refundAttention
 export convex/rentalExtensions.ts:request
 export convex/rentalExtensions.ts:state
 export convex/rentalOperations.ts:alertRefundContactChange

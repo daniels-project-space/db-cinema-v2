@@ -126,6 +126,10 @@ const extensionsSource = fs.readFileSync(path.join(root, "convex/rentalExtension
 assert.match(extensionsSource, /export const expirePendingCreditRequests\s*=\s*internalMutation\(/,
   "Expired extension-credit reservations can only be released through an internal mutation.");
 const extensionPaymentsSource = fs.readFileSync(path.join(root, "convex/rentalExtensionPayments.ts"), "utf8");
+assert.match(extensionPaymentsSource, /export const sendLateOffer\s*=\s*action\([\s\S]*?internal\.adminAuth\.assertAdminInternal[\s\S]*?internal\.rentalExtensions\.createAdminLateOffer/,
+  "Only an authenticated admin can send a late-extension offer.");
+assert.match(extensionPaymentsSource, /export const acceptLateAndPay\s*=\s*action\([\s\S]*?api\.rentalExtensions\.acceptAdminLateOffer[\s\S]*?ensureSession/,
+  "Late-extension payment requires the renter's guarded offer acceptance.");
 assert.match(extensionPaymentsSource, /export const reconcile\s*=\s*internalAction\([\s\S]*?internal\.rentalExtensions\.expirePendingCreditRequests/,
   "The expiration mutation is invoked by the server-owned reconciliation action.");
 assert(!actual.some(entry => entry.includes("api.rentalExtensions.expirePendingCreditRequests")),

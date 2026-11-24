@@ -43,7 +43,7 @@ const message=put('messages',{accountId:account._id,bookingId:booking._id,sender
  const managerClaim=await load('convex/managerNotifications.ts').claim.handler(ctx,{notificationId:systemFlag});
  assert.equal(JSON.parse(managerClaim.payload).conversationId,'system:verification','accountless incidents have a valid manager destination');
  await telegram.deliver.handler(ctx,{notificationId:systemFlag});assert.match(payload.text,/Verification configuration needs attention/);assert.match(payload.text,/\/admin/);
- await db.patch(booking._id,{status:'confirmed'});
+ await db.patch(booking._id,{status:'confirmed',lineItems:[{start:Date.now()+86400000,pickupTime:'10:00'}]});
  const beforeOpen=tables.get('admin_notifications').length;
  await bookings.flagDiditOpeningFailure.handler(ctx,{bookingId:booking._id,sessionId:'foreign-session'});
  assert.equal(tables.get('admin_notifications').length,beforeOpen,'stale session cannot create an opening alert');
@@ -53,7 +53,7 @@ const message=put('messages',{accountId:account._id,bookingId:booking._id,sender
  assert.equal(openFlags.length,1,'repeated opening failures are deduplicated');assert.equal(openFlags[0].telegramStatus,'queued');
  const currentTime=Date.now;Date.now=()=>currentTime()+1800000;
  try {
- await db.patch(booking._id,{idVerifyStatus:'verified'});
+ await db.patch(booking._id,{idVerifyStatus:'verified',idVerifiedAt:Date.now(),verificationExpiresAt:Date.now()+90*86400000});
  await bookings.flagDiditOpeningFailure.handler(ctx,{bookingId:booking._id,sessionId:'bound-session'});
  assert.equal(tables.get('admin_notifications').filter(n=>n.title==='Verification could not open').length,1,'already approved cases cannot generate opening alerts');
  await db.patch(booking._id,{status:'cancelled'});

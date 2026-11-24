@@ -9,52 +9,28 @@ on:
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+# PRs exercise the staged backend; main exercises the published backend.
+env:
+  NEXT_PUBLIC_CONVEX_URL: ${{ github.event_name == 'pull_request' && 'https://deafening-stoat-340.convex.cloud' || 'https://zany-wolf-18.convex.cloud' }}
+  DBC_CONVEX_URL: ${{ github.event_name == 'pull_request' && 'https://deafening-stoat-340.convex.cloud' || 'https://zany-wolf-18.convex.cloud' }}
 jobs:
   typecheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
-    # PRs exercise the staged backend; main exercises the published backend.
-    env:
-      NEXT_PUBLIC_CONVEX_URL: ${{ github.event_name == 'pull_request' && 'https://deafening-stoat-340.convex.cloud' || 'https://zany-wolf-18.convex.cloud' }}
-      DBC_CONVEX_URL: ${{ github.event_name == 'pull_request' && 'https://deafening-stoat-340.convex.cloud' || 'https://zany-wolf-18.convex.cloud' }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Detect package manager
-        id: pm
-        run: |
-          if [ -f pnpm-lock.yaml ]; then echo "pm=pnpm" >> "$GITHUB_OUTPUT"; else echo "pm=npm" >> "$GITHUB_OUTPUT"; fi
-      - uses: pnpm/action-setup@v4
-        if: steps.pm.outputs.pm == 'pnpm'
-        with: { version: 9 }
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: ${{ steps.pm.outputs.pm }}
-      - name: Install
-        run: |
-          if [ "${{ steps.pm.outputs.pm }}" = "pnpm" ]; then
-            pnpm install --frozen-lockfile || pnpm install
-          else
-            npm ci --no-audit --no-fund || npm install --no-audit --no-fund
-          fi
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
       - name: Typecheck (script if defined, else tsc --noEmit)
         run: |
           if node -e "process.exit(require('./package.json').scripts?.typecheck?0:1)"; then
-            ${{ steps.pm.outputs.pm }} run typecheck
+            npm run typecheck
           else
             npx --yes tsc --noEmit
-          fi
-      - name: Install PDF test tools
-        # Extract real rendered statement text; this is a CI-only dependency.
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends poppler-utils
-      - name: Tests (if a test script exists)
-        run: |
-          if node -e "process.exit(require('./package.json').scripts?.test?0:1)"; then
-            ${{ steps.pm.outputs.pm }} test
-          else
-            echo "no test script — skipping"
           fi
       - name: Verify checkout backend binding and required stock function
         # Invalid argument types are rejected before the action body runs.
@@ -64,6 +40,42 @@ jobs:
         run: node scripts/test-checkout-release-readiness.cjs
       - name: Verify saved checkout prices use exact rental duration
         run: node scripts/test-checkout-recovery-pricing.cjs
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        phase: [pretest, test, posttest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install PDF test tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends poppler-utils
+      - name: Run ${{ matrix.phase }}
+        env:
+          TEST_PHASE: ${{ matrix.phase }}
+        run: |
+          node -e 'if (!require("./package.json").scripts?.[process.env.TEST_PHASE]) process.exit(1)'
+          npm --ignore-scripts run "$TEST_PHASE"
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
       - name: Build production app for browser regression
         run: npm run build
       - name: Membership basket and checkout browser regression

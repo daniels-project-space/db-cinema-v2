@@ -18,6 +18,9 @@ import { SavedCardCharges } from "@/components/rentals/SavedCardCharges";
 import { MembershipInvoiceRecovery } from "./MembershipInvoiceRecovery";
 import { PossibleRestrictedIdentityAccountMatches } from "./PossibleRestrictedIdentityMatch";
 import { AdminCheckoutBasket } from "./AdminCheckoutBasket";
+import { accountControls, type AccountControl } from "./accountControlSearch";
+import { AccountControlSearch } from "./AdminControlFinder";
+import { AdminGaffer } from "./AdminGaffer";
 
 const LEVELS = [
   ["automatic", "Automatic"],
@@ -115,12 +118,14 @@ export function AccountAdmin({
   onConversation,
   onEmail,
   onDocumentsChange,
+  initialControlFocus,
 }: {
   token: string;
   onDocumentsChange?: (customer: string | null) => void;
   onRental?: (id: string) => void;
   onConversation?: (accountId: string, bookingId: string | null) => void;
   onEmail?: (email: string) => void;
+  initialControlFocus?: {accountId:string; email:string; bookingId?:string; controlId:string} | null;
 }) {
   const profileRef = useRef<HTMLElement>(null);
   const actionRailRef = useRef<HTMLElement>(null);
@@ -128,9 +133,9 @@ export function AccountAdmin({
   const membershipRef = useRef<HTMLSelectElement>(null);
   const encoreRef = useRef<HTMLSelectElement>(null);
   const [accessTarget, setAccessTarget] = useState<{ sequence: number } | null>(null);
-  const [input, setInput] = useState(""),
-    [email, setEmail] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [input, setInput] = useState(initialControlFocus?.email ?? ""),
+    [email, setEmail] = useState(initialControlFocus?.email ?? "");
+  const [selectedId, setSelectedId] = useState<string | null>(initialControlFocus?.accountId ?? null);
   const [level, setLevel] = useState<Level>("automatic"),
     [encoreLevel, setEncoreLevel] = useState<EncoreLevel>("automatic"),
     [accessReason, setAccessReason] = useState(""),
@@ -162,6 +167,9 @@ export function AccountAdmin({
   const [managedRentalSelection, setManagedRentalSelection] = useState<{ accountId: string; bookingId: string } | null>(null);
   const [billingView, setBillingView] = useState<"payments" | "invoices" | "credits">("payments");
   const [safetyView, setSafetyView] = useState<"notes" | "restriction">("notes");
+  const [controlNotice, setControlNotice] = useState("");
+  const [controlIntent, setControlIntent] = useState<{accountId:string; bookingId:string; selector:string; sequence:number} | null>(null);
+  useEffect(() => { setControlIntent(null); setControlNotice(""); }, [selectedId, activeConversationId]);
   useEffect(() => {
     setAccessReason("");
     setRestrictionReason("");
@@ -236,7 +244,7 @@ export function AccountAdmin({
   const isCurrentlyVerified = (account: { verified: boolean; verifiedUntil?: number | null }) => account.verified && typeof account.verifiedUntil === "number" && account.verifiedUntil > verificationNow;
   const searchPending = input !== email || authorized === undefined || status === "LoadingFirstPage" || messageSearchActive && messageSearchStatus === "LoadingFirstPage";
   const selected = !authorized || searchPending ? undefined :
-    matchingAccounts.find((a) => a.id === selectedId) ?? matchingAccounts[0];
+    matchingAccounts.find((a) => a.id === selectedId) ?? (initialControlFocus && selectedId === initialControlFocus.accountId ? undefined : matchingAccounts[0]);
   useEffect(() => {
     setRestrictionClass(selected?.restrictionClass ?? "");
     setConfirmBlock(null);
@@ -548,6 +556,66 @@ export function AccountAdmin({
   const managedRental = detail?.rentals.find(rental =>
     managedRentalSelection !== null && managedRentalSelection.accountId === selected?.id && rental.id === managedRentalSelection.bookingId,
   ) ?? detail?.rentals.find(rental => rental.id === activeRental?.id) ?? detail?.rentals[0] ?? null;
+  useEffect(() => {
+    if (!controlIntent || !selected || selected.id !== controlIntent.accountId || managedRental?.id !== controlIntent.bookingId || section !== "rentals" || rentalView !== "actions") return;
+    const root = actionRailRef.current;
+    if (!root) return;
+    let finished = false;
+    const open = () => {
+      const button = root.querySelector<HTMLButtonElement>(`[data-testid="${controlIntent.selector}"]`);
+      if (!button || button.disabled) return;
+      finished = true;
+      const group = button.closest("details");
+      if (group) group.open = true;
+      button.click();
+      button.scrollIntoView({block:"center", behavior:"auto"});
+      setControlIntent(null);
+    };
+    const observer = new MutationObserver(open);
+    observer.observe(root, {childList:true, subtree:true, attributes:true, attributeFilter:["disabled"]});
+    open();
+    const timer = window.setTimeout(() => {
+      if (!finished) {
+        setControlNotice("That action is unavailable for this rental. Check its current status and open requests.");
+        setControlIntent(null);
+      }
+    }, 5000);
+    return () => { observer.disconnect(); window.clearTimeout(timer); };
+  }, [controlIntent, selected, managedRental?.id, section, rentalView]);
+
+  function openControl(control: AccountControl, targetBookingId?: string) {
+    setControlNotice("");
+    setControlIntent(null);
+    const targetRental = targetBookingId ? detail?.rentals.find(rental => rental.id === targetBookingId) : activeRental;
+    if (control.rental && !targetRental) {
+      setControlNotice("Select a rental conversation first.");
+      return;
+    }
+    if (control.section === "verification" && reviewRentals.length === 0) {
+      setControlNotice("There is no verification awaiting review for this account.");
+      return;
+    }
+    if (control.section === "rentals") {
+      setRentalView(control.view === "actions" ? "actions" : "history");
+      if (targetRental && selected) {
+        setManagedRentalSelection({accountId:selected.id, bookingId:targetRental.id});
+        if (control.selector) setControlIntent({accountId:selected.id, bookingId:targetRental.id, selector:control.selector, sequence:Date.now()});
+      }
+    }
+    if (control.section === "billing" && (control.view === "payments" || control.view === "invoices" || control.view === "credits")) setBillingView(control.view);
+    if (control.section === "safety" && (control.view === "notes" || control.view === "restriction")) setSafetyView(control.view);
+    setPanelClosed(false);
+    setSection(control.section);
+    setMobilePane("profile");
+  }
+  const initialControlOpened = useRef(false);
+  useEffect(() => {
+    if (initialControlOpened.current || !initialControlFocus || selected?.id !== initialControlFocus.accountId || detail?.id !== initialControlFocus.accountId) return;
+    const control = accountControls.find(item => item.id === initialControlFocus.controlId);
+    if (!control || (control.section === "verification" && reviewQueue === undefined)) return;
+    initialControlOpened.current = true;
+    openControl(control, initialControlFocus.bookingId);
+  }, [initialControlFocus, selected?.id, detail?.id, reviewQueue]);
   // Keep a selected rental visible in the message timeline while the support
   // thread is open. A rental thread always uses its own booking context.
   const conversationRental = activeConversationId ? activeRental : managedRental;
@@ -747,6 +815,8 @@ export function AccountAdmin({
               </button>;
             })}
           </nav>
+          <AccountControlSearch contextKey={`${selected.id}:${activeConversation?.id ?? "support"}`} notice={controlNotice} onSelect={openControl} />
+          {activeRental && <details className={styles.adminGaffer}><summary>Ask Gaffer · private</summary><AdminGaffer key={`${selected.id}:${activeRental.id}`} token={token} accountId={selected.id} bookingId={activeRental.id}/></details>}
           {starState?.scope === currentScope && starState.error && <p className={styles.starError} role="alert">{starState.error}</p>}
           <RentalConversation
             key={`${selected.id}:${activeConversation?.id ?? "account-support"}`}
@@ -778,7 +848,7 @@ export function AccountAdmin({
         </section>
       ) : (
         <section className={styles.conversationEmpty} aria-label="Customer conversation">
-          <p>Select a customer to open their account support chat.</p>
+          <p>{initialControlFocus && selectedId === initialControlFocus.accountId ? (loading ? "Finding the linked customer…" : "The linked customer could not be found. Select another customer to continue.") : "Select a customer to open their account support chat."}</p>
         </section>
       )}
       {selected && !panelClosed ? (

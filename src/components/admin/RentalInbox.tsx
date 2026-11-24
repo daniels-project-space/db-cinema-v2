@@ -8,6 +8,9 @@ import { RentalOrderTools } from "./RentalOrderTools";
 import { RestrictedIdentityAlertFailures } from "./RestrictedIdentityAlertFailures";
 import { PossibleRestrictedIdentityMatch } from "./PossibleRestrictedIdentityMatch";
 import { AccountDocuments } from "./AccountDocuments";
+import { AccountControlSearch } from "./AdminControlFinder";
+import type { AccountControl } from "./accountControlSearch";
+import { AdminGaffer } from "./AdminGaffer";
 import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { createClientRequestId } from "@/lib/clientRequestId";
@@ -179,6 +182,7 @@ export function RentalInbox({
   focusRevision = 0,
   focusEmail,
   focusEmailRevision = 0,
+  onOpenAccountControl,
 }: {
   token: string;
   focusBookingId?: string | null;
@@ -187,7 +191,11 @@ export function RentalInbox({
   focusRevision?: number;
   focusEmail?: string | null;
   focusEmailRevision?: number;
+  onOpenAccountControl?: (target: {accountId:string; email:string; bookingId?:string; controlId:string}) => void;
 }) {
+  const controlRoot = useRef<HTMLDivElement>(null);
+  const [controlNotice, setControlNotice] = useState("");
+  const [controlIntent, setControlIntent] = useState<{bookingId:string; selector:string | null} | null>(null);
   const [stage, setStage] = useState(focusAccountId ? "general" : "all"),
     [search, setSearch] = useState(""),
     [selected, setSelected] = useState<string | null>(focusBookingId ?? focusAccountId ?? null);
@@ -369,6 +377,44 @@ export function RentalInbox({
   const focus = selected
       ? (rows.find((r) => r._id === selected) ?? (stage === "general" ? generalDirect : direct))
     : visible[0];
+  useEffect(() => {setControlIntent(null); setControlNotice("");}, [selected, stage]);
+  useEffect(() => {
+    if (!controlIntent || !focus || focus.status === "support" || String(focus._id) !== controlIntent.bookingId) return;
+    const root = controlRoot.current;
+    if (!root) return;
+    let finished = false;
+    const open = () => {
+      const group = root.querySelector<HTMLDetailsElement>('[data-testid="inbox-manage-rental"]');
+      if (!group) return;
+      group.open = true;
+      if (!controlIntent.selector) { finished = true; group.scrollIntoView({block:"center", behavior:"auto"}); setControlIntent(null); return; }
+      const button = group.querySelector<HTMLButtonElement>(`[data-testid="${controlIntent.selector}"]`);
+      if (!button || button.disabled) return;
+      finished = true;
+      const nested = button.closest("details");
+      if (nested) nested.open = true;
+      button.click();
+      button.scrollIntoView({block:"center", behavior:"auto"});
+      setControlIntent(null);
+    };
+    const observer = new MutationObserver(open);
+    observer.observe(root, {childList:true, subtree:true, attributes:true, attributeFilter:["disabled"]});
+    open();
+    const timer = window.setTimeout(() => {if (!finished) {setControlNotice("That action is unavailable for this rental. Check its current status and open requests."); setControlIntent(null);}}, 5000);
+    return () => {observer.disconnect(); window.clearTimeout(timer);};
+  }, [controlIntent, focus?._id, focus?.status]);
+  function openInboxControl(control: AccountControl) {
+    setControlNotice("");
+    setControlIntent(null);
+    if (!focus) return;
+    if (control.section === "rentals" && control.view === "actions") {
+      if (focus.status === "support") {setControlNotice("Select a rental conversation first."); return;}
+      setControlIntent({bookingId:String(focus._id), selector:control.selector ?? null});
+      return;
+    }
+    if (!focus.accountId || !focus.guestEmail || !onOpenAccountControl) {setControlNotice("A linked customer account is required for this control."); return;}
+    onOpenAccountControl({accountId:String(focus.accountId), email:focus.guestEmail, bookingId:focus.status === "support" ? undefined : String(focus._id), controlId:control.id});
+  }
   const selectedAny = isEmailStage ? !!selectedEmail : !!selected;
   function openMatchedAccountChat(accountId: string) {
     openRenterConversation(accountId);
@@ -616,7 +662,9 @@ export function RentalInbox({
             <div className="flex min-h-[450px] items-center justify-center rounded-3xl border border-sky-300/10 text-sm text-sky-100/35">Choose an email to read and reply.</div>
           )
         ) : focus ? (
-          <>
+          <div ref={controlRoot}>
+            <AccountControlSearch contextKey={`${focus._id}:${focus.status}`} notice={controlNotice} onSelect={openInboxControl} />
+            {focus.status !== "support" && focus.accountId && <details className="mb-2 rounded-xl border border-white/10 bg-white/[.025] p-3 text-sm text-amber-100"><summary className="cursor-pointer">Ask Gaffer · private</summary><AdminGaffer key={`${focus.accountId}:${focus._id}`} token={token} accountId={String(focus.accountId)} bookingId={String(focus._id)}/></details>}
             <RentalConversation
               key={focus._id}
               token={token}
@@ -631,11 +679,11 @@ export function RentalInbox({
               escalated={focus.escalated}
               tools={
                 focus.status !== "support" ? (
-                  <><div className={chatStyles.rentalContext}><p className={chatStyles.eyebrow}>{rentalStageLabel(focus)}</p><h5>{rentalDate(focus.start, focus.end)}</h5><div className="mt-3 space-y-1">{focus.items.map((item,index) => <p key={`${item.listingId}-${index}`} className="truncate text-xs text-white/65">{item.qty}× {item.title}</p>)}</div><p className="mt-4 text-xs text-white/55">Rental total <strong className="float-right text-white">{formatGbp(focus.total)}</strong></p></div>{"idVerifyStatus" in focus && focus.idVerifyStatus === "verified" && <PossibleRestrictedIdentityMatch token={token} bookingId={focus._id} onOpenAccount={openMatchedAccountChat} />}{focus.accountId && <details className={chatStyles.operationDetails}><summary>Verification documents</summary><AccountDocuments token={token} accountId={focus.accountId} verified={"idVerifyStatus" in focus && focus.idVerifyStatus === "verified"} embedded /></details>}<details className={chatStyles.operationDetails}><summary>Manage this rental</summary><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} showPriceTools /><AdminDroneLicence key={`licence-${focus._id}`} token={token} bookingId={focus._id} /></details></>
+                  <><div className={chatStyles.rentalContext}><p className={chatStyles.eyebrow}>{rentalStageLabel(focus)}</p><h5>{rentalDate(focus.start, focus.end)}</h5><div className="mt-3 space-y-1">{focus.items.map((item,index) => <p key={`${item.listingId}-${index}`} className="truncate text-xs text-white/65">{item.qty}× {item.title}</p>)}</div><p className="mt-4 text-xs text-white/55">Rental total <strong className="float-right text-white">{formatGbp(focus.total)}</strong></p></div>{"idVerifyStatus" in focus && focus.idVerifyStatus === "verified" && <PossibleRestrictedIdentityMatch token={token} bookingId={focus._id} onOpenAccount={openMatchedAccountChat} />}{focus.accountId && <details className={chatStyles.operationDetails}><summary>Verification documents</summary><AccountDocuments token={token} accountId={focus.accountId} verified={"idVerifyStatus" in focus && focus.idVerifyStatus === "verified"} embedded /></details>}<details data-testid="inbox-manage-rental" className={chatStyles.operationDetails}><summary>Manage this rental</summary><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} showPriceTools /><AdminDroneLicence key={`licence-${focus._id}`} token={token} bookingId={focus._id} /></details></>
                 ) : undefined
               }
             />
-          </>
+          </div>
         ) : (
           <div className="flex min-h-[450px] items-center justify-center rounded-3xl border border-white/[0.06] text-sm text-white/30">
             {selected ? (stage === "general" ? generalDirect : direct) === undefined ? "Opening conversation…" : "This conversation is unavailable. Choose another conversation." : "Choose a rental to start."}

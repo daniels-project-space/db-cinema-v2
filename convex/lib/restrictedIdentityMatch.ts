@@ -73,11 +73,9 @@ export async function restrictedIdentityMatches(ctx: any, booking: any, personKe
   return findRestrictedIdentityMatches(ctx, booking, personKey);
 }
 
-async function resolveSameAccountIdentityNotice(ctx: any, booking: any) {
-  if (!booking.accountId) return;
+async function resolveObsoleteIdentityNotice(ctx: any, booking: any) {
   const notices = await ctx.db.query("admin_notifications")
-    .withIndex("by_account_booking_kind_read_created", (q: any) => q
-      .eq("accountId", booking.accountId)
+    .withIndex("by_booking_kind_read_created", (q: any) => q
       .eq("bookingId", booking._id)
       .eq("kind", "identity_match")
       .eq("read", false))
@@ -93,7 +91,7 @@ export async function notifyRestrictedIdentityMatch(ctx: any, booking: any, pers
   if (!/^[a-f0-9]{64}$/.test(personKey)) return false;
   const result = await restrictedIdentityMatches(ctx, booking, personKey);
   if (!result.matches.length) {
-    await resolveSameAccountIdentityNotice(ctx, booking);
+    await resolveObsoleteIdentityNotice(ctx, booking);
     return false;
   }
   await queueOwnerNotification(ctx, {

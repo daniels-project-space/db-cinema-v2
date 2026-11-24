@@ -54,7 +54,8 @@ process.env.ADMIN_TOKEN = "legacy-attachment-fixture";
         providerStatus = body.new_status;
         return new Response(JSON.stringify({ session_id: String(_url).includes("fixture-resubmit-session") ? "fixture-resubmit-session" : "fixture-session" }), { status: 200 });
       }
-      return new Response(JSON.stringify({ session_id: String(_url).includes("fixture-resubmit-session") ? "fixture-resubmit-session" : "fixture-session", session_kind: "user", workflow_id: "fixture-workflow", vendor_data: `dbc-booking-${providerBookingId}`, contact_details: { email: account.email }, status: providerStatus, poa_verifications: [{ node_id: "feature_poa_1", status: "Declined" }] }), { status: 200 });
+      const approved = providerStatus === "Approved";
+      return new Response(JSON.stringify({ session_id: String(_url).includes("fixture-resubmit-session") ? "fixture-resubmit-session" : "fixture-session", session_kind: "user", workflow_id: "fixture-workflow", vendor_data: `dbc-booking-${providerBookingId}`, contact_details: { email: account.email }, status: providerStatus, ...(approved ? { id_verifications: [{ status: "Approved" }], liveness_checks: [{ status: "Approved" }], face_matches: [{ status: "Approved" }] } : {}), poa_verifications: [{ node_id: "feature_poa_1", status: approved ? "Approved" : "Declined" }] }), { status: 200 });
     };
     const actionCtx = { ...ctx,
       runQuery: async ref => { if (String(ref).replaceAll(":", ".") === "bookings.verificationAccess") return booking; throw Error(`unexpected query ${ref}`); },
@@ -63,18 +64,25 @@ process.env.ADMIN_TOKEN = "legacy-attachment-fixture";
         if (name === "adminAccountSessionV2.authorizeDiditReview") return access.authorizeDiditReview.handler(ctx, args);
         if (name === "diditReviewClaims.claim") return reviewClaims.claim.handler(ctx, args);
         if (name === "diditReviewClaims.release") return reviewClaims.release.handler(ctx, args);
+        if (name === "diditReviewClaims.markUnknown") return reviewClaims.markUnknown.handler(ctx, args);
+        if (name === "diditReviewClaims.reconcileConfirmed") return reviewClaims.reconcileConfirmed.handler(ctx, args);
         if (name === "bookings.claimDiditProgressRefresh") return true;
-        if (name === "bookings.setDiditResult") { websiteDecision = args; return true; }
+        if (name === "bookings.setDiditResult") { websiteDecision = args; await ctx.db.patch(args.bookingId, { idVerifyStatus: args.status }); return true; }
         throw Error(`unexpected mutation ${ref}`);
       },
     };
     await assert.rejects(didit.adminReview.handler(actionCtx, { token: readToken, bookingId: booking._id, decision: "approve", note: "Reviewed provider decision", requestId: "verification-review-read-0001" }), /unauthorized/);
     assert.equal(providerCalls, 0, "read-only sessions cannot make provider decisions");
     assert.equal(booking.idVerifyStatus, "manual_review", "unauthorized decisions leave the rental unchanged");
+    const conflictBooking = harness.put("bookings", { accountId: account._id, guestEmail: account.email, verificationProvider: "didit", diditSessionId: "fixture-session", idVerifyStatus: "manual_review", status: "confirmed" });
+    providerBookingId = conflictBooking._id;
+    const conflictCtx = { ...actionCtx, runQuery: async ref => { if (String(ref).replaceAll(":", ".") === "bookings.verificationAccess") return conflictBooking; throw Error(`unexpected query ${ref}`); } };
     conflictNextPatch = true;
-    await assert.rejects(didit.adminReview.handler(actionCtx, { token: reviewToken, bookingId: booking._id, decision: "decline", note: "Provider status changed elsewhere", requestId: "verification-review-race-0001" }), /case changed/);
-    assert.equal(booking.idVerifyStatus, "manual_review", "a stale preview cannot change the website decision");
+    await assert.rejects(didit.adminReview.handler(conflictCtx, { token: reviewToken, bookingId: conflictBooking._id, decision: "decline", note: "Provider status changed elsewhere", requestId: "verification-review-race-0001" }), /case changed/);
+    assert.equal(conflictBooking.idVerifyStatus, "manual_review", "a stale preview cannot change the website decision");
+    assert.equal(conflictBooking.diditReviewClaim?.outcomeUnknown, true, "an uncertain provider decision stays locked for reconciliation");
     assert.equal(websiteDecision, undefined, "a stale preview cannot issue rental confirmation/rejection effects");
+    providerBookingId = booking._id;
     const result = await didit.adminReview.handler(actionCtx, { token: reviewToken, bookingId: booking._id, decision: "approve", note: "Reviewed provider decision", requestId: "verification-review-write-0001" });
     assert.deepEqual(result, { status: "verified", providerStatus: "Approved" });
     assert.equal(providerCalls, 6, "stale 409 decisions are re-read, and approval updates Didit once then verifies its final decision without duplicate provider email");

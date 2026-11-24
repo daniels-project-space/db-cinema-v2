@@ -29,6 +29,8 @@ import { rentalBenefitAccount } from "./lib/rentalBenefitAccount";
 import { availableRentalCreditPence, reserveRentalCredit, releaseRentalCredit, consumeRentalCredit, reservationForOperation } from "./lib/rentalCreditFunding";
 import { quote as pricingQuote } from "./lib/pricing";
 import { RENTAL_REQUEST_HISTORY_LIMIT, summarizeBookingChangeRequests } from "./lib/rentalRequestStatus";
+import { approvedStripeCheckoutUrl } from "../src/lib/chatLinks";
+import { queueOwnerNotification } from "./lib/adminPush";
 
 import { isAllowedReturnTime, HOURS_LABEL } from "../src/lib/site";
 
@@ -468,11 +470,23 @@ export const adminLatePreview = query({
       return {lineIndex:selected[index],overdue,requiresManualRate,missingReturnTime:!returnTime,...(!requiresManualRate && overdue ? {amountPence:Math.round(line.dailyRate! * 100)} : {})};
     });
     const missingRates = oneDayRates.some(rate => rate.requiresManualRate || rate.missingReturnTime);
-    return { selected, overdue: late.breakdown.length > 0, suggestedOneDayPence: oneDayRates.reduce((sum, item) => sum + (item.amountPence ?? 0), 0), oneDayRates, missingRates, needsReconciliation, paymentLinkAvailable: false as const };
+    const linkedAccount = booking!.accountId ? await ctx.db.get(booking!.accountId) : null;
+    const offerUnavailableReason = !linkedAccount ? "Link a renter account before sending this offer." : !lateOfferSendAvailable() ? "Sending late-extension offers is not enabled yet." : undefined;
+    return { selected, overdue: late.breakdown.length > 0, suggestedOneDayPence: oneDayRates.reduce((sum, item) => sum + (item.amountPence ?? 0), 0), oneDayRates, missingRates, needsReconciliation, offerSendAvailable: !offerUnavailableReason, ...(offerUnavailableReason ? {offerUnavailableReason} : {}), paymentLinkAvailable: false as const };
   },
 });
 
 type AdminLateQuoteInput = { bookingId:Id<"bookings">; lineItemIndexes?:number[]; lateDays:number; targetEnd:number; requestedReturnTime:string; manualRates?:{lineIndex:number;dailyPence:number;confirmed:true}[]; customFee?:{description:string;amountPence:number} };
+
+function lateOfferSendAvailable() {
+  const stripeKey = process.env.STRIPE_SECRET_KEY ?? "";
+  return process.env.RENTAL_LATE_EXTENSION_ENABLED === "true" && !!stripeKey && (process.env.RENTAL_CHECKOUT_ENABLED === "true" || /^(sk|rk)_test_/.test(stripeKey));
+}
+
+async function lateOfferFingerprint(value: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+}
 
 async function adminLateQuoteFor(ctx: any, args: AdminLateQuoteInput) {
       const booking = await ctx.db.get(args.bookingId);
@@ -518,7 +532,8 @@ async function adminLateQuoteFor(ctx: any, args: AdminLateQuoteInput) {
       const totalPence = latePence + extensionPence - discountPence + customPence;
       if (![latePence,extensionPence,discountPence,totalPence].every(value => Number.isSafeInteger(value) && value >= 0)) throw Error("The quote amount needs review.");
       const quoteFingerprint = JSON.stringify({ base: baseLines(booking), chosen, lateDays: args.lateDays, targetEnd: args.targetEnd, requestedReturnTime: args.requestedReturnTime, manualRates, customFee: args.customFee ?? null, entries, latePence, extensionPence, discountPence, totalPence });
-      return { available: true as const, entries, latePence, extensionPence, discountPence, customFee: args.customFee, totalPence, quoteFingerprint, paymentLinkAvailable: false as const };
+      const offerUnavailableReason = !account ? "Link a renter account before sending this offer." : !lateOfferSendAvailable() ? "Sending late-extension offers is not enabled yet." : undefined;
+      return { available: true as const, entries, latePence, extensionPence, discountPence, customFee: args.customFee, totalPence, quoteFingerprint, offerSendAvailable:!offerUnavailableReason, ...(offerUnavailableReason ? {offerUnavailableReason} : {}), paymentLinkAvailable: false as const };
 }
 
 export const adminLateQuote = query({
@@ -536,10 +551,12 @@ export const adminLateQuote = query({
 export const createAdminLateOffer = internalMutation({
   args: { bookingId: v.id("bookings"), requestKey: v.string(), lineItemIndexes: v.optional(v.array(v.number())), lateDays: v.number(), targetEnd: v.number(), requestedReturnTime: v.string(), manualRates: v.optional(v.array(v.object({ lineIndex:v.number(), dailyPence:v.number(), confirmed:v.literal(true) }))), customFee: v.optional(v.object({ description:v.string(), amountPence:v.number() })), expectedFingerprint: v.string(), approvalReason: v.string() },
   handler: async (ctx, args) => {
+    if (!lateOfferSendAvailable()) throw Error("Late-extension payments are not enabled yet.");
     if (!/^[a-zA-Z0-9-]{16,80}$/.test(args.requestKey) || args.approvalReason.trim().length < 5 || args.approvalReason.length > 500) throw Error("A valid request and approval reason are required.");
     const prior = await ctx.db.query("booking_change_requests").withIndex("by_booking_requestKey", q => q.eq("bookingId", args.bookingId).eq("requestKey", args.requestKey)).first();
     if (prior) {
       if (prior.adminLateTerms?.quoteFingerprint !== args.expectedFingerprint || prior.approvalReason !== args.approvalReason.trim()) throw Error("Request contents changed.");
+      if (!["pending", "approved", "awaiting_payment", "applied"].includes(prior.status) || (prior.status === "pending" && (prior.expiresAt ?? 0) <= Date.now())) throw Error("This offer has expired or closed. Create a new quote.");
       return { requestId: prior._id };
     }
     const quote = await adminLateQuoteFor(ctx, args);
@@ -551,7 +568,14 @@ export const createAdminLateOffer = internalMutation({
       ctx.db.query("booking_change_requests").withIndex("by_booking", q => q.eq("bookingId", booking._id)).order("desc").take(RENTAL_REQUEST_HISTORY_LIMIT + 1),
       ctx.db.query("rental_change_requests").withIndex("by_booking", q => q.eq("bookingId", booking._id)).order("desc").take(RENTAL_REQUEST_HISTORY_LIMIT + 1),
     ]);
-    const summary = summarizeBookingChangeRequests(other, extensions);
+    const currentExtensions = await Promise.all(extensions.map(async existing => {
+      if (existing.adminLateTerms && existing.status === "pending" && (existing.expiresAt ?? 0) <= Date.now()) {
+        await ctx.db.patch(existing._id, { status:"expired", resolvedAt:Date.now() });
+        return { ...existing, status:"expired" as const };
+      }
+      return existing;
+    }));
+    const summary = summarizeBookingChangeRequests(other, currentExtensions);
     if (!summary.ready || summary.any) throw Error("Resolve the existing rental change before creating another offer.");
     const discounted = allocateSaving(quote.entries.map(entry => entry.extensionPence / 100), quote.discountPence / 100);
     const quoteItems = quote.entries.map((entry, index) => ({ lineIndex:entry.lineIndex, listingId:entry.listingId, title:entry.title, start:booking.lineItems[entry.lineIndex].end + DAY, end:entry.targetEnd, qty:entry.qty, dailyRate:entry.extensionPence / entry.extensionDays / 100, lineTotal:discounted[index] }));
@@ -560,6 +584,15 @@ export const createAdminLateOffer = internalMutation({
     const request = { bookingId:booking._id, accountId:booking.accountId, type:"extend" as const, requestKey:args.requestKey, lineItemIndexes:quote.entries.map(entry => entry.lineIndex), extraDays:args.lateDays, requestedReturnTime:args.requestedReturnTime, approvedReturnTime:args.requestedReturnTime, baseLines:baseLines(booking), quoteItems, adminLateTerms, priceDelta:quote.totalPence / 100, cardDuePence:quote.totalPence, approvalReason:args.approvalReason.trim(), status:"pending" as const, createdAt, expiresAt:createdAt + DAY };
     adminLateBillingLines(booking, request);
     const requestId = await ctx.db.insert("booking_change_requests", request);
+    const items = await Promise.all(quote.entries.map(async entry => {
+      const listing = await ctx.db.get(entry.listingId);
+      return { title:entry.title, qty:entry.qty, end:entry.targetEnd, imageSources:listingRentalImages(listing).slice(0, 4) };
+    }));
+    await postRentalMessage(ctx, {
+      accountId:booking.accountId, bookingId:booking._id, sender:"system",
+      text:"Your rental is overdue. Review the late charge and proposed extension below. The original return time remains in place until payment succeeds.",
+      meta:{ kind:"late_extension_offer", requestId, fingerprint:await lateOfferFingerprint(quote.quoteFingerprint), amount:quote.totalPence / 100, latePence:quote.latePence, extensionPence:quote.extensionPence, discountPence:quote.discountPence, ...(args.customFee ? { customFee:args.customFee } : {}), targetEnd:args.targetEnd, returnTime:args.requestedReturnTime, items },
+    });
     return { requestId };
   },
 });
@@ -567,12 +600,13 @@ export const createAdminLateOffer = internalMutation({
 export const acceptAdminLateOffer = mutation({
   args: { token:v.string(), requestId:v.id("booking_change_requests"), expectedFingerprint:v.string(), accepted:v.literal(true) },
   handler: async (ctx, args) => {
+    if (!lateOfferSendAvailable()) throw Error("Late-extension payments are not enabled yet.");
     const request = await ctx.db.get(args.requestId);
     if (!request?.adminLateTerms || request.type !== "extend") throw Error("This offer is unavailable.");
     const { a, b } = await customer(ctx, args.token, request.bookingId);
-    if (a._id !== request.accountId || request.status !== "pending" || (request.expiresAt ?? 0) <= Date.now() || args.expectedFingerprint !== request.adminLateTerms.quoteFingerprint) throw Error("This offer has expired or changed.");
+    if (a._id !== request.accountId || !["pending", "approved", "awaiting_payment"].includes(request.status) || (request.expiresAt ?? 0) <= Date.now() || args.expectedFingerprint !== await lateOfferFingerprint(request.adminLateTerms.quoteFingerprint)) throw Error("This offer has expired or changed.");
     if (request.adminLateAcceptedAt) {
-      if (request.adminLateAcceptedFingerprint !== args.expectedFingerprint) throw Error("This offer has changed.");
+      if (request.adminLateAcceptedFingerprint !== request.adminLateTerms.quoteFingerprint) throw Error("This offer has changed.");
       return { ok:true };
     }
     const terms = request.adminLateTerms;
@@ -670,7 +704,7 @@ export const prepare = internalMutation({
   handler: async (ctx, { requestId, reason, approvedReturnTime }) => {
     const r = await ctx.db.get(requestId);
     if (!r || r.type !== "extend") throw Error("Extension request unavailable.");
-    if (r.adminLateTerms) throw Error("Late-extension payments are not enabled yet.");
+    if (r.adminLateTerms && !lateOfferSendAvailable()) throw Error("Late-extension payments are not enabled yet.");
     if (["approved", "awaiting_payment", "applied"].includes(r.status)) return r;
     if (r.status !== "pending") throw Error("This request is closed.");
     if (r.creditReservationId && (r.expiresAt ?? 0) <= Date.now()) {
@@ -685,10 +719,21 @@ export const prepare = internalMutation({
     await mutableRental(ctx, b);
     if (b?.depositHoldAmount && ((b.depositHoldExpiresAt ?? 0) <= Date.now() + 25 * 3600000 || ["starting", "requires_action", "failed"].includes(b.depositHoldRenewalStatus ?? ""))) throw Error("Renew or resolve the existing security hold before approving an extension.");
     if (!r.baseLines || r.baseLines !== baseLines(b)) throw Error("The rental changed. Decline this request and ask for a new quote.");
-    const account = await ctx.db.get(r.accountId);
-    const q = await quoteFor(ctx, b, r.extraDays!, r.lineItemIndexes, account, returnTime);
-    if (q.benefitKind !== (r.benefitKind ?? "none") || q.benefitSaving !== (r.benefitSaving ?? 0)) throw Error("The member benefit changed. Decline this request and ask the renter to review a fresh quote.");
-    if (q.priceDelta !== r.priceDelta || quoteIdentity(q.items) !== quoteIdentity(r.quoteItems ?? [])) throw Error("The price changed because the listing price or extension quote changed. Decline this request and ask the renter to review a fresh quote.");
+    let q: { items: any[] };
+    if (r.adminLateTerms) {
+      const late = r.adminLateTerms;
+      if (!r.adminLateAcceptedAt || r.adminLateAcceptedFingerprint !== late.quoteFingerprint || returnTime !== late.requestedReturnTime || (r.expiresAt ?? 0) <= Date.now()) throw Error("The renter must accept the current late-extension offer before payment.");
+      const current = await adminLateQuoteFor(ctx, { bookingId:r.bookingId, lineItemIndexes:r.lineItemIndexes, lateDays:late.lateDays, targetEnd:late.targetEnd, requestedReturnTime:late.requestedReturnTime, manualRates:late.manualRates, customFee:late.customFee });
+      if (current.quoteFingerprint !== late.quoteFingerprint) throw Error("The late-extension offer changed. Send a fresh quote.");
+      adminLateBillingLines(b, r);
+      q = { items:r.quoteItems ?? [] };
+    } else {
+      const account = await ctx.db.get(r.accountId);
+      const current = await quoteFor(ctx, b, r.extraDays!, r.lineItemIndexes, account, returnTime);
+      if (current.benefitKind !== (r.benefitKind ?? "none") || current.benefitSaving !== (r.benefitSaving ?? 0)) throw Error("The member benefit changed. Decline this request and ask the renter to review a fresh quote.");
+      if (current.priceDelta !== r.priceDelta || quoteIdentity(current.items) !== quoteIdentity(r.quoteItems ?? [])) throw Error("The price changed because the listing price or extension quote changed. Decline this request and ask the renter to review a fresh quote.");
+      q = current;
+    }
     const proposed=bookingStockLines(b!).map((li,index)=>q.items.some(item=>item.lineIndex===index)?{...li,end:q.items.find(item=>item.lineIndex===index)!.end,returnTime}:li);
     await assertRentalInventory(ctx,proposed,b!._id);
     const expiresAt = Date.now() + DAY;
@@ -719,6 +764,8 @@ export const bindPayment = internalMutation({
   handler: async (ctx, { requestId, sessionId, url }) => {
     const r = await ctx.db.get(requestId);
     if (!r || !["approved", "awaiting_payment"].includes(r.status)) throw Error("The extension approval is closed.");
+    const checkoutUrl = approvedStripeCheckoutUrl(url);
+    if (!checkoutUrl || new URL(checkoutUrl).pathname !== `/c/pay/${sessionId}`) throw Error("The extension payment link does not match its session.");
     if (r.stripePaymentLinkId) { if (r.stripePaymentLinkId !== sessionId) throw Error("Payment session mismatch."); return; }
     const late = r.adminLateTerms;
     if (late) adminLateBillingLines(await ctx.db.get(r.bookingId), r);
@@ -733,8 +780,8 @@ export const bindPayment = internalMutation({
         imageSources: listingRentalImages(listing).slice(0, 4),
       };
     }));
-    await ctx.db.patch(requestId, { status: "awaiting_payment", stripePaymentLinkId: sessionId, paymentLinkUrl: url });
-    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Extension approved · ${r.creditAppliedPence?`£${(r.creditAppliedPence/100).toFixed(2)} account credit used; `:""}£${((r.cardDuePence??Math.round((r.priceDelta??0)*100))/100).toFixed(2)} to pay. Your original return times stay in place until payment succeeds. Link expires in 24 hours.`, meta: { kind: "extension_payment", requestId, url, amount: (r.cardDuePence??Math.round((r.priceDelta??0)*100))/100, grossAmount:r.priceDelta,creditAppliedPence:r.creditAppliedPence??0, extraDays: r.extraDays, returnTime: r.approvedReturnTime, benefitSaving: r.benefitSaving ?? 0, benefitLabel: r.benefitLabel, items: chatItems, ...(late ? {lateBreakdown:{latePence:late.latePence,extensionPence:late.extensionPence,discountPence:late.discountPence,...(late.customFee ? {customFee:late.customFee} : {})}} : {}) } });
+    await ctx.db.patch(requestId, { status: "awaiting_payment", stripePaymentLinkId: sessionId, paymentLinkUrl: checkoutUrl });
+    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Extension approved · ${r.creditAppliedPence?`£${(r.creditAppliedPence/100).toFixed(2)} account credit used; `:""}£${((r.cardDuePence??Math.round((r.priceDelta??0)*100))/100).toFixed(2)} to pay. Your original return times stay in place until payment succeeds. Link expires in 24 hours.`, meta: { kind: "extension_payment", requestId, url:checkoutUrl, amount: (r.cardDuePence??Math.round((r.priceDelta??0)*100))/100, grossAmount:r.priceDelta,creditAppliedPence:r.creditAppliedPence??0, extraDays: r.extraDays, returnTime: r.approvedReturnTime, benefitSaving: r.benefitSaving ?? 0, benefitLabel: r.benefitLabel, items: chatItems, ...(late ? {lateBreakdown:{latePence:late.latePence,extensionPence:late.extensionPence,discountPence:late.discountPence,...(late.customFee ? {customFee:late.customFee} : {})}} : {}) } });
   },
 });
 
@@ -759,19 +806,35 @@ async function release(ctx: any, r: any) {
 }
 
 export const close = internalMutation({
-  args: { requestId: v.id("booking_change_requests"), refundId: v.optional(v.string()), paymentIntentId: v.optional(v.string()), refundPending: v.optional(v.boolean()), withdrawn: v.optional(v.boolean()) },
-  handler: async (ctx, { requestId, refundId, paymentIntentId, refundPending, withdrawn }) => {
+  args: { requestId: v.id("booking_change_requests"), refundId: v.optional(v.string()), paymentIntentId: v.optional(v.string()), refundPending: v.optional(v.boolean()), withdrawn: v.optional(v.boolean()), expectedRefundId: v.optional(v.string()) },
+  handler: async (ctx, { requestId, refundId, paymentIntentId, refundPending, withdrawn, expectedRefundId }) => {
     const r = await ctx.db.get(requestId);
     if (!r || r.status === "applied" || r.status === "refunded") return;
+    if (expectedRefundId && (r.status !== "refund_pending" || r.refundId !== expectedRefundId || r.paymentIntentId !== paymentIntentId)) throw Error("The extension refund changed. Refresh its status.");
     if (refundPending) {
+      if (!refundId || !paymentIntentId || r.status === "refund_pending" && (r.refundId !== refundId || r.paymentIntentId !== paymentIntentId)) throw Error("The extension refund does not match the saved payment.");
       await ctx.db.patch(requestId, { status: "refund_pending", refundId, paymentIntentId });
       return; // Keep the operation lock until the provider attests its refund.
     }
     await releaseRentalCredit(ctx,"extension",String(r._id));
     await release(ctx, r);
+    const previousRefundId = r.refundId;
     const status = refundId ? "refunded" : withdrawn ? "withdrawn" : "expired";
     await ctx.db.patch(requestId, { status, refundId, paymentIntentId, resolvedAt: Date.now() });
+    if (refundId && previousRefundId) {
+      const notice = await ctx.db.query("admin_notifications").withIndex("by_event", q => q.eq("eventKey", `extension-refund-attention:${requestId}:${previousRefundId}`)).first();
+      if (notice && !notice.read) await ctx.db.patch(notice._id, { read:true });
+    }
     if (r.status !== status) await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: refundId ? "The extension couldn't be applied. Its payment has been refunded; the original rental dates remain unchanged." : withdrawn ? "The team withdrew the unpaid extension approval. Your original return dates and charges remain unchanged." : "The extension approval expired without a completed payment. Your original return dates and charges remain unchanged." });
+  },
+});
+
+export const refundAttention = internalMutation({
+  args: { requestId:v.id("booking_change_requests"), refundId:v.string(), paymentIntentId:v.string() },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (!request || request.status !== "refund_pending" || request.refundId !== args.refundId || request.paymentIntentId !== args.paymentIntentId) return;
+    await queueOwnerNotification(ctx, { eventKey:`extension-refund-attention:${args.requestId}:${args.refundId}`, kind:"deposit_refund_failure", accountId:request.accountId, bookingId:request.bookingId, title:"Extension refund needs attention", body:"The extension could not be applied and its Stripe refund needs attention. Review the original payment in Stripe; the rental remains locked until the refund is confirmed." });
   },
 });
 

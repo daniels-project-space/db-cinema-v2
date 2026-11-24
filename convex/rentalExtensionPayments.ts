@@ -2,8 +2,9 @@
 import Stripe from "stripe";
 import { createHash } from "node:crypto";
 import { action, internalAction } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
+import { approvedStripeCheckoutUrl } from "../src/lib/chatLinks";
 
 function stripe() {
   if (!process.env.STRIPE_SECRET_KEY) throw Error("Stripe is not configured.");
@@ -11,6 +12,18 @@ function stripe() {
 }
 function paymentGate() {
   if (process.env.RENTAL_CHECKOUT_ENABLED !== "true" && !/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "")) throw Error("Rental payments are not live yet. The request can remain pending for the team.");
+}
+
+function stripeCheckoutUrl(value: unknown, sessionId: string) {
+  const url = approvedStripeCheckoutUrl(value);
+  if (!url || new URL(url).pathname !== `/c/pay/${sessionId}`) throw Error("This payment link is unavailable. Ask the team for help.");
+  return url;
+}
+
+function matchesRefund(refund: Stripe.Refund, request: any) {
+  const intentId = typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id;
+  const expectedPence = request.cardDuePence ?? Math.round((request.priceDelta ?? -1) * 100);
+  return intentId === request.paymentIntentId && refund.currency === "gbp" && Number.isSafeInteger(expectedPence) && expectedPence > 0 && refund.amount === expectedPence;
 }
 
 async function ensureSession(ctx: any, requestId: any, reason: string, approvedReturnTime?: string) {
@@ -39,12 +52,17 @@ async function ensureSession(ctx: any, requestId: any, reason: string, approvedR
   }
   if (!Number.isFinite(r.priceDelta) || r.priceDelta < 0) throw Error("The extension quote is invalid.");
   paymentGate();
-  if (r.stripePaymentLinkId) return stripe().checkout.sessions.retrieve(r.stripePaymentLinkId);
+  if (r.stripePaymentLinkId) {
+    const existing = await stripe().checkout.sessions.retrieve(r.stripePaymentLinkId);
+    if (existing.id !== r.stripePaymentLinkId) throw Error("The extension payment session does not match its approval.");
+    if (existing.status === "open") stripeCheckoutUrl(existing.url, existing.id);
+    return existing;
+  }
   // Recover a lost create response before an old idempotency key or expiry can be reused.
   if (Date.now() >= r.approvedAt + 23 * 3600000) {
     for await (const found of stripe().checkout.sessions.list({ created: { gte: Math.floor(r.approvedAt / 1000) - 5 }, limit: 100 })) {
       if (found.metadata?.changeRequestId === requestId) {
-        await ctx.runMutation(internal.rentalExtensions.bindPayment, { requestId, sessionId: found.id, url: found.url ?? "" });
+        await ctx.runMutation(internal.rentalExtensions.bindPayment, { requestId, sessionId: found.id, url: stripeCheckoutUrl(found.url, found.id) });
         return found;
       }
     }
@@ -60,14 +78,14 @@ async function ensureSession(ctx: any, requestId: any, reason: string, approvedR
     customer_email: state.booking.guestEmail,
     expires_at: Math.floor(r.expiresAt / 1000),
     custom_text: { submit: { message: `Pay for the owner-approved extra rental days under our [rental terms](${origin}/legal/rental-terms). New return time: ${r.approvedReturnTime} London time. Existing security remains unchanged.` } },
-    line_items: [{ quantity: 1, price_data: { currency: "gbp", unit_amount: cardDuePence, product_data: { name: `DB Cinema · ${r.extraDays} extra rental day${r.extraDays === 1 ? "" : "s"}`, description: `${r.quoteItems.map((i: any) => `${i.qty}× ${i.title}: return ${new Date(i.end).toISOString().slice(0, 10)} at ${r.approvedReturnTime} London time · £${i.lineTotal.toFixed(2)}`).join("; ")}. Account credit £${((r.creditAppliedPence??0)/100).toFixed(2)}; card balance £${(cardDuePence/100).toFixed(2)}.`.slice(0, 500) } } }],
+    line_items: [{ quantity: 1, price_data: { currency: "gbp", unit_amount: cardDuePence, product_data: { name: r.adminLateTerms ? "DB Cinema · late rental and extension" : `DB Cinema · ${r.extraDays} extra rental day${r.extraDays === 1 ? "" : "s"}`, description: `${r.quoteItems.map((i: any) => `${i.qty}× ${i.title}: return ${new Date(i.end).toISOString().slice(0, 10)} at ${r.approvedReturnTime} London time · £${i.lineTotal.toFixed(2)}`).join("; ")}.${r.adminLateTerms ? ` Late rental £${(r.adminLateTerms.latePence / 100).toFixed(2)}${r.adminLateTerms.customFee ? `; ${r.adminLateTerms.customFee.description} £${(r.adminLateTerms.customFee.amountPence / 100).toFixed(2)}` : ""}.` : ""} Account credit £${((r.creditAppliedPence??0)/100).toFixed(2)}; card balance £${(cardDuePence/100).toFixed(2)}.`.slice(0, 500) } } }],
     success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/account?rental=${r.bookingId}#chat`,
     metadata: { changeRequestId: requestId,cardDuePence:String(cardDuePence),creditAppliedPence:String(r.creditAppliedPence??0) },
     payment_intent_data: { metadata: { changeRequestId: requestId,cardDuePence:String(cardDuePence),creditAppliedPence:String(r.creditAppliedPence??0) } },
   }, { idempotencyKey: `dbc-approved-extension-${requestId}` });
-  if (!session.url) throw Error("Stripe did not provide a payment link. Retry approval to recover it.");
-  await ctx.runMutation(internal.rentalExtensions.bindPayment, { requestId, sessionId: session.id, url: session.url });
+  const checkoutUrl = stripeCheckoutUrl(session.url, session.id);
+  await ctx.runMutation(internal.rentalExtensions.bindPayment, { requestId, sessionId: session.id, url: checkoutUrl });
   return session;
 }
 
@@ -77,6 +95,31 @@ export const approve = action({
     await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "rentalExtensionPayments.approve" });
     await ensureSession(ctx, requestId, reason, approvedReturnTime);
     return { ok: true };
+  },
+});
+
+export const sendLateOffer = action({
+  args: { token:v.string(), bookingId:v.id("bookings"), requestKey:v.string(), lineItemIndexes:v.optional(v.array(v.number())), lateDays:v.number(), targetEnd:v.number(), requestedReturnTime:v.string(), manualRates:v.optional(v.array(v.object({lineIndex:v.number(),dailyPence:v.number(),confirmed:v.literal(true)}))), customFee:v.optional(v.object({description:v.string(),amountPence:v.number()})), expectedFingerprint:v.string() },
+  handler: async (ctx, { token, ...args }): Promise<{ requestId:string }> => {
+    await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn:"rentalExtensionPayments.sendLateOffer" });
+    if (process.env.RENTAL_LATE_EXTENSION_ENABLED !== "true") throw Error("Late-extension payments are not enabled yet.");
+    if (!process.env.STRIPE_SECRET_KEY) throw Error("Stripe is not configured.");
+    paymentGate();
+    return await ctx.runMutation(internal.rentalExtensions.createAdminLateOffer, { ...args, approvalReason:"Late rental and extension offered by the team" });
+  },
+});
+
+export const acceptLateAndPay = action({
+  args: { token:v.string(), requestId:v.id("booking_change_requests"), expectedFingerprint:v.string() },
+  handler: async (ctx, args): Promise<{ url:string }> => {
+    if (process.env.RENTAL_LATE_EXTENSION_ENABLED !== "true") throw Error("Late-extension payments are not enabled yet.");
+    paymentGate();
+    await ctx.runMutation(api.rentalExtensions.acceptAdminLateOffer, { ...args, accepted:true });
+    const state:any = await ctx.runQuery(internal.rentalExtensions.context, { requestId:args.requestId });
+    if (!state?.request?.adminLateTerms) throw Error("This offer is unavailable.");
+    const session:any = await ensureSession(ctx, args.requestId, state.request.approvalReason);
+    if (session.status !== "open" || !session.url) throw Error("This payment link is no longer available. Ask the team for help.");
+    return { url:stripeCheckoutUrl(session.url, session.id) };
   },
 });
 
@@ -122,12 +165,13 @@ async function fulfill(ctx: any, session: Stripe.Checkout.Session) {
   if (!intentId) throw Error("Extension payment is missing.");
   const intent = await stripe().paymentIntents.retrieve(intentId);
   if (intent.status !== "succeeded" || intent.currency !== "gbp" || intent.amount_received !== session.amount_total || intent.metadata.changeRequestId !== id || !metadataMatches(intent.metadata) || intent.metadata.cardDuePence !== session.metadata?.cardDuePence || intent.metadata.creditAppliedPence !== session.metadata?.creditAppliedPence) throw Error("Extension payment has not been confirmed by Stripe.");
+  if (r.status === "refund_pending") return { bookingId:r.bookingId, paid:true, closed:true };
   const result: any = await ctx.runMutation(internal.rentalExtensions.applyPaid, { requestId: id, sessionId: session.id, paymentIntentId: intent.id, amountPence: intent.amount_received });
   if (result.closed) {
     if (r.status !== "refunded") {
       const refund = await stripe().refunds.create({ payment_intent: intent.id, metadata: { extensionRequestId: id } }, { idempotencyKey: `dbc-closed-extension-${id}` });
-      if (["failed", "canceled"].includes(refund.status ?? "")) throw Error("The unapplied extension refund needs attention. Retry settlement.");
       await ctx.runMutation(internal.rentalExtensions.close, { requestId: id, refundId: refund.id, paymentIntentId: intent.id, refundPending: refund.status !== "succeeded" });
+      if (["failed", "canceled", "requires_action"].includes(refund.status ?? "")) await ctx.runMutation(internal.rentalExtensions.refundAttention, { requestId:id, refundId:refund.id, paymentIntentId:intent.id });
     }
     return { bookingId: r.bookingId, paid: true, closed: true };
   }
@@ -139,6 +183,21 @@ export const finalize = internalAction({
   handler: async (ctx, { sessionId }): Promise<{ bookingId: string; paid: boolean; closed: boolean }> => fulfill(ctx, await stripe().checkout.sessions.retrieve(sessionId)),
 });
 
+export const confirmReplacementRefund = action({
+  args: { token:v.string(), requestId:v.id("booking_change_requests"), refundId:v.string() },
+  handler: async (ctx, args): Promise<{ ok:boolean }> => {
+    await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token:args.token, fn:"rentalExtensionPayments.confirmReplacementRefund" });
+    const state:any = await ctx.runQuery(internal.rentalExtensions.context, { requestId:args.requestId });
+    const request = state?.request;
+    if (!request || request.status !== "refund_pending" || !request.refundId || !request.paymentIntentId || request.refundId === args.refundId) throw Error("This refund is not ready for replacement review.");
+    const original = await stripe().refunds.retrieve(request.refundId);
+    const replacement = await stripe().refunds.retrieve(args.refundId);
+    if (original.id !== request.refundId || !["failed", "canceled"].includes(original.status ?? "") || !matchesRefund(original, request) || replacement.id !== args.refundId || replacement.status !== "succeeded" || !matchesRefund(replacement, request)) throw Error("Stripe has not confirmed a matching full replacement refund.");
+    await ctx.runMutation(internal.rentalExtensions.close, { requestId:args.requestId, refundId:replacement.id, paymentIntentId:request.paymentIntentId, expectedRefundId:request.refundId });
+    return { ok:true };
+  },
+});
+
 export const reconcile = internalAction({
   args: {},
   handler: async ctx => {
@@ -148,8 +207,9 @@ export const reconcile = internalAction({
       try {
         if (r.status === "refund_pending" && r.refundId) {
           const refund = await stripe().refunds.retrieve(r.refundId);
-          if (refund.status === "succeeded") await ctx.runMutation(internal.rentalExtensions.close, { requestId: r._id, refundId: refund.id, paymentIntentId: r.paymentIntentId });
-          else if (["failed", "canceled"].includes(refund.status ?? "")) console.error("Extension refund needs attention", r._id);
+          if (refund.id !== r.refundId || !matchesRefund(refund, r)) { await ctx.runMutation(internal.rentalExtensions.refundAttention, { requestId:r._id, refundId:r.refundId, paymentIntentId:r.paymentIntentId }); continue; }
+          if (refund.status === "succeeded") await ctx.runMutation(internal.rentalExtensions.close, { requestId: r._id, refundId: refund.id, paymentIntentId: r.paymentIntentId, expectedRefundId:r.refundId });
+          else if (["failed", "canceled", "requires_action"].includes(refund.status ?? "")) await ctx.runMutation(internal.rentalExtensions.refundAttention, { requestId:r._id, refundId:refund.id, paymentIntentId:r.paymentIntentId });
           continue;
         }
         if (!r.stripePaymentLinkId) { await ensureSession(ctx, r._id, r.approvalReason ?? "Recovering owner-approved extension"); continue; }
