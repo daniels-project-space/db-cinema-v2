@@ -14,7 +14,7 @@ async function run(id){await delivery.dispatchOne.handler(ctx,{deliveryId:id});a
  const reminder=await queue.queueRentalEmail(ctx,booking._id,'verification_reminder',{dueAt:now+12*3600000});
  assert.equal(await queue.queueRentalEmail(ctx,booking._id,'paid_verification'),payment);
  await run(payment);assert.equal(get(payment).state,'sent');assert.match(sent[0].subject,/Payment received/);assert.match(sent[0].html,/verification/i);
- assert.deepEqual(sent[0].replyTo,['replies@example.invalid','owner@example.invalid'],'Replies go to the Gaffer inbox and the team mailbox');
+ assert.equal(sent[0].replyTo,'info@dbcinemarentals.com','Replies go to the business Gmail inbox watched by Gmail sync');
  const firstSecret=sent[0].html.match(/account\/access\?next=verification#([A-Za-z0-9_-]{43})/)?.[1];assert(firstSecret,'The paid guest receives a private one-use verification link');
  const hash=s=>require('node:crypto').createHash('sha256').update(s).digest('hex');
  const account=h.docs.get(booking.accountId);assert(account);assert.equal(account.emailVerifiedAt,undefined,'Payment alone does not prove email ownership');
