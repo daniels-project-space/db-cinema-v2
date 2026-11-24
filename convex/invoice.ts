@@ -71,6 +71,81 @@ export const invoiceEmail = internalAction({
   },
 });
 
+/** One delivery for multiple paid rentals, while retaining each booking's
+ * immutable invoice number and original payment total. The delivery key makes
+ * retries idempotent through the shared Gmail transport. */
+export const invoiceBundleEmail = internalAction({
+  args: { bookingIds: v.array(v.id("bookings")) },
+  handler: async (ctx, { bookingIds }) => {
+    const ids = bookingIds.map(String);
+    if (ids.length < 2 || ids.length > 10 || new Set(ids).size !== ids.length)
+      throw Error("Choose between two and ten distinct rental bookings for a combined invoice email.");
+
+    const prepared: any[] = await Promise.all(bookingIds.map(bookingId =>
+      ctx.runAction(internal.invoice.invoiceEmail, { bookingId, prepareOnly: true }),
+    )) as any[];
+    if (prepared.some((invoice:any) => !invoice?.to || !invoice?.html))
+      throw Error("A paid rental invoice could not be prepared.");
+    const recipient = String(prepared[0].to).trim().toLowerCase();
+    if (prepared.some((invoice:any) => String(invoice.to).trim().toLowerCase() !== recipient))
+      throw Error("These rentals do not share one verified email recipient.");
+
+    const contexts:any[] = await Promise.all(bookingIds.map(bookingId =>
+      ctx.runQuery(internal.bookings.receiptContext, { bookingId }),
+    ));
+    if (contexts.some(booking => !booking || booking.guestEmail?.trim().toLowerCase() !== recipient))
+      throw Error("The rental invoice recipient changed while the bundle was being prepared.");
+    if (contexts.some(booking => !Number.isSafeInteger(booking.checkoutPaidAt) || booking.checkoutPaidAt <= 0 ||
+        !Number.isFinite(booking.total) || booking.total <= 0))
+      throw Error("Every rental in an invoice bundle must have a recorded payment.");
+    if (contexts.some(booking => booking.accountId !== contexts[0].accountId))
+      throw Error("These rentals do not belong to the same customer account.");
+
+    const invoices = contexts.map(booking => booking.invoiceSnapshot);
+    if (invoices.some((invoice:any, index:number) => !invoice || invoice.email?.trim().toLowerCase() !== recipient ||
+        invoice.number !== `DBC-${String(contexts[index]._id).slice(-8).toUpperCase()}` ||
+        Math.round(Number(invoice.total) * 100) !== Math.round(Number(contexts[index].total) * 100) ||
+        invoice.currency !== "GBP"))
+      throw Error("A rental invoice snapshot is incomplete or no longer matches its paid booking.");
+
+    const totalPence = invoices.reduce((sum:number, invoice:any) => sum + Math.round(invoice.total * 100), 0);
+    const combinedTotal = amount(totalPence / 100);
+    const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
+    const sections = invoices.map((invoice:any, index:number) => {
+      const rows:Array<[string,string]> = (invoice.lineItems ?? []).map((line:any) => [line.title, amount(line.lineTotal)]);
+      rows.push(["Rental subtotal", amount(invoice.subtotal)]);
+      if (invoice.discount > 0) rows.push(["Discount", `−${amount(invoice.discount)}`]);
+      if (invoice.creditApplied > 0) rows.push(["Account credit applied", `−${amount(invoice.creditApplied)}`]);
+      if (invoice.deliveryFee > 0) rows.push([invoice.deliveryLegs === "one_way" ? "One-way delivery" : "Delivery and collection", amount(invoice.deliveryFee)]);
+      rows.push(...rentalSecurityEmailRows(invoice), ["Total paid", amount(invoice.total)]);
+      return `<h3 style="margin:22px 0 8px">Invoice ${esc(invoice.number)}</h3><p>Booking ${esc(invoice.number.slice(-8))}</p>${emailRows(rows)}${rentalSecurityEmailNote(invoice) ? `<p>${rentalSecurityEmailNote(invoice)}</p>` : ""}`;
+    }).join("");
+    if (prepared.some((invoice:any) => !Array.isArray(invoice.attachments) || invoice.attachments.length !== 1))
+      throw Error("A valid PDF attachment could not be prepared for every paid rental; no email was sent.");
+    const attachments = prepared.flatMap((invoice:any) => invoice.attachments);
+    const attachmentBytes = attachments.map((attachment:any) => Buffer.from(attachment.content, "base64"));
+    if (attachmentBytes.some((bytes:Buffer) => bytes.length < 5 || bytes.length > 10_000_000 || bytes.subarray(0, 5).toString("ascii") !== "%PDF-") ||
+        attachmentBytes.reduce((total:number, bytes:Buffer) => total + bytes.length, 0) > 15_000_000)
+      throw Error("A rental invoice PDF failed validation; no email was sent.");
+    const idsForKey = [...ids].sort();
+    let providerReceipt: string | undefined;
+    const sent = await sendMail(ctx, {
+      deliveryKey: `invoice-bundle-${idsForKey.join("-")}`,
+      to: recipient,
+      subject: `Your DB Cinema rental invoices · ${combinedTotal} paid`,
+      html: rentalEmail({
+        title: "Your DB Cinema rental invoices",
+        preview: `${prepared.length} paid rental invoices · ${combinedTotal} combined total`,
+        url: `${app}/account`,
+        button: "View your rentals",
+        body: `<p>Attached are the invoices for your paid rentals. Together, the total paid is <strong>${combinedTotal}</strong>.</p>${sections}<p>These invoices record the payments and items shown above. They do not confirm a new pickup date.</p><p style="font-size:12px">DB Cinema Rentals Ltd is not VAT registered. No VAT is charged.</p>`,
+      }),
+      attachments,
+    }, id => { providerReceipt = id; });
+    return { sent, bookingCount: bookingIds.length, total: totalPence / 100, ...(providerReceipt ? { providerReceipt } : {}) };
+  },
+});
+
 /** Immutable return settlement: send the PDF only after the refund/capture and
  * late-fee assessment have been recorded. A failed PDF/email is retried hourly. */
 export const returnSettlementEmail = internalAction({

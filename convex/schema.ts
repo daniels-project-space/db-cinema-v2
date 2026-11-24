@@ -370,7 +370,7 @@ export default defineSchema({
     identityRiskNotice: v.optional(v.string()),
     verificationUpdatedAt: v.optional(v.number()),
     idVerifyStatus: v.optional(v.string()),
-    verificationConfirmationIssue: v.optional(v.union(v.literal("inventory_unavailable"),v.literal("provider_confirmation_failed"))),
+    verificationConfirmationIssue: v.optional(v.union(v.literal("inventory_unavailable"),v.literal("provider_confirmation_failed"),v.literal("rental_window_expired"))),
     droneLicenceStorageId: v.optional(v.id("_storage")),
     droneLicenceDocumentId: v.optional(v.id("verification_documents")),
     droneLicenceStatus: v.optional(v.union(v.literal("review"), v.literal("approved"), v.literal("requires_input"))),

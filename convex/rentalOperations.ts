@@ -8,6 +8,7 @@ import { schedulePickupHold } from "./pickupSecurity";
 import { bookingStockLines, londonRentalInstant, RENTAL_TIME_SLOTS, rentalWindow } from "../shared/rentalWindow";
 import { handoverScheduleFingerprint, pickupScheduleFingerprint, queueRentalEmail, refreshQueuedVerificationEmail } from "./lib/rentalEmailQueue";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
+import { stockAllocationFingerprint } from "./lib/stockAllocationFingerprint";
 import { accountForRental } from "./lib/rentalAccount";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { listingImages, listingRentalImages } from "./lib/catalogImages";
@@ -122,7 +123,11 @@ async function qualifyReschedule(
 ) {
   const { start, end, keepAgreedPrice, reason, expectedSnapshot, pickupChange, handoverChange } = args;
   const activeReturn=b?.status==="active"&&handoverChange?.kind==="return";
-  if (!b || b.status !== "confirmed" && !activeReturn)
+  const paidDiditDateCorrection = !!b && b.status === "pending_verification" &&
+    b.verificationProvider === "didit" && b.idVerifyStatus === "verified" &&
+    b.verificationConfirmationIssue === "rental_window_expired" &&
+    Number.isSafeInteger(b.checkoutPaidAt) && b.checkoutPaidAt! > 0;
+  if (!b || b.status !== "confirmed" && !activeReturn && !paidDiditDateCorrection)
     throw Error("Only an upcoming rental or an active rental return can change this time");
   const bookingId = b._id;
   await assertSwapStockReconciled(ctx, bookingId);
@@ -162,11 +167,22 @@ async function qualifyReschedule(
     .collect();
   if (reservations.some((r) => r.source !== "site"))
     throw Error("Manage this rental through its original booking platform");
-  if (reservations.some((r) => r.status === "hold"))
+  if (reservations.some((r) => r.status === "hold") && !paidDiditDateCorrection)
     throw Error("Resolve the open stock hold before changing this rental.");
   if(activeReturn&&reservations.some(r=>r.status==="returned"||r.extensionRequestId&&["confirmed","active"].includes(r.status)))
     throw Error("This rental has returned or extended items. Reconcile the physical allocation before changing its return time.");
-  const allocationMode = await assertRentalAllocation(ctx, b, reservations);
+  let allocationMode: "legacy" | "precise" | "day";
+  if (paidDiditDateCorrection) {
+    const holds = reservations.filter((reservation) => reservation.status === "hold");
+    const now = Date.now();
+    if (!b.stockHoldFingerprint || !holds.length || reservations.some((reservation) => !["hold", "cancelled"].includes(reservation.status)) ||
+        holds.some((hold) => hold.source !== "site" || hold.holdExpiresAt !== undefined && hold.holdExpiresAt <= now) ||
+        stockAllocationFingerprint(b, holds) !== b.stockHoldFingerprint)
+      throw Error("The paid rental's original stock hold cannot be safely verified. Review this booking before changing dates.");
+    allocationMode = await assertRentalAllocation(ctx, b, holds.map((hold) => ({ ...hold, status: "confirmed" })));
+  } else {
+    allocationMode = await assertRentalAllocation(ctx, b, reservations);
+  }
   const previous = Math.min(...b.lineItems.map((li) => li.start));
   const shift = start - previous;
   const previousEnd = Math.max(...b.lineItems.map((li) => li.end));
@@ -204,6 +220,7 @@ async function qualifyReschedule(
     lines,
     reservations,
     allocationMode,
+    paidDiditDateCorrection,
     endShift,
     controlsSnapshot: rentalControlsSnapshot(b, refunds),
   };
@@ -401,7 +418,7 @@ export const reschedule = mutation({
       operationKey,
     );
     if (request?.execution?.status === "applied") return { ok: true };
-    const { lines, reservations, allocationMode, endShift } =
+    const { lines, reservations, allocationMode, paidDiditDateCorrection, endShift } =
       await qualifyReschedule(ctx, b, {
         start,
         end,
@@ -412,28 +429,39 @@ export const reschedule = mutation({
     await ctx.db.patch(bookingId, {
       lineItems: lines,
       cancellationPolicyStart: start,
+      ...(paidDiditDateCorrection ? { verificationConfirmationIssue: undefined } : {}),
     });
     await refreshQueuedVerificationEmail(ctx,bookingId);
     await schedulePickupHold(ctx, { ...b, lineItems: lines });
     for (const r of reservations)
       if (["confirmed", "hold"].includes(r.status))
         await ctx.db.patch(r._id, { status: "cancelled" });
+    const newAllocation: any[] = [];
     for (const li of lines) {
       const listing = await ctx.db.get(li.listingId);
+      if (!listing) throw Error("A rental item is no longer in the catalogue. Review this booking before changing dates.");
       const window =
         allocationMode === "legacy"
           ? { start: li.start, end: li.end }
           : stockWindow(li, allocationMode === "precise");
-      for (const comp of listing!.components)
-        await ctx.db.insert("reservations", {
+      for (const comp of listing.components) {
+        const row = {
           inventoryUnitId: comp.inventoryUnitId,
           listingId: li.listingId,
           bookingId,
           ...window,
           qty: comp.qty * li.qty,
-          source: "site",
-          status: "confirmed",
-        });
+          source: "site" as const,
+          status: paidDiditDateCorrection ? "hold" as const : "confirmed" as const,
+        }
+        newAllocation.push(row);
+        await ctx.db.insert("reservations", row);
+      }
+    }
+    if (paidDiditDateCorrection) {
+      await ctx.db.patch(bookingId, {
+        stockHoldFingerprint: stockAllocationFingerprint({ ...b, lineItems: lines }, newAllocation),
+      });
     }
     const a = await accountForRental(ctx, b);
     const detail = `${new Date(start).toISOString().slice(0, 10)} → ${new Date(Math.max(...lines.map((li) => li.end))).toISOString().slice(0, 10)}`;
@@ -442,16 +470,22 @@ export const reschedule = mutation({
         accountId: a._id,
         bookingId,
         sender: "system",
-        text: `The team rescheduled your rental to ${detail}. Agreed charges and security are unchanged${endShift > 0 ? "; the additional days have no extra rental charge" : ""}. Any eligible refund is recorded separately. ${reason.trim()}`,
+        text: paidDiditDateCorrection
+          ? `Your paid rental dates have been updated to ${detail}. We are checking the new dates against current availability before confirming the rental. Your agreed charges and security are unchanged. ${reason.trim()}`
+          : `The team rescheduled your rental to ${detail}. Agreed charges and security are unchanged${endShift > 0 ? "; the additional days have no extra rental charge" : ""}. Any eligible refund is recorded separately. ${reason.trim()}`,
         ...(changeRequestId
           ? { meta: { type: "rental_change_applied", changeRequestId } }
           : {}),
       });
-    await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
-      bookingId,
-      kind: "rescheduled",
-      detail,
-    });
+    if (paidDiditDateCorrection) {
+      await ctx.scheduler.runAfter(0, internal.checkout.confirmAfterVerification, { bookingId, attempt: 0 });
+    } else {
+      await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
+        bookingId,
+        kind: "rescheduled",
+        detail,
+      });
+    }
     await queueRmv2Sync(ctx, bookingId);
     await finishRequest(
       ctx,
@@ -459,7 +493,9 @@ export const reschedule = mutation({
       changeRequestId,
       "reschedule",
       operationKey,
-      `Rental dates updated to ${detail}. Agreed charges are unchanged; any eligible refund is recorded separately.`,
+      paidDiditDateCorrection
+        ? `Paid rental dates updated to ${detail}; the new dates are being checked before booking confirmation.`
+        : `Rental dates updated to ${detail}. Agreed charges are unchanged; any eligible refund is recorded separately.`,
     );
     return { ok: true };
   },

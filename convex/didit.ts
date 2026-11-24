@@ -260,10 +260,10 @@ export const adminReview = action({
     if (decision === "approve") {
       if (!["Approved", "In Review"].includes(session.status))
         throw new Error("This Didit case cannot be approved; request resubmission for failed documents.");
-      const fields = ["id_verifications", "liveness_checks", "face_matches", "poa_verifications"] as const;
       const manualApprovalOverride = session.status === "Approved" && session.decision_trace?.decided_by === "manual";
-      const valid = fields.every(field => Array.isArray(session[field]) && session[field].length > 0 && session[field].every((item:any) =>
-        item?.status === "Approved" || (session.status === "In Review" || manualApprovalOverride) && item?.status === "In Review"));
+      const fields = ["id_verifications", "liveness_checks", "face_matches", "poa_verifications"] as const;
+      const valid = manualApprovalOverride || fields.every(field => Array.isArray(session[field]) && session[field].length > 0 && session[field].every((item:any) =>
+        item?.status === "Approved" || session.status === "In Review" && item?.status === "In Review"));
       if (!valid) throw new Error("All required Didit checks must be approved or awaiting review; request resubmission for failed or missing checks.");
       if (session.status === "Approved") {
         const mapped = mapDecision(session.status, session);
@@ -466,8 +466,7 @@ function mapDecision(rawStatus: unknown, decision: any): {
   const checks = verificationChecks(decision);
   const requiredChecks = ["identity", "selfie", "address"] as const;
   const checksApproved = requiredChecks.every(key => checks[key] === "approved");
-  const checksEligibleForManualOverride = requiredChecks.every(key => ["approved", "review"].includes(checks[key]));
-  const manualApprovalOverride = rawStatus === "Approved" && decision?.decision_trace?.decided_by === "manual" && checksEligibleForManualOverride;
+  const manualApprovalOverride = rawStatus === "Approved" && decision?.decision_trace?.decided_by === "manual";
   if (rawStatus === "Approved" && !checksApproved && !manualApprovalOverride) {
     status = "manual_review";
     note = "Your verification needs a team review because one or more required checks could not be confirmed.";
@@ -518,12 +517,10 @@ export const webhook = internalAction({
     const bookingId = event.vendor_data.slice("dbc-booking-".length);
     try {
       let decision = event.decision;
-      const approvedHasUntracedReview = event.status === "Approved" && !decision?.decision_trace?.decided_by &&
-        ["id_verifications", "liveness_checks", "face_matches", "poa_verifications"].some(field =>
-          Array.isArray(decision?.[field]) && decision[field].some((item: any) => item?.status === "In Review"));
+      const approvedDecisionTraceMissing = event.status === "Approved" && !decision?.decision_trace?.decided_by;
       if (event.status === "Declined" || event.status === "Approved" && (
         !["id_verifications", "liveness_checks", "face_matches", "poa_verifications"].every(field => Array.isArray(decision?.[field]) && decision[field].length) ||
-        approvedHasUntracedReview
+        approvedDecisionTraceMissing
       )) {
         const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, {bookingId: bookingId as any});
         if (!booking || booking.diditSessionId !== event.session_id || !booking.guestEmail) throw Error("Verification case does not match this rental.");

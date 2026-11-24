@@ -1392,7 +1392,7 @@ export const finalize = action({
   handler: async (
     ctx,
     { sessionId },
-  ): Promise<{ bookingId: string | null; paid: boolean; closed?: boolean; membership?: string; holdStatus?: string; holdClientSecret?: string;cardSaved?:boolean;additionId?:string;verificationPending?:boolean;swapStatus?:string }> => {
+  ): Promise<{ bookingId: string | null; paid: boolean; closed?: boolean; membership?: string; holdStatus?: string; holdClientSecret?: string;cardSaved?:boolean;additionId?:string;verificationPending?:boolean;dateCorrectionRequired?:boolean;swapStatus?:string }> => {
     const session = await stripe().checkout.sessions.retrieve(sessionId);
     const m = session.metadata ?? {};
     const paid = checkoutCompleted(session);
@@ -1447,6 +1447,7 @@ export const finalize = action({
         const hold = await authorizeHold(ctx, session);
         return { bookingId, paid, verificationPending: true, holdStatus: hold.status, holdClientSecret: hold.clientSecret };
       }
+      if (confirmation.awaitingDateCorrection) return { bookingId, paid, verificationPending: true, dateCorrectionRequired: true };
       if (confirmation.awaitingInventoryReview) {
         await ctx.scheduler.runAfter(15 * 60000, internal.checkout.confirmAfterVerification, { bookingId: bookingId as any, attempt: 1 });
         return { bookingId, paid, verificationPending: true };
@@ -1490,6 +1491,7 @@ export const confirmAfterVerification = internalAction({
       if (confirmation.duplicatePayment) await refundDuplicateCheckout(session);
       return;
     }
+    if (confirmation.awaitingDateCorrection) return;
     if (confirmation.awaitingInventoryReview) {
       if (attempt < 3) await ctx.scheduler.runAfter(15 * 60000, internal.checkout.confirmAfterVerification, { bookingId, attempt: attempt + 1 });
       return;
@@ -1542,6 +1544,10 @@ export const reconcilePendingPayments = internalAction({
           if (result.closed) {
             if(result.duplicatePayment)await refundDuplicateCheckout(session);
             console.error("Paid checkout was already closed", booking.bookingId);
+            failures++;
+            continue;
+          }
+          if (result.awaitingDateCorrection) {
             failures++;
             continue;
           }
@@ -1635,6 +1641,7 @@ export const stripeWebhook = internalAction({
         if (m.bookingId) {
           const confirmation = await confirmPaidBookingWithLiveStock(ctx, m.bookingId as any, s);
           if (confirmation.closed) {if(confirmation.duplicatePayment)await refundDuplicateCheckout(s);return true;}
+          if (confirmation.awaitingDateCorrection) return true;
           if (confirmation.awaitingInventoryReview) {
             await ctx.scheduler.runAfter(15 * 60000, internal.checkout.confirmAfterVerification, { bookingId: m.bookingId as any, attempt: 1 });
             return true;
