@@ -43,6 +43,7 @@ function pluginForAccountPage() {
   return { name: "account-page-fixtures", setup(build) {
     const realGoogleSignIn = path.join(root, "src/components/account/GoogleSignIn.tsx");
     build.onResolve({ filter: /^@\/components\/account\/GoogleSignIn$/ }, () => ({ path: realGoogleSignIn }));
+    build.onResolve({ filter: /^\.\.\/\.\.\/\.\.\/shared\/accountAccess$/ }, () => ({ path: path.join(root, "shared/accountAccess.ts") }));
     build.onResolve({ filter: /^\.\/AccountProvider$/ }, () => ({ path: "account-provider", namespace: "fixture" }));
     build.onResolve({ filter: /^convex\/react$|^convex-helpers\/react$|^@cvx\/_generated\/api$/ }, () => ({ path: "shared-stub", namespace: "fixture" }));
     build.onResolve({ filter: /^next\/link$/ }, () => ({ path: "shared-stub", namespace: "fixture" }));
