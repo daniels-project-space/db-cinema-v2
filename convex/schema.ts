@@ -1233,6 +1233,7 @@ export default defineSchema({
     text: v.string(),
     at: v.number(),
     providerId: v.optional(v.string()),
+    providerThreadId: v.optional(v.string()),
     messageId: v.optional(v.string()),
     inReplyTo: v.optional(v.string()),
     references: v.optional(v.array(v.string())),
@@ -1263,6 +1264,25 @@ export default defineSchema({
     .index("by_replyKey", ["replyKey"])
     .index("by_email", ["email"])
     .index("by_at", ["at"]),
+
+  // One encrypted OAuth connection for the business mailbox. The refresh
+  // token is unreadable without the server-only GMAIL_TOKEN_ENCRYPTION_KEY.
+  gmail_connections: defineTable({
+    email: v.string(),
+    encryptedRefreshToken: v.string(),
+    historyId: v.string(),
+    connectedAt: v.number(),
+    updatedAt: v.number(),
+    lastSyncAt: v.optional(v.number()),
+    lastSyncError: v.optional(v.string()),
+    syncLeaseUntil: v.optional(v.number()),
+    syncStartHistoryId: v.optional(v.string()),
+    syncPageToken: v.optional(v.string()),
+    syncPendingMessageIds: v.optional(v.array(v.string())),
+    syncTargetHistoryId: v.optional(v.string()),
+    syncFailures: v.optional(v.number()),
+    syncRetryAt: v.optional(v.number()),
+  }),
 
   // "Notify me when available" requests for booked-out gear.
   availability_waitlist: defineTable({

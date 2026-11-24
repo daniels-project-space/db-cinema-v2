@@ -9,7 +9,7 @@ export const deliver=internalAction({args:{deliveryId:v.id("rental_email_deliver
   let providerMessageId:string|undefined;
   let noticeSubject:string|undefined;
   let noticeMessageId:string|undefined;
-  let transport:"gmail"|"resend"|undefined;
+  let transport:"gmail"|undefined;
   if(row)try{
     let storageId=row.payloadStorageId;
     if(!storageId){
@@ -34,7 +34,7 @@ export const deliver=internalAction({args:{deliveryId:v.id("rental_email_deliver
     if(storageId && row){
       const blob=await ctx.storage.get(storageId);if(!blob)throw Error("Prepared email unavailable");
       const payload=JSON.parse(await blob.text()) as MailInput;
-      result=await sendMail(payload,id=>{providerMessageId=id},value=>{transport=value})?"sent":"retry";
+      result=await sendMail(ctx,payload,id=>{providerMessageId=id},value=>{transport=value})?"sent":"retry";
       if(result==="sent"&&(row.kind==="paid_verification"||row.kind==="verification_reminder")){noticeSubject=payload.subject;if(transport==="gmail"&&payload.deliveryKey)noticeMessageId=deliveryMessageId(payload.deliveryKey);}
     }
   }catch{result="retry";}
@@ -47,10 +47,15 @@ export const checkProvider=internalAction({args:{deliveryId:v.id("rental_email_d
  let status="unknown";
  let messageId:string|undefined;
  try{
-  const key=process.env.RESEND_API_KEY;
-  if(key && /^[a-zA-Z0-9_-]{1,128}$/.test(row.providerMessageId)){
-   const response=await fetch(`https://api.resend.com/emails/${encodeURIComponent(row.providerMessageId)}`,{headers:{authorization:`Bearer ${key}`},signal:AbortSignal.timeout(20_000)});
-   if(response.ok){const body=await response.json() as {last_event?:unknown;message_id?:unknown};if(typeof body.last_event==="string")status=body.last_event;if(typeof body.message_id==="string"&&body.message_id.length<=512&&!/[\r\n]/.test(body.message_id))messageId=body.message_id;}
+  if(row.providerMessageId.startsWith("gmail:")){
+   const checked=await ctx.runAction(internal.gmailTransport.status,{messageId:row.providerMessageId.slice("gmail:".length)});
+   status=checked.status;
+  }else{
+   const key=process.env.RESEND_API_KEY;
+   if(key && /^[a-zA-Z0-9_-]{1,128}$/.test(row.providerMessageId)){
+    const response=await fetch(`https://api.resend.com/emails/${encodeURIComponent(row.providerMessageId)}`,{headers:{authorization:`Bearer ${key}`},signal:AbortSignal.timeout(20_000)});
+    if(response.ok){const body=await response.json() as {last_event?:unknown;message_id?:unknown};if(typeof body.last_event==="string")status=body.last_event;if(typeof body.message_id==="string"&&body.message_id.length<=512&&!/[\r\n]/.test(body.message_id))messageId=body.message_id;}
+   }
   }
  }catch{/* Retry the provider lookup; a network failure is not a bounce. */}
  await ctx.runMutation(internal.rentalEmailDelivery.recordProviderStatus,{...a,status,...(messageId?{messageId}:{})});

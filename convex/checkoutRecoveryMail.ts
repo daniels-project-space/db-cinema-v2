@@ -18,7 +18,7 @@ export const processDue = internalAction({
       const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
       let ok = false;
       try {
-        ok = await sendMail({
+        ok = await sendMail(ctx, {
           to: claim.email,
           subject: "Your DB Cinema basket is saved",
           html: rentalEmail({title:"Pick up where you left off",preview:"Your unfinished rental basket is saved in your account.",url:`${app}/plan?recovery=${encodeURIComponent(claim.id)}`,button:"Review my kit",body:"<p>Your unfinished rental basket is saved in your account. Review your kit, current prices and availability before booking. Equipment is not reserved; alternatives are shown where needed.</p><p>Sign in with the account you used to build this kit. Completing checkout or clearing your basket stops this follow-up.</p>"}),

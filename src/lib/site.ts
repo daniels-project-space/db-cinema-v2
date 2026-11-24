@@ -7,7 +7,7 @@ export const SITE_NAME = "Db Cinema Rentals";
 export const AREA = "London, United Kingdom";
 
 /** Public customer contact address. */
-export const CONTACT_EMAIL = "dbcinemarentals@gmail.com";
+export const CONTACT_EMAIL = "info@dbcinemarentals.com";
 
 /** Pickup/return/delivery windows. Slots are derived from the windows. */
 export const HOURS_WINDOWS: readonly { opens: string; closes: string }[] = [

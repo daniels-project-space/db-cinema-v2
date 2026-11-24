@@ -8,7 +8,7 @@ delete process.env.SUPPORT_EMAIL_FROM;
 global.fetch=async(url,options)=>{requests.push({url,options});return new Response('{}',{status:200})};
 (async()=>{try{
  const supportFrom=supportEmailFrom();assert.equal(supportFrom,'Bookings <bookings@dbcinemarentals.com>');
- const m={from:supportFrom,to:'customer@example.invalid',cc:['dbcinemarentals@gmail.com'],subject:'Runtime QA',html:'<p>QA</p>',deliveryKey:'bookings-qa:payment:1'};
+ const m={from:supportFrom,to:'customer@example.invalid',cc:['info@dbcinemarentals.com'],subject:'Runtime QA',html:'<p>QA</p>',deliveryKey:'bookings-qa:payment:1'};
  assert.equal(await sendMail(m),true);assert.equal(requests.length,1,'SMTP accepting no recipient must fall back rather than claim success');assert.equal(requests[0].options.headers['Idempotency-Key'],m.deliveryKey);assert(requests[0].options.signal);const resendPayload=JSON.parse(requests[0].options.body);assert.equal(resendPayload.from,supportFrom);assert.deepEqual(resendPayload.cc,m.cc);
  const messageId=envelopes[0].messageId;accepted=[m.to];assert.equal(await sendMail(m),true);assert.equal(requests.length,1);assert.equal(envelopes[1].messageId,messageId,'SMTP retry uses stable Message-ID');assert.equal(envelopes[1].from,supportFrom);assert.deepEqual(envelopes[1].cc,m.cc);assert(configurations.every(c=>c.connectionTimeout===20000&&c.greetingTimeout===20000&&c.socketTimeout===60000));
  accepted=[];delete process.env.RESEND_API_KEY;assert.equal(await sendMail(m),false,'No accepted recipient and no fallback must remain a failure');

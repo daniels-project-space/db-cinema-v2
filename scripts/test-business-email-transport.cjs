@@ -6,7 +6,7 @@ global.fetch=async(url,options)=>{if(url==='https://api.resend.com/emails'){post
 (async()=>{const args={deliveryKey:'fixture-key',to:'renter@example.invalid',subject:'Re: rental',html:'Hello',replyTo:['replies@example.invalid','owner@example.invalid'],inReplyTo:'<incoming@example.invalid>',references:['<incoming@example.invalid>']};
  const result=await action.handler({},args);assert.deepEqual(posted.reply_to,args.replyTo);assert.equal(posted.headers['In-Reply-To'],args.inReplyTo);assert.deepEqual(result,{sent:true,messageId:'<actual@example.invalid>'});
  lookupOk=false;const unavailable=await action.handler({},args);assert.deepEqual(unavailable,{sent:true},'An unavailable provider lookup never invents a Message-ID or resends a successful message');
- process.env.GMAIL_USER='dbcinemarentals@gmail.com';process.env.GMAIL_APP_PASSWORD='fixture-password';
+ process.env.GMAIL_USER='info@dbcinemarentals.com';process.env.GMAIL_APP_PASSWORD='fixture-password';
  const gmail=await action.handler({},args);assert.equal(gmail.sent,true);assert.match(gmail.messageId,/^<rental-/,'Gmail uses its recorded deterministic Message-ID');
  gmailWorks=false;lookupOk=true;const fallback=await action.handler({},args);assert.deepEqual(fallback,{sent:true,messageId:'<actual@example.invalid>'},'A Gmail failure uses the real Resend Message-ID');
  console.log('PASS dual reply routing and truthful provider Message-ID; synthetic transport only.');})().catch(e=>{console.error(e);process.exitCode=1});

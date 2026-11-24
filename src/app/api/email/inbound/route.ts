@@ -11,30 +11,7 @@ export const runtime = "nodejs";
 export const maxDuration = 180;
 export const dynamic = "force-dynamic";
 
-const OWNER_EMAIL = "dbcinemarentals@gmail.com";
-
-function verifyResendSignature(req: NextRequest, raw: string): boolean {
-  const secret = process.env.RESEND_WEBHOOK_SECRET;
-  const id = req.headers.get("svix-id");
-  const timestamp = req.headers.get("svix-timestamp");
-  const signature = req.headers.get("svix-signature");
-  if (!secret || !id || !timestamp || !signature) return false;
-  const seconds = Number(timestamp);
-  if (!Number.isFinite(seconds) || Math.abs(Date.now() / 1000 - seconds) > 300) return false;
-  try {
-    const encodedSecret = secret.startsWith("whsec_") ? secret.slice(6) : secret;
-    const key = Buffer.from(encodedSecret, "base64");
-    const expected = createHmac("sha256", key).update(`${id}.${timestamp}.${raw}`).digest();
-    return signature.split(/\s+/).some((part) => {
-      const [version, value] = part.split(",", 2);
-      if (version !== "v1" || !value) return false;
-      const received = Buffer.from(value, "base64");
-      return received.length === expected.length && timingSafeEqual(received, expected);
-    });
-  } catch {
-    return false;
-  }
-}
+const OWNER_EMAIL = "info@dbcinemarentals.com";
 
 function headerValue(headers: any, key: string): string {
   if (!headers) return "";
@@ -84,6 +61,7 @@ function referencesFrom(headers: any, field: string): string[] {
 type PriorEmailMessage = { providerId: string; subject: string; text: string; at: number };
 type InboundEmail = {
   providerId: string;
+  providerThreadId?: string;
   messageId?: string;
   inReplyTo?: string;
   references: string[];
@@ -112,6 +90,7 @@ async function processGafferInboundEmail(message: InboundEmail) {
     stored = await client.mutation(api.emailInbox.ingest, {
       secret,
       providerId: message.providerId,
+      ...(message.providerThreadId ? { providerThreadId: message.providerThreadId } : {}),
       references: message.references,
       from: message.from,
       to: message.to,
@@ -198,49 +177,8 @@ async function processGafferInboundEmail(message: InboundEmail) {
   }
 }
 
-async function processResendEmail(req: NextRequest, raw: string) {
-  if (!process.env.INBOUND_EMAIL_SECRET || !process.env.NEXT_PUBLIC_CONVEX_URL) {
-    return NextResponse.json({ error: "Inbound email storage is not configured." }, { status: 503 });
-  }
-  if (!verifyResendSignature(req, raw)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  let event: any;
-  try { event = JSON.parse(raw); } catch { return NextResponse.json({ error: "bad payload" }, { status: 400 }); }
-  if (event?.type !== "email.received") return NextResponse.json({ ok: true, ignored: "event type" });
-  const emailId = String(event?.data?.email_id ?? "").trim();
-  if (!emailId) return NextResponse.json({ error: "missing inbound email id" }, { status: 400 });
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return NextResponse.json({ error: "Inbound email content retrieval is not configured." }, { status: 503 });
-
-  let received: any;
-  try {
-    const response = await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(emailId)}`, {
-      headers: { authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!response.ok) throw new Error(`Resend retrieval failed (${response.status})`);
-    received = await response.json();
-  } catch (error) {
-    console.error("[email/inbound] could not retrieve received email", String((error as any)?.message ?? error));
-    return NextResponse.json({ error: "email content unavailable" }, { status: 502 });
-  }
-
-  const headers = received?.headers ?? {};
-  const automated = headerValue(headers, "auto-submitted").trim().toLowerCase();
-  if ((automated && automated !== "no") || /^(bulk|list|junk)$/i.test(headerValue(headers, "precedence").trim())) {
-    return NextResponse.json({ ok: true, ignored: "automated mail" });
-  }
-  const rawFrom = received?.from ?? headerValue(headers, "from");
-  return processGafferInboundEmail({
-    providerId: emailId,
-    messageId: received?.message_id ?? (headerValue(headers, "message-id") || undefined),
-    inReplyTo: headerValue(headers, "in-reply-to") || undefined,
-    references: referencesFrom(headers, "references"),
-    from: senderFrom({ from: rawFrom, sender: rawFrom }),
-    name: nameFrom(rawFrom),
-    to: addressList(received?.received_for ?? received?.to ?? event?.data?.to)[0] ?? OWNER_EMAIL,
-    subject: String(received?.subject ?? event?.data?.subject ?? "Customer rental enquiry").trim().slice(0, 500),
-    text: newTextOnly(typeof received?.text === "string" && received.text.trim() ? received.text : htmlToText(received?.html ?? "")),
-  });
+async function processResendEmail(_req: NextRequest, _raw: string) {
+  return NextResponse.json({ error: "Resend inbound email is disabled. Gmail sync is the active mailbox connection." }, { status: 410 });
 }
 
 async function processLegacyFollowUp(req: NextRequest, raw: string, secret: string) {
@@ -334,6 +272,37 @@ async function processContactFormReply(raw: string) {
   });
 }
 
+async function processGmailWorkerMessage(raw: string) {
+  let payload: any;
+  try { payload = JSON.parse(raw); } catch { return NextResponse.json({ error: "bad Gmail worker payload" }, { status: 400 }); }
+  const message = payload?.message;
+  const emailPattern = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  const header = (value: unknown) => typeof value === "string" && value.length <= 512 && !/[\r\n]/.test(value) ? value : undefined;
+  if (payload?.source !== "gmail" || !message || typeof message !== "object" ||
+      typeof message.providerId !== "string" || !/^gmail:[A-Za-z0-9_-]{1,200}$/.test(message.providerId) ||
+      typeof message.providerThreadId !== "string" || !/^[A-Za-z0-9_-]{1,200}$/.test(message.providerThreadId) ||
+      typeof message.from !== "string" || !emailPattern.test(message.from) ||
+      typeof message.to !== "string" || !emailPattern.test(message.to) ||
+      typeof message.subject !== "string" || message.subject.length > 500 ||
+      typeof message.text !== "string" || message.text.length > 50_000 ||
+      !Array.isArray(message.references) || message.references.length > 20 ||
+      message.references.some((item: unknown) => !header(item))) {
+    return NextResponse.json({ error: "invalid Gmail worker payload" }, { status: 400 });
+  }
+  return processGafferInboundEmail({
+    providerId: message.providerId,
+    providerThreadId: message.providerThreadId,
+    ...(header(message.messageId) ? { messageId: message.messageId } : {}),
+    ...(header(message.inReplyTo) ? { inReplyTo: message.inReplyTo } : {}),
+    references: message.references,
+    from: message.from.trim().toLowerCase(),
+    ...(typeof message.name === "string" && message.name.length <= 120 ? { name: message.name } : {}),
+    to: message.to.trim().toLowerCase(),
+    subject: message.subject.trim(),
+    text: newTextOnly(message.text),
+  });
+}
+
 function hasContactWorkerAuthorization(req: NextRequest, secret: string) {
   const provided = req.headers.get("authorization") ?? "";
   const expected = `Bearer ${secret}`;
@@ -347,7 +316,12 @@ export async function POST(req: NextRequest) {
   if (raw.length > 1_000_000) return NextResponse.json({ error: "payload too large" }, { status: 413 });
   const legacySecret = process.env.INBOUND_EMAIL_SECRET;
   if (legacySecret) {
-    if (hasContactWorkerAuthorization(req, legacySecret)) return processContactFormReply(raw);
+    if (hasContactWorkerAuthorization(req, legacySecret)) {
+      if (req.nextUrl.pathname === "/api/email/inbound" && req.headers.get("content-type")?.includes("application/json")) {
+        try { if (JSON.parse(raw)?.source === "gmail") return processGmailWorkerMessage(raw); } catch { /* contact form validation returns a bad payload response */ }
+      }
+      return processContactFormReply(raw);
+    }
     const legacy = await processLegacyFollowUp(req, raw, legacySecret);
     if (legacy) return legacy;
   }

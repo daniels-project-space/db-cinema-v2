@@ -37,7 +37,7 @@ delete process.env.INVOICE_SECRET;
  assert.match(verification.html,/The Grand Building<br>Meet outside &lt;Waterstones&gt; &amp; wait/,'pickup instructions retain line breaks and escape HTML');
  assert.match(verification.html,/rental invoice is attached as a PDF/,'verification emails describe the attached PDF as an invoice');
  assert.doesNotMatch(verification.html,/payment receipt is attached/);
- assert.match(verification.html,/dbcinemarentals@gmail\.com/,'verified renters receive the current support address');
+ assert.match(verification.html,/info@dbcinemarentals\.com/,'verified renters receive the current support address');
  address='Updated location';
  const updated=await notify.verificationEmail.handler(verificationCtx,{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
  assert.match(updated.html,/Updated location/,'new verification emails read the current saved address');
