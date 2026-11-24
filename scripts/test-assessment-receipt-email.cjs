@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict'),{load,db,put,setMock}=require('./lib/rentalTestHarness.cjs');
 const account=put('accounts',{email:'fixture@example.invalid'}),booking=put('bookings',{accountId:account._id}),charge=put('rental_security_charges',{bookingId:booking._id,accountId:account._id,state:'paid',paidPence:2000,kind:'damage',reason:'Fixture evidence'});
-let sent;setMock('./lib/mailer',{sendMail:async message=>{sent=message;return true}});process.env.INVOICE_SECRET='fixture-secret';process.env.APP_URL='https://fixture.invalid';
+let sent;setMock('./lib/mailer',{sendMail:async(_ctx,message)=>{sent=message;return true}});process.env.INVOICE_SECRET='fixture-secret';process.env.APP_URL='https://fixture.invalid';
 const state=load('convex/securityChargeState.ts'),actions=load('convex/securityCharges.ts'),ctx={db};
 const actionCtx={runQuery:async(_ref,args)=>state.context.handler(ctx,args),runMutation:async(ref,args)=>{if(ref==='adminAuth.assertAdminInternal'){if(args.token!=='admin-fixture')throw Error('Admin access denied');return;}return state[ref.split('.')[1]].handler(ctx,args)},runAction:async(ref,args)=>actions[ref.split('.')[1]].handler(actionCtx,args)};
 global.fetch=async(url,options)=>{assert.equal(url.origin,'https://fixture.invalid');assert.equal(url.searchParams.get('phase'),'assessment');assert.equal(url.searchParams.get('assessment'),charge._id);assert.equal(options.headers['x-invoice-key'],'fixture-secret');return new Response('%PDF-fixture',{status:200,headers:{'content-type':'application/pdf'}})};

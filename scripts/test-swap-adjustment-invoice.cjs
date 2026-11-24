@@ -10,7 +10,7 @@ assert.doesNotMatch(nodeInvoiceSource, /\binternal(?:Mutation|Query)\s*\(/);
 assert.match(invoiceMutationSource, /export const claimSwapAdjustmentEmail\s*=\s*internalMutation\(/);
 
 const sent=[];
-setMock("./lib/mailer",{sendMail:async payload=>{sent.push(payload);return true;}});
+setMock("./lib/mailer",{sendMail:async(_ctx,payload)=>{sent.push(payload);return true;}});
 const invoice=load("convex/invoice.ts");
 const invoiceAdjustments=load("convex/invoiceAdjustments.ts");
 const invoiceHandlers={...invoice,...invoiceAdjustments};

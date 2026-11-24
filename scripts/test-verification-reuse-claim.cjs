@@ -90,7 +90,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}}};
  assert.equal(delayedAccount.rentalVerification.expiresAt,delayedBooking.idVerifiedAt+90*86400000,'automatic recovery preserves the original 90-day expiry');
  assert.ok(await accountVerificationReady(ctx,delayedAccount),'the recovered account badge passes the same full readiness checks');
  const expired=put('verification_reuse_claims',{...claim,_id:'expired-cleanup',expiresAt:now-1});await state.purgeExpired.handler(ctx,{});assert.equal(await db.get(expired._id),null,'expired recipient-bound claims are purged');
- const outgoing=[];setMock('./lib/mailer',{sendMail:async mail=>{outgoing.push(mail);return true;}});
+ const outgoing=[];setMock('./lib/mailer',{sendMail:async(_ctx,mail)=>{outgoing.push(mail);return true;}});
  const actions=load('convex/verificationReuseClaims.ts');
  const actionCtx={runMutation:async(ref,args)=>state[ref.split('.')[1]].handler(ctx,args)};
  await actions.request.handler(actionCtx,{token:'owner',bookingId:booking._id});

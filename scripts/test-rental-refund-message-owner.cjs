@@ -3,7 +3,7 @@ const { load, db, put, setMock } = require("./lib/rentalTestHarness.cjs");
 const sent = [], scheduled = [];
 setMock("./lib/rentalChat", { ...load("convex/lib/rentalChat.ts"), postRentalMessage: async (_ctx, message) => sent.push(message) });
 const mail = [];
-setMock("./lib/mailer", { sendMail: async message => mail.push(message), OWNER_EMAIL: "owner@example.invalid" });
+setMock("./lib/mailer", { sendMail: async (_ctx, message) => mail.push(message), OWNER_EMAIL: "owner@example.invalid" });
 const operations = load("convex/rentalOperations.ts");
 const notify = load("convex/notify.ts");
 process.env.ADMIN_TOKEN = "fixture-owner";
