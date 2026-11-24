@@ -68,6 +68,7 @@ async function runSavedSessionGateCase() {
   }
 
   const checkout = require("./lib/rentalTestHarness.cjs").load("convex/checkout.ts");
+  const { AGREEMENTS } = load("src/lib/legal.ts");
   const args = {
     items: [{ listingId: "listings-fixture", title: "Fixture camera", start: 1_900_000_000_000, end: 1_900_086_400_000, qty: 1, total: 100, deposit: 50 }],
     customer: { email: "renter@example.invalid", name: "Fixture Renter", billingAddress: "123 Fixture Street, London" },
@@ -77,7 +78,7 @@ async function runSavedSessionGateCase() {
     expectedSavedCardLimit: 100,
     pickupTime: "10:00",
     returnTime: "18:00",
-    agreement: { name: "Fixture Renter", requestId: "saved-session-gate-fixture-001", securityHoldConsent: true, laterChargeConsent: true, documents: [] },
+    agreement: { name: "Fixture Renter", requestId: "saved-session-gate-fixture-001", securityHoldConsent: true, laterChargeConsent: true, documents: AGREEMENTS.map(({ kind, version }) => ({ kind, version })) },
   };
   const priorAttempt = { bookingId: "bookings-saved", sessionId: "cs-saved", fingerprintMatches: true, membershipCheckoutId: "membership-checkout-saved" };
   const ctx = {
@@ -96,7 +97,10 @@ async function runSavedSessionGateCase() {
     release: error => error?.data?.code === "RENTAL_AGREEMENT_REVIEW",
     stock: error => error?.data?.code === "STOCK_SYNC_UNAVAILABLE",
     didit: error => /Automatic identity and address verification is being configured/.test(error?.message ?? ""),
-    "didit-capacity": error => /Identity verification is temporarily unavailable/.test(error?.message ?? ""),
+    "didit-capacity": error => {
+      const message = error?.data?.message ?? error?.message ?? "";
+      return /Identity verification is temporarily unavailable/.test(message);
+    },
     mail: error => /Rental receipts and payment notifications are being configured/.test(error?.message ?? ""),
     "stripe-key": error => /Rental card payment setup is incomplete/.test(error?.message ?? ""),
     "payment-config": error => /Rental card payment setup is incomplete/.test(error?.message ?? ""),

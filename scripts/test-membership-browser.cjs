@@ -484,7 +484,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   } else {
     await until(`document.querySelector('[data-testid="checkout-paused-button"]')?.disabled===true`);
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="checkout-paused-notice"]').textContent.includes('temporarily paused')`),true);
-    await c.cmd("Page.navigate", { url: root + "/checkout" });
+    await navigate(root + "/checkout");
   }
   await until(
     `location.pathname==='/checkout'&&!!document.querySelector('#co-email')&&!!document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')`,

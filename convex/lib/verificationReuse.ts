@@ -1,5 +1,5 @@
 import { postRentalMessage } from "./rentalChat";
-import { accountForRental } from "./rentalAccount";
+import { accountForRental, belongsToRentalAccount } from "./rentalAccount";
 import { LEO_SUPPORT_PHONE, pickupMapAvailable } from "../../shared/pickupLocation";
 import { verificationExpired, verificationValidUntil } from "../../shared/verificationProgress";
 import { renterHandoverDetailsReady } from "./renterRentalActionGate";
@@ -69,7 +69,10 @@ export async function verificationUpdateMessage(ctx: any, bookingId: any, previo
   if (!booking || !["pending_verification", "confirmed", "active"].includes(booking.status)) return;
   if (status === "verified" && verificationExpired(booking)) return;
   const account = await accountForRental(ctx, booking);
-  if (!account) return;
+  // Legacy email matching may find an account that is not yet authorized to
+  // open this rental's chat. Verification state is provider-authoritative;
+  // an unavailable chat destination must not abort that decision transaction.
+  if (!account || !belongsToRentalAccount(booking, account)) return;
   const text: Record<string, string> = {
     processing: "Your booking is paid. Continue verification below; the rental is not confirmed until Didit approves it.",
     verified: "Your identity and address verification is approved for this rental.",

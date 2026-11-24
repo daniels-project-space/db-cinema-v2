@@ -1216,6 +1216,7 @@ export convex/lib/chatCaseArchive.ts:archiveCaseConversation
 export convex/lib/chatCaseArchive.ts:backfillLegacyCaseArchives
 export convex/lib/chatCaseArchive.ts:bookingHasCaseArchive
 export convex/lib/checkoutCredit.ts:availableCreditRows
+export convex/lib/checkoutCredit.ts:checkoutCreditReadyForConfirmation
 export convex/lib/checkoutCredit.ts:checkoutCreditSpentPence
 export convex/lib/checkoutCredit.ts:checkoutMembershipCreditSpentPence
 export convex/lib/checkoutCredit.ts:creditKind

@@ -98,6 +98,8 @@ const update = (eventId, eventAt, status, extra = {}) => bookings.setDiditResult
   const legacyAccount=harness.put('accounts',{email:'legacy-review@example.invalid',name:'Legacy renter'});
   const legacyBooking=harness.put('bookings',{status:'confirmed',verificationProvider:'didit',diditSessionId:'legacy-review-session',idVerifyStatus:'processing',guestEmail:legacyAccount.email,lineItems:[]});
   await bookings.setDiditResult.handler(ctx,{bookingId:legacyBooking._id,sessionId:'legacy-review-session',eventId:'legacy-review-open',eventAt:111,status:'manual_review',providerStatus:'In Review',poaPostcodes:[]});
+  assert.equal(legacyBooking.idVerifyStatus,'manual_review','An unverified legacy email match cannot block Didit status persistence');
+  assert.equal((harness.tables.get('messages')??[]).filter(row=>row.bookingId===legacyBooking._id).length,0,'Unclaimed legacy rentals do not receive account chat messages');
   const legacyAccountReviewAlert=(harness.tables.get('admin_notifications')??[]).find(row=>row.bookingId===legacyBooking._id&&row.title==='Didit review needed');
   assert.equal(legacyAccountReviewAlert.accountId,legacyAccount._id,'Legacy renter alerts are linked to the email-matched account');
   await bookings.setDiditResult.handler(ctx,{bookingId:legacyBooking._id,sessionId:'legacy-review-session',eventId:'legacy-review-approved',eventAt:112,status:'verified',providerStatus:'Approved',personKey:'b'.repeat(64),checks:{identity:'approved',selfie:'approved',address:'approved'},poaPostcodes:[]});

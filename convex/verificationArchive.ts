@@ -2,7 +2,7 @@ import { query, mutation, internalQuery, internalMutation, type QueryCtx, type M
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
-import { accountForRental } from "./lib/rentalAccount";
+import { accountForRental, belongsToRentalAccount } from "./lib/rentalAccount";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { linkVerificationCopies } from "./lib/verificationOwnership";
 import { queueOwnerNotification } from "./lib/adminPush";
@@ -153,7 +153,11 @@ export async function archiveRetention(ctx: any, archive: any, includeReviewDeta
 
 export async function queueVerificationArchive(ctx: any, booking: any,refresh=false) {
   if (!booking.diditSessionId) return;
-  const account = await accountForRental(ctx, booking);
+  const candidateAccount = await accountForRental(ctx, booking);
+  // Email lookup alone is not a verified rental-account relationship. Keep
+  // provider archives unlinked until the renter proves ownership; a rejected
+  // copy-link attempt must not roll back the Didit decision itself.
+  const account = candidateAccount && belongsToRentalAccount(booking, candidateAccount) ? candidateAccount : null;
   if (account) await linkVerificationCopies(ctx, booking._id, account._id);
   const existing = await ctx.db.query("verification_archives").withIndex("by_booking", (q: any) => q.eq("bookingId", booking._id)).collect();
   const previous = existing.find((a: any) => a.sessionId === booking.diditSessionId);
