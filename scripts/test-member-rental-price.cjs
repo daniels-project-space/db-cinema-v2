@@ -38,7 +38,7 @@ const {londonMonth}=load('convex/lib/memberDelivery.ts');
  assert.equal(price.totalReduction,50);assert.equal(price.deliveryFee,100);
  acct.membershipTier='studio';price=await calculateRentalPrice(ctx,input);
  assert.equal(price.deliveryFee,0);assert.equal(price.deliveryBenefitMonth,londonMonth());
- const args={customerEmail:acct.email,fulfilment:'delivery',address:input.address,deliveryFee:0,lineItems:price.items.map(i=>({listingId:i.listingId,title:i.title,start:i.start,end:i.end,qty:i.qty,lineTotal:i.total})),subtotal:price.subtotal,depositAmount:price.depositAmount,depositHoldAmount:price.depositHoldAmount,discount:price.totalReduction,total:price.totalBeforeCredit,expectedTotalDue:price.totalDue,creditAccountId:acct._id,deliveryBenefitMonth:price.deliveryBenefitMonth,securityWaiverReason:price.securityWaiverReason,currency:'GBP'};
+ const args={customerEmail:acct.email,fulfilment:'delivery',address:input.address,deliveryFee:0,lineItems:price.items.map(i=>({listingId:i.listingId,title:i.title,start:i.start,end:i.end,qty:i.qty,lineTotal:i.total})),subtotal:price.subtotal,depositAmount:price.depositAmount,depositHoldAmount:price.depositHoldAmount,discount:price.totalReduction,total:price.totalBeforeCredit,expectedTotalDue:price.totalDue,creditAccountId:acct._id,accountId:acct._id,deliveryBenefitMonth:price.deliveryBenefitMonth,securityWaiverReason:price.securityWaiverReason,currency:'GBP'};
  const created=await bookings.createPending.handler(ctx,args);
  await assert.rejects(bookings.createPending.handler(ctx,args),/already been reserved/);
  price=await calculateRentalPrice(ctx,input);assert.equal(price.deliveryFee,100,'pending booking reserves monthly quota');

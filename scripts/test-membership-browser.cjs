@@ -136,6 +136,17 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       deposit: l.depositAmount,
     };
   const c = await connect();
+  const runtimeErrors = [];
+  await c.cmd("Runtime.enable");
+  c.on(event => {
+    if (event.method === "Runtime.exceptionThrown") {
+      const details = event.params?.exceptionDetails;
+      runtimeErrors.push(String(details?.exception?.description ?? details?.text ?? "Runtime exception").slice(0, 240));
+    } else if (event.method === "Runtime.consoleAPICalled" && event.params?.type === "error") {
+      runtimeErrors.push(event.params.args?.map(arg => arg.value ?? arg.description ?? "").join(" ").slice(0, 240) ?? "Console error");
+    }
+    if (runtimeErrors.length > 12) runtimeErrors.shift();
+  });
   await c.cmd("Page.enable");
   await c.cmd("Network.enable");
   await c.cmd("Network.setCacheDisabled", { cacheDisabled: true });
@@ -492,7 +503,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     );
   } catch (error) {
     const diagnostic = await c.evaluate(`(()=>{let cart=null;try{cart=JSON.parse(localStorage.getItem('dbc_cart_v1')||'null')}catch{}return {url:location.href,title:document.title,readyState:document.readyState,cartItemCount:Array.isArray(cart)?cart.length:null,bodyText:document.body?.innerText?.slice(0,500),emailField:!!document.querySelector('#co-email'),membershipCard:!!document.querySelector('[data-testid="membership-upsell"]')}})()`).catch(() => null);
-    console.error({ checkoutNavigationDiagnostic: diagnostic });
+    console.error({ checkoutNavigationDiagnostic: diagnostic, runtimeErrors: runtimeErrors.slice(-8) });
     throw error;
   }
   if (!checkoutEnabled) {
