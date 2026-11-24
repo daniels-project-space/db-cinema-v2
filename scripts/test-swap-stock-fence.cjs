@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const { load, db, put } = require("./lib/rentalTestHarness.cjs");
 
 process.env.ADMIN_TOKEN = "fixture-admin";
-const { assertSwapStockReconciled } = load("convex/lib/swapStockFence.ts");
+const { assertActiveItemSwapReady, assertSwapStockReconciled } = load("convex/lib/swapStockFence.ts");
 const operations = load("convex/rentalOperations.ts");
 const bookings = load("convex/bookings.ts");
 const additions = load("convex/rentalAdditionState.ts");
@@ -41,6 +41,17 @@ const extension = put("booking_change_requests", { bookingId: booking._id, type:
   receipt.stockRisk = false;
   await check();
   const createSwap = status => put("rental_item_swaps", { bookingId: booking._id, accountId: account._id, requestId: `fence-${status}`, baseSnapshot: "{}", quoteSnapshot: "{}", lineIndex: 0, oldListingId: "listing-old", newListingId: "listing-new", oldLine: {}, newLine: {}, quote: { deltaPence: 0 }, status, createdAt: Date.now(), updatedAt: Date.now(), expiresAt: Date.now() + 60000 });
+  const unaccepted = createSwap("awaiting_acceptance");
+  booking.activeItemSwapId = unaccepted._id;
+  await assert.rejects(check(), /equipment change is still settling/, "An unaccepted proposal still prevents a second equipment edit");
+  await assertSwapStockReconciled(ctx, booking._id, undefined, true);
+  await assertActiveItemSwapReady(ctx, booking, true);
+  await bookings.markReturnedStatus.handler(ctx, { bookingId: booking._id });
+  assert.equal((await db.get(unaccepted._id)).status, "expired", "Returning a rental expires the untouched proposal");
+  assert.equal(booking.activeItemSwapId, undefined, "A pending proposal no longer blocks return completion");
+  assert.equal(booking.status, "returned");
+  booking.status = "confirmed";
+  await db.delete(unaccepted._id);
   for (const status of ["awaiting_acceptance", "accepted", "awaiting_payment", "refund_pending", "refund_compensating", "review"]) {
     const unresolved = createSwap(status);
     if (status === "refund_pending") await assertSwapStockReconciled(ctx, booking._id, unresolved._id);
@@ -79,7 +90,7 @@ const extension = put("booking_change_requests", { bookingId: booking._id, type:
   await assert.rejects(check(), /history needs stock reconciliation/, "Large terminal histories fail closed instead of ignoring older claims");
   for (const swap of many) await db.delete(swap._id);
   booking.activeItemSwapId = "swap_fixture";
-  await assert.rejects(bookings._finalizeCancellation.handler(ctx, { bookingId: booking._id, mode: "none", refundAmount: 0, creditAmount: 0, currency: "GBP" }), /equipment change and stock reconciliation/);
+  await assert.rejects(bookings._finalizeCancellation.handler(ctx, { bookingId: booking._id, mode: "none", refundAmount: 0, creditAmount: 0, currency: "GBP" }), /active equipment change is missing its booking link/);
   booking.activeItemSwapId = undefined;
   booking.status = "cancelled";
   receipt.deliveryState = "pending";

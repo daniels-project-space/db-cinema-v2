@@ -85,12 +85,15 @@ async function main() {
   await client.mutation(starred, { token: result.token, accountId, starred: true });
   assert.deepEqual(await client.query(inspectAccount, { accountId }), { starred: true, successfulStars: 1 });
   const grant = makeFunctionReference("accountCredits:grantAdmin"), creditStatus = makeFunctionReference("accountCredits:grantStatus");
-  const grantArgs = { token: result.token, accountId, amount: 10, requestId: "synthetic-credit-request-12345", confirmed: true, expectedRevision: 0 };
+  const grantArgs = { token: result.token, accountId, amount: 10, requestId: "synthetic-credit-request-12345", expectedRevision: 0, reason: "Synthetic authorization regression" };
   await assert.rejects(other.mutation(grant, grantArgs));
   const credit = await client.mutation(grant, grantArgs);
   assert.equal(credit.replayed, false);
   assert.equal((await client.mutation(grant, grantArgs)).replayed, true);
-  assert.equal((await client.query(creditStatus, { token: result.token, accountId })).pending.amount, 10);
+  const issuedCredit = await client.query(creditStatus, { token: result.token, accountId, requestId: grantArgs.requestId });
+  assert.equal(issuedCredit.latest.amount, 10);
+  assert.equal(issuedCredit.receipt.amount, 10);
+  assert.equal(issuedCredit.revision, 1);
   await client.mutation(makeFunctionReference("admin_auth_qualify:seedDevice"), {});
   const device = makeFunctionReference("adminNotifications:device"), disable = makeFunctionReference("adminNotifications:disable");
   assert.equal((await client.query(device, { token: result.token, deviceId: "synthetic-device" })).enabled, true);

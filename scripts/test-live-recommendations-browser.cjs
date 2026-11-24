@@ -5,13 +5,13 @@ const root=path.resolve(__dirname,'..'),source=fs.readFileSync(root+'/scripts/te
 const connect=new Function('require',source.slice(0,source.indexOf('const { ConvexHttpClient }'))+';return connect;')(require);
 module.exports=async function(){
  const esbuild=require('esbuild'),entry=root+'/scripts/fixtures/live-recommendations.tsx',dir=fs.mkdtempSync(os.tmpdir()+'/dbc-live-react-');
- const provider=`import React from 'react';import {useFixtureQuery,useFixtureCart} from ${JSON.stringify(entry)};export const useQuery=useFixtureQuery,useCart=useFixtureCart;export const useMutation=()=>async()=>null,useAction=()=>async()=>null;export const useAccount=()=>({me:null,token:null});export const useGafferSession=()=>({state:'idle',speaking:false,secs:0,dockOpen:false,setDockOpen:()=>{}});export const useRouter=()=>({push:()=>{}}),usePathname=()=>'/';export function GafferCall(){return null}export function SiteHeader(){return null}export function GearLoopBanner(){return null}export function SmartImage({src,alt,...props}){return <img src={src} alt={alt}/>};export default function Link({href,children,...props}){return <a href={href} {...props}>{children}</a>}`;
+ const provider=`import React from 'react';import {useFixtureQuery,useFixtureCart,useFixtureAction,useFixtureConvex} from ${JSON.stringify(entry)};export const useQuery=useFixtureQuery,useCart=useFixtureCart,useAction=useFixtureAction,useConvex=useFixtureConvex;export const useMutation=()=>async()=>null;export const useAccount=()=>({me:null,token:null});export const useGafferSession=()=>({state:'idle',speaking:false,secs:0,dockOpen:false,setDockOpen:()=>{}});export const useRouter=()=>({push:()=>{}}),usePathname=()=>'/';export function GafferCall(){return null}export function SiteHeader(){return null}export function GearLoopBanner(){return null}export function SmartImage({src,alt,className='',fit='contain'}){return React.createElement('div',{className,style:{position:'relative',overflow:'hidden'}},React.createElement('img',{src,alt,style:{objectFit:fit,position:'absolute',inset:0,width:'100%',height:'100%'}}))};export default function Link({href,children,...props}){return React.createElement('a',{href,...props},children)}`;
  const mockAPI=`const refs=new Proxy({},{get:(_,group)=>new Proxy({},{get:(_,method)=>String(group)+'.'+String(method)})});export const api=refs,internal=refs;`;
  await esbuild.build({entryPoints:[entry],outfile:dir+'/fixture.js',bundle:true,platform:'browser',format:'iife',jsx:'automatic',define:{'process.env.NODE_ENV':'"production"','process.env':'{}'},logLevel:'silent',plugins:[{name:'controlled-transport',setup(build){
   build.onResolve({filter:/(_generated\/server|_generated\/api|convex\/react|next\/navigation|next\/link|components\/(cart\/CartProvider|account\/AccountProvider|gaffer\/GafferSession|GafferCall|SiteHeader|GearLoopBanner|SmartImage))$/},args=>({path:args.path,namespace:'fixture'}));
   build.onLoad({filter:/.*/,namespace:'fixture'},args=>({contents:args.path.endsWith('_generated/api')?mockAPI:args.path.endsWith('_generated/server')?'export const query=x=>x,mutation=x=>x,internalQuery=x=>x,internalMutation=x=>x,action=x=>x,internalAction=x=>x;':provider,loader:'tsx',resolveDir:root}));
  }}]});
- const cssDir=root+'/.next/static/chunks',css=fs.existsSync(cssDir)?fs.readdirSync(cssDir).filter(f=>f.endsWith('.css')).map(f=>fs.readFileSync(cssDir+'/'+f,'utf8')).join('\n'):'';
+ const postcss=require('postcss'),css=await postcss([require('@tailwindcss/postcss')({base:root})]).process(fs.readFileSync(root+'/src/app/globals.css','utf8'),{from:root+'/src/app/globals.css'}).then(result=>result.css);
  const server=http.createServer((req,res)=>{if(req.url==='/fixture.js'){res.setHeader('Content-Type','application/javascript');res.end(fs.readFileSync(dir+'/fixture.js'));}else if(req.url==='/fixture.css'){res.setHeader('Content-Type','text/css');res.end(css);}else if(req.url==='/images/home/maintained-cinema-gear-20261028.webp'){res.setHeader('Content-Type','image/webp');res.end(fs.readFileSync(root+'/public/images/home/maintained-cinema-gear-20261028.webp'));}else{res.setHeader('Content-Type','text/html');res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"></head><body><main id="root"></main><script src="/fixture.js"></script></body></html>');}});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+server.address().port;
  let c;const errors=[],wait=ms=>new Promise(r=>setTimeout(r,ms));
@@ -24,7 +24,45 @@ module.exports=async function(){
   const exact=text=>`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)})`;
   const card=text=>`[...document.querySelectorAll('section button')].find(b=>b.textContent.includes(${JSON.stringify(text)}))`;
   await until(has('Canon EF 50mm prime'),'Native EF lens recommendation');assert(!await c.evaluate(has('Sony FE 90mm')));
-  await c.evaluate(`fixture.patch('key-light',{pricing:{daily:55}})`);await until(`(${card('Nanlite key light')})?.textContent.includes('£55')`,'Current price replaces original');
+  if(process.env.DBC_RECOMMENDATIONS_ONLY==='1'){
+   await until(has('Nanlite key light'),'Related lighting item');
+   await click(card('Nanlite key light'));
+   await until(`!!(${exact('Add 1 to kit')})`,'Explicit add-to-basket action appears after selection');
+   assert.equal(await c.evaluate('fixture.getBasket().length'),2,'Selecting a suggestion alone does not mutate the basket');
+   await click(`document.querySelector('[data-testid="recommendation-day-plus"]')`);
+   await until(`document.querySelector('[data-testid="recommendation-duration-quote"]')?.dataset.total!==undefined`,'Server quote appears for the longer stay');
+   const expected=await c.evaluate('fixture.expected("key-light",3)');
+   const quoted=await c.evaluate(`(()=>{const node=document.querySelector('[data-testid="recommendation-duration-quote"]');return {total:Number(node.dataset.total),saving:Number(node.dataset.saving),text:node.innerText,days:document.querySelector('[data-testid="recommendation-rental-days"]').innerText}})()`);
+   assert.equal(quoted.total,expected.total,'Displayed selected-item total matches the shared authoritative rental-pricing ladder');
+   assert.equal(quoted.saving,expected.saved,'Long-stay incentive matches the official quote savings');
+   assert(quoted.text.includes('Save'),'The incentive is clearly shown beside the live total');
+   await c.evaluate('fixture.setExtensionUnavailable(true)');
+   await until(`document.querySelector('[data-testid="recommendation-duration-quote"]')?.innerText.includes('not available')`,'A longer-date stock conflict blocks the offer');
+   assert.equal(await c.evaluate(`!![...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Add 1 to kit'&&!b.disabled)`),false,'Unavailable date extension cannot be added');
+   assert.equal(await c.evaluate('fixture.getBasket().length'),2,'A failed extension preview leaves the basket unchanged');
+   await c.evaluate('fixture.setExtensionUnavailable(false)');
+   await until(`document.querySelector('[data-testid="recommendation-duration-quote"]')?.dataset.total!==undefined`,'The live quote returns after stock is restored');
+   await c.cmd('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+   await wait(100);
+   const mobileLayout=await c.evaluate(`(()=>{const panel=document.querySelector('[data-testid="recommendation-duration-quote"]')?.closest('section'),rect=panel?.getBoundingClientRect();return {scrollWidth:document.documentElement.scrollWidth,viewport:innerWidth,panel:rect?{left:rect.left,right:rect.right,width:rect.width}:null,controls:[...document.querySelectorAll('[data-testid^="recommendation-day-"]')].map(node=>{const r=node.getBoundingClientRect();return {left:r.left,right:r.right,visible:r.width>0}})}})()`);
+   assert(mobileLayout.scrollWidth<=mobileLayout.viewport,`Related-item layout has no horizontal overflow on mobile: ${JSON.stringify(mobileLayout)}`);
+   assert(mobileLayout.panel&&mobileLayout.panel.left>=0&&mobileLayout.panel.right<=390,`Multi-day quote stays within the mobile viewport: ${JSON.stringify(mobileLayout)}`);
+   assert(mobileLayout.controls.length===2&&mobileLayout.controls.every(control=>control.visible&&control.left>=0&&control.right<=390),`Both day controls fit on mobile: ${JSON.stringify(mobileLayout)}`);
+   fs.writeFileSync('/tmp/dbc-recommendations-duration-mobile.png',Buffer.from((await c.cmd('Page.captureScreenshot',{format:'png'})).data,'base64'));
+   await c.cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+   fs.writeFileSync('/tmp/dbc-recommendations-duration.png',Buffer.from((await c.cmd('Page.captureScreenshot',{format:'png'})).data,'base64'));
+   await click(exact('Add 1 to kit'));
+   await until(`fixture.getBasket().length===3`,'The server-priced selected item is added to the basket');
+   const added=await c.evaluate(`fixture.getBasket().find(item=>item.listingId==='key-light')`);
+   const period=await c.evaluate('fixture.period');
+   assert.equal(added.end,new Date(Date.parse(period.end+'T00:00:00Z')+86400000).toISOString().slice(0,10),'The chosen extra rental day reaches the new basket line');
+   assert.equal(added.total,expected.total,'The basket stores the current server-quoted total');
+   assert.equal(added.perDay,expected.perDay,'The basket stores the current server-quoted daily rate');
+   assert.deepEqual(errors,[],'The related-item flow has no React or browser errors');
+   console.log('PASS related-item flow: selection, live multi-day quote/savings, extended-date availability fence, and server-priced basket insertion.');
+   return;
+  }
+  await c.evaluate(`fixture.patch('key-light',{pricing:{daily:55}})`);await until(`(${card('Nanlite key light')})?.textContent.includes('55/day')`,'Current price replaces original');
   await c.evaluate(`fixture.hold('key-light',1800)`);await until(`!(${card('Nanlite key light')})`,'Hold removes unavailable recommendation');await until(`!!(${card('Nanlite key light')})`,'Hold expires automatically without another database write');
   await c.evaluate(`fixture.spawnLight()`);await until(has('New rental light'),'New inventory enters recommendations');
   await c.evaluate(`fixture.basket('e-body')`);await until(has('Sony FE 90mm'),'Basket camera changes native lens ranking');assert(!await c.evaluate(has('Canon EF 50mm prime')));
@@ -33,13 +71,20 @@ module.exports=async function(){
   await click(`[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Chat with Gaffer'))`);
   await until(`!!document.querySelector('button[aria-label="Close chat"]')`,'Contact chat opens on mobile');
   await new Promise(resolve=>setTimeout(resolve,800));
+  await c.evaluate(`document.querySelector('[aria-label="Message Gaffer"]').focus()`);await c.cmd('Input.insertText',{text:'Recommend a kit'});await c.cmd('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await c.cmd('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await until(`document.querySelectorAll('[data-testid="gaffer-recommendation-card"]').length>0`,'Gaffer product cards render in the renter chat');await wait(250);
+  const mobileCards=await c.evaluate(`(()=>{const panel=document.querySelector('.chat-panel').getBoundingClientRect(),cards=[...document.querySelectorAll('[data-testid="gaffer-recommendation-card"]')],images=[...document.querySelectorAll('[data-testid="gaffer-product-image-link"] img')];return {viewport:innerWidth,scrollWidth:document.documentElement.scrollWidth,panel:{left:panel.left,right:panel.right},cards:cards.map(node=>{const r=node.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,text:node.innerText}}),images:images.map(image=>({alt:image.alt,loaded:image.complete&&image.naturalWidth>0,src:image.currentSrc||image.src})),action:!!document.querySelector('[data-testid="gaffer-recommendation-primary-action"]')}})()`);
+  assert(mobileCards.scrollWidth<=mobileCards.viewport,`Gaffer product cards do not create mobile page overflow: ${JSON.stringify(mobileCards)}`);assert(mobileCards.cards.length>=2,'More than one product card can be presented in the chat');assert(mobileCards.cards.every(card=>card.left>=mobileCards.panel.left&&card.right<=mobileCards.panel.right),`Every product card fits inside the mobile chat: ${JSON.stringify(mobileCards)}`);assert(mobileCards.images.length>=1&&mobileCards.images.every(image=>image.loaded&&image.alt),`Cards show loaded real listing photos with useful alt text: ${JSON.stringify(mobileCards.images)}`);assert(mobileCards.action,'The primary card action remains visible on mobile');
+  fs.writeFileSync('/tmp/dbc-gaffer-product-cards-mobile.png',Buffer.from((await c.cmd('Page.captureScreenshot',{format:'png'})).data,'base64'));
   const mobilePanel=await c.evaluate(`(()=>{const panel=document.querySelector('.chat-panel').getBoundingClientRect();const close=document.querySelector('button[aria-label="Close chat"]').getBoundingClientRect();return {left:panel.left,right:panel.right,top:panel.top,bottom:panel.bottom,closeLeft:close.left,closeRight:close.right}})()`);
   assert(mobilePanel.left>=0&&mobilePanel.right<=390&&mobilePanel.top>=0&&mobilePanel.bottom<=844&&mobilePanel.closeLeft>=0&&mobilePanel.closeRight<=390,'Mobile chat and its close control fit the viewport');
   fs.writeFileSync('/tmp/dbc-contact-gaffer-mobile.png',Buffer.from((await c.cmd('Page.captureScreenshot',{format:'png'})).data,'base64'));
   await click(`document.querySelector('button[aria-label="Close chat"]')`);assert.equal(await c.evaluate(`!!document.querySelector('.chat-panel')`),false,'Mobile close dismisses chat');
   await c.cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
-  await click(`[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Chat with Gaffer'))`);await c.evaluate(`document.querySelector('[aria-label="Message Gaffer"]').focus()`);await c.cmd('Input.insertText',{text:'Recommend a kit'});await c.cmd('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await c.cmd('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
-  await until(`!!document.querySelector('a[href="/gear/key-light"]')`,'Chat cards render');await c.evaluate(`fixture.hold('key-light',60000);fixture.patch('spare-light',{pricing:{daily:77}})`);
+  await click(`[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Chat with Gaffer'))`);await until(`!!document.querySelector('a[href="/gear/key-light"]')`,'Product cards remain available when chat expands to desktop');await wait(150);
+  const desktopCards=await c.evaluate(`(()=>{const panel=document.querySelector('.chat-panel').getBoundingClientRect(),cards=[...document.querySelectorAll('[data-testid="gaffer-recommendation-card"]')];return {viewport:innerWidth,scrollWidth:document.documentElement.scrollWidth,panel:{left:panel.left,right:panel.right},cards:cards.map(node=>{const r=node.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width}}),images:[...document.querySelectorAll('[data-testid="gaffer-product-image-link"] img')].map(image=>({alt:image.alt,loaded:image.complete&&image.naturalWidth>0}))}})()`);
+  assert(desktopCards.scrollWidth<=desktopCards.viewport,`Gaffer product cards do not create desktop page overflow: ${JSON.stringify(desktopCards)}`);assert(desktopCards.cards.every(card=>card.left>=desktopCards.panel.left&&card.right<=desktopCards.panel.right),`Every product card fits inside the desktop chat: ${JSON.stringify(desktopCards)}`);assert(desktopCards.images.every(image=>image.loaded&&image.alt),`Desktop cards preserve loaded listing images: ${JSON.stringify(desktopCards.images)}`);fs.writeFileSync('/tmp/dbc-gaffer-product-cards-desktop.png',Buffer.from((await c.cmd('Page.captureScreenshot',{format:'png'})).data,'base64'));
+  await c.evaluate(`fixture.hold('key-light',60000);fixture.patch('spare-light',{pricing:{daily:77}})`);
   await until(`document.querySelector('a[href="/gear/key-light"]')?.closest('.spot')?.innerText.includes('Add request')`,'Unavailable compatible chat choice remains requestable');
   await until(`document.querySelector('a[href="/gear/spare-light"]')?.closest('.spot')?.innerText.includes('£154')`,'Chat alternative price refreshes');
   await c.evaluate(`fixture.basket('e-body')`);await until(`!!document.querySelector('a[href="/gear/e-prime"]')`,'Chat offers native E replacement after basket change');
@@ -54,7 +99,18 @@ module.exports=async function(){
   await click(card('Blackmagic Pocket 6K'));await wait(200);
   assert.equal(await c.evaluate('window.assemblyDisappeared'),false,'Selecting gear does not blank the choices during a slow inventory refresh');
   await until(`[...document.querySelectorAll('button')].some(b=>/Add 1 to basket/.test(b.textContent)&&!b.disabled)`,'Selected camera refreshes');
-  await c.evaluate(`window.assemblyObserver.disconnect();fixture.setQueryDelay(0)`);await click(exact('Next'));await until(`(${card('Canon EF 50mm prime')})?.textContent.includes('Pick')`,'EF assembly lens pick');
+  await c.evaluate(`window.assemblyObserver.disconnect();fixture.setQueryDelay(0)`);
+  for (const [width,height] of [[320,640],[390,844],[430,932],[768,900]]) {
+   await c.cmd('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:true});
+   await c.evaluate(`(${card('Blackmagic Pocket 6K')}).scrollIntoView({block:'center',inline:'nearest',behavior:'instant'})`);await wait(200);
+   const layout=await c.evaluate(`(()=>{const button=${card('Blackmagic Pocket 6K')},rect=button.getBoundingClientRect(),image=button.querySelector('img');return {body:document.documentElement.scrollWidth,viewport:innerWidth,card:{left:rect.left,right:rect.right,width:rect.width},title:button.querySelector('img')?.alt,price:button.innerText,image:{src:image?.currentSrc||image?.src,loaded:!!image?.complete&&image.naturalWidth>0}}})()`);
+   assert(layout.body<=width,`Assembly has no horizontal overflow at ${width}px`);assert(layout.card.left>=0&&layout.card.right<=width,`Real listing card fits at ${width}px`);assert(layout.price.includes('£40'),`Real listing price is visible at ${width}px`);assert(layout.title?.includes('Blackmagic Pocket 6K'),`Listing image retains its real-item alt text at ${width}px`);assert(layout.image.loaded,`Listing image loads at ${width}px`);
+   assert(await c.evaluate(`[...document.querySelectorAll('button')].some(b=>/Add 1 to basket/.test(b.textContent)&&!b.disabled)`),`Add-to-basket control remains usable at ${width}px`);
+   fs.writeFileSync(`/tmp/dbc-assemble-${width}x${height}.png`,Buffer.from((await c.cmd('Page.captureScreenshot',{format:'png'})).data,'base64'));
+   console.log(`Assembly ${width}x${height}:`,layout);
+  }
+  await c.cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  await click(exact('Next'));await until(`(${card('Canon EF 50mm prime')})?.textContent.includes('Pick')`,'EF assembly lens pick');
   await click(card('Canon EF 50mm prime'));await click(exact('Next'));await click(card('Nanlite key light'));await click(`[...document.querySelectorAll('button')].find(b=>/Review kit|Next/.test(b.textContent)&&!b.disabled)`);
   await until(`[...document.querySelectorAll('button')].some(b=>/Add 3 to basket/.test(b.textContent)&&!b.disabled)`,'Complete valid assembly can be added');
   await c.evaluate(`fixture.patch('key-light',{pricing:{daily:91}})`);await until(has('£182'),'Selected assembly price refreshes');await c.evaluate(`fixture.hold('key-light',60000)`);await wait(250);

@@ -1,13 +1,19 @@
 "use client";
 import { formatGbp } from "@/lib/pricing";
+import { CONTACT_EMAIL } from "@/lib/site";
+import { emailDeliveryStatusLabel, type ResendDeliveryStatus } from "../../../shared/emailDeliveryStatus";
 import { RentalKit } from "@/components/rentals/RentalKit";
 import { CompactRentalImages } from "./CompactRentalImages";
 import { RentalOrderTools } from "./RentalOrderTools";
 import { RestrictedIdentityAlertFailures } from "./RestrictedIdentityAlertFailures";
 import { PossibleRestrictedIdentityMatch } from "./PossibleRestrictedIdentityMatch";
 import { AccountDocuments } from "./AccountDocuments";
+import { AccountControlSearch } from "./AdminControlFinder";
+import type { AccountControl } from "./accountControlSearch";
+import { AdminGaffer } from "./AdminGaffer";
 import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { createClientRequestId } from "@/lib/clientRequestId";
 import { useQuery, usePaginatedQuery, useMutation, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import chatStyles from "@/components/rentals/RentalConversation.module.css";
@@ -38,7 +44,7 @@ function EmailConversationPanel({
 }: {
   token: string;
   threadId: any;
-  onOpenRenterChat: (accountId: string) => void;
+  onOpenRenterChat: (accountId: string, bookingId?: string) => void;
 }) {
   const data = useQuery(api.emailInbox.adminThread, { token, threadId });
   const sendOwnerReply = useAction(api.emailInbox.sendOwnerReply);
@@ -46,7 +52,10 @@ function EmailConversationPanel({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const replyAttempts = useRef(new Map<string, { text: string; replyId: string }>());
   const replyConfigured = data?.authorized === true && data.replyConfigured === true;
+  const replySetupStatus = data?.authorized === true ? data.replySetupStatus : undefined;
+  const replyDeliveryStatus = data?.authorized === true ? data.replyDeliveryStatus : null;
   const thread = data?.authorized ? data.thread : null;
   const messages = data?.authorized ? data.messages : [];
 
@@ -61,12 +70,20 @@ function EmailConversationPanel({
     event.preventDefault();
     const text = draft.trim();
     if (!text || sending) return;
+    const threadKey = String(threadId);
+    const previousAttempt = replyAttempts.current.get(threadKey);
+    const attempt = previousAttempt?.text === text
+      ? previousAttempt
+      : { text, replyId: createClientRequestId() };
+    replyAttempts.current.set(threadKey, attempt);
     setSending(true);
     setError("");
     try {
-      const result = await sendOwnerReply({ token, threadId, text });
+      const result = await sendOwnerReply({ token, threadId, replyId: attempt.replyId, text });
+      if (result.uncertain) throw new Error("Delivery unclear — check before sending again.");
       if (!result.ok) throw new Error(result.busy ? "A reply is already being sent. Wait a moment and refresh." : "The email reply could not be sent.");
-      setDraft("");
+      if (replyAttempts.current.get(threadKey)?.replyId === attempt.replyId) replyAttempts.current.delete(threadKey);
+      setDraft((currentDraft) => currentDraft.trim().slice(0, 12_000) === text ? "" : currentDraft);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The email reply could not be sent.");
     } finally {
@@ -94,8 +111,8 @@ function EmailConversationPanel({
             {thread.status === "human_requested" && <p role="status" className="mt-3 inline-flex rounded-full border border-rose-300/25 bg-rose-300/[0.08] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-rose-100">Human requested · urgent</p>}
           </div>
           {thread.accountId && (
-            <button type="button" onClick={() => onOpenRenterChat(String(thread.accountId))} className="rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-2 text-xs text-emerald-100/80 hover:bg-emerald-300/[0.12]">
-              Open renter chat
+            <button type="button" onClick={() => onOpenRenterChat(String(data.rentalConversation?.accountId ?? thread.accountId), data.rentalConversation?.bookingId ? String(data.rentalConversation.bookingId) : undefined)} className="rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-2 text-xs text-emerald-100/80 hover:bg-emerald-300/[0.12]">
+              {data.rentalConversation ? "Open rental conversation" : "Open renter chat"}
             </button>
           )}
         </div>
@@ -111,7 +128,24 @@ function EmailConversationPanel({
                 <span className={fromCustomer ? "text-white/70" : "text-sky-100/80"}>{fromCustomer ? (thread.name || thread.email) : "DB Cinema"}</span>
                 <span>·</span>
                 <time dateTime={new Date(message.at).toISOString()}>{emailDate(message.at)}</time>
-                {message.state !== (fromCustomer ? "received" : "sent") && <span className="rounded-full bg-amber-200/10 px-2 py-0.5 text-amber-100/70">{message.state}</span>}
+                {message.state !== (fromCustomer ? "received" : "sent") && <span className={`rounded-full px-2 py-0.5 ${message.state === "uncertain" ? "border border-amber-200/25 bg-amber-200/15 font-semibold text-amber-50" : "bg-amber-200/10 text-amber-100/70"}`}>{message.state === "uncertain" ? "Delivery unclear" : message.state}</span>}
+                {!fromCustomer && message.state === "sent" && !(message.recipientDeliveryStatuses?.length) && (
+                  <span className="rounded-full border border-sky-200/15 bg-sky-200/[0.06] px-2 py-0.5 text-sky-100/65">
+                    {message.resendEmailId ? "Awaiting delivery status" : "Provider accepted · status unavailable"}
+                  </span>
+                )}
+                {!fromCustomer && message.recipientDeliveryStatuses?.map((delivery: any) => {
+                  const failed = ["bounced", "suppressed", "failed", "complained"].includes(delivery.status);
+                  return (
+                    <span
+                      key={`${delivery.recipient}:${delivery.eventId}`}
+                      title={delivery.reason ? `${delivery.recipient}: ${delivery.reason}` : delivery.recipient}
+                      className={`max-w-full truncate rounded-full border px-2 py-0.5 ${failed ? "border-rose-300/20 bg-rose-300/[0.06] text-rose-100/75" : delivery.status === "delivered" ? "border-emerald-300/20 bg-emerald-300/[0.06] text-emerald-100/75" : "border-amber-300/20 bg-amber-300/[0.06] text-amber-100/75"}`}
+                    >
+                      {emailDeliveryStatusLabel(delivery.status as ResendDeliveryStatus)} · {delivery.recipient}
+                    </span>
+                  );
+                })}
               </div>
               {message.subject && fromCustomer && <p className="mb-2 text-xs font-medium text-white/60">Subject: {message.subject}</p>}
               <p className="whitespace-pre-wrap break-words text-sm leading-6 text-white/85">{message.text}</p>
@@ -121,11 +155,18 @@ function EmailConversationPanel({
       </div>
 
       <form onSubmit={submitReply} className="border-t border-sky-300/10 bg-white/[0.02] p-4 sm:p-5">
+        {replyDeliveryStatus && <p role="alert" className={`mb-3 rounded-xl border px-3 py-2 text-xs leading-5 ${replyDeliveryStatus === "uncertain" ? "border-amber-200/25 bg-amber-200/[0.08] text-amber-50" : "border-sky-200/20 bg-sky-200/[0.06] text-sky-100/80"}`}>{replyDeliveryStatus === "uncertain" ? "Delivery unclear — check before sending again. The earlier email may have reached the renter, so this reply is paused." : "An email reply is already sending. Wait a moment before trying again."}</p>}
         <label htmlFor="email-owner-reply" className="mb-2 block text-xs font-medium text-white/65">Reply by email</label>
-        <textarea id="email-owner-reply" value={draft} onChange={(event) => setDraft(event.target.value)} rows={4} maxLength={12000} disabled={!replyConfigured} placeholder={replyConfigured ? "Write an email reply…" : "Email replies are temporarily unavailable"} className="w-full resize-y rounded-2xl border border-white/10 bg-black/20 p-3 text-sm leading-6 text-white outline-none placeholder:text-white/25 focus:border-sky-300/35 disabled:cursor-not-allowed disabled:opacity-45" />
+        <textarea id="email-owner-reply" value={draft} disabled={!replyConfigured || !!replyDeliveryStatus} onChange={(event) => {
+          const nextDraft = event.target.value;
+          const nextText = nextDraft.trim().slice(0, 12_000);
+          const currentAttempt = replyAttempts.current.get(String(threadId));
+          if (currentAttempt && currentAttempt.text !== nextText) replyAttempts.current.delete(String(threadId));
+          setDraft(nextDraft);
+        }} rows={4} maxLength={12000} placeholder={replyDeliveryStatus === "uncertain" ? "Delivery unclear — check before sending again" : replyDeliveryStatus === "sending" ? "Email reply is sending…" : replyConfigured ? "Write an email reply…" : "Email replies are temporarily unavailable"} className="w-full resize-y rounded-2xl border border-white/10 bg-black/20 p-3 text-sm leading-6 text-white outline-none placeholder:text-white/25 focus:border-sky-300/35 disabled:cursor-not-allowed disabled:opacity-45" />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[11px] text-white/40">{replyConfigured ? "Replies send from dbcinemarentals@gmail.com." : "Replies are paused because the business Gmail sender is not configured."}</p>
-          <button type="submit" disabled={!replyConfigured || sending || !draft.trim()} className="rounded-full bg-sky-200 px-4 py-2 text-xs font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">{sending ? "Sending…" : "Send email reply"}</button>
+          <p className="text-[11px] text-white/40">{replyConfigured ? "Email the renter; replies return to this tracked email thread." : replySetupStatus === "missing_business_sender" ? "Business email sending is not configured." : "Email reply routing is not configured yet."}</p>
+          <button type="submit" disabled={!replyConfigured || !!replyDeliveryStatus || sending || !draft.trim()} className="rounded-full bg-sky-200 px-4 py-2 text-xs font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">{sending ? "Sending…" : replyDeliveryStatus ? "Reply paused" : "Send email reply"}</button>
         </div>
         {error && <p role="alert" className="mt-3 text-xs leading-5 text-rose-200">{error}</p>}
       </form>
@@ -139,21 +180,44 @@ export function RentalInbox({
   focusAccountId,
   focusEmailThreadId,
   focusRevision = 0,
+  focusEmail,
+  focusEmailRevision = 0,
+  onOpenAccountControl,
 }: {
   token: string;
   focusBookingId?: string | null;
   focusAccountId?: string | null;
   focusEmailThreadId?: string | null;
   focusRevision?: number;
+  focusEmail?: string | null;
+  focusEmailRevision?: number;
+  onOpenAccountControl?: (target: {accountId:string; email:string; bookingId?:string; controlId:string}) => void;
 }) {
+  const controlRoot = useRef<HTMLDivElement>(null);
+  const [controlNotice, setControlNotice] = useState("");
+  const [controlIntent, setControlIntent] = useState<{bookingId:string; selector:string | null} | null>(null);
   const [stage, setStage] = useState(focusAccountId ? "general" : "all"),
     [search, setSearch] = useState(""),
     [selected, setSelected] = useState<string | null>(focusBookingId ?? focusAccountId ?? null);
   const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
+  const [forwardCopyStatus, setForwardCopyStatus] = useState("");
   const isEmailStage = stage === "emails";
-  const emailInbox = useQuery(api.emailInbox.adminInbox, { token, limit: 100 });
-  const emailItems = emailInbox?.authorized ? emailInbox.items : [];
-  const emailUnread = emailItems.reduce((count, thread) => count + (thread.unreadOwner ?? 0), 0);
+  const openRenterConversation = useCallback((accountId: string, bookingId?: string) => {
+    setSearch("");
+    setStage(bookingId ? "all" : "general");
+    setSelectedEmail(null);
+    setSelected(bookingId ?? accountId);
+    setNavigationRevision(value => value + 1);
+    window.history.replaceState(null, "", ownerConversationUrl(bookingId ? { bookingId } : { accountId }));
+  }, []);
+  const emailInbox = useQuery(api.emailInbox.adminInbox, { token });
+  const emailPages = usePaginatedQuery(
+    api.emailInbox.adminInboxPage,
+    isEmailStage ? { token } : "skip",
+    { initialNumItems: 50 },
+  );
+  const emailItems = emailInbox?.authorized ? emailPages.results : [];
+  const emailUnread = emailItems.reduce((count, thread) => count + (thread.rentalConversation ? 0 : thread.unreadOwner ?? 0), 0);
   const rentals = usePaginatedQuery(
     api.rentalChat.adminPage,
     stage === "general" || isEmailStage
@@ -212,6 +276,23 @@ export function RentalInbox({
       setSearch("");
     }
   }, [focusBookingId, focusAccountId, focusEmailThreadId, focusRevision]);
+  useEffect(() => {
+    if (focusEmailRevision < 1) return;
+    setStage("emails");
+    setSearch(focusEmail?.trim() ?? "");
+    setSelected(null);
+    setSelectedEmail(null);
+  }, [focusEmail, focusEmailRevision]);
+  useEffect(() => {
+    if (focusEmailRevision < 1 || !focusEmail?.trim() || selectedEmail) return;
+    const address = focusEmail.trim().toLowerCase();
+    const match = emailItems.find(thread => thread.email.trim().toLowerCase() === address);
+    if (match?.rentalConversation) {
+      openRenterConversation(String(match.rentalConversation.accountId), String(match.rentalConversation.bookingId));
+      return;
+    }
+    if (match) setSelectedEmail(String(match._id));
+  }, [emailItems, focusEmail, focusEmailRevision, selectedEmail, openRenterConversation]);
   useEffect(() => {
     if (!ping) return;
     const unlock = () => {
@@ -288,19 +369,55 @@ export function RentalInbox({
         b.updatedAt - a.updatedAt,
     );
   const visibleEmails = emailItems
-    .filter((thread) => !search || `${thread.email} ${thread.name ?? ""} ${thread.subject} ${thread.lastText}`.toLowerCase().includes(search.toLowerCase()))
+    .filter((thread) => !thread.rentalConversation && (!search || `${thread.email} ${thread.name ?? ""} ${thread.subject} ${thread.lastText}`.toLowerCase().includes(search.toLowerCase())))
     .sort((a, b) => Number((b.unreadOwner ?? 0) > 0) - Number((a.unreadOwner ?? 0) > 0) || b.updatedAt - a.updatedAt);
+  const linkedEmailMatches = search.trim()
+    ? emailItems.filter(thread => thread.rentalConversation && `${thread.email} ${thread.name ?? ""} ${thread.subject} ${thread.lastText}`.toLowerCase().includes(search.toLowerCase()))
+    : [];
   const focus = selected
       ? (rows.find((r) => r._id === selected) ?? (stage === "general" ? generalDirect : direct))
     : visible[0];
+  useEffect(() => {setControlIntent(null); setControlNotice("");}, [selected, stage]);
+  useEffect(() => {
+    if (!controlIntent || !focus || focus.status === "support" || String(focus._id) !== controlIntent.bookingId) return;
+    const root = controlRoot.current;
+    if (!root) return;
+    let finished = false;
+    const open = () => {
+      const group = root.querySelector<HTMLDetailsElement>('[data-testid="inbox-manage-rental"]');
+      if (!group) return;
+      group.open = true;
+      if (!controlIntent.selector) { finished = true; group.scrollIntoView({block:"center", behavior:"auto"}); setControlIntent(null); return; }
+      const button = group.querySelector<HTMLButtonElement>(`[data-testid="${controlIntent.selector}"]`);
+      if (!button || button.disabled) return;
+      finished = true;
+      const nested = button.closest("details");
+      if (nested) nested.open = true;
+      button.click();
+      button.scrollIntoView({block:"center", behavior:"auto"});
+      setControlIntent(null);
+    };
+    const observer = new MutationObserver(open);
+    observer.observe(root, {childList:true, subtree:true, attributes:true, attributeFilter:["disabled"]});
+    open();
+    const timer = window.setTimeout(() => {if (!finished) {setControlNotice("That action is unavailable for this rental. Check its current status and open requests."); setControlIntent(null);}}, 5000);
+    return () => {observer.disconnect(); window.clearTimeout(timer);};
+  }, [controlIntent, focus?._id, focus?.status]);
+  function openInboxControl(control: AccountControl) {
+    setControlNotice("");
+    setControlIntent(null);
+    if (!focus) return;
+    if (control.section === "rentals" && control.view === "actions") {
+      if (focus.status === "support") {setControlNotice("Select a rental conversation first."); return;}
+      setControlIntent({bookingId:String(focus._id), selector:control.selector ?? null});
+      return;
+    }
+    if (!focus.accountId || !focus.guestEmail || !onOpenAccountControl) {setControlNotice("A linked customer account is required for this control."); return;}
+    onOpenAccountControl({accountId:String(focus.accountId), email:focus.guestEmail, bookingId:focus.status === "support" ? undefined : String(focus._id), controlId:control.id});
+  }
   const selectedAny = isEmailStage ? !!selectedEmail : !!selected;
   function openMatchedAccountChat(accountId: string) {
-    setSearch("");
-    setStage("general");
-    setSelectedEmail(null);
-    setSelected(accountId);
-    setNavigationRevision(value => value + 1);
-    window.history.replaceState(null, "", ownerConversationUrl({ accountId }));
+    openRenterConversation(accountId);
   }
   return (
     <section id="messages" className={chatStyles.inboxScreen}>
@@ -388,12 +505,63 @@ export function RentalInbox({
             aria-label={isEmailStage ? "Search email conversations" : "Search rental conversations"}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={isEmailStage ? "Search loaded emails" : "Search loaded conversations"}
+            placeholder={isEmailStage ? "Search loaded emails · load older to search further" : "Search loaded conversations"}
             className="mb-3 w-full rounded-2xl border border-white/[0.07] bg-white/[0.025] px-4 py-3 text-sm text-white outline-none"
           />
+          {isEmailStage && emailInbox?.authorized && <section aria-label="Email routing status" className="mb-3 rounded-2xl border border-sky-300/15 bg-sky-300/[0.035] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-semibold text-white/80">Business email</p>
+                <p className="mt-1 text-[11px] text-white/50">{emailInbox.replyConfigured ? "Per-thread reply routing is configured; live delivery still needs a test." : emailInbox.replySetupStatus === "missing_business_sender" ? "Business sender needs setup." : "Gaffer reply route needs setup."}</p>
+              </div>
+              <span className={`rounded-full px-2 py-1 text-[10px] ${emailInbox.replyConfigured ? "bg-emerald-300/10 text-emerald-100" : "bg-amber-300/10 text-amber-100"}`}>{emailInbox.replyConfigured ? "Configured" : "Needs setup"}</span>
+            </div>
+            {emailInbox.inboundForwardingAddress ? <div className="mt-3 border-t border-white/[0.07] pt-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] font-medium text-white/75">Renter replies to Gaffer</p>
+                <span className="rounded-full bg-amber-300/10 px-2 py-1 text-[10px] text-amber-100">Test needed</span>
+              </div>
+              <p className="mt-1 text-[10px] leading-4 text-white/45">Forward replies from {CONTACT_EMAIL} here so Gaffer can continue the same email conversation.</p>
+              <div className="mt-1 flex min-w-0 items-center gap-1.5">
+                <code className="min-w-0 flex-1 truncate rounded-lg bg-black/20 px-2 py-1.5 text-[10px] text-sky-100" title={emailInbox.inboundForwardingAddress}>{emailInbox.inboundForwardingAddress}</code>
+                <button type="button" onClick={async () => {
+                  try { await navigator.clipboard.writeText(emailInbox.inboundForwardingAddress!); setForwardCopyStatus("Copied"); }
+                  catch { setForwardCopyStatus("Copy manually"); }
+                }} className="shrink-0 rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-white/65 hover:bg-white/[0.06]">{forwardCopyStatus || "Copy"}</button>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <a href={`https://mail.google.com/mail/?authuser=${encodeURIComponent(CONTACT_EMAIL)}#inbox`} target="_blank" rel="noreferrer" className="inline-flex rounded-lg border border-white/10 px-2.5 py-1.5 text-[10px] text-white/65 hover:bg-white/[0.06]">Open DB Cinema inbox</a>
+                <a href={`https://mail.google.com/mail/?authuser=${encodeURIComponent(CONTACT_EMAIL)}#settings/fwdandpop`} target="_blank" rel="noreferrer" className="inline-flex rounded-lg border border-white/10 px-2.5 py-1.5 text-[10px] text-white/65 hover:bg-white/[0.06]">Forwarding settings</a>
+              </div>
+              <details className="mt-2 text-[10px] leading-4 text-white/50">
+                <summary className="cursor-pointer text-white/65">Setup steps</summary>
+                <ol className="ml-4 mt-1 list-decimal space-y-1">
+                  <li>In Gmail, open ⚙️ Settings → See all settings → Forwarding and POP/IMAP.</li>
+                  <li>Add the copied address and confirm Google’s email sent to it in this site inbox.</li>
+                  <li>Choose “Forward a copy”, keep Gmail’s copy, then Save Changes.</li>
+                </ol>
+              </details>
+              <p className="mt-2 text-[10px] leading-4 text-white/40">Send a test message to Gmail and confirm it appears in this inbox. Forwarding is not verified automatically.</p>
+            </div> : <p className="mt-3 border-t border-white/[0.07] pt-3 text-[10px] text-amber-100/70">Gmail reply forwarding is not configured; email replies cannot re-enter Gaffer.</p>}
+          </section>}
           <div className={chatStyles.conversationList}>
             {isEmailStage && emailInbox === undefined && <p className="p-6 text-center text-sm text-white/35">Loading emails…</p>}
             {isEmailStage && emailInbox && !emailInbox.authorized && <p role="alert" className="p-6 text-center text-sm text-rose-100/60">Email inbox access is unavailable.</p>}
+            {isEmailStage && emailInbox?.authorized && emailPages.status === "LoadingFirstPage" && <p className="p-6 text-center text-sm text-white/35">Loading emails…</p>}
+            {isEmailStage && linkedEmailMatches.map((thread) => {
+              const rental = thread.rentalConversation;
+              if (!rental) return null;
+              return <button
+                key={`rental-email-${thread._id}`}
+                type="button"
+                onClick={() => openRenterConversation(String(rental.accountId), String(rental.bookingId))}
+                className="w-full rounded-xl border border-emerald-300/15 bg-emerald-300/[0.035] p-3 text-left transition hover:border-emerald-300/30 hover:bg-emerald-300/[0.07]"
+              >
+                <span className="inline-flex items-center gap-2 text-xs font-medium text-emerald-100/85"><span aria-hidden="true">↗</span> Email is in a rental conversation</span>
+                <span className="mt-1 block truncate text-[11px] text-white/45">{thread.name || thread.email} · {thread.subject || "Rental email"}</span>
+                <span className="mt-2 block text-[10px] text-emerald-100/55">Open rental chat to read and reply by email</span>
+              </button>;
+            })}
             {isEmailStage && visibleEmails.map((thread) => (
               <button
                 key={thread._id}
@@ -463,8 +631,17 @@ export function RentalInbox({
                 Load older rentals
               </button>
             )}
-            {isEmailStage && emailInbox?.authorized && !visibleEmails.length && (
-              <p className="p-6 text-center text-sm text-white/30">No email conversations found.</p>
+            {isEmailStage && emailInbox?.authorized && emailPages.status === "CanLoadMore" && (
+              <button
+                type="button"
+                onClick={() => emailPages.loadMore(50)}
+                className="rounded-full border border-sky-300/15 p-3 text-xs text-sky-100/65 hover:bg-sky-300/[0.06]"
+              >
+                Load older emails
+              </button>
+            )}
+            {isEmailStage && emailInbox?.authorized && !visibleEmails.length && !linkedEmailMatches.length && (
+              <p className="p-6 text-center text-sm text-white/30">{search ? "No matches in loaded emails. Load older emails to search further." : "No email conversations found."}</p>
             )}
             {!isEmailStage && !visible.length && status !== "LoadingFirstPage" && (
               <p className="p-6 text-center text-sm text-white/30">
@@ -481,11 +658,13 @@ export function RentalInbox({
             ← {isEmailStage ? "All emails" : "All rental conversations"}{notifications.length>0?` · ${notifications.length>=30?"30+":notifications.length} notifications`:""}
           </button>}
         {isEmailStage ? (
-          selectedEmail ? <EmailConversationPanel token={token} threadId={selectedEmail} onOpenRenterChat={(accountId) => { setStage("general"); setSelectedEmail(null); setSelected(accountId); }} /> : (
+          selectedEmail ? <EmailConversationPanel token={token} threadId={selectedEmail} onOpenRenterChat={openRenterConversation} /> : (
             <div className="flex min-h-[450px] items-center justify-center rounded-3xl border border-sky-300/10 text-sm text-sky-100/35">Choose an email to read and reply.</div>
           )
         ) : focus ? (
-          <>
+          <div ref={controlRoot}>
+            <AccountControlSearch contextKey={`${focus._id}:${focus.status}`} notice={controlNotice} onSelect={openInboxControl} />
+            {focus.status !== "support" && focus.accountId && <details className="mb-2 rounded-xl border border-white/10 bg-white/[.025] p-3 text-sm text-amber-100"><summary className="cursor-pointer">Ask Gaffer · private</summary><AdminGaffer key={`${focus.accountId}:${focus._id}`} token={token} accountId={String(focus.accountId)} bookingId={String(focus._id)}/></details>}
             <RentalConversation
               key={focus._id}
               token={token}
@@ -500,11 +679,11 @@ export function RentalInbox({
               escalated={focus.escalated}
               tools={
                 focus.status !== "support" ? (
-                  <><div className={chatStyles.rentalContext}><p className={chatStyles.eyebrow}>{rentalStageLabel(focus)}</p><h5>{rentalDate(focus.start, focus.end)}</h5><div className="mt-3 space-y-1">{focus.items.map((item,index) => <p key={`${item.listingId}-${index}`} className="truncate text-xs text-white/65">{item.qty}× {item.title}</p>)}</div><p className="mt-4 text-xs text-white/55">Rental total <strong className="float-right text-white">{formatGbp(focus.total)}</strong></p></div>{"idVerifyStatus" in focus && focus.idVerifyStatus === "verified" && <PossibleRestrictedIdentityMatch token={token} bookingId={focus._id} onOpenAccount={openMatchedAccountChat} />}{focus.accountId && <details className={chatStyles.operationDetails}><summary>Verification documents</summary><AccountDocuments token={token} accountId={focus.accountId} verified={"idVerifyStatus" in focus && focus.idVerifyStatus === "verified"} embedded /></details>}<details className={chatStyles.operationDetails}><summary>Manage this rental</summary><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} /><AdminDroneLicence key={`licence-${focus._id}`} token={token} bookingId={focus._id} /></details></>
+                  <><div className={chatStyles.rentalContext}><p className={chatStyles.eyebrow}>{rentalStageLabel(focus)}</p><h5>{rentalDate(focus.start, focus.end)}</h5><div className="mt-3 space-y-1">{focus.items.map((item,index) => <p key={`${item.listingId}-${index}`} className="truncate text-xs text-white/65">{item.qty}× {item.title}</p>)}</div><p className="mt-4 text-xs text-white/55">Rental total <strong className="float-right text-white">{formatGbp(focus.total)}</strong></p></div>{"idVerifyStatus" in focus && focus.idVerifyStatus === "verified" && <PossibleRestrictedIdentityMatch token={token} bookingId={focus._id} onOpenAccount={openMatchedAccountChat} />}{focus.accountId && <details className={chatStyles.operationDetails}><summary>Verification documents</summary><AccountDocuments token={token} accountId={focus.accountId} verified={"idVerifyStatus" in focus && focus.idVerifyStatus === "verified"} embedded /></details>}<details data-testid="inbox-manage-rental" className={chatStyles.operationDetails}><summary>Manage this rental</summary><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} showPriceTools /><AdminDroneLicence key={`licence-${focus._id}`} token={token} bookingId={focus._id} /></details></>
                 ) : undefined
               }
             />
-          </>
+          </div>
         ) : (
           <div className="flex min-h-[450px] items-center justify-center rounded-3xl border border-white/[0.06] text-sm text-white/30">
             {selected ? (stage === "general" ? generalDirect : direct) === undefined ? "Opening conversation…" : "This conversation is unavailable. Choose another conversation." : "Choose a rental to start."}

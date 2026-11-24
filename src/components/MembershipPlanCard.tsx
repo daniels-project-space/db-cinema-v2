@@ -1,5 +1,5 @@
 "use client";
-import type { MemberTier } from "@/lib/membership";
+import { membershipPlanHighlights, type MemberTier } from "@/lib/membership";
 import { SubscriptionBenefitSymbol } from "./SubscriptionBenefitSymbol";
 
 /** One benefits card for the public plans and signed-in account settings. */
@@ -62,7 +62,7 @@ export function MembershipPlanCard({
       <ul
         className={`mt-5 flex-1 space-y-3 ${compact ? "text-xs" : "text-sm"} leading-relaxed text-white/60`}
       >
-        {tier.perks.slice(1).map((perk, index) => (
+        {membershipPlanHighlights(tier).map((perk, index) => (
           <li key={perk} className="flex gap-2.5">
             <SubscriptionBenefitSymbol benefit={perk} index={index} />
             <span>{perk}</span>

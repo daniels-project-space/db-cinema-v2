@@ -1,10 +1,13 @@
 const assert = require("node:assert/strict");
-const { load, db, put, tables } = require("./lib/rentalTestHarness.cjs");
+const { load, db, put: rawPut, tables } = require("./lib/rentalTestHarness.cjs");
 const jobs = load("convex/restrictedIdentityAlerts.ts");
 process.env.ADMIN_TOKEN = "fixture-admin";
 const now = Date.now(), originalNow = Date.now;
 let clock = now;
 Date.now = () => clock;
+const put = (table, record) => rawPut(table, table === "bookings" && record.idVerifyStatus === "verified" && record.idVerifiedAt == null && record.verificationExpiresAt == null
+  ? { ...record, idVerifiedAt: Date.now() }
+  : record);
 const key = "a".repeat(64);
 const account = put("accounts", { email: "renter@example.invalid", renterPersonKey: key });
 put("accounts", { email: "restricted@example.invalid", renterPersonKey: key, blockedAt: 1 });
@@ -17,7 +20,7 @@ const args = job => ({ id: job._id, eventId: job.eventId, generation: job.genera
  await jobs.queueRestrictedIdentityCheck(ctx, booking._id, "session", "event-1");
  assert.equal(tables.get("restricted_identity_alert_jobs").length, 1);
  assert(!JSON.stringify(job).includes(key), "Queue must not retain the provider-derived identity key");
- const conflicted=put('bookings',{...booking,_id:'conflicted-source',identityRiskNotice:'The verified person could not be linked to the rental identity record.'});
+ const conflicted=put('bookings',{...booking,_id:'conflicted-source',diditEventId:'conflict',identityRiskNotice:'The verified person could not be linked to the rental identity record.'});
  await jobs.queueRestrictedIdentityCheck(ctx,conflicted._id,'session','conflict');const conflictedJob=tables.get('restricted_identity_alert_jobs').find(row=>row.bookingId===conflicted._id);
  await assert.rejects(jobs.processOne.handler(ctx,args(conflictedJob)),/identity signal unavailable/,'An old identity key cannot resolve a failed new identity link');
  conflicted.identityRiskNotice='Didit approved the identity, but cross-account identity matching is unavailable.';
@@ -50,8 +53,9 @@ const args = job => ({ id: job._id, eventId: job.eventId, generation: job.genera
  await jobs.queueRestrictedIdentityCheck(ctx, booking._id, "session", "event-2");
  await jobs.processOne.handler(ctx, args(job));
  assert.equal(tables.get("admin_notifications").filter(row => row.bookingId === booking._id && row.title === 'Possible match to a restricted account').length, 1, "Later provider events cannot duplicate the match alert");
- const reused=put('bookings',{accountId:account._id,guestEmail:account.email,renterPersonKey:key,idVerifyStatus:'verified',idVerificationSource:'reused_didit',verificationReusedFrom:booking._id,verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},status:'confirmed'});
- await jobs.queueRestrictedIdentityCheck(ctx,reused._id,'session','reuse-fixture');const reuseJob=tables.get('restricted_identity_alert_jobs').find(row=>row.bookingId===reused._id);await jobs.processOne.handler(ctx,args(reuseJob));assert.equal(reuseJob.state,'complete');assert.equal(tables.get('admin_notifications').filter(row=>row.bookingId===reused._id).length,1,'Each later verified rental gets a possible-match alert');assert.equal(reused.status,'confirmed','The identity alert never blocks the rental');
+ const cleanKey='b'.repeat(64),cleanAccount=put('accounts',{email:'clean-renter@example.invalid',renterPersonKey:cleanKey}),cleanSource=put('bookings',{accountId:cleanAccount._id,renterPersonKey:cleanKey,diditSessionId:'clean-source-session',idVerifyStatus:'verified',idVerificationSource:'didit',verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},status:'returned'});
+ const reused=put('bookings',{accountId:cleanAccount._id,guestEmail:cleanAccount.email,renterPersonKey:cleanKey,idVerifyStatus:'verified',idVerificationSource:'reused_didit',verificationReusedFrom:cleanSource._id,verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},status:'confirmed'});
+ await jobs.queueRestrictedIdentityCheck(ctx,reused._id,'session','reuse-fixture');const reuseJob=tables.get('restricted_identity_alert_jobs').find(row=>row.bookingId===reused._id);await jobs.processOne.handler(ctx,args(reuseJob));assert.equal(reuseJob.state,'complete');assert.equal(tables.get('admin_notifications').filter(row=>row.bookingId===reused._id).length,0,'A same-account verified renter does not receive a repeated possible-match alert on another rental');assert.equal(reused.status,'confirmed','Identity matching never blocks the rental');
  const staleReuse=put('bookings',{...reused,_id:'stale-reused-booking'});await jobs.queueRestrictedIdentityCheck(ctx,staleReuse._id,'session','reuse-stale');const staleJob=tables.get('restricted_identity_alert_jobs').find(row=>row.bookingId===staleReuse._id);booking.idVerifyStatus='rejected';await jobs.processOne.handler(ctx,args(staleJob));assert.equal(staleJob.state,'complete');assert(!tables.get('admin_notifications').some(row=>row.bookingId===staleReuse._id),'A revoked source cannot produce a reused identity alert');booking.idVerifyStatus='verified';
  const malformed=put('bookings',{...booking,_id:'invalid-person-key',renterPersonKey:'invalid'});await jobs.queueRestrictedIdentityCheck(ctx,malformed._id,'session','malformed-key');const malformedJob=tables.get('restricted_identity_alert_jobs').find(row=>row.bookingId===malformed._id);await assert.rejects(jobs.processOne.handler(ctx,args(malformedJob)),/identity signal unavailable/);assert.equal(malformedJob.state,'pending','Malformed signals require a retry or attention rather than a false clear');
  const inconsistent=put('bookings',{...booking,_id:'inconsistent-approval',verificationChecks:{identity:'approved',selfie:'waiting',address:'approved'}});await jobs.queueRestrictedIdentityCheck(ctx,inconsistent._id,'session','inconsistent');const inconsistentJob=tables.get('restricted_identity_alert_jobs').find(row=>row.bookingId===inconsistent._id);await assert.rejects(jobs.processOne.handler(ctx,args(inconsistentJob)),/checks are inconsistent/);for(let attempt=0;attempt<5;attempt++)await jobs.recordFailure.handler(ctx,args(inconsistentJob));assert.equal(inconsistentJob.state,'attention','An inconsistent verified record is escalated instead of silently cleared');assert(tables.get('admin_notifications').some(row=>row.bookingId===inconsistent._id&&row.title==='Identity check needs attention'));await db.delete(inconsistentJob._id);

@@ -36,6 +36,29 @@ const membership=load('convex/membershipBenefits.ts'),{creditDebit,usableCredit}
  const unknown=put('bookings',{accountId:waiting._id,guestEmail:waiting.email,status:'pending_payment',creditApplied:5});
  await db.patch(other._id,{status:'cancelled'});await reconcileReleasedCredit(ctx,other);assert.equal(wc.remaining,5,'unallocated legacy reservation remains protected');
  await db.patch(unknown._id,{status:'cancelled'});await reconcileReleasedCredit(ctx,other);assert.equal(wc.remaining,0);assert.equal(wc.revokedPendingPence,0);assert.equal(wc.status,'spent');
+ const funding=load('convex/lib/rentalCreditFunding.ts');
+ for(const type of ['addition','extension','delivery','swap']){
+  const customer=put('accounts',{email:`overlap-${type}@example.invalid`,stripeSubscriptionId:`sub_${type}`});
+  const grantId=await membership.grantPaidInvoice.handler(ctx,{...args,accountId:customer._id,subscriptionId:`sub_${type}`,invoiceId:`in_${type}`});
+  const source=await db.get((await db.get(grantId)).creditId),rental=put('bookings',{accountId:customer._id,status:'confirmed'});
+  const operation=await funding.reserveRentalCredit(ctx,{accountId:customer._id,bookingId:rental._id,operationType:type,operationId:`overlap-${type}`,requestedPence:500});
+  const checkout=put('bookings',{accountId:customer._id,status:'pending_payment',creditApplied:5,creditAllocations:[{creditId:source._id,amount:5,kind:'earned'}]});
+  await membership.revokeRefundedInvoice.handler(ctx,{invoiceId:`in_${type}`,membershipRefundedPence:1900});
+  assert.equal(source.revokedPendingPence,1000,`${type} and checkout reservations remain protected`);
+  assert.equal((await load('convex/lib/checkoutCredit.ts').availableCreditRows(ctx,customer._id))[0].availablePence,0);
+  await db.patch(checkout._id,{status:'cancelled'});await reconcileReleasedCredit(ctx,checkout);
+  assert.equal(source.revokedPendingPence,500,`${type} remains protected after checkout release`);
+  await funding.consumeRentalCredit(ctx,type,`overlap-${type}`);assert.equal(customer.membershipCreditDebtPence,500);
+  await funding.consumeRentalCredit(ctx,type,`overlap-${type}`);assert.equal(customer.membershipCreditDebtPence,500,'settlement replay cannot add debt twice');
+  assert.equal(operation.state,'consumed');
+ }
+ const releaseCustomer=put('accounts',{email:'release-operation@example.invalid',stripeSubscriptionId:'sub_release_operation'});
+ const releaseGrant=await membership.grantPaidInvoice.handler(ctx,{...args,accountId:releaseCustomer._id,subscriptionId:'sub_release_operation',invoiceId:'in_release_operation'});
+ const releaseSource=await db.get((await db.get(releaseGrant)).creditId),releaseRental=put('bookings',{accountId:releaseCustomer._id,status:'confirmed'});
+ await funding.reserveRentalCredit(ctx,{accountId:releaseCustomer._id,bookingId:releaseRental._id,operationType:'delivery',operationId:'release-operation',requestedPence:500});
+ await membership.revokeRefundedInvoice.handler(ctx,{invoiceId:'in_release_operation',membershipRefundedPence:1900});assert.equal(releaseSource.revokedPendingPence,500);
+ await funding.releaseRentalCredit(ctx,'delivery','release-operation');assert.equal(releaseSource.revokedPendingPence,0);assert.equal(releaseSource.remaining,0);
+ await funding.releaseRentalCredit(ctx,'delivery','release-operation');assert.equal(releaseCustomer.membershipCreditDebtPence,0,'release replay never spends credit or creates debt');
  const newStarter=put('accounts',{email:'new-rate@example.invalid',stripeSubscriptionId:'sub_new_rate',membershipTier:'plus'});
  const newGrantId=await membership.grantPaidInvoice.handler(ctx,{...args,accountId:newStarter._id,subscriptionId:'sub_new_rate',invoiceId:'in_new_rate'}),newGrant=await db.get(newGrantId);
  assert.equal(newGrant.earnedCreditPence,2090);

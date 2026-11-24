@@ -31,10 +31,10 @@ export const verify = query({
 /** For mutation handlers: reject a bad token and audit successful mutations.
  * A failed mutation rolls back its writes, so failed attempts cannot be audited
  * or rate-limited by writing here. The audit also rolls back if the caller fails. */
-export async function assertAdmin(ctx: MutationCtx, token: string, fn: string): Promise<void> {
+export async function assertAdmin(ctx: MutationCtx, token: string, fn: string, audit?: { entityId?: string; reason?: string }): Promise<void> {
   const ok = checkAdminToken(token);
   if (ok) {
-    await ctx.db.insert("admin_audit_log", { at: Date.now(), success: true, limited: false, fn });
+    await ctx.db.insert("admin_audit_log", { at: Date.now(), success: true, limited: false, fn, ...audit });
     return;
   }
   throw new Error("unauthorized");

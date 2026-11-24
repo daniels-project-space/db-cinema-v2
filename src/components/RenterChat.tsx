@@ -9,20 +9,22 @@ import { GafferIcon } from "./rentals/ChatIdentity";
 import { rentalStageLabel } from "../../shared/rentalReadiness";
 import { RenterRentalTools } from "./rentals/RenterRentalTools";
 import { SmartImage } from "./SmartImage";
+import { ChatErrorBoundary } from "./rentals/ChatErrorBoundary";
 import {
   rentalTitle,
   rentalDate,
   RENTAL_STAGE_LABELS,
 } from "@/lib/rentalPresentation";
-import type { EnrichedBooking } from "@/lib/bookingDisplay";
-export function RenterChat({
-  bookings,
-  focusBookingId,
-}: {
-  bookings?: EnrichedBooking[];
+type RenterChatProps = {
   focusBookingId?: string | null;
-}) {
-  const { token } = useAccount();
+};
+
+export function RenterChat(props: RenterChatProps) {
+  return <ChatErrorBoundary><RenterChatContent {...props} /></ChatErrorBoundary>;
+}
+
+function RenterChatContent({ focusBookingId }: RenterChatProps) {
+  const { token, me } = useAccount();
   const {
     results: rows,
     status,
@@ -146,6 +148,7 @@ export function RenterChat({
         renterWorkspace
         key={focus?._id ?? "general"}
         token={token}
+        accountId={me?._id}
         bookingId={focus?._id}
         title={
           focus
@@ -154,7 +157,8 @@ export function RenterChat({
         }
         stage={focus?.status ?? "Support"}
         stageLabel={focus ? rentalStageLabel(focus) : "Support"}
-        bookingSummary={focus ? {dates: rentalDate(focus.start, focus.end), count: focus.items.length, items: focus.items.map(item => ({ title: item.title, qty: item.qty, imageSources: item.imageSources?.length ? item.imageSources : item.heroImage ? [item.heroImage] : [] }))} : undefined}
+        verificationWindowClosed={focus?.verificationWindowClosed}
+        bookingSummary={focus ? {dates: rentalDate(focus.start, focus.end), count: focus.items.length, items: focus.items.map((item,index) => ({ index, title: item.title, qty: item.qty, imageSources: item.imageSources?.length ? item.imageSources : item.heroImage ? [item.heroImage] : [] }))} : undefined}
         handoverDetails={focus?.handoverDetails ?? undefined}
         escalated={focus?.escalated}
         tools={focus ? <RenterRentalTools token={token} bookingId={focus._id} /> : undefined}

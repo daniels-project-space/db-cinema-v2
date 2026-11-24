@@ -1,10 +1,12 @@
-/** Tab-scoped convenience only. Prices, signatures and payment/consent attempt
- * IDs are deliberately never restored from this draft. */
+/** Tab-scoped convenience only. Quotes, signatures and payment/consent attempt
+ * IDs are deliberately never restored from this draft. The security context is
+ * only a bounded fingerprint used to expire stale checkbox consent. */
 export type CheckoutDraft = {
   email: string; name: string; phone: string; billingAddress: string;
-  fulfilment: "pickup" | "delivery"; address: string; postcode: string;
+  fulfilment: "pickup" | "delivery"; deliveryLegs: "one_way" | "round_trip"; address: string; postcode: string;
   protection: "verify" | "deposit";
-  agreed: boolean; deliveryAgreed: boolean;useAccountCredit?:boolean;
+  agreed: boolean; deliveryAgreed: boolean; useAccountCredit?: boolean;
+  securityConsentContext?: string | null;
 };
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem">;
 export function browserCheckoutStorage(): Storage | null {
@@ -19,8 +21,13 @@ function fields(value: any): CheckoutDraft {
     email: text("email", 320), name: text("name"), phone: text("phone", 80),
     billingAddress: text("billingAddress", 2000), address: text("address", 2000), postcode: text("postcode", 20),
     fulfilment: value.fulfilment === "delivery" ? "delivery" : "pickup",
+    deliveryLegs: value.deliveryLegs === "one_way" ? "one_way" : "round_trip",
     protection: value.protection === "deposit" ? "deposit" : "verify",
-    ...(typeof value.useAccountCredit==="boolean"?{useAccountCredit:value.useAccountCredit}:{}),agreed: value.agreed === true, deliveryAgreed: value.deliveryAgreed === true,
+    ...(typeof value.useAccountCredit === "boolean" ? { useAccountCredit: value.useAccountCredit } : {}),
+    agreed: value.agreed === true, deliveryAgreed: value.deliveryAgreed === true,
+    securityConsentContext: typeof value.securityConsentContext === "string" && value.securityConsentContext.length <= 4000
+      ? value.securityConsentContext
+      : null,
   };
 }
 

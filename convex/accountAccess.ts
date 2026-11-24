@@ -7,7 +7,7 @@ import { v,ConvexError } from "convex/values";
 import { sendMail } from "./lib/mailer";
 const hash=(secret:string)=>createHash("sha256").update(secret).digest("hex");
 const accessQuery=(next?:"chat"|"review"|"verification",bookingId?:string)=>{
- const query=new URLSearchParams();if(next==="chat")query.set("next","chat");if((next==="review"||next==="verification")&&bookingId){query.set("next",next);query.set("rental",bookingId);}const value=query.toString();return value?`?${value}`:"";
+ const query=new URLSearchParams();if(next==="chat")query.set("next","chat");if((next==="review"||next==="verification")&&bookingId)query.set("next",next);if((next==="chat"||next==="review"||next==="verification")&&bookingId)query.set("rental",bookingId);const value=query.toString();return value?`?${value}`:"";
 };
 export const sendForSignup=internalAction({args:{email:v.string(),credentialHash:v.string(),next:v.optional(v.union(v.literal("chat"),v.literal("review"),v.literal("verification"))),bookingId:v.optional(v.id("bookings"))},handler:async(ctx,a):Promise<void>=>{
  const secret=randomBytes(32).toString("base64url"),claim:any=await ctx.runMutation(internal.accountClaims.prepareSignup,{email:a.email,credentialHash:a.credentialHash,secretHash:hash(secret)});if(!claim)return;

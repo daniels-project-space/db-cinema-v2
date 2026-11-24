@@ -4,8 +4,9 @@ import Stripe from "stripe";
 import { action, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { sendMail } from "./lib/mailer";
+import { sendRentalContextEmail } from "./lib/rentalContextEmail";
 import { isSavedCardRental } from "../shared/savedCardSecurity";
+import { belongsToRentalAccount } from "./lib/rentalAccount";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const gbp = (value: number) => `£${value.toFixed(2)}`;
@@ -23,7 +24,7 @@ async function ownedLateCharge(ctx: any, token: string, bookingId: any) {
   const account: any = await ctx.runQuery(internal.accounts._byToken, { token });
   const booking: any = await ctx.runQuery(internal.bookings.lateFeeContext, { bookingId });
   if (!account || !booking || booking.status !== "returned" ||
-      account.email.trim().toLowerCase() !== booking.guestEmail?.trim().toLowerCase())
+      !belongsToRentalAccount(booking,account))
     throw new Error("Booking access denied.");
   return booking;
 }
@@ -123,11 +124,11 @@ export const sendNotice = internalAction({
     ).join("");
     let sent = false;
     try {
-      sent = await sendMail({
+      sent = (await sendRentalContextEmail(ctx, bookingId, `rental-late:notice-${String(bookingId)}`, {
         to: b.guestEmail,
         subject: `Db Cinema rental: separate ${gbp(b.lateFeeAmount)} late-time charge notice`,
         html: `<h2>Late rental time</h2><p>The equipment was recorded as returned ${londonTime(b.actualReturnedAt)} London time, after the affected equipment’s agreed return deadline. Agreed returns: ${(b.agreedReturns ?? []).map((li: any) => `${esc(li.title)}: ${new Date(li.end).toISOString().slice(0,10)}${li.time ? ` at ${esc(li.time)} London time` : " (time not agreed)"}`).join("; ")}. The separate late-time amount is <b>${gbp(b.lateFeeAmount)}</b>:</p><ul>${rows}</ul><p>This is a separately agreed charge. After seven days, an unused active security hold may be applied to this amount; any remaining balance may be attempted on the saved card. We will never collect the same amount twice, and will not attempt collection later than 30 days after return. Your bank may decline or request authentication.</p><p>If the return time or calculation is wrong, reply to this email within seven days. We will pause a disputed charge while we review it.</p>`,
-      });
+      })).sent;
     } catch (e) { console.error("Late fee notice delivery failed", bookingId, e); }
     await ctx.runMutation(internal.bookings.markLateNotice, { bookingId, sent });
   },
@@ -240,11 +241,11 @@ export const sendCollectionResult = internalAction({
     const fullyPaid = b.lateFeeStatus === "paid";
     let sent = false;
     try {
-      sent = await sendMail({
+      sent = (await sendRentalContextEmail(ctx, bookingId, `rental-late:result-${String(bookingId)}-${b.lateFeeStatus ?? "unknown"}`, {
         to: b.guestEmail,
         subject: fullyPaid ? "Db Cinema late rental charge receipt" : "Action needed: Db Cinema late rental payment",
         html: `<h2>Separate late rental time ${fullyPaid ? "receipt" : "update"}</h2><p>Itemised amount assessed: <b>${gbp(b.lateFeeAmount)}</b>.</p><ul>${rows}</ul><p>Paid from the unused authorised hold: ${gbp(paidHold)}. Paid by separate saved-card charge: ${gbp(paidCard)}. Remaining unpaid: ${gbp(Math.max(0, b.lateFeeAmount - paidHold - paidCard))}. No amount was collected twice.</p>${fullyPaid ? "<p>Db Cinema Rentals is not VAT registered, so no VAT was charged.</p>" : b.lateFeeStatus === "requires_action" ? `<p>Your bank needs approval for the remaining charge. Sign in at <a href="${process.env.APP_URL ?? "https://dbcinemarentals.com"}/account">your rental account</a> to approve it. Reply if you dispute the amount.</p>` : "<p>Your bank may require a new authentication or card. Reply to this email if the charge is disputed or you need help.</p>"}`,
-      });
+      })).sent;
     } catch (error) { console.error("Late charge result email failed", bookingId, error); }
     await ctx.runMutation(internal.bookings.markLateFeeReceiptEmail, { bookingId, sent });
   },

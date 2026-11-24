@@ -1,5 +1,5 @@
 "use node";
-import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
+import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, isSetupIntentSecurityPolicy, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
 import {isSavedCardRental} from "../shared/savedCardSecurity";
 import {REFUNDABLE_DEPOSIT_POLICY_VERSION} from "../shared/rentalSecurity";
 import {canDeferAdditionSecurity,isPickupHoldPolicyVersion,pickupHoldAt} from "../shared/pickupSecurity";
@@ -52,34 +52,16 @@ async function ensureSession(ctx: any, id: any) {
   }
   // Recover an uncertain create response before the fixed session expiry becomes invalid.
   if (Date.now() > r.createdAt + 23.5 * 3600000) {
-    for await (const found of sb().checkout.sessions.list({
-      created: { gte: Math.floor(r.createdAt / 1000) - 5 },
-      limit: 100,
-    })) {
-      if (
-        found.metadata?.rentalAdditionId === id ||
-        found.metadata?.pendingAdditionId === id
-      ) {
-        await ctx.runMutation(internal.rentalAdditionState.bindSession, {
-          id,
-          sessionId: found.id,
-          url: found.url ?? "",
-        });
-        return found;
-      }
-    }
-    await ctx.runMutation(internal.rentalAdditionState.close, {
-      id,
-      refunded: false,
-    });
     throw Error(
-      "This saved proposal expired without payment. Start a new item addition.",
+      "The previous payment needs a Stripe recovery check before this addition can continue.",
     );
   }
-  const amount =
+  const amountPence = r.cardDuePence ?? money(
     (r.draftReplacement ? (r.baseTotal ?? 0) : 0) +
     r.lineTotal +
-    r.securityCharge;
+    r.securityCharge + (r.membershipFee ?? 0),
+  );
+  const amount = amountPence / 100;
   if (!Number.isSafeInteger(money(amount)) || amount < 0 || amount === 0 && !r.membershipCheckoutId)
     throw Error("The rental update has no payable amount");
   const origin = new URL(process.env.APP_URL ?? "https://dbcinemarentals.com")
@@ -88,7 +70,7 @@ async function ensureSession(ctx: any, id: any) {
       integration_identifier: `db-rental-update-${Array.from(createHash("sha256").update(r.requestId).digest().subarray(0, 8), (n) => String.fromCharCode(97 + (n % 26))).join("")}`,
       custom_text: {
         submit: {
-          message: r.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?`You accepted an equipment update with a refundable deposit of £${((r.baseSecurity??0)+r.securityCharge).toFixed(2)} and saved-card permission for evidenced future damage, loss and late-fee payments. Retained deposit reduces the same assessment. Notice and dispute rights remain under your rental agreement.`:hasCashDepositPolicy(r.securityPolicyVersion)?`You accepted an equipment update with refundable deposit £${((r.baseSecurity??0)+r.securityCharge).toFixed(2)} and a combined damage/late-fee card-payment limit of £${r.proposedSavedCardLimit.toFixed(2)}. Retained cash reduces that limit and the same loss. Existing notice and dispute rights remain under your rental agreement.`:r.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION?"No deposit or card hold is added for this equipment update. By paying, you accept the updated rental payment only; any future security claim remains governed by the separately accepted saved-card agreement.":`By paying you accept the updated rental under our [terms](${origin}/legal/terms), including the stated refundable security charge and updated card authorisation. For pickup-scheduled security, the updated hold is requested at pickup on your saved card. Documented late fees and damage are handled under your rental agreement.`,
+          message: r.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?`You accepted an equipment update with a refundable deposit of £${((r.baseSecurity??0)+r.securityCharge).toFixed(2)} and saved-card permission for evidenced future damage, loss and late-fee payments. Retained deposit reduces the same assessment. Notice and dispute rights remain under your rental agreement.`:hasCashDepositPolicy(r.securityPolicyVersion)?`You accepted an equipment update with refundable deposit £${((r.baseSecurity??0)+r.securityCharge).toFixed(2)} and a combined damage/late-fee card-payment limit of £${r.proposedSavedCardLimit.toFixed(2)}. Retained cash reduces that limit and the same loss. Existing notice and dispute rights remain under your rental agreement.`:isSetupIntentSecurityPolicy(r.securityPolicyVersion)?"No deposit or card hold is added for this equipment update. By paying, you accept the updated rental payment only; any future security claim remains governed by the separately accepted saved-card agreement.":`By paying you accept the updated rental under our [terms](${origin}/legal/terms), including the stated refundable security charge and updated card authorisation. For pickup-scheduled security, the updated hold is requested at pickup on your saved card. Documented late fees and damage are handled under your rental agreement.`,
         },
       },
       mode: "payment",
@@ -96,7 +78,7 @@ async function ensureSession(ctx: any, id: any) {
       expires_at: Math.floor(r.createdAt / 1000) + 24 * 60 * 60,
       customer_email: b.guestEmail,
       customer_creation: "always",
-      payment_intent_data: { setup_future_usage: "off_session" },
+      payment_intent_data: { setup_future_usage: "off_session", metadata: { rentalAdditionId: String(r._id), bookingId: String(r.bookingId), cardDuePence: String(amountPence), creditAppliedPence: String(r.creditAppliedPence ?? 0) } },
       line_items: [
         {
           quantity: 1,
@@ -108,7 +90,7 @@ async function ensureSession(ctx: any, id: any) {
                 ? "Updated DB Cinema rental"
                 : "DB Cinema rental item addition",
               description:
-                `${r.qty}× ${r.title}. Rental £${r.lineTotal.toFixed(2)}; ${r.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION?"no deposit or card hold is added under the accepted saved-card terms.":`additional refundable security £${r.securityCharge.toFixed(2)}. Updated card hold £${r.holdTotal.toFixed(2)}.`}${r.draftReplacement ? ` Includes existing rental checkout £${(r.baseTotal ?? 0).toFixed(2)}.` : ""}`.slice(
+                `${r.qty}× ${r.title}. Rental £${r.lineTotal.toFixed(2)}${r.benefitSaving > 0 ? ` after ${r.benefitLabel} saving £${r.benefitSaving.toFixed(2)} (was £${(r.undiscountedLineTotal ?? r.lineTotal + r.benefitSaving).toFixed(2)})` : ""}; ${isSetupIntentSecurityPolicy(r.securityPolicyVersion)?"no deposit or card hold is added under the accepted saved-card terms.":`additional refundable security £${r.securityCharge.toFixed(2)}. Updated card hold £${r.holdTotal.toFixed(2)}.`}${r.draftReplacement ? ` Includes existing rental checkout £${(r.baseTotal ?? 0).toFixed(2)}.` : ""}`.slice(
                   0,
                   500,
                 ),
@@ -120,7 +102,7 @@ async function ensureSession(ctx: any, id: any) {
       cancel_url: `${origin}/account?rental=${r.bookingId}#chat`,
       metadata: r.draftReplacement
         ? { bookingId: r.bookingId, pendingAdditionId: r._id }
-        : { rentalAdditionId: r._id, additionBookingId: r.bookingId },
+        : { rentalAdditionId: r._id, additionBookingId: r.bookingId, cardDuePence: String(amountPence), creditAppliedPence: String(r.creditAppliedPence ?? 0) },
     };
   if(r.membershipCheckoutId){
     const original:Stripe.Checkout.SessionCreateParams=JSON.parse(r.membershipSessionParams);
@@ -131,7 +113,9 @@ async function ensureSession(ctx: any, id: any) {
       line_items:[...(params.line_items??[]),...recurring],
       metadata:{...original.metadata,...params.metadata,rentalPaidPence:String(money(amount)),membershipFeePence:String(money(r.membershipFee??0))}};
   }
-  const session=await sb().checkout.sessions.create(params,{idempotencyKey:`dbc-addition-checkout-${id}`});
+  await ctx.runMutation(internal.rentalAdditionState.markSessionCreation,{id,creditOptIn:!!r.creditOptIn,creditAppliedPence:r.creditAppliedPence??0});
+  const idempotencyKey = r.checkoutProtocolVersion === 2 ? `dbc-addition-checkout-${id}-${r.creditOptIn ? `credit-${r.creditAppliedPence ?? 0}` : "card"}` : `dbc-addition-checkout-${id}`;
+  const session=await sb().checkout.sessions.create(params,{idempotencyKey});
   if (!session.url) throw Error("Stripe did not provide a payment link");
   await ctx.runMutation(internal.rentalAdditionState.bindSession, {
     id,
@@ -200,7 +184,7 @@ async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAtt
   const paid = session.payment_status === "paid";
   const noPayment = !!r.membershipCheckoutId && session.status === "complete" && session.payment_status === "no_payment_required";
   const complete = paid || noPayment;
-  const expected = money((r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0));
+  const expected = r.cardDuePence ?? money((r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0));
   if (session.id !== r.sessionId || complete && (session.status !== "complete" || session.currency !== "gbp" || session.amount_total !== expected || noPayment && expected !== 0)) throw Error("Withdrawal session does not match the saved order");
   if (complete && r.membershipCheckoutId) {
     const member = bound?.membershipCheckout, account = bound?.membershipAccount;
@@ -227,6 +211,7 @@ async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAtt
     await ctx.runMutation(internal.rentalAdditionState.markPaid, {
       id,
       paymentIntentId: payment,
+      amountPence:session.amount_total??0,
     });
     let refund: Stripe.Refund | undefined;
     if (r.withdrawalRefundId) refund = await sb().refunds.retrieve(r.withdrawalRefundId);
@@ -328,18 +313,22 @@ async function finish(
   }
   const payment = await checkoutPaymentIntent(session);
   if (!payment&&!noPayment) throw Error("Paid addition has no card payment");
-  if (
-    session.amount_total !==
-    money(
+  const expectedCardPence = r.cardDuePence ?? money(
       (r.draftReplacement ? (r.baseTotal ?? 0) : 0) +
         r.lineTotal +
         r.securityCharge + (r.membershipFee??0),
-    )
-  )
+    );
+  if (session.amount_total !== expectedCardPence || r.creditOptIn && (session.metadata?.cardDuePence !== String(expectedCardPence) || session.metadata?.creditAppliedPence !== String(r.creditAppliedPence ?? 0)))
     throw Error("Addition paid amount does not match the saved order");
+  if (r.creditOptIn && payment) {
+    const intent = await sb().paymentIntents.retrieve(payment);
+    if (intent.status !== "succeeded" || intent.amount_received !== expectedCardPence || intent.currency !== "gbp" || intent.metadata.rentalAdditionId !== String(r._id) || intent.metadata.bookingId !== String(r.bookingId) || intent.metadata.cardDuePence !== String(expectedCardPence) || intent.metadata.creditAppliedPence !== String(r.creditAppliedPence ?? 0))
+      throw Error("The Stripe payment does not match the selected account-credit amount.");
+  }
   if(payment)await ctx.runMutation(internal.rentalAdditionState.markPaid, {
     id,
     paymentIntentId: payment,
+    amountPence:session.amount_total??0,
   });
   if (
     !b ||
@@ -360,7 +349,7 @@ async function finish(
     }
     return { bookingId: r.bookingId, status: "draft_applied" };
   }
-  if(!payment)throw Error("An item addition requires a saved rental payment.");
+  if(!payment && !(r.creditOptIn && (r.cardDuePence ?? 1) === 0))throw Error("An item addition requires a saved rental payment.");
   if(!isSavedCardRental(b)&&isPickupHoldPolicyVersion(b.securityHoldPolicyVersion)&&pickupHoldAt(b)>Date.now()){
     if(!canDeferAdditionSecurity(b)||r.holdIntentId||r.securityCreationPending)throw Error("Resolve the existing security authorisation before updating the pickup hold.");
     const result=await ctx.runMutation(internal.rentalAdditionState.apply,{id});
@@ -385,15 +374,15 @@ async function finish(
     }
     if (!intent && r.securityCreationPending) intent = await recoverPreparedSecurity(ctx, r);
     if (!intent) {
-      const paid = await sb().paymentIntents.retrieve(payment);
+      const paid = payment ? await sb().paymentIntents.retrieve(payment) : null;
       const customer =
         typeof session.customer === "string"
           ? session.customer
           : session.customer?.id;
-      const method =
+      const method = paid ?
         typeof paid.payment_method === "string"
           ? paid.payment_method
-          : paid.payment_method?.id;
+          : paid.payment_method?.id : null;
       if (!customer || !method)
         throw Error("Addition card details are unavailable");
       const params: Stripe.PaymentIntentCreateParams = {
@@ -446,6 +435,29 @@ async function finish(
     holdIntentId: intent?.id ?? r.holdIntentId,
   });
   return { bookingId: r.bookingId, status: "held" };
+}
+
+async function applyFullyCreditFundedAddition(ctx: any, r: any) {
+  const id = r._id ?? r.id;
+  const state: any = await ctx.runQuery(internal.rentalAdditionState.context, { id });
+  r = state?.addition;
+  const booking = state?.booking;
+  if (!r || !booking || !r.creditOptIn || r.cardDuePence !== 0 || r.securityCharge > 0)
+    throw Error("This addition still needs a card payment.");
+  if (!isSavedCardRental(booking) && !canDeferAdditionSecurity(booking)) {
+    const hold = booking.stripeDepositIntentId
+      ? await sb().paymentIntents.retrieve(booking.stripeDepositIntentId, { expand: ["latest_charge"] })
+      : null;
+    if (!hold || hold.status !== "requires_capture" || (expires(hold) ?? 0) <= Date.now() || r.holdTotal !== (booking.depositHoldAmount ?? 0))
+      throw Error("Resolve the existing security authorisation before adding this item. Your credit remains reserved, not spent.");
+    await ctx.runMutation(internal.rentalAdditionState.bindHold, { id: r._id, intentId: hold.id, status: "held", expiresAt: expires(hold) });
+  }
+  const result = await ctx.runMutation(internal.rentalAdditionState.apply, { id });
+  if (result.closed) {
+    await ctx.runMutation(internal.rentalAdditionState.close, { id, refunded: false });
+    throw Error("This rental can no longer accept the item. Your account credit was released.");
+  }
+  return { bookingId: r.bookingId, status: "held", applied: true };
 }
 export const start = action({
   args: {
@@ -508,6 +520,10 @@ export const start = action({
           "The original payment is processing. Retry this saved proposal after its provider result.",
         );
     }
+    if (!r.draftReplacement && r.creditOptIn && r.cardDuePence === 0) {
+      await applyFullyCreditFundedAddition(ctx, r);
+      return { url: "", id: r._id, applied: true };
+    }
     if (!r.draftReplacement && r.lineTotal + r.securityCharge === 0) {
       const state: any = await ctx.runQuery(
         internal.rentalAdditionState.context,
@@ -567,6 +583,44 @@ export const finalizePaid = internalAction({
   handler: async (ctx, { id, sessionId }) =>
     finish(ctx, id, await sb().checkout.sessions.retrieve(sessionId)),
 });
+async function recoverAdditionWithEvidence(ctx: any, id: any): Promise<{ status: string }> {
+  const state: any = await ctx.runQuery(internal.rentalAdditionState.context, { id });
+  const addition = state?.addition;
+  if (!addition || !state.booking) throw Error("Item addition unavailable.");
+  if (["applied", "applied_draft"].includes(addition.status)) return { status: "paid" };
+  if (["expired", "refunded"].includes(addition.status)) return { status: "closed" };
+  if (addition.draftReplacement || addition.membershipCheckoutId || addition.withdrawalRequestedAt || !["confirmed", "active"].includes(state.booking.status) || state.booking.cancellationDecision || state.booking.returnDecision) return { status: "needs_review" };
+  const client = sb();
+  let sessionId = addition.sessionId;
+  if (!sessionId) {
+    const results = await client.checkout.sessions.list({ created: { gte: Math.floor(addition.createdAt / 1000) - 5, lte: Math.floor((addition.createdAt + 24 * 3600000) / 1000) }, limit: 100 });
+    const matches = results.data.filter(session => session.metadata?.rentalAdditionId === String(id) || session.metadata?.pendingAdditionId === String(id));
+    if (results.has_more || matches.length !== 1) return { status: "needs_review" };
+    sessionId = matches[0].id;
+  }
+  let session = await client.checkout.sessions.retrieve(sessionId);
+  const due = addition.cardDuePence ?? money(addition.lineTotal + addition.securityCharge);
+  if (session.id !== sessionId || session.mode !== "payment" || session.currency !== "gbp" || session.amount_total !== due || session.metadata?.rentalAdditionId !== String(id) || session.metadata?.additionBookingId !== String(addition.bookingId) || addition.creditOptIn && (session.metadata?.cardDuePence !== String(due) || session.metadata?.creditAppliedPence !== String(addition.creditAppliedPence ?? 0))) return { status: "needs_review" };
+  if (session.status === "complete" && session.payment_status === "paid" && Date.now() > addition.createdAt + 24 * 3600000) return { status: "needs_review" };
+  await ctx.runMutation(internal.rentalAdditionState.bindRecoveredSession, { id, sessionId });
+  if (session.status === "complete" && session.payment_status === "paid") {
+    const result = await finish(ctx, id, session);
+    return { status: result.status === "held" ? "paid" : "processing" };
+  }
+  if (session.status === "open" && Date.now() > addition.createdAt + 24 * 3600000) session = await client.checkout.sessions.expire(sessionId);
+  if (session.status === "expired" && session.payment_status === "unpaid") {
+    await ctx.runMutation(internal.rentalAdditionState.close, { id, refunded: false });
+    return { status: "closed" };
+  }
+  return { status: "processing" };
+}
+export const recoverPayment = action({
+  args: { token: v.string(), id: v.id("rental_additions") },
+  handler: async (ctx, { token, id }): Promise<{ status: string }> => {
+    await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "rentalAdditions.recoverPayment" });
+    return await recoverAdditionWithEvidence(ctx, id);
+  },
+});
 export const sync = action({
   args: { sessionId: v.string() },
   handler: async (
@@ -591,8 +645,20 @@ export const reconcile = internalAction({
       internal.rentalAdditionState.open,
       {},
     );
+    let recoveryChecks = 0;
     for (const r of rows) {
       try {
+        if (!r.withdrawalRequestedAt && !r.draftReplacement && r.creditOptIn && r.cardDuePence === 0) {
+          await applyFullyCreditFundedAddition(ctx, r);
+          continue;
+        }
+        if (!r.sessionId && Date.now() > r.createdAt + 23.5 * 3600000) {
+          if (recoveryChecks >= 2) continue;
+          recoveryChecks++;
+          const recovery = await recoverAdditionWithEvidence(ctx, r._id);
+          if (recovery.status === "needs_review") await ctx.runMutation(internal.rentalAdditionState.markSessionRecoveryReview, { id: r._id });
+          continue;
+        }
         if (r.withdrawalRequestedAt) { await withdraw(ctx, r._id); continue; }
         if(hasCashDepositPolicy(r.securityPolicyVersion)&&!r.customerAcceptedAt){if(Date.now()>r.createdAt+23*3600000)await withdraw(ctx,r._id);continue;}
         if (Date.now() > r.createdAt + 24 * 3600000 && r.sessionId) {
@@ -619,6 +685,7 @@ export const reconcile = internalAction({
           r._id,
           String(e),
         );
+        if (!r.sessionId && Date.now() > r.createdAt + 23.5 * 3600000) await ctx.runMutation(internal.rentalAdditionState.markSessionRecoveryReview, { id: r._id });
       } finally {
         await ctx.runMutation(internal.rentalAdditionState.touch, {
           id: r._id,
@@ -655,6 +722,56 @@ export const resumeByCustomer = action({
       };
     }
     return finish(ctx, r.id, session);
+  },
+});
+
+export const useAccountCredit = action({
+  args: { token: v.string(), bookingId: v.id("bookings") },
+  handler: async (ctx, { token, bookingId }): Promise<{ status: string; url?: string; applied?: boolean }> => {
+    const current: any = await ctx.runQuery(api.rentalAdditionState.customerState, { token, bookingId });
+    if (!current?.id || current.draftReplacement || current.requiresAcceptance || current.status === "applied" || current.status === "applied_draft")
+      throw Error("This item addition is not eligible for account credit.");
+    if (current.creditOptIn) {
+      if (current.cardDuePence === 0) return applyFullyCreditFundedAddition(ctx, current);
+      const session = await ensureSession(ctx, current.id);
+      if (session.status === "complete" && session.payment_status === "paid") {
+        const result = await finish(ctx, current.id, session);
+        return { status: result.status, applied: result.status === "held" };
+      }
+      if (!session.url) throw Error("The secure payment link is unavailable.");
+      return { status: "awaiting_payment", url: session.url };
+    }
+    if (!current.availableAccountCreditPence) throw Error("No account credit is available for this item addition.");
+    if (current.sessionId) {
+      let session = await sb().checkout.sessions.retrieve(current.sessionId);
+      if (session.status === "complete" && session.payment_status === "paid") {
+        const result = await finish(ctx, current.id, session);
+        return { status: result.status, applied: result.status === "held" };
+      }
+      if (session.status === "open") session = await sb().checkout.sessions.expire(session.id);
+      if (session.status === "complete" && session.payment_status === "paid") {
+        const result = await finish(ctx, current.id, session);
+        return { status: result.status, applied: result.status === "held" };
+      }
+      if (session.id !== current.sessionId || session.status !== "expired" || session.payment_status !== "unpaid") throw Error("The current payment is still processing. Wait for its result before switching to account credit.");
+    }
+    const selected: any = await ctx.runMutation(internal.rentalAdditionState.selectAccountCredit, {
+      token,
+      bookingId,
+      additionId: current.id,
+      expectedSessionId: current.sessionId ?? undefined,
+    });
+    if (selected.cardDuePence === 0) {
+      const result = await applyFullyCreditFundedAddition(ctx, selected);
+      return { status: result.status, applied: true };
+    }
+    const session = await ensureSession(ctx, selected._id);
+    if (session.status === "complete" && session.payment_status === "paid") {
+      const result = await finish(ctx, selected._id, session);
+      return { status: result.status, applied: result.status === "held" };
+    }
+    if (!session.url) throw Error("The secure payment link is unavailable.");
+    return { status: "awaiting_payment", url: session.url };
   },
 });
 

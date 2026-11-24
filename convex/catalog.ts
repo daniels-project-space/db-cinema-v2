@@ -1,18 +1,20 @@
 import { effectiveLensSpecs } from "../shared/opticalFacts";
+import { selectHomeFeaturedListings } from "../shared/homeFeaturedListings";
 import { verifiedKitEvidence } from "./lib/compatibilityEvidence";
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { quote } from "./lib/pricing";
-import { weekendDays } from "../shared/membership";
+import { repriceRentalLines } from "./lib/catalogPricing";
 import { listingImages } from "./lib/catalogImages";
 import { isMarketingOnly, rentalUnavailable } from "./lib/marketingInventory";
+import { isPubliclyBookable } from "./lib/bookability";
 import { alreadySupplied, automaticRecommendation } from "../shared/recommendationPolicy";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { createPublicListingCopy } from "./lib/publicListingCopy";
-import { rentalPricingDays } from "../shared/rentalDuration";
 import { bumpCatalogRevision, catalogRevision } from "./lib/catalogRevision";
+import { normalizeEquipmentName } from "../shared/equipmentIdentity";
 import { contentsFor } from "../shared/rentalContents";
 import { sanitizeCustomerCopy } from "../shared/verifiedRentalCopy";
 
@@ -36,30 +38,14 @@ export const repriceLines = internalQuery({
       }),
     ),
   },
-  handler: async (ctx, { items }) => {
-    const listings = await Promise.all(items.map((it) => ctx.db.get(it.listingId)));
-
-    const out: ({ title: string; total: number; deposit: number; dailyRate: number; weekendSaving: number } | null)[] = [];
-    items.forEach((it, idx) => {
-      const l: any = listings[idx];
-      if (!l || !l.active) { out.push(null); return; }
-      const days = rentalPricingDays(it.start, it.end, it.pickupTime, it.returnTime);
-      const q: any = quote(l.pricing, days);
-      out.push({ title: l.title, total: q.total, deposit: l.depositAmount ?? 0, dailyRate: l.pricing.daily ?? 0, weekendSaving: weekendDays(it.start, it.end) ? Math.max(0, q.total - quote(l.pricing, days - 1).total) : 0 });
-    });
-    return out;
-  },
+  handler: (ctx, { items }) => repriceRentalLines(ctx, items),
 });
 
 /** Public catalog reads. heroImage/gallery prefer migrated R2 over source. */
 
 const images = listingImages;
 const publicVisible = (listing: { title: string; active?: boolean; suppressed?: boolean; itemType?: string | null; marketingOnly?: boolean; marketingOnlySource?: "auto" | "admin" | "rental_manager" }) =>
-  !!listing.active && !listing.suppressed && !isMarketingOnly(listing);
-const isPubliclyBookable = (listing: any) =>
-  !rentalUnavailable(listing) && Array.isArray(listing.components) && listing.components.length > 0 &&
-  listing.components.every((component: any) => typeof component.inventoryUnitId === "string" && component.inventoryUnitId.length > 0 && Number.isSafeInteger(component.qty) && component.qty > 0);
-
+  !!listing.active && !listing.suppressed;
 export const publicRevision = query({ args: {}, handler: async ctx => `v2:${await catalogRevision(ctx)}` });
 
 const card = (l: any) => ({
@@ -103,8 +89,8 @@ export const allBasic = query({
 });
 
 export const bestSellers = query({
-  args: { limit: v.optional(v.number()) },
-  handler: async (ctx, { limit }) => {
+  args: { limit: v.optional(v.number()), homeShowcase: v.optional(v.boolean()) },
+  handler: async (ctx, { limit, homeShowcase }) => {
     const n = limit ?? 6;
     // 2026-07-07: ranking is driven by demandScore (authoritative RMv2 rental
     // history, refreshed by the applyDemand mutation) which DOMINATES the sort
@@ -127,7 +113,9 @@ export const bestSellers = query({
       return { l, score };
     });
     scored.sort((a, b) => b.score - a.score);
-    return await toPublicCards(ctx, scored.slice(0, n).map((x) => x.l));
+    const rankedListings = scored.map((x) => x.l);
+    const selected = homeShowcase ? selectHomeFeaturedListings(rankedListings, n) : rankedListings.slice(0, n);
+    return await toPublicCards(ctx, selected);
   },
 });
 
@@ -238,6 +226,7 @@ export const searchHomeGear = query({
     // require the literal word "Audio" or "Cameras" in every product title.
     if (searchText && (!categoryName || specificWords.length > 0)) {
       const candidates: Doc<"listings">[] = [];
+      const requiredTitleWords = normalizeEquipmentName(specificWords.join(" ")).match(/[a-z0-9]+/g) ?? [];
       let scanned = 0, searchLimited = false;
       const search = ctx.db
         .query("listings")
@@ -247,7 +236,11 @@ export const searchHomeGear = query({
         });
       for await (const listing of search) {
         if (++scanned > 100) { searchLimited = true; break; }
-        if (publicVisible(listing) && (!specificWords.length || specificWords.some(word => listing.title.toLowerCase().includes(word)))) candidates.push(listing);
+        const titleWords = normalizeEquipmentName(listing.title).match(/[a-z0-9]+/g) ?? [];
+        const hasEveryRequestedWord = requiredTitleWords.every(word => titleWords.some(titleWord =>
+          titleWord === word || (/^\d+$/.test(word) && titleWord.startsWith(word)),
+        ));
+        if (publicVisible(listing) && hasEveryRequestedWord) candidates.push(listing);
         if (candidates.length >= 24) break;
       }
 
@@ -270,7 +263,7 @@ export const searchHomeGear = query({
       };
     }
 
-    if (categoryName) {
+    if (categoryName && specificWords.length === 0) {
       const candidates = ctx.db
         .query("listings")
         .withIndex("by_category_active_demand", (q) =>
@@ -293,22 +286,6 @@ export const searchHomeGear = query({
     }
 
     return { mode: "empty" as const, category: null, listings: [] };
-  },
-});
-
-export const refreshQuietDeals = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const all = await ctx.db.query("listings").collect();
-    let cleared = 0;
-    for (const l of all) {
-      if ((l as any).quietDeal !== undefined) {
-        await ctx.db.patch(l._id, { quietDeal: undefined } as any);
-        cleared++;
-      }
-    }
-    if (cleared) await bumpCatalogRevision(ctx);
-    return { discounted: 0, cleared, scanned: all.length, picks: [] };
   },
 });
 
@@ -505,7 +482,7 @@ export const discovery = query({
   handler: async (ctx, { paginationOpts }) => {
     if(paginationOpts.numItems>200)throw Error("Discovery page limit is 200");
     const page=await ctx.db.query("listings").withIndex("by_active",q=>q.eq("active",true)).paginate(paginationOpts);
-    return {...page,page:page.page.filter(l=>!l.suppressed&&!rentalUnavailable(l)).map(l=>({
+    return {...page,page:page.page.filter(isPubliclyBookable).map(l=>({
       slug:l.slug,title:l.title,category:l.category,image:images(l)[0]??null,
       lastModified:l.copyReview?.reviewedAt??l._creationTime,
     }))};

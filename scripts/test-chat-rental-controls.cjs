@@ -19,9 +19,9 @@ const l = put('listings', { title: 'Camera', depositAmount: 200, active: true, c
 const l2 = put('listings', { title: 'Lens kit', depositAmount: 200, active: true, components: [{ inventoryUnitId: unit._id, qty: 1 }] });
 const start = Date.UTC(2030,9,1), end = start+86400000;
 const lines = [{listingId:l._id,title:l.title,start,end,qty:1,lineTotal:30},{listingId:l2._id,title:l2.title,start:start+86400000,end:end+86400000,qty:1,lineTotal:20}];
-const b = put('bookings', { guestEmail:a.email,status:'confirmed',lineItems:lines,total:60,subtotal:50,depositAmount:10,stripePaymentIntentId:'pi_fixture' });
+const b = put('bookings', { guestEmail:a.email,status:'confirmed',lineItems:lines,total:60,subtotal:50,depositAmount:10,stripePaymentIntentId:'pi_fixture',paidConfirmedAt:Date.now(),verificationProvider:'didit',idVerifyStatus:'verified',idVerificationSource:'didit',idVerifiedAt:Date.now(),verificationChecks:{identity:'approved',selfie:'approved',address:'approved'} });
 for(const line of lines) put('reservations',{bookingId:b._id,listingId:line.listingId,inventoryUnitId:unit._id,start:line.start,end:line.end,qty:line.qty,source:'site',status:'confirmed'});
-const change = {token:'renter',bookingId:b._id,requestId:'fixture-request-0001',kind:'items',detail:'Please remove the camera from my rental.'};
+const change = {token:'renter',bookingId:b._id,requestId:'fixture-request-0001',kind:'items',detail:'Please remove the camera from my rental.',itemLineIndexes:[0]};
 (async()=>{
  await assert.rejects(requests.submit.handler(ctx,{...change,token:'foreign'}), /not available/);
  await assert.rejects(requests.submit.handler(ctx,{...change,token:'expired'}), /sign in/);
@@ -34,29 +34,33 @@ const change = {token:'renter',bookingId:b._id,requestId:'fixture-request-0001',
  await assert.rejects(requests.submit.handler(ctx,{...change,detail:'Changed request content'}), /different change/);
  const removal={token:owner,bookingId:b._id,requestId:'fixture-removal-0001',lineIndex:0,listingId:l._id,expectedQty:1,expectedStart:start,expectedEnd:end,reason:'Requested kit amendment'};
  await assert.rejects(operations.removeItem.handler(ctx,{...removal,token:'renter'}), /unauthorized/);
- await operations.removeItem.handler(ctx,removal);
- await operations.removeItem.handler(ctx,removal);
+ const beforeRemoval=await db.get(b._id),reservationsBefore=(tables.get('reservations')??[]).filter(r=>r.bookingId===b._id&&r.status==='confirmed');
+ await assert.rejects(operations.removeItem.handler(ctx,removal),/Use the renter-approved equipment change flow/);
  const updated=await db.get(b._id);
- assert.equal(updated.lineItems.length,1);
- assert.equal(updated.removedItems.length,1);
- assert.equal(updated.total,60,'removal does not invent a refund or alter captured charges');
+ assert.equal(updated.lineItems.length,2,'standalone removal cannot change booked equipment');
+ assert.equal(updated.total,beforeRemoval.total,'blocked removal cannot desynchronise captured rental price');
  assert.equal(updated.depositAmount,10);
- assert.equal(policy.rentalCancellationStart(updated),start,'removing earliest kit cannot move the refund deadline');
- assert.equal(billing.rentalBillingLines(updated).reduce((sum,l)=>sum+l.lineTotal,0),50,'invoice retains the original charge');
+ assert.equal(policy.rentalCancellationStart(updated),start,'blocked removal cannot move the cancellation deadline');
+ assert.equal(billing.rentalBillingLines(updated).reduce((sum,l)=>sum+l.lineTotal,0),50,'invoice remains aligned with the original equipment');
  const live=(tables.get('reservations')??[]).filter(r=>r.bookingId===b._id&&r.status==='confirmed');
- assert.equal(live.length,1);
- assert.equal(live[0].listingId,l2._id,'only remaining kit is reserved');
- assert.deepEqual(await chats.unreadBreakdown.handler(ctx,{token:'renter'}),{rentals:1,general:0});
+ assert.equal(live.length,reservationsBefore.length,'blocked removal leaves all confirmed stock reserved');
+ assert.equal(live.length,2);
+ assert.deepEqual(await chats.unreadBreakdown.handler(ctx,{token:'renter'}),{rentals:0,general:0},'A renter does not get an unread badge for their own request');
  assert.deepEqual(await chats.unreadBreakdown.handler(ctx,{token:'foreign'}),{rentals:0,general:0});
  await chats.markRead.handler(ctx,{token:'renter',bookingId:b._id,through:tables.get('messages').at(-1)._id});
  assert.deepEqual(await chats.unreadBreakdown.handler(ctx,{token:'renter'}),{rentals:0,general:0},'reading clears the reactive header count');
- await assert.rejects(operations.removeItem.handler(ctx,{...removal,requestId:'last-removal-000001',listingId:l2._id,expectedStart:start+86400000,expectedEnd:end+86400000}),/last item/);
+ await assert.rejects(operations.removeItem.handler(ctx,{...removal,requestId:'last-removal-000001',listingId:l2._id,expectedStart:start+86400000,expectedEnd:end+86400000}),/Use the renter-approved equipment change flow/);
+ // This later assertion isolates refund settlement: the earlier synthetic
+ // request has already been reviewed, so it must not mask the refund guard.
+ tables.set('rental_change_requests',(tables.get('rental_change_requests')??[]).map(row=>({...row,status:'declined'})));
  put('rental_refunds',{bookingId:b._id,status:'pending'});
  await assert.rejects(operations.reschedule.handler(ctx,{token:owner,bookingId:b._id,start,reason:'Move rental dates'}),/refund to settle/);
  tables.set('rental_refunds',[]);
- await assert.rejects(operations.reschedule.handler(ctx,{token:owner,bookingId:b._id,start:start+7*86400000,end:end+10*86400000,reason:'Changed duration without consent'}),/Confirm.*charges/);
- await operations.reschedule.handler(ctx,{token:owner,bookingId:b._id,start:start+7*86400000,end:end+10*86400000,keepAgreedPrice:true,reason:'Agreed complimentary extension'});
- assert.equal((await db.get(b._id)).lineItems[0].end,end+10*86400000);
+ const rescheduledStart=start+7*86400000;
+ const rescheduledRentalEnd=end+11*86400000; // End is the latest return across both staggered items.
+ await assert.rejects(operations.reschedule.handler(ctx,{token:owner,bookingId:b._id,start:rescheduledStart,end:rescheduledRentalEnd,reason:'Changed duration without consent'}),/Confirm.*charges/);
+ await operations.reschedule.handler(ctx,{token:owner,bookingId:b._id,start:rescheduledStart,end:rescheduledRentalEnd,keepAgreedPrice:true,reason:'Agreed complimentary extension'});
+ assert.equal((await db.get(b._id)).lineItems[0].end,end+10*86400000,'Earlier item keeps its one-day offset from the later rental return');
  assert.equal((await db.get(b._id)).total,60);
  assert.equal(policy.rentalCancellationStart(await db.get(b._id)),start+7*86400000,'agreed reschedule resets the cancellation date');
  await db.patch(b._id,{status:'returned'});

@@ -10,7 +10,7 @@
 
 ## Pricing and stock
 
-Quotes reprice the live catalog, quiet discounts and minimum duration, and check aggregate physical-unit stock across bundles/quantities. Preview numbers are rental estimates. Checkout still authoritatively calculates member/promo offers, available account credit, delivery, the 50% refundable security charge and separate full hold. Quote lines expand into uniquely keyed single-unit cart entries because payment checkout currently requires `qty=1` per line. Existing baskets require an explicit replacement click.
+Quotes reprice the live catalog and minimum duration, and check aggregate physical-unit stock across bundles/quantities. Preview numbers are rental estimates. Checkout still authoritatively calculates member/promo offers, available account credit, delivery, the 50% refundable security charge and separate full hold. Quote lines expand into uniquely keyed single-unit cart entries because payment checkout currently requires `qty=1` per line. Existing baskets require an explicit replacement click.
 
 Fixed underlying stock issues: expired soft holds are ignored; missing capacity does not invent one owned unit; reservations without a website booking ID (external rentals) are included; capacity is evaluated inside proposed windows rather than unrelated historical overbookings. Empty component mappings fail closed.
 

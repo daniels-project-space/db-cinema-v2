@@ -8,7 +8,7 @@ import { v } from "convex/values";
 import { unsubscribeToken } from "./referralMail";
 import { reviewPrizeRound,prizeDate,REVIEW_SOCIAL } from "../shared/reviewPrize";
 import { sendMail } from "./lib/mailer";
-import { reviewFingerprint, reviewGate, reviewSettlementFingerprint } from "./lib/reviewEligibility";
+import { reviewFingerprint, reviewFollowUpDueAt, reviewGate, reviewSettlementFingerprint } from "./lib/reviewEligibility";
 
 /** Provider reads only: creating a refund does not mean it succeeded. */
 export async function providerReviewGate(b: any, stripe: Stripe): Promise<string | null> {
@@ -43,6 +43,8 @@ export const processDue = internalAction({
     const rows: any[] = await ctx.runQuery(internal.reviewFollowUpState.candidates, {});
     const result = {checked: rows.length, sent: 0,queued:0, reasons: {} as Record<string, number>};
     for (const b of rows) {
+      if (b.reviewInvitationMessageId) continue;
+      if (b.reviewFollowUpDueAt && Date.now() < reviewFollowUpDueAt(b)) continue;
       let reason = reviewGate(b);
       if (!reason) {
         try {
@@ -56,6 +58,9 @@ export const processDue = internalAction({
       await ctx.runMutation(internal.reviewInvitations.recordEligibility, {
         bookingId: b._id, fingerprint: reviewSettlementFingerprint(b), eligible: !reason,
       });
+      // The interactive account-chat invitation is canonical for registered renters.
+      // Guest rentals without an account continue through the email follow-up.
+      if (b.hasAccount) continue;
       const claimed = await ctx.runMutation(internal.reviewFollowUpState.recordCheck, {
         bookingId: b._id, fingerprint: reviewFingerprint(b), reason: reason ?? undefined,
         claim: true,
@@ -67,7 +72,7 @@ export const processDue = internalAction({
   },
 });
 
-/** Render once for the private outbox; no SMTP or provider financial writes. */
+/** Render once for the private outbox; this does not send email or touch payment providers. */
 export const prepareEmail=internalAction({args:{bookingId:v.id("bookings"),deliveryKey:v.string()},handler:async(ctx,{bookingId,deliveryKey})=>{
  const b:any=await ctx.runQuery(internal.reviewFollowUpState.emailContext,{bookingId});
  if(!b?.customerEmail)return null;
@@ -75,8 +80,8 @@ export const prepareEmail=internalAction({args:{bookingId:v.id("bookings"),deliv
       const round=reviewPrizeRound();
       let promotion="",offersUnsubscribe="";
       if(b.prizeOffersAllowed){try{const optout=unsubscribeToken(b.customerEmail);offersUnsubscribe=`${app}/referrals/unsubscribe#${optout}`;promotion=`<h2>Your set story could win £${REVIEW_PRIZE_GBP}.</h2><p>Leave an honest website review and tell us about your shoot. Follow @${REVIEW_SOCIAL.handle}, share a public set-experience post, tag us and clearly disclose #ad / prize entry. Submit your evidence by ${prizeDate(round.deadline)}, 23:59 UK time.</p><p>One £${REVIEW_PRIZE_GBP} cash prize twice a year, judged for originality (50%), craft insight (30%) and clarity (20%) by an independent judge. Star rating and praise do not affect the result. UK residents aged 18+. One entry per rental; security must be fully refunded and every hold released with no deductions. Winner announced within 14 days, payment by ${prizeDate(round.payBy)}.</p><p><a href="${app}/rental-stories">Enter and track your steps</a> · <a href="${app}/legal/review-prize">Competition terms</a></p><p>You opted into offers. <a href="${app}/referrals/unsubscribe#${optout}">Unsubscribe from offers</a>.</p>`;}catch{/* Without a working unsubscribe link send the ordinary review request only. */}}
-      const encore=b.encoreOffersAllowed&&offersUnsubscribe?`<h2>Your next story gets more room.</h2><p>Your clean return is complete. Leave an honest review to earn your next Encore rental saving: 2% after your first qualifying rental and review, 4% after your second, then 10% after your third. Every star rating counts equally. No subscription needed.</p><p>Rental charges only; delivery and security are excluded. Your best single price benefit applies at checkout.</p>${!promotion?`<p>You opted into offers. <a href="${offersUnsubscribe}">Unsubscribe from offers</a>.</p>`:""}`:"";
-      return {to:b.customerEmail,deliveryKey,promotional:!!promotion||!!encore,cleanReturnRequired:!!promotion||!!encore,subject:encore?"Your clean return is complete · earn your next Encore saving":promotion?`Your rental story could win £${REVIEW_PRIZE_GBP} · DB Cinema`:"How was your DB Cinema rental?",
+      const encore=b.encoreOffersAllowed&&offersUnsubscribe?`<h2>Your next story gets more room.</h2><p>Your clean return counts toward Encore automatically: 2% after your first qualifying rental, 4% after your second, then 10% after your third. Reviews are optional and never affect your level or saving.</p><p>Your largest single rental saving applies at checkout. Gear only; delivery and security are excluded.</p>${!promotion?`<p>You opted into offers. <a href="${offersUnsubscribe}">Unsubscribe from offers</a>.</p>`:""}`:"";
+      return {to:b.customerEmail,deliveryKey,promotional:!!promotion||!!encore,cleanReturnRequired:!!promotion||!!encore,subject:encore?"Your clean return counts toward Encore":promotion?`Your rental story could win £${REVIEW_PRIZE_GBP} · DB Cinema`:"How was your DB Cinema rental?",
         html:rentalEmail({title:"Thanks for your next great story",preview:"Your return and security settlement are complete.",url:`${app}/account?rental=${encodeURIComponent(bookingId)}&review=1#rental-review-${bookingId}`,button:"Review your rental",body:`<p>Thanks for renting with us. Your refundable security is fully settled. We welcome your honest review, whatever your experience.</p><p>The form opens in your rental account. If prompted, sign in or create an account with the email used for this booking.</p>${encore}${promotion}<p>${esc(b.lineItems.map((li:any)=>li.title).join(", "))}</p>`})};
 
 }});

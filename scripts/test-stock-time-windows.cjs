@@ -6,11 +6,24 @@ const availability=load('convex/availability.ts'),bookings=load('convex/bookings
 const day=86400000,date=Date.UTC(2030,5,8),ctx={db,scheduler:{runAfter:async()=>{}}};
 const unit=put('inventory_units',{name:'Physical lens',quantityOwned:1,active:true});
 const listing=put('listings',{title:'Lens',active:true,components:[{inventoryUnitId:unit._id,qty:1}],unavailableDates:[]});
-const state=put('rmv2_sync_state',{key:'shared-stock-v1',status:'ok',cursor:JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()})});
+const initialStockSyncAt=Date.now();
+const state=put('rmv2_sync_state',{key:'shared-stock-v1',status:'ok',lastSyncedAt:initialStockSyncAt,cursor:JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:initialStockSyncAt})});
 const occupied=put('reservations',{source:'hygglo',stockWindowVersion:2,turnaroundBufferMinutes:60,inventoryUnitId:unit._id,start:londonRentalInstant(date,'09:00'),end:londonRentalInstant(date,'19:00'),qty:1,status:'confirmed',endExclusive:true});
 const line=(pickupTime,returnTime,extra={})=>({listingId:listing._id,start:date,end:date,pickupTime,returnTime,...extra});
 const fit=items=>availability.forCart.handler(ctx,{items});
 (async()=>{
+ const fx3=put('inventory_units',{name:'Sony FX3',quantityOwned:2,active:true});
+ const fx3Kit=put('listings',{title:'2x Sony FX3 full-frame cinema camera set',active:true,components:[{inventoryUnitId:fx3._id,qty:2}],unavailableDates:[]});
+ const kitLine={listingId:fx3Kit._id,start:date,end:date,pickupTime:'09:00',returnTime:'18:00'};
+ const beforeBasket=(await db.query('reservations').withIndex('by_unit',q=>q.eq('inventoryUnitId',fx3._id)).collect()).length;
+ assert.equal((await fit([kitLine]))[fx3Kit._id].ok,true,'the complete two-camera kit is available with two free bodies');
+ assert.equal((await fit([kitLine]))[fx3Kit._id].ok,true,'another basket does not reserve either camera');
+ assert.equal((await db.query('reservations').withIndex('by_unit',q=>q.eq('inventoryUnitId',fx3._id)).collect()).length,beforeBasket,'website basket reads create no reservations');
+ const kitBooking=put('bookings',{status:'pending_payment',lineItems:[kitLine]});
+ put('reservations',{inventoryUnitId:fx3._id,bookingId:kitBooking._id,listingId:fx3Kit._id,source:'site',status:'hold',start:date,end:date,qty:2});
+ assert.equal((await fit([kitLine]))[fx3Kit._id].ok,true,'an unpaid checkout hold remains advisory');
+ kitBooking.status='pending_verification';kitBooking.checkoutPaidAt=Date.now();
+ assert.equal((await fit([kitLine]))[fx3Kit._id].ok,false,'a paid booking pending verification reserves both cameras');
  const refresh=JSON.parse(load('convex/crons.ts').default.export())['sync-hygglo-reservations'];
  assert.equal(refresh.name,'sync.syncHyggloReservations','Freshness schedule calls the real shared-stock importer');
  const refreshMs=(refresh.schedule.minutes??0)*60000+(refresh.schedule.seconds??0)*1000;
@@ -19,11 +32,12 @@ const fit=items=>availability.forCart.handler(ctx,{items});
  try {
   Date.now=()=>now;
   for(let cycle=0;cycle<3;cycle++){
+   state.lastSyncedAt=now;
    state.cursor=JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:now});
    now+=2*refreshMs-1; // One missed refresh must not invalidate the last successful feed.
    assert.equal(await stockTimePrecision(ctx),true,'Scheduled source refresh must occur before precise stock expires, even after one missed cycle');
   }
- }finally{Date.now=originalNow;state.cursor=JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()});}
+ }finally{Date.now=originalNow;state.lastSyncedAt=Date.now();state.cursor=JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()});}
  assert.equal((await fit([line('19:00','22:00')]))[listing._id].ok,true,'Confirmed return frees pool at exact instant, after the one-hour turnaround');
  assert.equal((await fit([line('17:00','22:00')]))[listing._id].ok,false,'Overlap cannot be crossed');
  let slots=await availability.forTimeSlots.handler(ctx,{...line(undefined,undefined),items:[]});assert.deepEqual(slots.pickupSlots,['19:00','20:00','21:00']);
@@ -40,7 +54,7 @@ const fit=items=>availability.forCart.handler(ctx,{items});
  unit.quantityOwned=1;occupied.end=londonRentalInstant(date,'19:00');occupied.start=londonRentalInstant(date,'09:00');occupied.stockWindowVersion=1;
  assert.equal((await fit([line('19:00','22:00')]))[listing._id].ok,false,'V1 wall labels never support exact release');
  occupied.stockWindowVersion=2;state.cursor=JSON.stringify({version:1,checkedAt:Date.now()});assert.equal((await fit([line('19:00','22:00')]))[listing._id].ok,false,'Unqualified reader precision is conservative');
- state.cursor=JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()-360000});assert.equal((await fit([line('19:00','22:00')]))[listing._id].ok,false,'Stale precision is conservative');
+ state.cursor=JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()-360000});const staleResult=(await fit([line('19:00','22:00')]))[listing._id];assert.equal(staleResult.ok,null,'Stale stock is unknown rather than a definite shortage');assert.equal(staleResult.stockStatus,'refresh_required','A stale stock response tells callers to refresh before using availability');
  state.cursor=JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()});occupied.status='cancelled';
  const booking=put('bookings',{status:'pending_payment',lineItems:[line('09:00','12:00',{qty:1})]});
  assert.equal((await bookings.placeHolds.handler(ctx,{bookingId:booking._id,ttlMs:60000})).created,1);

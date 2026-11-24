@@ -222,7 +222,7 @@ export default function AssemblePage() {
   }
 
   const chip = (a: boolean) =>
-    `rounded-full px-4 py-1.5 text-sm transition-colors ${a ? "bg-accent-500 text-white" : "glass text-white/55 hover:text-white"}`;
+    `min-h-11 rounded-full px-4 py-1.5 text-sm transition-colors ${a ? "bg-accent-500 text-white" : "glass text-white/55 hover:text-white"}`;
 
   const stages = data?.stages ?? [];
   // a single-pick item the chosen set ALREADY includes → skip that whole stage (it re-appears if the
@@ -357,9 +357,9 @@ export default function AssemblePage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-[11px] text-white/40">Cameras</span>
-                    <button onClick={() => setCameras((n) => Math.max(1, n - 1))} className="h-8 w-8 rounded-full glass text-white/70">–</button>
+                    <button onClick={() => setCameras((n) => Math.max(1, n - 1))} aria-label="Remove a camera" className="h-11 w-11 rounded-full glass text-white/70">–</button>
                     <span className="w-6 text-center font-display text-white/90">{cameras}</span>
-                    <button onClick={() => setCameras((n) => Math.min(6, n + 1))} className="h-8 w-8 rounded-full glass text-white/70">+</button>
+                    <button onClick={() => setCameras((n) => Math.min(6, n + 1))} aria-label="Add a camera" className="h-11 w-11 rounded-full glass text-white/70">+</button>
                   </div>
                   <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. low light, handheld, two presenters…" className="w-full rounded-lg bg-white/[0.06] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
                   <div>
@@ -468,7 +468,7 @@ export default function AssemblePage() {
                             {bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Won't fit</span>}
                             {adapter && !bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-sky-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Adapter</span>}
                             {on && <span className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white"><IconCheck className="h-3 w-3" /></span>}
-                            <div className="aspect-[4/3] bg-charcoal-800">
+                            <div className="aspect-[4/3] overflow-hidden bg-charcoal-800" style={{ aspectRatio: "4 / 3" }}>
                               <SmartImage fit="contain" src={o.image} fallbackSources={o.imageSources} alt={o.title} className="h-full w-full" />
                             </div>
                             <div className="p-2">
@@ -564,15 +564,15 @@ export default function AssemblePage() {
               </div>
             )}
             <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <div className="text-sm">
+              <div className="min-w-0 flex-1">
+                <div className="whitespace-nowrap text-xs sm:text-sm">
                   <span className="text-white/70">{selList.length} item{selList.length !== 1 ? "s" : ""} · </span>
                   {memberDiscount > 0 && <span className="text-white/35 line-through">£{subtotal} </span>}
                   <span className={overBudget ? "font-semibold text-red-400" : "font-semibold text-emerald-300"}>£{finalTotal}</span>
                   <span className="text-white/35"> / £{budget}{memberDiscount > 0 ? ` · ${tier?.name} −${memberPct}%` : ""}</span>
                   {overBudget && <span className="ml-2 text-red-400">over budget</span>}
                 </div>
-                <div className={`mt-1 h-1.5 w-56 overflow-hidden rounded-full bg-white/10 ${overBudget ? "budget-over" : ""}`}>
+                <div className={`mt-1 h-1.5 w-full max-w-56 overflow-hidden rounded-full bg-white/10 ${overBudget ? "budget-over" : ""}`}>
                   <div
                     className={`budget-fill h-full w-full rounded-full ${overBudget ? "bg-red-400" : finalTotal > budget * 0.9 ? "bg-amber-400" : "bg-emerald-400"}`}
                     style={{ transform: `scaleX(${Math.min(1, finalTotal / budget)})` }}
@@ -580,7 +580,7 @@ export default function AssemblePage() {
                 </div>
               </div>
               {liveFresh && !canAddSelection && selList.length>0&&<p role="status" className="text-sm text-amber-200">Review or remove unavailable items before adding your kit to the basket.</p>}
-              <button onClick={addAll} disabled={selList.length === 0||!canAddSelection} className="btn-primary shrink-0 px-6 py-3">
+              <button onClick={addAll} disabled={selList.length === 0||!canAddSelection} className="btn-primary shrink-0 px-3 py-3 sm:px-6">
                 {`Add ${selList.length || ""} to basket`}
               </button>
             </div>

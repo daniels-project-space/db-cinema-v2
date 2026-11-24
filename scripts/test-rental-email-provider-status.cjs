@@ -1,6 +1,6 @@
 /** Real lease and provider-check handlers, synthetic messages and provider only. */
 const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
-let now=Date.UTC(2030,0,1);Date.now=()=>now;process.env.RESEND_API_KEY='fixture';
+let now=Date.UTC(2030,0,1);Date.now=()=>now;process.env.RESEND_API_KEY='fixture';process.env.RESEND_FROM='DB Cinema <bookings@dbcinemarentals.com>';
 const delivery=h.load('convex/rentalEmailDelivery.ts'),worker=h.load('convex/rentalEmailMail.ts');
 const mailer=h.load('convex/lib/mailer.ts');
 const scheduled=[];const ctx={db:h.db,scheduler:{runAfter:async(ms,ref,args)=>scheduled.push({ms,ref,args})},
@@ -11,10 +11,10 @@ const row=h.put('rental_email_deliveries',{bookingId:booking._id,kind:'paid_veri
 let provider='sent';global.fetch=async(url,options)=>{assert.match(url,/^https:\/\/api\.resend\.com\/emails\/fixture-id$/);assert.equal(options.headers.authorization,'Bearer fixture');if(provider==='offline')throw Error('offline');return new Response(JSON.stringify({last_event:provider,message_id:'<rental@example.invalid>'}),{status:200,headers:{'content-type':'application/json'}})};
 (async()=>{
  delete process.env.GMAIL_USER;delete process.env.GMAIL_APP_PASSWORD;
- const checkFetch=global.fetch;let receipt;global.fetch=async(url,options)=>{assert.equal(url,'https://api.resend.com/emails');assert.equal(options.headers['Idempotency-Key'],'fixture-key');return new Response(JSON.stringify({id:'fixture-id'}),{status:200})};
- assert.equal(await mailer.sendMail({to:'fixture@example.invalid',subject:'Test',html:'Test',deliveryKey:'fixture-key'},id=>receipt=id),true);assert.equal(receipt,'fixture-id');global.fetch=checkFetch;
+ const checkFetch=global.fetch;global.fetch=async(url,options)=>{assert.equal(url,'https://api.resend.com/emails');assert.equal(options.headers['Idempotency-Key'],'fixture-key');return new Response(JSON.stringify({id:'fixture-id'}),{status:200})};
+ const receipt=await mailer.sendBusinessMailTracked({to:'fixture@example.invalid',subject:'Test',html:'Test',deliveryKey:'fixture-key'});assert.equal(receipt.sent,true);assert.equal(receipt.resendEmailId,'fixture-id');global.fetch=checkFetch;
  assert.equal(await delivery.finish.handler(ctx,{deliveryId:row._id,generation:1,result:'sent',providerMessageId:'fixture-id'}),true);
- const mirrored=h.put('email_messages',{providerId:`rental-notice:${row._id}`});
+ const mirrored=h.put('email_messages',{providerId:`rental-email:${row._id}`});
  assert.equal(row.providerDeliveryStatus,'accepted');assert.equal(row.providerCheckDueAt,now+120000);
  now+=120000;await delivery.checkProviderDue.handler(ctx,{});const first=scheduled.at(-1).args;assert.equal(first.generation,1);
  await delivery.checkProviderDue.handler(ctx,{});assert.equal(scheduled.length,1,'active provider lease is not reclaimed');

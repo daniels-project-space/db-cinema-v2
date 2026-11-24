@@ -6,6 +6,7 @@ import { TIER_RANK } from "./lib/membership";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { GAFFER_PRICE_CODE, gafferDiscount } from "./lib/gafferDiscount";
 import { FIRST_ORDER_VOUCHER_CODE, firstOrderVoucherReason } from "./lib/firstOrderVoucher";
+import { CHECKOUT_RECOVERY_CODE } from "../shared/checkoutRecovery";
 
 /**
  * Validate a promo code against the ELIGIBLE subtotal (non-offer rental lines
@@ -36,6 +37,17 @@ export const validate = query({
       const discount = gafferDiscount(rentalSubtotal ?? 0, eligibleSubtotal);
       if (!discount) return { valid: false as const, reason: "Rental subtotal must be above £400 with eligible items" };
       return { valid: true as const, code: norm, type: "percent", value: 10, discount };
+    }
+    if (norm === CHECKOUT_RECOVERY_CODE) {
+      const normalizedEmail = email?.trim().toLowerCase();
+      if (!normalizedEmail) return { valid: false as const, reason: "Enter your email to use this one-time code." };
+      if (eligibleSubtotal <= 0) return { valid: false as const, reason: "This code applies to standard rental charges only." };
+      const redemptions = await ctx.db.query("promo_redemptions")
+        .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+        .collect();
+      if (redemptions.some((row: any) => row.code === norm))
+        return { valid: false as const, reason: "This one-time code has already been used." };
+      return { valid: true as const, code: norm, type: "percent", value: 10, discount: Math.round(eligibleSubtotal * 10) / 100 };
     }
     const promo: any = await ctx.db
       .query("promo_codes")

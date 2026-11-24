@@ -163,5 +163,41 @@
 [data-layout=customer-page] .detail { position:static; max-height:none; overflow:visible; margin-top:20px; }
 [data-layout=customer-page] .list { min-width:0; overflow-x:auto; }
 
+/* Compact invoice cards for the narrow customer-profile rail. */
+.library[data-compact=true] { margin:0; padding:10px 0 0; border:0; border-radius:0; background:transparent; }
+.library[data-compact=true] .toolbar { display:grid; gap:9px; }
+.library[data-compact=true] .toolbar h2 { font:500 16px/1.25 var(--font-inter,Arial,sans-serif); color:#eeeae4; }
+.library[data-compact=true] .toolbar p { margin-top:3px; font-size:10px; line-height:1.4; }
+.library[data-compact=true] .searchControls { position:static; display:grid; width:100%; gap:6px; }
+.library[data-compact=true] .searchControls label,
+.library[data-compact=true] .searchControls input,
+.library[data-compact=true] .searchControls select { width:100%; min-width:0; box-sizing:border-box; }
+.library[data-compact=true] .searchControls input,
+.library[data-compact=true] .searchControls select { min-height:36px; padding:8px 9px; font-size:11px; }
+.library[data-compact=true] .tabs { margin:10px 0 0; padding-right:0; gap:10px; }
+.library[data-compact=true] .tabs button { padding:8px 0; font-size:10px; }
+.library[data-compact=true] .tabs span { margin-left:4px; }
+.library[data-compact=true] .list { margin-top:9px; overflow:visible; border:0; background:transparent; }
+.library[data-compact=true] .list table { display:block; width:100%; min-width:0; }
+.library[data-compact=true] .list thead { display:none; }
+.library[data-compact=true] .list tbody { display:grid; gap:8px; }
+.library[data-compact=true] .list tr { display:grid; min-width:0; grid-template-columns:minmax(0,1fr) auto; gap:4px 8px; padding:9px 10px; border:1px solid #ffffff12; border-radius:12px; background:linear-gradient(145deg,#202120,#171817); }
+.library[data-compact=true] .list td { display:block; min-width:0; height:auto; padding:1px 0; border:0; }
+.library[data-compact=true] .list td:nth-child(3),
+.library[data-compact=true] .list td:nth-child(4) { display:none; }
+.library[data-compact=true] .list td:first-child { grid-column:1; grid-row:1; padding:0; border:0; }
+.library[data-compact=true] .list td[data-label="Rental"] { grid-column:1 / -1; grid-row:2; }
+.library[data-compact=true] .list td[data-label="Amount"] { grid-column:1; grid-row:3; text-align:left; white-space:normal; }
+.library[data-compact=true] .list td[data-label="Rental status"] { grid-column:2; grid-row:1; justify-self:end; }
+.library[data-compact=true] .list td:last-child { grid-column:2; grid-row:3; justify-self:end; }
+.library[data-compact=true] .list .document h3 { font-size:11px; }
+.library[data-compact=true] .list .document p { margin-top:2px; font-size:9px; }
+.library[data-compact=true] .list td[data-label="Rental"] strong { font-size:10px; white-space:normal; }
+.library[data-compact=true] .list td[data-label="Rental"] small { font-size:9px; white-space:normal; }
+.library[data-compact=true] .status { padding:3px 6px; font-size:9px; }
+.library[data-compact=true] .list .pdfButton { min-width:30px; min-height:30px; padding:4px 8px; }
+.library[data-compact=true] .footer { align-items:flex-start; gap:8px; margin-top:10px; font-size:9px; line-height:1.4; }
+.library[data-compact=true] .footer button { padding:7px 8px; font-size:10px; }
+
 .library[data-admin=true][data-layout=customer-page] { display:block; }
 .library[data-admin=true][data-layout=customer-page] > .detail { position:static; grid-column:auto; grid-row:auto; margin:20px 0 0; max-height:none; overflow:visible; }

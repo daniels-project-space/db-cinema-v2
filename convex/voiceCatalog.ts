@@ -6,6 +6,8 @@ import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { contentsFor } from "../shared/rentalContents";
 import { Doc } from "./_generated/dataModel";
+import { listingImages } from "./lib/catalogImages";
+import { buildTiers } from "../shared/rentalPricing";
 
 /**
  * Catalogue lookup built for the Gaffer voice agent.
@@ -167,24 +169,24 @@ function score(r: Doc<"listings">, tokens: string[], brand: string | null, categ
   return s;
 }
 
-/** Same image precedence as `catalog.card`, so voice-added basket lines show
- *  the identical thumbnail the customer sees when browsing. */
-function heroImage(r: Doc<"listings">): string | null {
-  const r2 = (r as any).r2Images ?? [];
-  if (r2.length) return r2[0];
-  return ((r as any).sourceImages ?? (r as any).gallery ?? [])[0] ?? null;
+function canonicalPricing(r: Doc<"listings">) {
+  return r.pricing ? Object.fromEntries(buildTiers(r.pricing).map((tier) => [
+    tier.days === 1 ? "daily" : `day${tier.days}`,
+    tier.perDay,
+  ])) : null;
 }
 
 function shape(r: Doc<"listings">) {
+  const pricing = canonicalPricing(r);
   return {
     ...contentsFor(r),
     id: String(r._id),
     title: r.title,
     slug: r.slug,
     category: r.category,
-    heroImage: heroImage(r),
-    daily: r.pricing?.daily ?? null,
-    pricing: r.pricing ?? null,
+    heroImage: listingImages(r)[0] ?? null,
+    daily: pricing?.daily ?? null,
+    pricing,
     deposit: r.depositAmount ?? null,
     minDays: r.minimumRentalDays ?? 1,
     // What glass is in the box. The catalogue carries several near-identical
@@ -280,7 +282,7 @@ export const search = query({
     const standalone = scored.filter((x) => !isBundle(x.r.title));
     const packages = scored.filter((x) => isBundle(x.r.title));
     const cheapest = [...standalone].sort(
-      (a, b) => (a.r.pricing?.daily ?? 1e9) - (b.r.pricing?.daily ?? 1e9),
+      (a, b) => (canonicalPricing(a.r)?.daily ?? 1e9) - (canonicalPricing(b.r)?.daily ?? 1e9),
     )[0];
 
     return {
@@ -354,7 +356,7 @@ export const browse = query({
       (a, b) => (b.demandScore ?? 0) - (a.demandScore ?? 0) || a.title.localeCompare(b.title),
     );
 
-    const prices = sel.map((r) => r.pricing?.daily ?? 0).filter((n) => n > 0);
+    const prices = sel.map((r) => canonicalPricing(r)?.daily ?? 0).filter((n) => n > 0);
     const counts: Record<string, number> = {};
     for (const r of sel) counts[r.category] = (counts[r.category] ?? 0) + 1;
 

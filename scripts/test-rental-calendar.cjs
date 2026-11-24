@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict'), h = require('./lib/rentalTestHarness.cjs');
 process.env.ADMIN_TOKEN = 'calendar-fixture-admin';
-const bookings = h.load('convex/bookings.ts'), {calendarMonth} = h.load('src/lib/rentalCalendar.ts');
+const bookings = h.load('convex/bookings.ts'), {calendarMonth,groupCalendarLinesByPeriod} = h.load('src/lib/rentalCalendar.ts');
 const day = (y,m,d) => Date.UTC(y,m-1,d), line = (start,end,title='Camera',qty=1,returnTime='16:00') => ({start,end,title,qty,returnTime});
 (async()=>{
   for(let i=0;i<143;i++) h.put('bookings',{_id:'calendar-'+i,_creationTime:i,status:i%3?'confirmed':'returned',pickupTime:'09:00',returnTime:'17:00',lineItems:[line(day(2026,10,20),day(2026,10,21),'Oldest camera',3)],guestEmail:'PRIVATE EMAIL',agreementSnapshot:'PRIVATE AGREEMENT',diditResultJson:'PRIVATE ID',total:123,stripeCheckoutSessionId:'cs-private'});
@@ -17,6 +17,8 @@ const day = (y,m,d) => Date.UTC(y,m-1,d), line = (start,end,title='Camera',qty=1
   const fifth=cover.get(day(2026,10,5))[0];assert.equal(fifth.pickup,true);assert.equal(fifth.lines[0].qty,3);assert.equal(fifth.returns.length,0);
   const sixth=cover.get(day(2026,10,6))[0];assert.equal(sixth.pickup,false);assert.equal(sixth.returns[0].returnTime,'16:00');
   const twelfth=cover.get(day(2026,10,12));assert.equal(twelfth.length,1,'Overlapping lines do not duplicate rental');assert.equal(twelfth[0].lines.length,2);assert.equal(twelfth[0].returns[0].returnTime,'12:00');assert.equal(twelfth[0].returns[1].returnTime,null);
+  const samePeriod=groupCalendarLinesByPeriod([line(day(2026,10,5),day(2026,10,7),'Camera'),line(day(2026,10,5),day(2026,10,7),'Lens'),line(day(2026,10,8),day(2026,10,9),'Battery')]);
+  assert.equal(samePeriod.length,2,'Same-period equipment in one rental becomes one calendar bar');assert.deepEqual(samePeriod[0].lines.map(item=>item.title),['Camera','Lens'],'Grouping retains every distinct item');assert.equal(samePeriod[1].lines[0].title,'Battery','Different item periods remain separate and accurate');
   const long={...rental,lineItems:[line(day(2024,1,1),day(2026,10,31))]};assert.equal(calendarMonth([long],2026,9).size,31,'Long rentals remain visible past old 400-day loop guard');
   const dst={...rental,lineItems:[line(Date.parse('2026-10-24T23:30:00Z'),Date.parse('2026-10-26T00:30:00Z'))]};assert.deepEqual([...calendarMonth([dst],2026,9).keys()],[day(2026,10,25),day(2026,10,26)],'London civil dates cross DST once');
   assert.equal(calendarMonth([{...rental,lineItems:[line(day(2024,2,28),day(2024,3,1))]}],2024,1).size,2);

@@ -4,6 +4,8 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, 'test-membership-browser.cjs'), 'utf8');
 const connect = new Function('require', source.slice(0, source.indexOf('const { ConvexHttpClient }')) + '\nreturn connect;')(require);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const widths = (process.env.DBC_APERTURE_WIDTHS || '320,360,390,430,1280').split(',').map(Number);
+const mockGearPage = `<div data-testid="mock-gear-page" style="position:absolute;inset:0;min-height:100vh;overflow:hidden;background:radial-gradient(ellipse at 76% 8%,#59422f 0,#171513 34%,#090a0b 72%);color:#f6f0e7;font-family:Arial,sans-serif;padding:clamp(18px,5vw,64px);box-sizing:border-box"><div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #705538;padding-bottom:20px;color:#d6c3a8;font-size:13px;letter-spacing:.18em"><b>DB CINEMA · GEAR ROOM</b><span>CAMERAS　 LENSES　 LIGHTING</span></div><h1 style="font-family:Georgia,serif;font-size:clamp(34px,6vw,72px);font-weight:400;line-height:1.02;max-width:760px;margin:clamp(36px,8vh,88px) 0 12px">Build your next <i style="color:#e3a56b">camera kit.</i></h1><p style="color:#c6b9a8;font-size:16px;margin:0 0 36px">A deterministic local preview behind the aperture reveal.</p><div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(10px,2vw,24px)"><article style="border:1px solid #564431;border-radius:18px;padding:12px;background:#171615"><div style="height:clamp(100px,20vw,220px);border-radius:12px;background:linear-gradient(145deg,#c59665,#32271e 42%,#111 43%,#4d3b2a 72%,#181615);display:grid;place-items:center;color:#f4e1cb;font-size:clamp(28px,5vw,54px)">FX3</div><h2 style="font:22px Georgia,serif;margin:16px 0 5px">Sony FX3 Cinema Camera</h2><p style="color:#b8ab9d;margin:0">From £45 / day　 <span style="color:#d6a878">View kit ↗</span></p></article><article style="border:1px solid #564431;border-radius:18px;padding:12px;background:#171615"><div style="height:clamp(100px,20vw,220px);border-radius:12px;background:linear-gradient(135deg,#928273,#3b332d 35%,#171615 36%,#75614c 67%,#27211c);display:grid;place-items:center;color:#f4e1cb;font-size:clamp(28px,5vw,54px)">G · Master</div><h2 style="font:22px Georgia,serif;margin:16px 0 5px">Sony G Master Lens Set</h2><p style="color:#b8ab9d;margin:0">From £32 / day　 <span style="color:#d6a878">View kit ↗</span></p></article><article style="border:1px solid #564431;border-radius:18px;padding:12px;background:#171615"><div style="height:clamp(100px,20vw,220px);border-radius:12px;background:linear-gradient(155deg,#e4b87a,#61452e 29%,#171615 30%,#302820 65%,#0c0c0c);display:grid;place-items:center;color:#f4e1cb;font-size:clamp(28px,5vw,54px)">LIGHT</div><h2 style="font:22px Georgia,serif;margin:16px 0 5px">Aputure Light Storm</h2><p style="color:#b8ab9d;margin:0">From £28 / day　 <span style="color:#d6a878">View kit ↗</span></p></article></div></div>`;
 
 (async () => {
   const client = await connect();
@@ -14,7 +16,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       if (message.method === 'Runtime.exceptionThrown') console.error('PAGE_EXCEPTION', message.params.exceptionDetails.exception?.description || message.params.exceptionDetails.text);
       if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') console.error('PAGE_CONSOLE_ERROR', message.params.args?.map(argument => argument.value || argument.description).join(' '));
     });
-    for (const width of [320, 360, 390, 430, 1280]) {
+    for (const width of widths) {
       await client.cmd('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
       await client.cmd('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
       await client.cmd('Page.navigate', { url: process.env.DBC_TEST_URL || 'http://127.0.0.1:41902/' });
@@ -35,9 +37,19 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       assert(hydrated, 'The aperture interaction hydrates before hover');
       const position = await client.evaluate(`(() => {const r=document.querySelector('[data-testid="home-aperture-iris"]').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`);
 
+      if (width === 320) {
+        await client.cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 });
+        await client.evaluate(`document.querySelector('[data-testid="home-aperture-button"]').focus()`);
+        await delay(2600);
+        assert.equal(await client.evaluate('location.pathname'), '/', 'Keyboard focus previews the button but does not auto-navigate');
+        assert.equal(await client.evaluate(`!!document.querySelector('[role="progressbar"]')`), false, 'Only an actual hover or activation starts the timed hold');
+        assert.equal(await client.evaluate('document.body.dataset.apertureTransition'), undefined, 'Focus alone never commits the iris transition');
+        await client.evaluate(`document.activeElement?.blur()`);
+      }
+
       await client.cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 });
       await delay(100);
-      await client.evaluate(`window.__apertureMotion=[]; (()=>{const sample=()=>{const letter=document.querySelector('[data-portal-letter]'),phase=document.body.dataset.apertureTransition;if(!letter)return;const rect=letter.getBoundingClientRect();window.__apertureMotion.push({phase,x:rect.left,y:rect.top});if(phase!=='committed')requestAnimationFrame(sample)};requestAnimationFrame(sample)})()`);
+      await client.evaluate(`window.__apertureMotion=[]; (()=>{const sample=()=>{const letter=document.querySelector('[data-portal-letter]'),phase=document.body.dataset.apertureTransition;if(letter){const rect=letter.getBoundingClientRect();window.__apertureMotion.push({phase,x:rect.left,y:rect.top})}if(phase!=='committed'||!letter)requestAnimationFrame(sample)};requestAnimationFrame(sample)})()`);
       await client.cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x: position.x, y: position.y });
       await delay(1100);
       const charging = await client.evaluate(`(() => {const button=document.querySelector('[data-testid="home-aperture-button"]'),bar=document.querySelector('[role="progressbar"]'),blade=button?.querySelector('[data-aperture-blade]'),transform=blade&&getComputedStyle(blade).transform;return {progress:Number(bar?.getAttribute('aria-valuenow')||0),transform,phase:button?.className,route:location.pathname,bodyPhase:document.body.dataset.apertureTransition,portal:!!document.querySelector('[data-testid="home-aperture-portal"]')}})()`);
@@ -89,6 +101,14 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       assert(routeReveal, 'The real gear route is revealed through the aperture');
       assert.equal(await client.evaluate(`getComputedStyle(document.querySelector('[data-testid="home-aperture-portal-iris"]')).opacity`), '1', 'The iris persists as the gear page begins to reveal');
       assert.notEqual(await client.evaluate(`getComputedStyle(document.getElementById('main-content')).clipPath`), 'none', 'The actual gear page opens through the growing aperture');
+      const fixtureInstalled = await client.evaluate(`(() => {const main=document.getElementById('main-content');if(!main)return false;const fixture=document.createElement('div');fixture.innerHTML=${JSON.stringify(mockGearPage)};main.replaceChildren(fixture.firstElementChild);return Boolean(main.querySelector('[data-testid="mock-gear-page"]'))})()`);
+      assert(fixtureInstalled, 'The reveal has deterministic mock Gear page content without network access');
+      if (width === 1280) {
+        const fixtureStart = await client.evaluate(`(() => {const main=document.getElementById('main-content'),portal=document.querySelector('[data-testid="home-aperture-portal"]');return {clip:getComputedStyle(main).clipPath,phase:portal?.getAttribute('data-transition-phase')}})()`);
+        assert.match(fixtureStart.clip, /^circle\(/, `The mock content starts inside the iris crop: ${JSON.stringify(fixtureStart)}`);
+        const startScreenshot = await client.cmd('Page.captureScreenshot', { format: 'png' });
+        fs.writeFileSync('/tmp/dbc-home-aperture-fixture-start-1280.png', Buffer.from(startScreenshot.data, 'base64'));
+      }
       const revealBounds = await client.evaluate(`(() => { const body=getComputedStyle(document.body), horizon=document.querySelector('[data-testid="home-aperture-horizon"]').getBoundingClientRect(); return {start:parseFloat(body.getPropertyValue('--aperture-reveal-start')),end:parseFloat(body.getPropertyValue('--aperture-reveal-end')),x:parseFloat(body.getPropertyValue('--aperture-main-x')),y:parseFloat(body.getPropertyValue('--aperture-main-y')),horizon:horizon.width}; })()`);
       assert(revealBounds.start > 4 && revealBounds.start <= revealBounds.horizon * .28 + 8, `The page starts within the expanded hole: ${JSON.stringify(revealBounds)}`);
       assert(revealBounds.end >= Math.hypot(Math.max(revealBounds.x, width - revealBounds.x), Math.max(revealBounds.y, 900 - revealBounds.y)), 'The circle eventually reaches every viewport corner');
@@ -98,6 +118,17 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       assert(frames[frames.length-1].radius > frames[0].radius, 'The page and hole continue expanding through the reveal');
       const revealScreenshot = await client.cmd('Page.captureScreenshot', { format: 'png' });
       fs.writeFileSync(`/tmp/dbc-home-aperture-reveal-${width}.png`, Buffer.from(revealScreenshot.data, 'base64'));
+      if (width === 1280) {
+        await delay(350);
+        assert.equal(await client.evaluate(`document.querySelectorAll('[data-testid="mock-gear-page"]').length`), 1, 'The fixture remains a single page through the full reveal');
+        assert.equal(await client.evaluate('location.pathname'), '/gear', 'The reveal does not trigger duplicate navigation');
+        const fullReveal = await client.evaluate(`(() => {const main=document.getElementById('main-content'),portal=document.querySelector('[data-testid="home-aperture-portal"]');return {clip:getComputedStyle(main).clipPath,mainCount:document.querySelectorAll('#main-content').length,phase:portal?.getAttribute('data-transition-phase')}})()`);
+        assert.match(fullReveal.clip, /^circle\(/, `The mock content remains clipped to the expanding iris: ${JSON.stringify(fullReveal)}`);
+        assert.equal(fullReveal.mainCount, 1, 'The fixture does not create a duplicate page tree');
+        assert.equal(fullReveal.phase, 'revealing', 'The full-reveal capture occurs before the transition layer settles');
+        const fullRevealScreenshot = await client.cmd('Page.captureScreenshot', { format: 'png' });
+        fs.writeFileSync('/tmp/dbc-home-aperture-fixture-full-reveal-1280.png', Buffer.from(fullRevealScreenshot.data, 'base64'));
+      }
       assert.equal(await client.evaluate(`([...document.querySelectorAll('iframe')].filter(frame=>frame.title==='Gear catalogue preview'||new URL(frame.src,location.href).pathname==='/gear').length)`), 0, 'The revealed gear page is not duplicated in an iframe');
       for (let attempt = 0; attempt < 40 && await client.evaluate(`!!document.querySelector('[data-testid="home-aperture-portal"]')`); attempt++) await delay(100);
       assert.equal(await client.evaluate(`!!document.querySelector('[data-testid="home-aperture-portal"]')`), false, 'The full gear page settles after the reveal');

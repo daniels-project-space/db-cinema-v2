@@ -4,6 +4,22 @@ export type CalendarLine = { title: string; start: number; end: number; qty: num
 export type CalendarRental = { _id: string; status: string; lineItems: CalendarLine[]; pickupTime?: string | null; returnTime?: string | null };
 export type CalendarEntry = { rental: CalendarRental; lines: CalendarLine[]; pickup: boolean; returns: CalendarLine[] };
 
+export type CalendarPeriodGroup = { start: number; end: number; lines: CalendarLine[] };
+
+/** Group same-booking lines that occupy the same London calendar span. */
+export function groupCalendarLinesByPeriod(lines: CalendarLine[]): CalendarPeriodGroup[] {
+  const groups = new Map<string, CalendarPeriodGroup>();
+  for (const line of lines) {
+    if (!Number.isFinite(line.start) || !Number.isFinite(line.end) || line.end < line.start) continue;
+    const start = londonStartOfDay(line.start), end = londonStartOfDay(line.end);
+    const key = `${start}:${end}`;
+    const group = groups.get(key);
+    if (group) group.lines.push(line);
+    else groups.set(key, { start, end, lines: [line] });
+  }
+  return [...groups.values()].sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
 /** London civil dates, bounded by the viewed month, rather than a booking's
  * earliest/latest union. One entry per rental/day retains every actual line. */
 export function calendarMonth(rentals: CalendarRental[], year: number, month: number) {

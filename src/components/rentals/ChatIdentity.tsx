@@ -22,7 +22,7 @@ export function ChatAvatar({ sender, name, photo, className = "" }: { sender: st
   return <span className={`${base} rounded-full bg-violet-300/15 text-xs font-semibold text-violet-200`}>
     {photo && !failed ? (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={photo} alt={name ?? "Renter"} onError={() => setFailed(true)} className="h-full w-full object-cover" />
+      <img src={photo} alt={name ?? "Renter"} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} className="h-full w-full object-cover" />
     ) : (name?.trim()[0]?.toUpperCase() ?? "R")}
   </span>;
 }

@@ -12,8 +12,9 @@ export const deliver=internalAction({args:{deliveryId:v.id("renter_push_deliveri
   try{const s=data.subscription,n=data.notification,keys=renterPushKeys();validatePushSubscription(s.endpoint,s.p256dh,s.auth);
     if(!keys.publicKey||!keys.privateKey)throw Error("Push configuration missing");
     const url=n.bookingId?`/account?rental=${encodeURIComponent(n.bookingId)}#chat`:"/account?conversation=general#chat";
-    await webpush.sendNotification({endpoint:s.endpoint,keys:{p256dh:s.p256dh,auth:s.auth}},JSON.stringify({title:"DB Cinema Rentals",body:n.kind==="messages"?"Your rental team sent you a message.":"There is an update to your rental. Open your account to review it.",url,tag:n.eventKey}),
-      {vapidDetails:{subject:"https://dbcinemarentals.com",publicKey:keys.publicKey,privateKey:keys.privateKey},TTL:300,timeout:10000,urgency:"high",topic:createHash("sha256").update(n.eventKey).digest("hex").slice(0,32)});sent=true;
+    const conversationTag=`dbc-renter-${createHash("sha256").update(`${n.accountId}:${n.bookingId??"general"}`).digest("base64url").slice(0,32)}`;
+    await webpush.sendNotification({endpoint:s.endpoint,keys:{p256dh:s.p256dh,auth:s.auth}},JSON.stringify({notice:n.notice??(n.kind==="messages"?"chat_message":"rental_update"),url,tag:conversationTag}),
+      {vapidDetails:{subject:"https://dbcinemarentals.com",publicKey:keys.publicKey,privateKey:keys.privateKey},TTL:300,timeout:10000,urgency:"high",topic:conversationTag.slice("dbc-renter-".length)});sent=true;
   }catch(e:any){expired=[404,410].includes(e.statusCode);error=expired?"Subscription expired":`Push delivery failed${e.statusCode?` (${e.statusCode})`:""}`;}
   await ctx.runMutation(internal.renterNotifications.finish,{deliveryId,claimId,sent,expired,error});
 }});

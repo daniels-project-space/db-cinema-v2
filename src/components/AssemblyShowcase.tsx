@@ -30,7 +30,7 @@ type ShowcaseBrief = {
 type ShowcaseScenario = { brief: ShowcaseBrief; low: ExampleKit; high: ExampleKit };
 
 const stages = ["Brief", "Needs", "Budget", "Fit"];
-const stageSlogans = ["Built around your brief", "Every need in sync", "Intelligent budgeting", "A better fit, by design"];
+const stageSlogans = ["Name the shoot", "Match the essentials", "Compare kit budgets", "Refine a compatible kit"];
 const showcaseStageMs = 3800;
 const showcaseBriefs: ShowcaseBrief[] = [
   {
@@ -39,7 +39,7 @@ const showcaseBriefs: ShowcaseBrief[] = [
     crew: "small",
     crewLabel: "Small crew",
     cameraCount: 1,
-    notes: ["LOW LIGHT", "HANDHELD"],
+    notes: ["LOW LIGHT", "CLEAN DIALOGUE"],
     preferences: ["lens", "audio"],
     description: "small-crew low-light handheld interview with one camera and a zoom lens",
   },
@@ -49,7 +49,7 @@ const showcaseBriefs: ShowcaseBrief[] = [
     crew: "large",
     crewLabel: "Large production",
     cameraCount: 1,
-    notes: ["STUDIO", "CONTROLLED LIGHT"],
+    notes: ["PRODUCT SHOTS", "LIGHTING & SOUND"],
     preferences: ["lighting", "audio"],
     description: "studio commercial with one camera, dedicated lighting and wireless audio",
   },
@@ -59,7 +59,7 @@ const showcaseBriefs: ShowcaseBrief[] = [
     crew: "solo",
     crewLabel: "Solo",
     cameraCount: 1,
-    notes: ["AVAILABLE LIGHT", "MOBILE AUDIO"],
+    notes: ["ON LOCATION", "TRAVEL LIGHT"],
     preferences: ["lens", "stabilisation", "audio"],
     description: "solo field documentary with one camera, a zoom lens and wireless audio",
   },
@@ -366,14 +366,8 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
       return { brief, low, high };
     };
 
-    return showcaseBriefs.map(makeScenario).filter((scenario, index) =>
-      index === 0 || scenario.brief.preferences.some((preference) =>
-        preference !== "audio" && supportsPreference(scenario.low, preference) && supportsPreference(scenario.high, preference),
-      ),
-    );
+    return showcaseBriefs.map(makeScenario);
   }, [listings]);
-
-  const hasExampleGear = scenarios.some((scenario) => scenario.low.items.length > 0 && scenario.high.items.length > 0);
 
   useEffect(() => {
     if (!loading) {
@@ -384,7 +378,7 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
   }, [loading]);
 
   useEffect(() => {
-    if (reducedMotion || !visible || !pageVisible || (!loading && !hasExampleGear)) return;
+    if (loading || reducedMotion || !visible || !pageVisible) return;
     const timer = window.setInterval(() => {
       const current = flowRef.current;
       const next = current.stage + 1 < stages.length
@@ -407,7 +401,7 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
         setSceneChanging(false);
       }
     };
-  }, [reducedMotion, visible, pageVisible, loading, hasExampleGear, scenarios.length]);
+  }, [loading, reducedMotion, visible, pageVisible, scenarios.length]);
 
   useEffect(() => () => {
     if (sceneTransitionTimer.current !== null) window.clearTimeout(sceneTransitionTimer.current);
@@ -425,7 +419,8 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
   };
   const showcaseBrief = activeScenario.brief;
   const examples = activeScenario;
-  const moving = !reducedMotion && visible && pageVisible && (loading || hasExampleGear);
+  const hasExampleGear = examples.low.items.length > 0 && examples.high.items.length > 0;
+  const moving = !loading && !reducedMotion && visible && pageVisible;
   const selectedPreferences = new Set<PreferenceKind>(showcaseBrief.preferences.filter((preference) =>
     supportsPreference(examples.low, preference) && supportsPreference(examples.high, preference),
   ));
@@ -436,6 +431,7 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
     : 58;
   const hasHigherKit = budgetGap > 0;
   const hasAlternativeGear = examples.high.items.length !== examples.low.items.length || examples.high.items.some((item, index) => item._id !== examples.low.items[index]?._id);
+  const activeBudgetItemCount = (budgetRaised ? examples.high : examples.low).items.length;
 
   const preferenceLabels: Record<PreferenceKind, string> = {
     lens: "Optics",
@@ -443,12 +439,21 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
     audio: "Sound",
     stabilisation: "Movement",
   };
+  const matchedPreferences = [...selectedPreferences];
+  const unmatchedPreferenceLabels = showcaseBrief.preferences
+    .filter((preference) => !selectedPreferences.has(preference))
+    .map((preference) => preferenceLabels[preference].toUpperCase());
+  const needsCaption = matchedPreferences.length
+    ? `MATCHED: ${matchedPreferences.map((preference) => preferenceLabels[preference].toUpperCase()).join(" · ")}${unmatchedPreferenceLabels.length ? ` · REFINE ${unmatchedPreferenceLabels.join(" · ")}` : ""}`
+    : "NO LIVE MATCH · EXPLORE BUILDER";
+  const highKitTitles = examples.high.items.slice(0, 2).map((item) => item.title);
+  const highKitSummary = `${highKitTitles.join(" · ")}${examples.high.items.length > highKitTitles.length ? ` +${examples.high.items.length - highKitTitles.length} more` : ""}`;
   const orbitClasses = [styles.orbitOne, styles.orbitTwo, styles.orbitThree, styles.orbitFour];
   const gearChangeCopy = hasHigherKit
-    ? `A considered step up · +${currency(budgetGap)} per day`
+    ? `+${currency(budgetGap)} per day vs the balanced kit`
     : hasAlternativeGear
-      ? "A different fit · the same daily rate"
-      : "Balanced to the brief · ready to refine";
+      ? "Alternative compatible gear · same daily rate"
+      : "Balanced gear matched to the brief";
 
   return (
     <Link
@@ -467,7 +472,7 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
       <div className={styles.identity}>
         <div className={styles.brandLockup}><b>DB</b><span>CINEMA<br />RENTALS</span></div>
         <h2 id="assembly-showcase-title" className={styles.assemblyName}><span>AI ITEM</span>{" "}<span className={styles.assemblySecondLine}>ASSEMBLY</span></h2>
-        <p className={styles.identityNote}>Describe your shoot and get compatible gear suggestions for your dates, crew and budget.</p>
+        <p className={styles.identityNote}>Describe the shoot, crew and budget. Explore compatible gear from the live catalogue, then check dates in the builder.</p>
         <span className={styles.openBuilder}>Explore the builder <i aria-hidden="true">↗</i></span>
       </div>
 
@@ -498,13 +503,13 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
               <div className={styles.needsScene}>
                 <div className={styles.needsOrbitLine} />
                 <div className={styles.needsCore}><ApertureMark /></div>
-                {[...selectedPreferences].map((kind, index) => (
+                {matchedPreferences.map((kind, index) => (
                   <div key={kind} className={`${styles.orbitItem} ${orbitClasses[index % orbitClasses.length]}`} style={{ "--orbit-delay": `${index * -420}ms` } as CSSProperties}>
                     <PreferenceGlyph kind={kind} />
                     <span>{preferenceLabels[kind]}</span>
                   </div>
                 ))}
-                <span className={styles.needsCaption}>MATCHING WHAT MATTERS</span>
+                <span className={styles.needsCaption}>{needsCaption}</span>
               </div>
             )}
 
@@ -513,8 +518,8 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
                 <BudgetDial total={budgetRaised ? examples.high.total : examples.low.total} position={budgetRaised ? highPosition : lowPosition} loading={loading} animateChanges={moving && !loading && !reducedMotion} />
                 <div className={styles.budgetCopy}>
                   <span className={styles.sceneKicker}>{budgetRaised ? "MORE ROOM" : "STARTING FIT"}</span>
-                  <strong>{loading ? "Matching live gear" : budgetRaised && hasHigherKit ? "Higher-budget kit" : "Balanced kit"}</strong>
-                  <p>Daily hire rates from the live catalogue.</p>
+                  <strong>{loading ? "Matching live gear" : !hasExampleGear ? "Set your budget" : budgetRaised && hasHigherKit ? "Higher-budget kit" : "Balanced kit"}</strong>
+                  <p>{hasExampleGear ? `${activeBudgetItemCount} compatible ${activeBudgetItemCount === 1 ? "item" : "items"} · live daily rates.` : "Choose a budget in the builder."}</p>
                 </div>
                 <div className={styles.budgetEcho} aria-hidden="true" />
               </div>
@@ -535,8 +540,8 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
                 <div className={styles.refinedCopy}>
                   <span className={styles.sceneKicker}>REFINED FIT</span>
                   <strong>{loading ? "···" : examples.high.total > 0 ? currency(examples.high.total) : "—"}<small> / DAY</small></strong>
-                  <p>{gearChangeCopy}</p>
-                  <div className={styles.refinedRule}><i /><span>{hasHigherKit ? "MORE ROOM TO CREATE" : "ALIGNED TO YOUR BRIEF"}</span></div>
+                  <p title={highKitSummary || undefined}>{hasExampleGear ? `${highKitSummary} · ${gearChangeCopy}` : "Explore suggestions for your shoot"}</p>
+                  <div className={styles.refinedRule}><i /><span>{hasExampleGear && hasHigherKit ? "HIGHER-PRICED FIT" : hasAlternativeGear ? "ANOTHER CATALOGUE FIT" : "BUILT AROUND YOUR BRIEF"}</span></div>
                 </div>
               </div>
             )}

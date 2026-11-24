@@ -1,5 +1,7 @@
-export async function createCleanChatImage(file: File): Promise<File> {
-  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("Choose a JPG, PNG or WebP image.");
+import { isConvertiblePhoneImage } from "../../shared/chatAttachmentPolicy";
+
+export async function createCleanChatImage(file: File, label = "cleaned"): Promise<File> {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) && !isConvertiblePhoneImage(file.type, file.name)) throw new Error("Choose a JPG, PNG, WebP or supported phone photo.");
   let bitmap: ImageBitmap | undefined, objectUrl: string | undefined;
   try {
     let image: CanvasImageSource, width: number, height: number;
@@ -22,7 +24,7 @@ export async function createCleanChatImage(file: File): Promise<File> {
     canvas.width = 0; canvas.height = 0;
     if (!blob || !blob.size || blob.size > 10 * 1024 * 1024) throw new Error("The cleaned image is too large to send. Choose a smaller image.");
     const base = file.name.replace(/\.[^.]*$/, "").slice(0, 100) || "image";
-    return new File([blob], `${base}-cleaned.png`, { type: "image/png" });
+    return new File([blob], `${base}-${label}.png`, { type: "image/png" });
   } finally {
     bitmap?.close();
     if (objectUrl) URL.revokeObjectURL(objectUrl);

@@ -3,8 +3,24 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v,ConvexError } from "convex/values";
 import { bump } from "./rateLimit";
-import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { linkVerificationCopies } from "./lib/verificationOwnership";
+import { enqueueVerifiedGuestClaims } from "./lib/guestRentalClaimQueue";
+/** Account bootstrap is allowed only when a paid booking has a complete,
+ * self-consistent signed Terms + Privacy snapshot. This records the renter's
+ * actual checkout acceptance; it never upgrades a historic agreement. */
+function acceptedAccountTerms(booking: any) {
+ const acceptedAt=booking.agreementSignedAt,docs=booking.agreementDocs;
+ if(!Number.isSafeInteger(acceptedAt)||acceptedAt<=0||!Array.isArray(docs)||!booking.agreementName?.trim())return null;
+ let snapshot:any;
+ try{snapshot=JSON.parse(booking.agreementSnapshot??"")}catch{return null}
+ if(snapshot?.format!==1||snapshot.acceptedAt!==acceptedAt||snapshot.signer!==booking.agreementName.trim()||
+   snapshot.particulars?.timeZone!=="Europe/London"||!Array.isArray(snapshot.particulars?.lineItems)||!Array.isArray(snapshot.documents))return null;
+ const unique=(kind:string)=>{const matches=docs.filter((doc:any)=>doc?.kind===kind);return matches.length===1&&typeof matches[0].version==="string"&&matches[0].version.length>0?matches[0]:null};
+ const terms=unique("terms"),rental=unique("rental-agreement"),privacy=unique("privacy");
+ if(!terms||!rental||!privacy||terms.version!==rental.version||snapshot.version!==rental.version)return null;
+ if(snapshot.documents.length!==docs.length||docs.some((doc:any)=>snapshot.documents.filter((saved:any)=>saved?.kind===doc?.kind&&saved?.version===doc?.version).length!==1))return null;
+ return {accountTermsVersion:terms.version,accountTermsAcceptedAt:acceptedAt,privacyNoticeVersion:privacy.version,privacyNoticeAcknowledgedAt:acceptedAt};
+}
 /** Runs inside the attested paid-booking transaction, independently of email delivery. */
 export async function ensurePaidBookingAccount(ctx: any, booking: any, allowPendingVerification=false) {
  const paidPending=allowPendingVerification&&booking.status==="pending_verification"&&booking.verificationProvider==="didit"&&Number.isSafeInteger(booking.checkoutPaidAt)&&booking.checkoutPaidAt>0&&!booking.cancellationDecision&&!booking.returnDecision;
@@ -16,7 +32,9 @@ export async function ensurePaidBookingAccount(ctx: any, booking: any, allowPend
  const customer=booking.customerId?await ctx.db.get(booking.customerId):null;
  const details={name:booking.guestName??customer?.name??booking.agreementName,phone:booking.guestPhone??customer?.phone,address:booking.billingAddress??booking.address};
  if(!account){
-  const id=await ctx.db.insert("accounts",{email,...details,emailVerificationRequired:true,firstRentalPaidAt:Date.now(),createdAt:Date.now()});
+  const acceptance=acceptedAccountTerms(booking);
+  if(!acceptance)return null;
+  const id=await ctx.db.insert("accounts",{email,...details,...acceptance,emailVerificationRequired:true,firstRentalPaidAt:Date.now(),createdAt:Date.now()});
   await ensureReferralCode(ctx,id);account=await ctx.db.get(id);
   await ctx.db.patch(booking._id,{accountCreatedAtCheckout:true});
  }else{
@@ -27,7 +45,10 @@ export async function ensurePaidBookingAccount(ctx: any, booking: any, allowPend
   if(seeded)await ctx.db.patch(booking._id,{accountCreatedAtCheckout:true});
   account=await ctx.db.get(account._id);
  }
+ const accountLinkChanged=booking.accountId!==account._id;
  await ctx.db.patch(booking._id,{accountId:account._id});
+ if(accountLinkChanged&&account.emailVerifiedAt&&!account.emailVerificationRequired)
+  await ctx.scheduler.runAfter(0,internal.emailInbox.linkVerifiedHistory,{accountId:account._id,cursor:null});
  await linkVerificationCopies(ctx,booking._id,account._id);
  return account;
 }
@@ -83,7 +104,7 @@ export const exchange=internalMutation({args:{secretHash:v.string(),sessionToken
  const link=await ctx.db.query("account_access_links").withIndex("by_hash",q=>q.eq("secretHash",a.secretHash)).unique();if(!link||link.usedAt||link.expiresAt<=Date.now())throw new ConvexError({code:"ACCESS_LINK_EXPIRED",message:"This sign-in link has expired or has already been used."});
  const account=await ctx.db.get(link.accountId);if(!account)throw new ConvexError({code:"ACCESS_LINK_INVALID",message:"This sign-in link is no longer valid."});
  if(account.blockedAt!=null)throw new ConvexError({code:"ACCOUNT_BLOCKED",message:"Please contact DB Cinema Rentals for help with your account."});
- if(link.bookingId&&!belongsToRentalAccount(await ctx.db.get(link.bookingId),account))throw new ConvexError({code:"ACCESS_LINK_INVALID",message:"This sign-in link is no longer valid."});
+ if(link.bookingId){const booking=await ctx.db.get(link.bookingId);if(!booking || (booking.accountId ? booking.accountId!==account._id : !booking.guestEmail || booking.guestEmail.trim().toLowerCase()!==account.email.trim().toLowerCase()))throw new ConvexError({code:"ACCESS_LINK_INVALID",message:"This sign-in link is no longer valid."});}
  if(link.purpose==="signup"&&(account.emailVerifiedAt||account.hash!==link.credentialHash))throw new ConvexError({code:"ACCESS_LINK_EXPIRED",message:"This signup link is no longer valid. Request a new sign-in link."});
  if(account.emailVerificationRequired&&!account.emailVerifiedAt){
   // A rental/sign-in email proves ownership but must not activate a password
@@ -93,6 +114,10 @@ export const exchange=internalMutation({args:{secretHash:v.string(),sessionToken
  }
  const needsVerificationRecovery=!account.emailVerifiedAt||account.emailVerificationRequired;
  await ctx.db.patch(account._id,{emailVerifiedAt:Date.now(),emailVerificationRequired:false});
- if(needsVerificationRecovery)await ctx.scheduler.runAfter(0,internal.verificationArchive.linkVerifiedAccount,{accountId:account._id,cursor:null});
+ await enqueueVerifiedGuestClaims(ctx,account._id);
+ if(needsVerificationRecovery){
+  await ctx.scheduler.runAfter(0,internal.verificationArchive.linkVerifiedAccount,{accountId:account._id,cursor:null});
+  await ctx.scheduler.runAfter(0,internal.emailInbox.linkVerifiedHistory,{accountId:account._id,cursor:null});
+ }
  await ctx.db.patch(link._id,{usedAt:Date.now()});await ctx.db.insert("sessions",{accountId:account._id,token:a.sessionToken,createdAt:Date.now(),expiresAt:Date.now()+90*86400000});return{token:a.sessionToken,bookingId:link.bookingId};
 }});

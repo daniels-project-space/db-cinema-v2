@@ -72,7 +72,7 @@ async function payTestCheckout(url,stripe,sessionId){
   const preview = await state.preview.handler(ctx, args);
   assert.equal(preview.quote.deltaPence, -400);
   const id = await state.propose.handler(ctx, { ...args, requestId: `fixture-${run}`, quoteSnapshot: preview.quoteSnapshot, confirmed: true });
-  const acceptance = { token: "sandbox-renter-token", id, expectedDeltaPence: -400 };
+  const acceptance = { token: "sandbox-renter-token", id, confirmed:true,expectedDeltaPence: -400 };
   const result = await payments.accept.handler(ctx, acceptance);
   assert.equal(result.applied, true);
   assert.equal(booking.lineItems[0].listingId, replacement._id);
@@ -95,7 +95,7 @@ async function payTestCheckout(url,stripe,sessionId){
   const upgradePreview = await state.preview.handler(ctx, upgradeArgs);
   assert.equal(upgradePreview.quote.deltaPence, 500);
   const upgradeId = await state.propose.handler(ctx, { ...upgradeArgs, requestId: `upgrade-${run}`, quoteSnapshot: upgradePreview.quoteSnapshot, confirmed: true });
-  const upgradeAcceptance = { token: "sandbox-renter-token", id: upgradeId, expectedDeltaPence: 500 };
+  const upgradeAcceptance = { token: "sandbox-renter-token", id: upgradeId, confirmed:true,expectedDeltaPence: 500 };
   const firstCheckout = await payments.accept.handler(ctx, upgradeAcceptance);
   const retryCheckout = await payments.accept.handler(ctx, upgradeAcceptance);
   assert.equal(retryCheckout.url, firstCheckout.url, "An upgrade retry must reuse its original checkout");

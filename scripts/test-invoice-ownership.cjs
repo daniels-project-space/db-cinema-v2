@@ -5,7 +5,7 @@ const owner=put('accounts',{email:'new-owner@example.invalid',name:'Linked custo
 const foreign=put('accounts',{email:'old-owner@example.invalid',name:'Other customer'});
 for(const [token,accountId,expiresAt] of [['owner',owner._id,Date.now()+60000],['foreign',foreign._id,Date.now()+60000],['expired',owner._id,Date.now()-1],['missing-expiry',owner._id,undefined]])put('sessions',{token,accountId,expiresAt});
 const listing=put('listings',{title:'Camera',r2Images:['/gear-camera.webp'],sourceImages:['https://source.example.invalid/camera.jpg']});
-const booking=put('bookings',{accountId:owner._id,guestEmail:foreign.email,guestName:'Booking name',status:'returned',depositAmount:40.5,depositHoldAmount:81,depositHoldStatus:'released',depositRefunded:true,depositRefundAmount:40.5,subtotal:100,total:140.5,lineItems:[{listingId:listing._id,title:'Camera',qty:1,start:0,end:86400000,lineTotal:100}]});
+const booking=put('bookings',{accountId:owner._id,guestEmail:foreign.email,guestName:'Booking name',status:'returned',paidConfirmedAt:Date.now(),depositAmount:40.5,depositHoldAmount:81,depositHoldStatus:'released',depositRefunded:true,depositRefundAmount:40.5,subtotal:100,total:140.5,lineItems:[{listingId:listing._id,title:'Camera',qty:1,start:0,end:86400000,lineTotal:100}]});
 const legacy=put('bookings',{...booking,_id:'legacy-invoice',accountId:undefined,guestEmail:' NEW-OWNER@example.invalid '});
 put('rental_security_charges',{bookingId:booking._id,accountId:owner._id,state:'paid',kind:'damage',reason:'Documented damage',paidPence:2000,refundedPence:500,customerId:'private-provider-customer'});
 put('rental_security_charges',{bookingId:booking._id,accountId:foreign._id,state:'paid',kind:'damage',reason:'FOREIGN ASSESSMENT',paidPence:9000});
@@ -13,7 +13,7 @@ put('rental_security_charges',{bookingId:booking._id,accountId:owner._id,state:'
 const fn=load('convex/bookings.ts').invoiceData.handler;
 (async()=>{
 const owned=await fn({db},{bookingId:booking._id,token:'owner'});assert.ok(owned);assert.equal(owned.customerName,'Booking name');assert.equal(owned.depositHoldAmount,81);assert.equal(owned.depositRefundAmount,40.5);assert.deepEqual(owned.equipmentImages,[['/gear-camera.webp','https://source.example.invalid/camera.jpg']]);
-assert.equal(owned.assessmentPayments.length,1);assert.equal(owned.assessmentPayments[0].paid,20);assert.equal(owned.assessmentPayments[0].refunded,5);assert(!JSON.stringify(owned).includes('private-provider-customer'));assert(!JSON.stringify(owned).includes('FOREIGN ASSESSMENT'));assert(!JSON.stringify(owned).includes('UNPAID ASSESSMENT'));
+assert.equal(owned.assessmentPayments.length,1);assert.equal(owned.assessmentPayments[0].paid,20);assert.equal(owned.assessmentPayments[0].refunded,5);assert.equal(owned.assessmentClaims.length,2);assert.equal(owned.assessmentClaims.find(row=>row.state==='notice_sent').amount,10);assert(!JSON.stringify(owned).includes('private-provider-customer'));assert(!JSON.stringify(owned).includes('FOREIGN ASSESSMENT'));
 owner.blockedAt=Date.now();assert.equal(await fn({db},{bookingId:booking._id,token:'owner'}),null);owner.blockedAt=undefined;
 owner.emailVerificationRequired=true;assert.equal(await fn({db},{bookingId:booking._id,token:'owner'}),null);owner.emailVerifiedAt=Date.now();assert.ok(await fn({db},{bookingId:booking._id,token:'owner'}));
 assert.equal(await fn({db},{bookingId:booking._id,token:'foreign'}),null);

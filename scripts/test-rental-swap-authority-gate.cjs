@@ -14,6 +14,14 @@ const args = { token: process.env.ADMIN_TOKEN, bookingId: "booking-fixture", lin
   assert.equal((await state.previewForAdmin.handler(ctx,args)).ok,false,'The selector quote fails closed without shared authority');
   await assert.rejects(state.preview.handler(ctx, args), /temporarily unavailable.*stock coordination/);
   await assert.rejects(state.propose.handler(ctx, { ...args, requestId: "swap-fixture-123456", quoteSnapshot: "fixture", confirmed: true }), /temporarily unavailable.*stock coordination/);
+  process.env.RMV2_OUTBOUND_ENABLED = "false";
+  assert.equal(await state.readiness.handler(ctx,{token:process.env.ADMIN_TOKEN}),false,'Swap readiness requires outbound Rental Manager booking sync');
+  assert.equal((await state.previewForAdmin.handler(ctx,args)).ok,false,'A paused outbound booking sync hides new swap quotes');
+  await assert.rejects(state.preview.handler(ctx,args),/Rental Manager booking sync is paused/);
+  await assert.rejects(state.propose.handler(ctx,{...args,requestId:"swap-outbound-paused-1234",quoteSnapshot:"fixture",confirmed:true}),/Rental Manager booking sync is paused/);
+  assert.equal((tables.get("rental_item_swaps") ?? []).length, 0, 'A paused outbound sync cannot create a swap proposal');
+  assert.equal((tables.get("reservations") ?? []).length, 0, 'A paused outbound sync cannot create a stock reservation');
+  delete process.env.RMV2_OUTBOUND_ENABLED;
   assert.equal((tables.get("rental_item_swaps") ?? []).length, 0);
   assert.equal((tables.get("reservations") ?? []).length, 0);
   console.log("PASS swap authority: enabling the feature flag alone cannot create a proposal or reservation.");

@@ -1,6 +1,15 @@
 const assert = require("node:assert/strict");
 const { load } = require("./lib/rentalTestHarness.cjs");
 const { restoreMembershipSelection, accountPricingContext, membershipOfferContext, membershipRecommendationPreview } = load("shared/membershipSelection.ts");
+const { TIERS, membershipPlanHighlights } = load("shared/membership.ts");
+for (const tier of TIERS) {
+  const highlights = membershipPlanHighlights(tier);
+  assert.equal(highlights.length, 4, `${tier.name} presents exactly four benefit bullets`);
+  assert.equal(new Set(highlights).size, 4, `${tier.name} has no duplicate benefit bullets`);
+  assert.equal(highlights.some(perk => perk.includes("rental credit each paid month")), false, `${tier.name} does not repeat the monthly-credit amount shown in its credit tile`);
+}
+assert.ok(membershipPlanHighlights(TIERS.find(tier => tier.key === "pro")).some(perk => perk.includes("Weekend")), "Pro highlights its weekend deal");
+assert.ok(membershipPlanHighlights(TIERS.find(tier => tier.key === "pro")).some(perk => perk.includes("Film Fund application entry included")), "Pro highlights included Film Fund entry");
 const contextArgs = { items: [{ listingId: 'lens', start: 1, end: 7 }], customerEmail: 'guest', fulfilment: 'pickup', account: accountPricingContext(null) };
 const context = membershipOfferContext(contextArgs);
 const recommendations = [{ tier: 'pro', netSaving: 19.8 }];

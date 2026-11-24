@@ -17,6 +17,8 @@ const quietAction = "inline-flex min-h-11 items-center justify-center gap-2 roun
 export function RentalSwapRecovery({ token, bookingId }: { token: string; bookingId: string }) {
   const rows = useQuery(api.rentalSwapState.list, { token, bookingId: bookingId as any, admin: true });
   const resume = useAction(api.rentalSwapPayments.resumeReview);
+  const closeUnpaid = useAction(api.rentalSwapPayments.closeAcceptedWithoutPayment);
+  const checkRefundApproval = useAction(api.rentalSwapPayments.checkRefundApproval);
   const refund = useAction(api.rentalSwapPayments.refundPaidReview);
   const syncFailedRefund = useAction(api.rentalSwapPayments.syncFailedRefundReview);
   const resolveRefundAmbiguity = useAction(api.rentalSwapPayments.resolveRefundAmbiguity);
@@ -30,7 +32,7 @@ export function RentalSwapRecovery({ token, bookingId }: { token: string; bookin
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [refundDashboardUrl, setRefundDashboardUrl] = useState<string | null>(null);
-  const reviews = rows?.filter(row => row.status === "review" || row.status === "refund_compensating") ?? [];
+  const reviews = rows?.filter(row => row.status === "review" || row.status === "refund_compensating" || Boolean(row.approvalUrl)) ?? [];
   type SwapId = (typeof reviews)[number]["id"];
 
   if (!reviews.length) {
@@ -44,8 +46,10 @@ export function RentalSwapRecovery({ token, bookingId }: { token: string; bookin
       const result = await resume({ token, id, confirmed: true });
       setMessage(result.status === "awaiting_acceptance"
         ? "Request expired · no payment started."
+        : result.status === "awaiting_review"
+          ? "Stripe still needs approval · complete it there, then check again."
         : result.applied
-          ? "Settlement recorded · confirm the stock update in Rental Manager."
+          ? "Equipment and price updated · Rental Manager sync queued."
           : result.refunded
             ? "Original payment refunded."
             : result.url
@@ -54,6 +58,42 @@ export function RentalSwapRecovery({ token, bookingId }: { token: string; bookin
       setSelected(null);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not resume the existing change.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function closeUnpaidChange(id: SwapId) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await closeUnpaid({ token, id, confirmed: true });
+      setMessage(result.stockReleasePending
+        ? "Closed before payment · the existing kit is unchanged. Shared stock release is still reconciling."
+        : "Closed before payment · the existing kit and rental dates are unchanged.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The unpaid change could not be closed safely.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function checkApproval(id: SwapId) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await checkRefundApproval({ token, id });
+      setMessage(result.status === "awaiting_review"
+        ? "Stripe still needs approval · complete it there, then check again."
+        : result.applied
+          ? "Refund approved · equipment change recorded."
+          : result.refunded
+            ? "Refund approved · original equipment stays in place while stock release is reconciled."
+            : result.status === "pending"
+              ? "Refund processing · check again shortly."
+              : "Approval checked · settlement is still processing.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not check the Stripe approval.");
     } finally {
       setBusy(false);
     }
@@ -167,7 +207,7 @@ export function RentalSwapRecovery({ token, bookingId }: { token: string; bookin
           <div className="flex min-w-0 items-center justify-between gap-3">
             <span className="text-[10px] font-medium uppercase tracking-[.13em] text-white/40">Requested change</span>
             <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-medium ${row.status === "refund_compensating" ? "border-sky-200/15 bg-sky-200/[.06] text-sky-100/80" : "border-amber-100/15 bg-amber-100/[.06] text-amber-100/80"}`}>
-              {row.status === "refund_compensating" ? "Refund processing" : row.autoStockRetry ? "Checking stock" : "Needs review"}
+              {row.approvalUrl ? "Stripe approval" : row.status === "refund_compensating" ? "Refund processing" : row.autoStockRetry ? "Checking stock" : "Needs review"}
             </span>
           </div>
 
@@ -196,8 +236,13 @@ export function RentalSwapRecovery({ token, bookingId }: { token: string; bookin
           {row.failedRefund && <p className="inline-flex rounded-full border border-rose-200/10 bg-rose-200/[.045] px-2.5 py-1 text-[10px] text-rose-100/75">Refund failed · review required</p>}
           {row.refundAmbiguity && <p className="inline-flex rounded-full border border-amber-200/15 bg-amber-200/[.055] px-2.5 py-1 text-[10px] text-amber-100/85">Stripe receipts conflict</p>}
           {row.status === "refund_compensating" && <p className="text-xs text-sky-100/70">Not confirmed yet</p>}
-          {row.approvalUrl && <a href={row.approvalUrl} target="_blank" rel="noopener noreferrer" className="inline-flex text-xs font-medium text-[#e7bd88] underline underline-offset-4">Review Stripe approval ↗</a>}
+          {row.approvalUrl && <a href={row.approvalUrl} target="_blank" rel="noopener noreferrer" className="inline-flex text-xs font-medium text-[#e7bd88] underline underline-offset-4">Open Stripe approval ↗</a>}
         </div>
+
+        {row.approvalUrl && row.status !== "review" && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[.07] bg-black/[.08] p-3.5 sm:px-4">
+          <p className="max-w-md text-xs leading-relaxed text-white/60">The refund and equipment change stay locked until Stripe approves it.</p>
+          <button type="button" disabled={busy} onClick={() => void checkApproval(row.id)} className={quietAction}>{busy ? "Checking…" : "Check approval status"}</button>
+        </div>}
 
         {row.status === "review" && <div className="border-t border-white/[.07] bg-black/[.08] p-3.5 sm:px-4">
           {row.autoStockRetry ? null : <>
@@ -208,6 +253,7 @@ export function RentalSwapRecovery({ token, bookingId }: { token: string; bookin
             {!row.refundAmbiguity && <button type="button" disabled={busy} onClick={() => { setSelected(row.id); setRefundSelected(null); setMessage(""); setRefundDashboardUrl(null); }} className={primaryAction}>Resolve change <Icon name="arrow" className="h-4 w-4" /></button>}
             {row.refundAmbiguity && ambiguityReady === row.id && <button type="button" disabled={busy} onClick={() => { setAmbiguitySelected(row.id);setReason("");setMessage(""); }} className={primaryAction}>Confirm one refund <Icon name="arrow" className="h-4 w-4" /></button>}
             {row.paidStockReview && <button type="button" disabled={busy} onClick={() => { setRefundSelected(row.id); setSelected(null); setReason(""); setMessage(""); setRefundDashboardUrl(null); }} className={quietAction}>Refund extra payment</button>}
+            {row.safeToCloseWithoutPayment && <button type="button" disabled={busy} title="Stripe session creation was never started. The renter's original equipment stays unchanged." onClick={() => void closeUnpaidChange(row.id)} className={quietAction}>{busy ? "Closing…" : "Close · no payment started"}</button>}
           </div>}
 
           {ambiguitySelected === row.id && row.refundAmbiguity && <div className="space-y-3">

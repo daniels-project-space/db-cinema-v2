@@ -22,6 +22,10 @@
  */
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+
+type PaidCheckoutEvidence =
+  | { status: "succeeded"; paymentIntentId: string; paidAt: number }
+  | { status: "no_payment_required"; checkoutSessionId: string; paidAt: number };
 import { v } from "convex/values";
 
 export const push = internalAction({
@@ -37,8 +41,9 @@ export const push = internalAction({
     const claim = await ctx.runMutation(internal.rmv2Delivery.claim, { bookingId, revision });
     if (!claim) return { ok: false, reason: "not_due_or_claimed" };
     const generation = claim.generation;
-    async function result(ok: boolean, reason?: string, stockAcknowledgement?:any) {
-      await ctx.runMutation(internal.rmv2Delivery.record, { bookingId, revision, generation, ok, ...(reason ? { reason } : {}), ...(stockAcknowledgement?{stockAcknowledgement}:{}) });
+    let paidPendingStockAcknowledgement:any;
+    async function result(ok: boolean, reason?: string, stockAcknowledgement?:any, deferred = false) {
+      await ctx.runMutation(internal.rmv2Delivery.record, { bookingId, revision, generation, ok, ...(reason ? { reason } : {}), ...(stockAcknowledgement?{stockAcknowledgement}:{}), ...(deferred ? {deferred:true} : {}), ...(paidPendingStockAcknowledgement ? {paidPendingStockAcknowledgement} : {}) });
       return { ok, ...(reason ? { reason } : {}) };
     }
     const url = process.env.RMV2_WEBHOOK_URL;
@@ -50,7 +55,54 @@ export const push = internalAction({
       return result(false, "missing_config");
     }
 
+    const verification = booking.verification;
+    // Every paid, unconfirmed Didit result remains a stock claim until an
+    // explicit cancellation or return closes the booking. Acquire it before
+    // mirroring the pending_review row: RM availability intentionally ignores
+    // pending-review reservations, so reversing this order creates a gap if
+    // the mirror succeeds but the following claim request is delayed or lost.
+    const paidPendingVerification = booking.status === "pending_verification" && verification?.provider === "didit" &&
+      typeof booking.checkoutPaidAt === "number" && Number.isSafeInteger(booking.checkoutPaidAt) && booking.checkoutPaidAt > 0;
+
     try {
+      if (paidPendingVerification) {
+        // The generated API declaration predates this projection field; keep
+        // the runtime payload tied to the explicit sync contract until Convex
+        // codegen is available in the deployment workspace.
+        const evidence = (booking as typeof booking & { paymentEvidence?: PaidCheckoutEvidence }).paymentEvidence;
+        const physical = Array.isArray(booking.physicalReservations) ? booking.physicalReservations : [];
+        if (!evidence || !physical.length) return result(false, "paid_pending_stock_evidence_missing");
+        const items = physical.map((row: any) => ({
+          itemId: row.rmv2ItemId,
+          start: row.start,
+          returnAt: row.end - (row.endExclusive ? 60 * 60 * 1000 : 0),
+          quantity: row.qty,
+        }));
+        if (items.some((line: any) => typeof line.itemId !== "string" || !line.itemId ||
+          !Number.isSafeInteger(line.start) || !Number.isSafeInteger(line.returnAt) || line.returnAt <= line.start ||
+          !Number.isSafeInteger(line.quantity) || line.quantity < 1))
+          return result(false, "paid_pending_stock_window_invalid");
+        const acquired = await ctx.runAction(internal.sharedStockBridge.send, { request: { operation: "acquirePaidBooking", args: {
+          requestId: `booking_${booking.id}`, bookingId: String(booking.id), bookingRevision: revision,
+          verificationState: "pending", paymentEvidence: evidence, items,
+        } } });
+        if (acquired.status === "capacity_conflict") return result(false, "paid_pending_stock_capacity_conflict");
+        const paidClaim = acquired.status === "confirmed" ? acquired.result as {
+          operation?: string; bookingId?: string; outcome?: string; holdsStock?: boolean;
+        } : null;
+        const claimHoldsStock = paidClaim?.outcome === "execution_started" && paidClaim.holdsStock === true;
+        const reservationTookOver = paidClaim?.outcome === "converted" && paidClaim.holdsStock === false;
+        if (acquired.status !== "confirmed" || paidClaim?.operation !== "acquirePaidBooking" ||
+            paidClaim.bookingId !== String(booking.id) || !(claimHoldsStock || reservationTookOver))
+          return result(false, "paid_pending_stock_claim_unconfirmed");
+        paidPendingStockAcknowledgement = {
+          bookingId: booking.id,
+          bookingRevision: revision,
+          outcome: paidClaim.outcome,
+          holdsStock: paidClaim.holdsStock === true,
+        };
+      }
+
       const resp = await fetch(url, {
         method: "POST",
         headers: {
@@ -69,9 +121,27 @@ export const push = internalAction({
       const receipt = await resp.json();
       const applied = receipt?.appliedRevision === revision && ["applied", "unchanged"].includes(receipt?.outcome);
       const unpaid = booking.status === "pending_payment" && receipt?.outcome === "ignored" && receipt?.reason === "unpaid" && receipt?.appliedRevision === null;
-      if (receipt?.ok !== true || receipt.version !== 1 || receipt.bookingId !== bookingId || receipt.receivedRevision !== revision || !applied && !unpaid) return result(false, "invalid_receipt");
       const stock=(booking as typeof booking & {stockApplicationReceipt?:{kind?:string;swapId?:string;managerRequestId:string;fingerprint:string;executionKey:string;bookingRevision:number}}).stockApplicationReceipt,ack=receipt.stockAcknowledgement;
+      const validRevision = Number.isSafeInteger(revision) && revision >= 0;
+      const receiptMatchesPush = validRevision && receipt?.ok === true && receipt.version === 1 && receipt.bookingId === bookingId && receipt.receivedRevision === revision;
+      const deferredStock = receiptMatchesPush && !stock && receipt.outcome === "deferred_stock_claim" &&
+        Number.isSafeInteger(receipt.appliedRevision) && receipt.appliedRevision >= 0 && receipt.appliedRevision === revision;
+      const releaseReason = booking.status === "returned" ? "booking_returned" as const
+        : booking.status === "cancelled" ? "booking_cancelled" as const : null;
+      // A deferred manager mirror is acceptable only when this same delivery
+      // already proved that the paid booking claim is held. Never acknowledge
+      // it and wait for a later retry without that proof.
+      if (!receiptMatchesPush || !applied && !unpaid && !(deferredStock && (paidPendingVerification || releaseReason))) return result(false, "invalid_receipt");
       if(stock&&(!applied||!ack||ack.managerRequestId!==stock.managerRequestId||ack.fingerprint!==stock.fingerprint||ack.executionKey!==stock.executionKey||ack.bookingRevision!==stock.bookingRevision))return result(false,"invalid_stock_acknowledgement");
+
+      if (releaseReason) {
+        const released = await ctx.runAction(internal.sharedStockBridge.send, { request: { operation: "releaseBooking", args: {
+          bookingId: String(booking.id), bookingRevision: revision,
+          eventId: `booking_${booking.id}_${revision}_${releaseReason}`, reason: releaseReason,
+        } } });
+        if (released.status !== "confirmed" || released.result.operation !== "releaseBooking" || released.result.bookingId !== String(booking.id))
+          return result(false, "shared_stock_release_unconfirmed");
+      }
       return result(true,undefined,stock?{...ack,...(stock.kind==="booking_confirmation"?{kind:"booking_confirmation"}:{swapId:stock.swapId})}:undefined);
     } catch (err) {
       console.error(

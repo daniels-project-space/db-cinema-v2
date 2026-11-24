@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const {load, db, put, tables} = require('./lib/rentalTestHarness.cjs');
+const {load, db, put, tables, putFreshSharedStock} = require('./lib/rentalTestHarness.cjs');
 const bookings = load('convex/bookings.ts'), availability = load('convex/availability.ts');
 const {assertRentalInventory} = load('convex/lib/rentalInventory.ts');
 const {reservationOccupancy} = load('convex/lib/reservationOccupancy.ts');
@@ -14,12 +14,14 @@ const line = (listing,qty=1) => ({listingId:listing._id,title:listing.title,qty,
 const holds = booking => (tables.get('reservations')??[]).filter(r=>r.bookingId===booking._id&&r.status==='hold');
 const reserve = (booking,ttlMs=60000) => bookings.placeHolds.handler(ctx,{bookingId:booking._id,ttlMs});
 (async()=>{try{
+ putFreshSharedStock();
  const capacity=await availability.forListing.handler(ctx,{listingId:kit._id,start,end});
  assert.equal(capacity.owned,1);assert.equal(capacity.available,1,'The kit count is bounded by its two-battery component, not the last raw stock count');
  const first = put('bookings',{status:'pending_payment',lineItems:[line(kit),line(body)]});
  assert.deepEqual(await reserve(first),{created:3,alreadyReserved:false});
  const original = JSON.stringify(holds(first));
  clock += 3600000;
+ putFreshSharedStock();
  assert.deepEqual(await reserve(first,120000),{created:0,alreadyReserved:true});
  assert.equal(JSON.stringify(holds(first)),original,'Expired markers on unresolved payment remain identical; retries neither duplicate nor extend them');
  first.lineItems.reverse();
@@ -63,6 +65,10 @@ const reserve = (booking,ttlMs=60000) => bookings.placeHolds.handler(ctx,{bookin
  await guard(marketing,/no longer available/);
  assert.equal((await availability.forListing.handler(ctx,{listingId:marketing._id,start,end})).available,0,'Gaffer and other single-listing availability callers must not promise marketing stock');
  assert.equal((await availability.forCart.handler(ctx,{items:[{listingId:marketing._id,start,end}]}))[marketing._id].ok,false);
+ const suppressed=put('listings',{title:'Suppressed camera',active:true,suppressed:true,components:[{inventoryUnitId:available._id,qty:1}]});
+ await guard(suppressed,/no longer available/);
+ assert.equal((await availability.forListing.handler(ctx,{listingId:suppressed._id,start,end})).available,0,'Suppressed catalogue records cannot be reserved even when their physical stock mapping is valid');
+ assert.equal((await availability.forCart.handler(ctx,{items:[{listingId:suppressed._id,start,end}]}))[suppressed._id].ok,false,'Suppressed catalogue records remain unavailable through cart availability');
  const invalidDates=put('bookings',{status:'pending_payment',lineItems:[{...line(availableListing),start:end,end:start}]});await assert.rejects(()=>reserve(invalidDates),/Invalid rental/);assert.equal(holds(invalidDates).length,0);
  const invalidQuantity=put('bookings',{status:'pending_payment',lineItems:[line(availableListing,0)]});await assert.rejects(()=>reserve(invalidQuantity),/Invalid rental/);
  await assertRentalInventory(ctx,[line(availableListing)]);
@@ -82,18 +88,27 @@ const reserve = (booking,ttlMs=60000) => bookings.placeHolds.handler(ctx,{bookin
  }
  const pendingUnit=put('inventory_units',{name:'Paid pending fixture',active:true,quantityOwned:1});
  const pendingListing=put('listings',{title:'Paid pending fixture',active:true,components:[{inventoryUnitId:pendingUnit._id,qty:1}]});
- const pendingLine=line(pendingListing),pendingBooking=put('bookings',{status:'pending_payment',verificationProvider:'didit',idVerifyStatus:'required',stripeCheckoutSessionId:'cs_paid_pending_fixture',lineItems:[pendingLine]});
+ const pendingLine=line(pendingListing),pendingBooking=put('bookings',{status:'pending_payment',verificationProvider:'didit',idVerifyStatus:'required',stripeCheckoutSessionId:'cs_paid_pending_fixture',lineItems:[pendingLine],total:100,currency:'GBP'});
+ pendingBooking.itemPaymentLedgerVersion=1;pendingBooking.checkoutLineFunding=[{listingId:pendingLine.listingId,start:pendingLine.start,end:pendingLine.end,qty:pendingLine.qty,gross:100,discount:0,membershipCredit:0,accountCredit:0,card:100}];
  const pendingHold=put('reservations',{bookingId:pendingBooking._id,inventoryUnitId:pendingUnit._id,listingId:pendingListing._id,start:pendingLine.start,end:pendingLine.end,qty:1,source:'site',status:'hold',holdExpiresAt:clock-1});
  assert.equal(await reservationOccupancy(ctx,pendingHold),null,'Even an expired checkout marker remains advisory until the verified Stripe receipt arrives');
  assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,1,'An unpaid basket stays available to other renters');
- await bookings.recordPaidCheckoutReceipt.handler(ctx,{bookingId:pendingBooking._id,sessionId:'cs_paid_pending_fixture',paymentIntentId:'pi_paid_pending_fixture'});
+ await bookings.recordPaidCheckoutReceipt.handler(ctx,{bookingId:pendingBooking._id,sessionId:'cs_paid_pending_fixture',paymentIntentId:'pi_paid_pending_fixture',amountTotalPence:10000,currency:'gbp',paymentStatus:'paid'});
+ assert.deepEqual(pendingBooking.itemPaymentLedger,[{listingId:pendingLine.listingId,qty:pendingLine.qty,sources:[{paymentIntentId:'pi_paid_pending_fixture',amountPence:10000}]}],'a verified receipt binds each new checkout line to its real card payment');
+ await bookings.recordPaidCheckoutReceipt.handler(ctx,{bookingId:pendingBooking._id,sessionId:'cs_paid_pending_fixture',paymentIntentId:'pi_paid_pending_fixture',amountTotalPence:10000,currency:'gbp',paymentStatus:'paid'});
+ assert.equal(pendingBooking.itemPaymentLedger[0].sources.length,1,'replaying the same receipt does not duplicate the recorded card source');
  assert.equal(Number.isSafeInteger(pendingBooking.checkoutPaidAt),true,'Only the receipt mutation records the payment attestation');assert.equal(pendingBooking.paidConfirmedAt,undefined,'Payment alone does not mark a rental confirmed');
  assert.equal(pendingBooking.status,'pending_verification');assert.equal(pendingHold.holdExpiresAt,undefined,'A paid Didit hold no longer expires with the pre-payment cart TTL');
  assert((await reservationOccupancy(ctx,pendingHold)),'Paid pending Didit equipment is occupied across the verification wait');
  assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,0,'Other renters cannot book stock held by a paid pending verification');
  await bookings.releaseExpiredHolds.handler(ctx,{});assert(await db.get(pendingHold._id),'The expiry worker preserves a paid pending Didit allocation');
- pendingBooking.idVerifyStatus='rejected';
- assert(await reservationOccupancy(ctx,pendingHold),'A declined verification cannot release paid stock');await bookings.releaseExpiredHolds.handler(ctx,{});assert(await db.get(pendingHold._id));
- assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,0,'A failed check preserves stock until the paid rental is explicitly resolved');
- console.log('PASS unpaid markers remain advisory; paid Didit holds survive expiry and rejection. Synthetic database; no provider writes.');
+ for(const status of ['rejected','requires_input','manual_review']){
+  pendingBooking.idVerifyStatus=status;
+  assert(await reservationOccupancy(ctx,pendingHold),`A paid booking stays held while Didit is ${status}`);
+  assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,0,`Didit ${status} does not release the paid booking's inventory`);
+ }
+ pendingBooking.status='cancelled';
+ assert.equal(await reservationOccupancy(ctx,pendingHold),null,'An explicit booking cancellation releases the paid verification hold');
+ assert.equal((await availability.forListing.handler(ctx,{listingId:pendingListing._id,start,end})).available,1,'Explicit cancellation returns inventory to availability');
+ console.log('PASS unpaid checkout markers never reserve stock; paid Didit bookings remain held during rejection, resubmission, or manual review; explicit cancellation releases stock. Synthetic database; no provider writes.');
 }finally{Date.now=realNow}})().catch(e=>{console.error(e);process.exitCode=1});

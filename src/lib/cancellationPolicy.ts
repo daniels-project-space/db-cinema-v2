@@ -3,7 +3,67 @@ export const CANCELLATION_FULL_REFUND_DAYS = 14;
 export const CANCELLATION_CREDIT_DAYS = 365;
 export const SEVEN_DAY_CANCELLATION_VERSION = "2026-11-v18";
 export const NO_REFUND_WITHIN_48_HOURS_CANCELLATION_VERSION = "2026-11-v21";
-export const SEVEN_DAY_CANCELLATION_VERSIONS = ["2026-10-v16", SEVEN_DAY_CANCELLATION_VERSION, "2026-11-v19", "2026-11-v20", NO_REFUND_WITHIN_48_HOURS_CANCELLATION_VERSION];
+export const IMMEDIATE_CLAIM_CANCELLATION_VERSION = "2026-11-v22";
+export const PREVIOUS_CANCELLATION_WINDOW_VERSION = "2026-11-v33";
+export const INCLUSIVE_SEVEN_DAY_CANCELLATION_VERSION = "2026-11-v34";
+export const INCLUSIVE_SEVEN_DAY_CANCELLATION_VERSIONS = ["2026-11-v23", "2026-11-v24", "2026-11-v25", "2026-11-v26", "2026-11-v27", "2026-11-v28", "2026-11-v29", "2026-11-v30", "2026-11-v31", "2026-11-v32", PREVIOUS_CANCELLATION_WINDOW_VERSION, INCLUSIVE_SEVEN_DAY_CANCELLATION_VERSION] as const;
+export const LESS_THAN_48_HOUR_CANCELLATION_VERSIONS = ["2026-11-v28", "2026-11-v29", PREVIOUS_CANCELLATION_WINDOW_VERSION] as const;
+export const NO_REFUND_WITHIN_48_HOURS_CANCELLATION_VERSIONS = [
+  NO_REFUND_WITHIN_48_HOURS_CANCELLATION_VERSION,
+  IMMEDIATE_CLAIM_CANCELLATION_VERSION,
+  ...INCLUSIVE_SEVEN_DAY_CANCELLATION_VERSIONS,
+] as const;
+export const SEVEN_DAY_CANCELLATION_VERSIONS = [
+  "2026-10-v16",
+  SEVEN_DAY_CANCELLATION_VERSION,
+  "2026-11-v19",
+  "2026-11-v20",
+  ...INCLUSIVE_SEVEN_DAY_CANCELLATION_VERSIONS,
+  ...NO_REFUND_WITHIN_48_HOURS_CANCELLATION_VERSIONS,
+];
+
+export function isNoRefundWithin48HoursCancellationVersion(version?: string | null): boolean {
+  return !!version && (NO_REFUND_WITHIN_48_HOURS_CANCELLATION_VERSIONS as readonly string[]).includes(version);
+}
+
+export function isInclusiveSevenDayCancellationVersion(version?: string | null): boolean {
+  return !!version && (INCLUSIVE_SEVEN_DAY_CANCELLATION_VERSIONS as readonly string[]).includes(version);
+}
+
+export function isLessThan48HoursCancellationVersion(version?: string | null): boolean {
+  return !!version && (LESS_THAN_48_HOUR_CANCELLATION_VERSIONS as readonly string[]).includes(version);
+}
+
+export function cancellationPolicySummary(version?: string | null): string | undefined {
+  if (!isNoRefundWithin48HoursCancellationVersion(version)) return undefined;
+  const inclusiveSevenDayBoundary = isInclusiveSevenDayCancellationVersion(version);
+  const creditIncludes48Hours = isLessThan48HoursCancellationVersion(version);
+  const fullRefundWindow = inclusiveSevenDayBoundary ? "7+ London calendar days" : "More than 7 London calendar days";
+  const middleWindow = creditIncludes48Hours ? "At least 48 hours" : "More than 48 hours";
+  const middleSevenDayBoundary = inclusiveSevenDayBoundary ? "under 7 calendar days" : "7 or fewer calendar days";
+  const noRefundWindow = creditIncludes48Hours ? "Under 48 hours" : "48 hours or less";
+  return `${fullRefundWindow} before the first item starts: full refund or 100% credit · ${middleWindow} before scheduled pickup, but ${middleSevenDayBoundary} before the first item starts: credit only · ${noRefundWindow} before scheduled pickup: no rental refund or account credit.`;
+}
+
+/** Timing basis follows the exact policy version accepted by the renter. */
+export function cancellationTimingBasis(
+  kind: "full_refund" | "store_credit" | "no_refund" | undefined,
+  version?: string | null,
+): string | undefined {
+  if (!isNoRefundWithin48HoursCancellationVersion(version) || !kind) return undefined;
+  if (isInclusiveSevenDayCancellationVersion(version)) {
+    if (kind === "full_refund") return "Seven or more London calendar days before the earliest equipment start";
+    if (kind === "store_credit" && isLessThan48HoursCancellationVersion(version)) return version === PREVIOUS_CANCELLATION_WINDOW_VERSION
+      ? "At least 48 hours before scheduled pickup, and fewer than seven London calendar days before the earliest equipment start"
+      : "48 hours or more before scheduled pickup, and fewer than seven London calendar days before the earliest equipment start";
+    if (kind === "store_credit") return "More than 48 hours before scheduled pickup, and fewer than seven London calendar days before the earliest equipment start";
+    if (isLessThan48HoursCancellationVersion(version)) return "Less than 48 hours before scheduled pickup";
+    return "48 hours or less before scheduled pickup";
+  }
+  if (kind === "full_refund") return "More than seven London calendar days before the earliest equipment start";
+  if (kind === "store_credit") return "More than 48 hours before scheduled pickup, and seven or fewer London calendar days before the earliest equipment start";
+  return "48 hours or less before scheduled pickup";
+}
 
 type CancellationBooking = {
   lineItems: { start: number; pickupTime?: string | null }[];
@@ -57,13 +117,22 @@ function londonPickupInstant(start: number, pickupTime: string): number {
 }
 
 export function bookingCancelKind(booking: CancellationBooking, now: number) {
-  if(booking.agreementDocs?.some(d=>d.kind==="cancellation"&&d.version===NO_REFUND_WITHIN_48_HOURS_CANCELLATION_VERSION)){
+  const cancellationVersion=booking.agreementDocs?.find(d=>d.kind==="cancellation")?.version;
+  if(isNoRefundWithin48HoursCancellationVersion(cancellationVersion)){
     const start=rentalCancellationStart(booking);
-    const pickup=booking.lineItems.filter(item=>item.start===start).map(item=>item.pickupTime).find(time=>typeof time==="string"&&/^([01]\d|2[0-3]):[0-5]\d$/.test(time))??(typeof booking.pickupTime==="string"&&/^([01]\d|2[0-3]):[0-5]\d$/.test(booking.pickupTime)?booking.pickupTime:"00:00");
+    const validTime=(time:unknown):time is string=>typeof time==="string"&&/^([01]\d|2[0-3]):[0-5]\d$/.test(time);
+    // Checkout records the booking's canonical pickup time from the earliest
+    // item start/time. Prefer it; older bookings may lack it, so derive the
+    // earliest valid time deterministically instead of trusting cart order.
+    const pickup=validTime(booking.pickupTime)?booking.pickupTime:booking.lineItems
+      .filter(item=>item.start===start&&validTime(item.pickupTime))
+      .map(item=>item.pickupTime!)
+      .sort((a,b)=>a.localeCompare(b))[0]??"00:00";
     const pickupInstant=londonPickupInstant(start,pickup);
-    if(pickupInstant-now<=48*60*60*1000)return "no_refund" as const;
+    const untilPickup=pickupInstant-now;
+    if(isLessThan48HoursCancellationVersion(cancellationVersion)?untilPickup<48*60*60*1000:untilPickup<=48*60*60*1000)return "no_refund" as const;
     const days=Math.round((londonStartOfDay(start)-londonStartOfDay(now))/86400000);
-    return days>7?"full_refund" as const:"store_credit" as const;
+    return (isInclusiveSevenDayCancellationVersion(cancellationVersion)?days>=7:days>7)?"full_refund" as const:"store_credit" as const;
   }
   if(booking.agreementDocs?.some(d=>d.kind==="cancellation"&&SEVEN_DAY_CANCELLATION_VERSIONS.includes(d.version))){
     const days=Math.round((londonStartOfDay(rentalCancellationStart(booking))-londonStartOfDay(now))/86400000);

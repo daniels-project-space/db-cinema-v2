@@ -1,3 +1,5 @@
+const { proposedAgentTurnBehavior } = require("./gafferVoiceTurnSettings.cjs");
+
 function attachedToolIds(prompt = {}) {
   const ids = new Set(Array.isArray(prompt.tool_ids) ? prompt.tool_ids.filter(id => typeof id === "string") : []);
   for (const tool of Array.isArray(prompt.tools) ? prompt.tools : []) {
@@ -11,7 +13,7 @@ async function syncGafferVoiceAgentPrompt({
   agentId,
   apiKey,
   prompt,
-  turnSettings = { turn_eagerness: "normal", speculative_turn: false },
+  turnSettings = proposedAgentTurnBehavior,
   apply = false,
   fetchImpl = fetch,
 }) {

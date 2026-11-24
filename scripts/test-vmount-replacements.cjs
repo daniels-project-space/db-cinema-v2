@@ -6,8 +6,11 @@ const wanted=listing('V-mount Batteries 2x 95Wh',small,2,160,10),two=listing('FX
 const start=Date.UTC(2030,0,1),end=start+86400000,items=[{key:'small',listingId:wanted._id,start,end}];
 h.put('reservations',{inventoryUnitId:small._id,start,end,qty:2,status:'confirmed'});
 (async()=>{
- const result=await cart.forCart.handler({db:h.db},{items});assert.deepEqual(new Set(result.small.map(r=>r.listingId)),new Set([two._id,four._id]));assert(!result.small.some(r=>r.listingId===wrong._id));
- const sets=await cart.sets.handler({db:h.db},{items,sourceKey:'small',limit:2});assert.equal(sets.requested,2);assert.equal(sets.options.length,2);assert(sets.options.every(o=>o.items.length===1),'A 4-battery upgrade is offered as one real pack, not four mismatched cart rows');
+ const stale=await cart.forCart.handler({db:h.db},{items});assert.equal(stale.status,'refresh_required');assert.deepEqual(stale.results,{});
+ assert.equal((await cart.sets.handler({db:h.db},{items,sourceKey:'small',limit:2})).status,'refresh_required');
+ h.putFreshSharedStock();
+ const result=await cart.forCart.handler({db:h.db},{items});assert.equal(result.status,'ready');assert.deepEqual(new Set(result.results.small.map(r=>r.listingId)),new Set([two._id,four._id]));assert(!result.results.small.some(r=>r.listingId===wrong._id));
+ const sets=await cart.sets.handler({db:h.db},{items,sourceKey:'small',limit:2});assert.equal(sets.status,'ready');assert.equal(sets.requested,2);assert.equal(sets.options.length,2);assert(sets.options.every(o=>o.items.length===1),'A 4-battery upgrade is offered as one real pack, not four mismatched cart rows');
  const b={securityPolicyVersion:policy.ASSESSMENT_SECURITY_POLICY_VERSION,depositAmount:20,lineItems:[{listingId:wanted._id,qty:1}],replacementValues:[{listingId:wanted._id,unitPence:16000}]};
  assert(replacementCompatible(wanted,two,b));assert(replacementCompatible(wanted,four,b));assert(!replacementCompatible(wanted,wrong,b));assert(!replacementCompatible(wanted,two),'Legacy agreements never silently increase exposure');
  console.log('PASS actual V-mount replacements: unavailable 2×95Wh gets real available 2×150Wh and 4×150Wh options, correct pack quantities, no NP-F substitution, unchanged cash tier and preserved legacy exposure. Synthetic stock only.');

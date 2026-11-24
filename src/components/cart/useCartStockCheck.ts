@@ -6,7 +6,7 @@ import {dayMs} from "@/lib/dates";
 import { recordUnavailableDemand } from "@/lib/demandTracking";
 import type {CartItem} from "./CartProvider";
 
-type Availability=Record<string,{available:number;demanded:number;ok:boolean}>;
+type Availability=Record<string,{available:number;demanded:number;ok:boolean|null;stockStatus?:string}>;
 type Receipt={checkedAt:number;availability:Availability};
 type State={key:string;phase:"checking"|"ready"|"error";receipt:Receipt|null};
 export function useCartStockCheck(items:Array<Pick<CartItem,"listingId"|"start"|"end"|"pickupTime"|"returnTime"> & {title?:string}>) {
@@ -51,12 +51,16 @@ export function useCartStockCheck(items:Array<Pick<CartItem,"listingId"|"start"|
     return()=>{clearInterval(timer);window.removeEventListener("focus",check);document.removeEventListener("visibilitychange",check);scope.current.request++;flight.current=null;};
   },[key,recheck,blockedForTimes]);
   const current=state?.key===key?state:null;
-  const availability:Availability|undefined=!blockedForTimes&&current?.receipt&&live?Object.fromEntries(Object.entries(current.receipt.availability).map(([id,value])=>[id,{...value,available:Math.min(value.available,live[id]?.available??0),ok:value.ok&&live[id]?.ok===true}])):undefined;
+  const availability:Availability|undefined=!blockedForTimes&&current?.receipt&&live?Object.fromEntries(Object.entries(current.receipt.availability).map(([id,value])=>{
+    const liveItem=live[id];
+    return [id,{...value,available:Math.min(value.available,liveItem?.available??0),ok:liveItem?.ok===null?null:value.ok&&liveItem?.ok===true,stockStatus:liveItem?.stockStatus}];
+  })):undefined;
   useEffect(()=>{
     if(current?.phase!=="ready" || !availability || document.hidden)return;
     const grouped=new Map<string,{item:typeof items[number];qty:number}>();
     for(const item of items)if(availability[item.listingId]?.ok===false){const k=JSON.stringify([item.listingId,item.start,item.end,item.pickupTime,item.returnTime]),prev=grouped.get(k);grouped.set(k,{item,qty:(prev?.qty??0)+1});}
     for(const {item,qty} of grouped.values())void recordUnavailableDemand(track,item,qty).catch(()=>{});
   },[current?.phase,availability,items,track]);
-  return {availability,recheck,needsTimes,missingTimeItems,invalidTimeOrder,ready:!items.length||!blockedForTimes&&(current?.phase==="ready"&&!!availability),checking:!!items.length&&!blockedForTimes&&(!current||current.phase==="checking"),error:!blockedForTimes&&current?.phase==="error"};
+  const completeAvailability=!!availability&&Object.values(availability).every(item=>typeof item.ok==="boolean");
+  return {availability,recheck,needsTimes,missingTimeItems,invalidTimeOrder,ready:!items.length||!blockedForTimes&&(current?.phase==="ready"&&completeAvailability),checking:!!items.length&&!blockedForTimes&&(!current||current.phase==="checking"),error:!blockedForTimes&&current?.phase==="error",refreshRequired:!!live&&Object.values(live).some((item:any)=>item?.stockStatus==="refresh_required")};
 }

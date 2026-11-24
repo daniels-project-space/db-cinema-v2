@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const { load, db, put } = require("./lib/rentalTestHarness.cjs");
-const { quoteSwapFunding, adjustedSwapCreditBalances } = load("convex/lib/rentalSwapFunding.ts");
+const { quoteSwapFunding, quoteSwapBasketFunding, adjustedSwapCreditBalances } = load("convex/lib/rentalSwapFunding.ts");
 const first = { listingId: "first", start: 100, end: 200, qty: 1, lineTotal: 1 };
 const second = { listingId: "second", start: 100, end: 200, qty: 1, lineTotal: 99 };
 const booking = { pricingVersion: "single-benefit-v1", benefitKind: "loyalty", swapBenefitRule: { version: "encore-percent-v1", percent: 10 }, subtotal: 100, discount: 10, creditApplied: 0, creditAllocations: [], checkoutLineCreditSources: [], lineItems: [first, second], checkoutLineFunding: [
@@ -29,6 +29,14 @@ const replacement = { ...first, listingId: "new", lineTotal: 40 };
   assert.equal(changed.deltaPence,3510);
   assert.deepEqual(changed.nextAllFunding.map(row=>[row.discount,row.accountCredit,row.card]),[[13.9,20,6.1],[0,0,99]]);
   assert.deepEqual(changed.nextAllCreditSources,[{lineIndex:0,creditId:credit._id,kind:"refund",amount:20}]);
+  const earned=put("credits",{accountId:account._id,kind:"earned",currency:"GBP",amount:20,remaining:0});
+  const earnedBooking={...credited,pricingVersion:"credit-funding-v2",earnedCreditApplied:20,refundCreditApplied:0,creditAllocations:[{creditId:earned._id,kind:"earned",amount:20}],checkoutLineCreditSources:[{lineIndex:1,creditId:earned._id,kind:"earned",amount:20}]};
+  const earnedChange=await quoteSwapFunding({db},earnedBooking,0,replacement);
+  assert.equal(earnedChange.deltaPence,3510);
+  assert.deepEqual(earnedChange.nextAllCreditSources,[{lineIndex:0,creditId:earned._id,kind:"earned",amount:20}]);
+  const basketChange=await quoteSwapBasketFunding({db},earnedBooking,[{lineIndex:0,oldLine:first,newLine:replacement}]);
+  assert.equal(basketChange.deltaPence,3510);
+  await assert.rejects(quoteSwapFunding({db},{...earnedBooking,pricingVersion:"single-benefit-v1"},0,replacement),/cannot be safely repriced/,'legacy discounts cannot gain a new credit combination');
   const low=await quoteSwapFunding({db},credited,1,{...second,listingId:"small",lineTotal:0});
   assert.equal(low.deltaPence,-7000);
   assert.equal(low.restore[0].amountPence,1910);

@@ -23,17 +23,25 @@ function Rating({ label = "5 out of 5 stars" }: { label?: string }) {
 }
 
 function Reviewer({ review }: { review: VerifiedHyggloHighlight }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [review.authorImage]);
+  const initials = review.author.trim().slice(0, 1).toUpperCase() || "R";
   return (
     <div className="flex h-6 min-w-0 items-center gap-2 overflow-hidden sm:h-10 sm:gap-3">
-      <img
-        src={review.authorImage}
-        alt=""
-        width={40}
-        height={40}
-        loading="lazy"
-        referrerPolicy="no-referrer"
-        className="h-6 w-6 shrink-0 rounded-full border border-white/15 object-cover sm:h-10 sm:w-10"
-      />
+      {imageFailed || !review.authorImage ? (
+        <span data-testid="reviewer-avatar-fallback" aria-hidden="true" className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-white/15 bg-white/10 text-[10px] font-semibold text-white/75 sm:h-10 sm:w-10 sm:text-xs">{initials}</span>
+      ) : (
+        <img
+          src={review.authorImage}
+          alt=""
+          width={40}
+          height={40}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setImageFailed(true)}
+          className="h-6 w-6 shrink-0 rounded-full border border-white/15 object-cover sm:h-10 sm:w-10"
+        />
+      )}
       <div className="min-w-0">
         <div className="truncate text-[10px] leading-[10px] font-medium text-white/85 sm:text-sm sm:leading-normal">{review.author}</div>
         <div className="truncate text-[9px] leading-[9px] text-white/45 sm:text-xs sm:leading-normal">Renter{review.product ? ` · ${review.product}` : ""}</div>
@@ -51,7 +59,40 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
     return () => window.clearInterval(timer);
   }, [reviews.length]);
 
-  const review = reviews[currentIndex % reviews.length];
+  const review = reviews.length > 0 ? reviews[currentIndex % reviews.length] : null;
+  if (!review) {
+    return (
+      <Link
+        href="/#reviews"
+        data-testid="hygglo-trust-card"
+        aria-label="Explore renter reviews"
+        className="spot trust-card relative isolate block h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(ellipse_at_top_right,rgba(212,172,107,.14),transparent_58%),#101013] p-2 shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] max-[359px]:h-[140px] min-[420px]:h-[188px] sm:h-[304px] sm:p-6"
+      >
+        <Image
+          src="/images/home/maintained-cinema-gear-20261028.webp"
+          alt=""
+          fill
+          sizes="(max-width: 640px) 50vw, 420px"
+          className="trust-card-image object-cover"
+        />
+        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-br from-black/55 via-black/55 to-black/80" />
+        <div className="relative z-10 flex h-full flex-col justify-between">
+          <div className="flex items-center justify-between gap-1 sm:gap-3">
+            <span className="inline-flex min-w-0 whitespace-nowrap items-center rounded-full border border-white/20 bg-black/35 px-1.5 py-1 font-mono text-[6px] uppercase tracking-[.02em] text-white/75 sm:px-2 sm:text-[7px] xl:text-[8px]">
+              Trust that is earned
+            </span>
+            <ReviewEye />
+          </div>
+          <div className="hygglo-trust-review-panel rounded-2xl border border-white/15 p-2 backdrop-blur-xl sm:p-5">
+            <p className="text-[10px] leading-4 text-white/80 sm:text-sm sm:leading-6">Real stories from London crews.</p>
+            <span className="mt-2 inline-flex items-center gap-2 text-[9px] font-medium text-accent-200 sm:mt-4 sm:text-xs">
+              Explore renter reviews <span aria-hidden="true">↗</span>
+            </span>
+          </div>
+        </div>
+      </Link>
+    );
+  }
   return (
     <Link
       href="/#reviews"
@@ -70,7 +111,7 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
       <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-br from-black/55 via-black/55 to-black/80" />
       <div className="relative z-10 flex h-full flex-col justify-between">
       <div className="flex items-center justify-between gap-1 sm:gap-3">
-        <span className="inline-flex max-w-[calc(100%-1.5rem)] min-w-0 truncate whitespace-nowrap items-center gap-1 rounded-full border border-white/20 bg-black/35 px-1.5 py-1 font-mono text-[7px] uppercase tracking-[0.06em] text-white/75 max-[374px]:px-1 max-[374px]:text-[6px] max-[374px]:tracking-[0.04em] sm:gap-2 sm:px-3 sm:text-[9px] sm:tracking-[0.17em]">
+        <span className="inline-flex min-w-0 whitespace-nowrap items-center rounded-full border border-white/20 bg-black/35 px-1.5 py-1 font-mono text-[6px] uppercase tracking-[0.02em] text-white/75 sm:px-2 sm:text-[7px] xl:text-[8px]">
           Trust that is earned
         </span>
         <ReviewEye />

@@ -6,6 +6,7 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { useCart } from "@/components/cart/CartProvider";
 import Link from "next/link";
 import { dayMs } from "@/lib/dates";
+import { BasketRecoveryConsent } from "@/components/cart/BasketRecoveryConsent";
 export function BasketRecoveryStatus() {
   const cart = useCart();
   return cart.recoveryError ? <p role="alert" className="mt-2 text-xs text-rose-300">{cart.recoveryError}</p> : null;
@@ -86,6 +87,7 @@ export function CartPlanning() {
           </Link>
         </p>
       )}
+      <BasketRecoveryConsent showError={false} />
       <BasketRecoveryStatus />
     </section>
   );

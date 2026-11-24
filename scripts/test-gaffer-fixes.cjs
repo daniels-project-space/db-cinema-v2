@@ -12,6 +12,12 @@ function load(file, mocks = {}, globals = {}) {
   const mod = { exports: {} };
   const req = (name) => {
     if (name in mocks) return mocks[name];
+    if (name.startsWith("@/")) {
+      let target = path.resolve(root, "src", name.slice(2));
+      if (!path.extname(target)) target += fs.existsSync(target + ".ts") ? ".ts" : fs.existsSync(target + ".tsx") ? ".tsx" : ".js";
+      if (target.endsWith(".ts") || target.endsWith(".tsx")) return load(target, mocks, globals);
+      return require(target);
+    }
     if (name.startsWith('.')) {
       let target = path.resolve(path.dirname(filename), name);
       if (!path.extname(target)) target += fs.existsSync(target + '.ts') ? '.ts' : '.js';
@@ -30,10 +36,15 @@ assert.match(GAFFER_VOICE_AGENT_PROMPT, /# DECIDE, THEN SPEAK[\s\S]*one concise,
 assert.match(GAFFER_VOICE_AGENT_PROMPT, /Never begin one answer and replace it halfway through/i);
 // These values satisfy the checkout activation boundary; no provider call is made.
 Object.assign(process.env, {
+  // Let checkout tests reach the behavior under test using synthetic stock
+  // authority. No provider request is made by these fixtures.
+  SHARED_STOCK_AUTHORITY_READY: 'enabled', SHARED_STOCK_BRIDGE_EXPERIMENTAL: 'true',
+  SHARED_STOCK_WEBSITE_SECRET: 'fixture-stock-authority-secret-12345678901234567890',
+  RMV2_WEBHOOK_URL: 'https://fixture-manager.convex.site/dbcinema/booking-sync', RMV2_WEBHOOK_SECRET: 'fixture-private-read',
   RENTAL_CHECKOUT_ENABLED: 'true', DIDIT_API_KEY: 'test', DIDIT_WORKFLOW_ID: 'test', DIDIT_WEBHOOK_SECRET: 'test', DIDIT_APPLICATION_ID: 'test', DIDIT_ENVIRONMENT: 'sandbox',
   STRIPE_WEBHOOK_SECRET: 'test', STRIPE_SECRET_KEY: 'test', STRIPE_RENTAL_PAYMENT_METHOD_CONFIGURATION_ID: 'test',
   INVOICE_SECRET: 'test', APP_URL: 'https://example.invalid', BUSINESS_LEGAL_NAME: 'Test supplier',
-  BUSINESS_INVOICE_ADDRESS: 'Test address', RESEND_API_KEY: 'test',
+  BUSINESS_INVOICE_ADDRESS: 'Test address', RESEND_API_KEY: 'test', RESEND_FROM: 'DB Cinema Rentals <bookings@dbcinemarentals.com>',
 });
 class StripeStub {
   static lastCheckout;
@@ -43,7 +54,14 @@ class StripeStub {
 }
 const serverMocks = { './_generated/server': registered, './_generated/api': { api: refs, internal: refs }, '../_generated/api': { api: refs, internal: refs }, './adminAuth': {}, stripe: StripeStub };
 const { validate } = load('convex/promo.ts', serverMocks);
-const { start, priceQuote } = load('convex/checkout.ts', serverMocks);
+// This suite exercises the checkout pricing and Gaffer offer path after the
+// release-readiness boundary. The dedicated checkout-readiness test verifies
+// that the current false production flag blocks before any side effects.
+const { start, priceQuote } = load('convex/checkout.ts', {
+  ...serverMocks,
+  '../shared/legalDocuments': { RENTAL_DRAFT_RELEASE_READY: true },
+  '../shared/rentalAgreementRelease': { RENTAL_DRAFT_RELEASE_READY: true },
+});
 const { createPending } = load('convex/bookings.ts', serverMocks);
 const { AGREEMENTS } = load('src/lib/legal.ts');
 const { gafferDiscount } = load('convex/lib/gafferDiscount.ts');
@@ -80,7 +98,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
       runAction: async (ref,args) => { if(ref==='sync:syncHyggloReservations')return {mirrored:0,rows:0,checkedAt:123}; assert.equal(ref,'delivery:quote'); assert.equal(args.postcode,deliveryPostcode.replace(/\s/g,'').toUpperCase()); assert.equal(args.groups.flatMap(group=>group.listingIds).length,prices.length); return {ok:true,fee:quotedFee,oneWay:quotedFee/2,vehicle:'car',vehicleLabel:'Small car courier',km:1,load:1,isLondon:true,groups:args.groups.map(group=>({...group,fee:quotedFee,oneWay:quotedFee/2,vehicle:'car',vehicleLabel:'Small car courier',km:1,load:1}))}; },
       runMutation: async (ref,args) => { assert.equal(ref,'bookings:createPending'); pending=args; throw stop; },
     };
-    const args={expectedSavedCardLimit:prices.length*100*qty,items:prices.map((_,i)=>({listingId:`listing${i}`,title:submittedTitle??`Item ${i}`,start:0,end:0,qty,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),token,customer:{email:customerEmail,name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment,address,deliveryPostcode,deliveryFee,promoCode:code,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',requestId:'test-acceptance-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,documents:fulfilment==='delivery'?[...AGREEMENTS,{kind:'delivery-disclaimer',version:'2026-10-delivery-v2'}]:AGREEMENTS}};
+    const args={expectedSavedCardLimit:prices.length*100*qty,items:prices.map((_,i)=>({listingId:`listing${i}`,title:submittedTitle??`Item ${i}`,start:0,end:0,qty,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),token,customer:{email:customerEmail,name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment,address,deliveryPostcode,deliveryFee,promoCode:code,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',requestId:'test-acceptance-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,deliveryAccepted:fulfilment==='delivery',documents:fulfilment==='delivery'?[...AGREEMENTS,{kind:'delivery-disclaimer',version:'2026-10-delivery-v2'}]:AGREEMENTS}};
     if (!expectedError || expectedTotalOverride !== undefined) {
       const quote = await priceQuote.handler(ctx,{items:args.items,token,customerEmail,fulfilment,address,deliveryPostcode,promoCode:code});
       args.expectedTotalDue = expectedTotalOverride ?? quote.totalDue;args.expectedSavedCardLimit=quote.savedCardLimit;
@@ -194,22 +212,24 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   memory.add('user','Could you do a better price?');
   assert.match(memory.context(),/Alex/);assert.match(memory.context(),/enquiry saved/);assert.match(memory.context(),/do not repeat completed basket changes/);
   memory.clear();assert.equal(memory.context(),'');
-  const toolActions=[],toolRoutes=[];
-  const cart={items:[],switchItem(key,item){this.items=this.items.map(i=>i.key===key?{...item,key}:i);},count:2,subtotal:550,eligibleSubtotal:500,promo:null,close(){},setPromo(code){this.promo=code;}};
+  const toolActions=[],toolRoutes=[],toolAvailabilityRequests=[];
+  let quotedSameDayFee=0;
+  let toolAvailabilityResponse={unavailable:{ok:false,available:0}};
+  const cart={items:[],switchItem(key,item){this.items=this.items.map(i=>i.key===key?{...item,key}:i);},has(id){return this.items.some(item=>item.listingId===id);},add(item){this.items.push({...item,key:`line-${this.items.length+1}`});this.count=this.items.length;},remove(key){this.items=this.items.filter(item=>item.key!==key);this.count=this.items.length;},count:0,subtotal:550,eligibleSubtotal:500,depositTotal:50,promo:null,close(){},open(){},setPromo(code){this.promo=code;}};
   const {useGafferTools}=load('src/components/gaffer/useGafferTools.ts',{
-    react:{useRef:current=>({current}),useCallback:f=>f,useMemo:f=>f(),useEffect:()=>{}},
-    'next/navigation':{useRouter:()=>({push(route){toolRoutes.push(route);}})},'convex/react':{useQuery:()=>[],useConvex:()=>({action:async(ref,args)=>{toolActions.push({ref,args});return ref==='checkoutCarts:email'?{url:'https://example.invalid/cart/quote/opaque',shareKey:'opaque'}:{challenge:'challenge'};},query:async(ref,args)=>{
-      if(ref==='voiceCatalog:search')return {matches:[{id:'fx3',title:'Sony FX3',daily:47}]};
+    react:{useRef:current=>({current}),useState:initial=>[initial,()=>{}],useCallback:f=>f,useMemo:f=>f(),useEffect:()=>{}},
+    'next/navigation':{useRouter:()=>({push(route){toolRoutes.push(route);}})},'convex/react':{useQuery:()=>[],useConvex:()=>({action:async(ref,args)=>{toolActions.push({ref,args});if(ref==='checkout:priceQuote'){const items=args.items.map(item=>({...item,total:item.listingId==='fx3'?47:100}));return{items,subtotal:items.reduce((sum,item)=>sum+item.total,0),totalReduction:0,sameDayFee:quotedSameDayFee};}return ref==='checkoutCarts:email'?{url:'https://example.invalid/cart/quote/opaque',shareKey:args.shareKey??'opaque'}:{challenge:'challenge'};},query:async(ref,args)=>{
+      if(ref==='voiceCatalog:search')return {matches:[{id:'fx3',title:'Sony FX3',slug:'sony-fx3',daily:47,pricing:{daily:47},category:'Cameras',heroImage:'https://example.invalid/fx3.jpg',deposit:50}]};
       if(ref==='availability:forListing')return {available:1};
-      if(ref==='availability:forCart')return {unavailable:{ok:false}};
-      if(ref==='cartReplacements:forCart')return {source:[{listingId:'fx3',title:'Sony FX3',slug:'fx3',total:100,perDay:50,days:2,deposit:3200,heroImage:null}]};
+      if(ref==='availability:forCart'){toolAvailabilityRequests.push(args);return toolAvailabilityResponse;}
+      if(ref==='cartReplacements:forCart')return {status:'ready',results:{source:[{listingId:'fx3',title:'Sony FX3',slug:'fx3',total:100,perDay:50,days:2,deposit:3200,heroImage:null}]}};
       return args.code==='better15'?{valid:true,discount:75}:validate.handler({},args);
     }})},
     '@cvx/_generated/api':{api:refs},'@cvx/lib/gafferDiscount':{GAFFER_PRICE_CODE:'gaffer10'},
     '@/components/account/useCreditBalance':{useCreditBalance:()=>undefined},
     '@/components/gaffer/cartSnapshot':load('src/components/gaffer/cartSnapshot.ts'),
     '@/components/cart/CartProvider':{useCart:()=>cart},'@/components/account/AccountProvider':{useAccount:()=>({})},
-    '@/lib/pricing':{},'@/lib/voiceDates':{londonToday:()=> '2026-09-13',resolveDate:()=>({ok:true,date:'2026-09-14'}),inclusiveDays:()=>1},'@/lib/dates':{dayMs:()=>0},
+    '@/lib/pricing':{quote:(pricing,days)=>({total:pricing.daily*days})},'@/lib/voiceDates':{londonToday:()=> '2026-09-13',resolveDate:value=>({ok:true,date:/^\d{4}-\d{2}-\d{2}$/.test(value)?value:'2026-09-14'}),inclusiveDays:()=>1},'@/lib/dates':{dayMs:()=>0},
     '@/components/gaffer/GafferFocus':{useGafferFocus:()=>({focusedId:null,suggestedIds:[],focus:()=>{},suggest:async()=>false}),scrollToId:async()=>false},
   });
   const priceTool=useGafferTools();
@@ -224,16 +244,61 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     assert.match(await priceTool.clientTools.navigate_to({destination}),/not finished loading on screen/);
   }
   const delayedBrowse=await priceTool.clientTools.browse_for({item:'Sony FX3'});
-  assert.match(delayedBrowse,/not finished loading on screen/);assert.doesNotMatch(delayedBrowse,/On screen now/);
+  assert.match(delayedBrowse,/not finished loading on screen/);assert.doesNotMatch(delayedBrowse,/On screen now/);assert.match(delayedBrowse,/Exact times are selected at checkout/);
+
+  toolAvailabilityResponse={fx3:{ok:true,available:1}};
+  assert.match(await priceTool.clientTools.find_gear({item:'Sony FX3',start:'2026-12-07',end:'2026-12-09'}),/free for those dates; final stock is rechecked at checkout/,'Gaffer can answer date-level gear availability without requesting exact times');
+  const addedWithoutTimes=await priceTool.clientTools.add_to_basket({item:'Sony FX3',start:'2026-12-07',end:'2026-12-09'});
+  assert.match(addedWithoutTimes,/Exact pickup and return times are selected at checkout/);
+  assert.equal(cart.items.at(-1).pickupTime,undefined,'Adding a catalogue item never asks for or assigns exact pickup time');
+  assert.equal(cart.items.at(-1).returnTime,undefined,'Adding a catalogue item never asks for or assigns exact return time');
+  assert.equal(toolAvailabilityRequests.at(-1).items.at(-1).pickupTime,undefined,'Pre-check uses the chosen dates, not a fabricated pickup time');
+  assert.equal(toolAvailabilityRequests.at(-1).items.at(-1).returnTime,undefined,'Pre-check uses the chosen dates, not a fabricated return time');
+
+  cart.items=[];cart.count=0;quotedSameDayFee=10.25;
+  const sameDayGafferQuote=await priceTool.clientTools.add_to_basket({item:'Sony FX3',start:'2026-09-13',end:'2026-09-13'});
+  assert.match(sameDayGafferQuote,/complete basket rental subtotal .*£57\.25, including a £10\.25 same-day booking fee/,'Gaffer includes the authoritative same-day fee once in its spoken rental subtotal and discloses it separately');
+  assert.equal(toolActions.filter(action=>action.ref==='checkout:priceQuote').at(-1).args.items.at(-1).start,0,'The same-day Gaffer quote uses the normal authoritative checkout quote path');
+  assert.equal(cart.items.at(-1).total,47,'The fee stays a separate quote charge and is not duplicated into the cart line');
+  quotedSameDayFee=0;
 
   cart.items=[{key:'source',listingId:'unavailable',title:'Unavailable Camera',slug:'unavailable',start:'2026-12-07',end:'2026-12-09',days:3,total:300}];cart.count=1;
-  assert.match(await priceTool.clientTools.check_basket(),/Choose pickup and return times/);
+  toolAvailabilityResponse={unavailable:{ok:false,available:0}};
+  assert.match(await priceTool.clientTools.check_basket(),/Show more replacements/,'A date-only basket can be checked and replacements offered before times are chosen');
+  assert.match(await priceTool.clientTools.suggest_alternatives({item:'Unavailable Camera'}),/Sony FX3/,'Gaffer can suggest same-date alternatives before exact times are chosen');
+  assert.equal(toolAvailabilityRequests.at(-1).items[0].pickupTime,undefined,'Date-level basket check accepts missing pickup time');
+  assert.equal(toolAvailabilityRequests.at(-1).items[0].returnTime,undefined,'Date-level basket check accepts missing return time');
   Object.assign(cart.items[0],{pickupTime:"10:00",returnTime:"18:00"});
   assert.match(await priceTool.clientTools.check_basket(),/Sony FX3.*Show more replacements/);
   assert.match(await priceTool.clientTools.switch_unavailable({item:'Unavailable Camera',replacement:'Sony FX3'}),/keeping 2026-12-07 to 2026-12-09/);assert.equal(cart.items[0].start,'2026-12-07');assert.equal(cart.items[0].end,'2026-12-09');assert.equal(cart.items[0].pickupTime,'10:00');assert.equal(cart.items[0].returnTime,'18:00');
-  assert.match(await priceTool.clientTools.email_checkout_cart({email:'person@example.invalid'}),/was emailed/);assert.equal(toolActions.at(-1).ref,'checkoutCarts:email');assert.equal(toolActions.at(-1).args.lines[0].listingId,'fx3');
-  assert.match(await priceTool.clientTools.setup_account({email:'person@example.invalid',name:'Person',phone:'07700123456'}),/Never ask.*code or password/);assert.equal(toolActions.at(-1).args.cartKey,'opaque');assert(toolRoutes.at(-1).startsWith('/account/setup?challenge='));
+  assert.match(await priceTool.clientTools.email_checkout_cart({email:'person@example.invalid'}),/was emailed/);assert.equal(toolActions.at(-1).ref,'checkoutCarts:email');assert.equal(toolActions.at(-1).args.lines[0].listingId,'fx3');assert.match(toolActions.at(-1).args.shareKey,/^[A-Za-z0-9_-]{43}$/);
+  assert.match(await priceTool.clientTools.setup_account({email:'person@example.invalid',name:'Person',phone:'07700123456'}),/Never ask.*code or password/);assert.equal(toolActions.at(-1).args.cartKey,toolActions.find(action=>action.ref==='checkoutCarts:email').args.shareKey);assert(toolRoutes.at(-1).startsWith('/account/setup?challenge='));
   assert.match(await priceTool.clientTools.reset_password({email:'person@example.invalid'}),/choose a new password/);assert.equal(toolActions.at(-1).args.purpose,'reset');
+
+  cart.items=[{key:'ready',listingId:'fx3',title:'Sony FX3',slug:'sony-fx3',start:'2026-12-07',end:'2026-12-09',days:3,total:141}];cart.count=1;
+  toolAvailabilityResponse={fx3:{ok:true,available:1}};
+  const basketReview=await priceTool.clientTools.go_to_checkout();
+  assert.match(basketReview,/Exact pickup and return times are selected at checkout/);
+  assert.equal(toolRoutes.at(-1),'/cart','The first checkout request keeps the existing basket-review step');
+  const checkoutHandoff=await priceTool.clientTools.go_to_checkout();
+  assert.match(checkoutHandoff,/Choose exact pickup and return times there/);
+  assert.equal(toolRoutes.at(-1),'/checkout','The confirmed second step opens checkout without requiring times in the basket');
+
+  cart.items=[
+    {key:'ready-camera',listingId:'fx3',title:'Sony FX3',slug:'sony-fx3',start:'2026-12-07',end:'2026-12-09',days:3,total:141},
+    {key:'ready-lens',listingId:'lens',title:'Sony 24-70mm lens',slug:'sony-24-70',start:'2026-12-07',end:'2026-12-09',days:3,total:90},
+  ];cart.count=2;
+  toolAvailabilityResponse={fx3:{ok:true,available:1},lens:{ok:true,available:1}};
+  const originalFetch=global.fetch;
+  global.fetch=async()=>({ok:false,status:503,json:async()=>({warnings:[],upgrades:[],error:'Compatibility service unavailable'})});
+  try {
+    const compatibilityReview=await priceTool.clientTools.review_basket();
+    assert.match(compatibilityReview,/couldn't verify kit compatibility/i,'A failed compatibility lookup must not be treated as a clean kit');
+    const compatibilityCheckout=await priceTool.clientTools.go_to_checkout();
+    assert.match(compatibilityCheckout,/couldn't verify kit compatibility/i,'The checkout review must disclose when the shared compatibility check failed');
+  } finally {
+    global.fetch=originalFetch;
+  }
 
   // Execute the real provider's SDK callbacks through a deterministic hook harness.
   // No paid calls: verify the handover supplied to the transport and its lifecycle.

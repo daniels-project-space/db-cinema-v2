@@ -1,10 +1,11 @@
-import { unlockLoyalty, encoreGate } from "./lib/loyalty";
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { accountForToken, ownedBooking } from "./lib/rentalChat";
+import { accountForRental } from "./lib/rentalAccount";
 import { customerReviewGate, reviewSettlementFingerprint } from "./lib/reviewEligibility";
 import { reviewContext } from "./lib/reviewContext";
-import { assertAdmin } from "./adminAuth";
+import { loyaltyProgress, unlockLoyalty } from "./lib/loyalty";
+import { assertAdmin, checkAdminToken } from "./adminAuth";
 
 export const listPublished = query({
   args: { limit: v.optional(v.number()) },
@@ -16,7 +17,7 @@ export const listPublished = query({
     // carousel shows only reviews that actually have text
     const withText = rows.filter((r) =>
       !!r.text && r.text.trim().length > 8 && (
-        r.source === "native" || (
+        (r.source === "native" && (r.moderationStatus === undefined || r.moderationStatus === "approved")) || (
         r.source === "hygglo" &&
         r.sourceRatingVerified === true &&
         r.sourceRating === 5 &&
@@ -40,14 +41,16 @@ export const listPublished = query({
     }
     return Promise.all(selected.map(async (r) => {
       const account = r.authorAccountId ? await ctx.db.get(r.authorAccountId) : null;
-      const photo = account?.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null;
+      const photo = r.source === "native" && r.authorImagePublic === true
+        ? (account?.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null) ?? (account?.googleAvatarRemoved === true ? null : account?.googleAvatarUrl ?? null)
+        : null;
       return ({
       _id: r._id,
       source: r.source,
       author: r.author,
-      authorImage: photo ?? account?.googleAvatarUrl ?? (r.source === "native" ? null : r.authorImage ?? null),
+      authorImage: r.source === "native" ? photo : r.authorImage ?? null,
       rating: r.rating,
-      incentivized: r.incentivized ?? false,encoreReward:r.encoreReward??false,prizeEntry:r.prizeEntry??(!!r.incentivized&&!r.encoreReward),
+      incentivized: r.incentivized ?? false,encoreReward:r.encoreReward??false,prizeEntry:r.prizeEntry === true,
       text: r.text,
       product: r.product ?? null,
     }); }));
@@ -103,6 +106,7 @@ export const listNativePublished = query({
       .take(count);
     const withText = rows.filter((review) =>
       review.source === "native" &&
+      (review.moderationStatus === undefined || review.moderationStatus === "approved") &&
       !!review.text &&
       review.text.trim().length > 8 &&
       Number.isInteger(review.rating) &&
@@ -111,16 +115,18 @@ export const listNativePublished = query({
     );
     return Promise.all(withText.map(async (review) => {
       const account = review.authorAccountId ? await ctx.db.get(review.authorAccountId) : null;
-      const photo = account?.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null;
+      const photo = review.authorImagePublic === true
+        ? (account?.avatarStorageId && account.avatarStorageId === account.avatarOwnedStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null) ?? (account?.googleAvatarRemoved === true ? null : account?.googleAvatarUrl ?? null)
+        : null;
       return {
         _id: review._id,
         source: review.source,
         author: review.author,
-        authorImage: photo ?? account?.googleAvatarUrl ?? (review.source === "native" ? null : review.authorImage ?? null),
+        authorImage: photo,
         rating: review.rating,
         incentivized: review.incentivized ?? false,
         encoreReward: review.encoreReward ?? false,
-        prizeEntry: review.prizeEntry ?? (!!review.incentivized && !review.encoreReward),
+        prizeEntry: review.prizeEntry === true,
         text: review.text,
         product: review.product ?? null,
       };
@@ -135,7 +141,10 @@ export const stats = query({
       .query("reviews")
       .withIndex("by_published", (q) => q.eq("published", true))
       .collect();
-    const ordinary = rows.filter(r=>!r.incentivized && (r.source === "native" || (r.sourceRatingVerified === true && r.sourceRating === r.rating)));
+    const ordinary = rows.filter(r =>
+      (r.source === "native" && (r.moderationStatus === undefined || r.moderationStatus === "approved") && (!r.incentivized || (r.encoreReward === true && r.prizeEntry !== true))) ||
+      (r.source === "hygglo" && r.sourceRatingVerified === true && r.sourceRating === r.rating),
+    );
     if (ordinary.length === 0) return { count: 0, average: 0, withText: 0 };
     const sum = ordinary.reduce((n, r) => n + r.rating, 0);
     return {
@@ -207,34 +216,112 @@ export const insertChunk = mutation({
   },
 });
 
+export const adminPendingNative = query({
+  args: { token: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, { token, limit }) => {
+    if (!checkAdminToken(token)) return { authorized: false as const, items: [] };
+    const count = Math.min(80, Math.max(1, Math.floor(limit ?? 40)));
+    const rows = await ctx.db.query("reviews")
+      .withIndex("by_moderation_status_date", (q) => q.eq("source", "native").eq("moderationStatus", "pending"))
+      .order("desc")
+      .take(count);
+    return {
+      authorized: true as const,
+      items: rows.map((review) => ({
+        _id: review._id,
+        bookingId: review.verifiedBookingId ?? null,
+        author: review.author,
+        rating: review.rating,
+        text: review.text ?? "",
+        product: review.product ?? null,
+        date: review.date,
+        incentivized: review.incentivized === true,
+        encoreReward: review.encoreReward === true,
+        prizeEntry: review.prizeEntry === true,
+      })),
+    };
+  },
+});
+
+export const moderateNative = mutation({
+  args: {
+    token: v.string(),
+    reviewId: v.id("reviews"),
+    decision: v.union(v.literal("approve"), v.literal("reject")),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { token, reviewId, decision, note }) => {
+    await assertAdmin(ctx, token, "reviews.moderateNative");
+    const review = await ctx.db.get(reviewId);
+    if (!review || review.source !== "native" || review.moderationStatus !== "pending" || review.published)
+      throw Error("This review is no longer waiting for moderation.");
+    const moderationNote = note?.trim();
+    if (moderationNote && moderationNote.length > 500) throw Error("Moderation note is too long.");
+    if (decision === "reject" && (!moderationNote || moderationNote.length < 5))
+      throw Error("Add a short reason before rejecting this review.");
+    if (decision === "approve") {
+      if (!review.verifiedBookingId || !Number.isInteger(review.rating) || review.rating < 1 || review.rating > 5 ||
+          !review.text || review.text.trim().length < 10 || review.text.trim().length > 2000)
+        throw Error("This review is missing valid rental or review details.");
+      const booking = await ctx.db.get(review.verifiedBookingId);
+      if (!booking) throw Error("The linked rental could not be found.");
+      const context = await reviewContext(ctx, booking);
+      const owner = await accountForRental(ctx, booking);
+      if (!owner || !review.authorAccountId || owner._id !== review.authorAccountId)
+        throw Error("The review owner no longer matches the linked rental.");
+      if (customerReviewGate(context) || booking.reviewEligibilityFingerprint !== reviewSettlementFingerprint(context))
+        throw Error("The rental is no longer eligible for public review display.");
+    }
+    const approved = decision === "approve";
+    await ctx.db.patch(reviewId, {
+      published: approved,
+      moderationStatus: approved ? "approved" : "rejected",
+      moderationAt: Date.now(),
+      moderationNote: moderationNote || undefined,
+    });
+    return { status: approved ? "approved" as const : "rejected" as const };
+  },
+});
+
 /** A logged-in customer leaves a verified review for one of their bookings. */
 export const submitNative = mutation({
-  args: { token: v.string(), bookingId: v.id("bookings"), rating: v.number(), text: v.string() },
-  handler: async (ctx, { token, bookingId, rating, text }) => {
+  args: { token: v.string(), bookingId: v.id("bookings"), rating: v.number(), text: v.string(), showProfilePhoto: v.optional(v.boolean()) },
+  handler: async (ctx, { token, bookingId, rating, text, showProfilePhoto }) => {
     const acct = await accountForToken(ctx, token);
     if (!acct) throw new Error("Please sign in to review.");
     const b = await ownedBooking(ctx, acct, bookingId);
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new Error("Rating must be 1-5.");
     if (text.trim().length < 10 || text.trim().length > 2000) throw Error("Write a review between 10 and 2,000 characters.");
-    if (customerReviewGate(b) || b.reviewEligibilityFingerprint !== reviewSettlementFingerprint(await reviewContext(ctx, b)))
+    const context = await reviewContext(ctx, b);
+    if (customerReviewGate(context) || b.reviewEligibilityFingerprint !== reviewSettlementFingerprint(context))
       throw Error("A review is available after the rental is returned and its refundable security is fully settled.");
-    const dupe = await ctx.db.query("reviews").withIndex("by_booking", q => q.eq("verifiedBookingId", bookingId)).first();
-    if (dupe) throw new Error("You've already reviewed this booking.");
-    await ctx.db.insert("reviews", {
-      source: "native",
+    const priorLoyalty = await loyaltyProgress(ctx, acct);
+    const existing = await ctx.db.query("reviews").withIndex("by_booking", q => q.eq("verifiedBookingId", bookingId)).first();
+    if (existing && (existing.authorAccountId !== acct._id || existing.moderationStatus !== "rejected"))
+      throw new Error("You've already reviewed this booking.");
+    const review = {
+      source: "native" as const,
       author: acct.name ?? acct.email.split("@")[0],
       authorAccountId: acct._id,
-      authorImage: (acct.avatarStorageId && acct.avatarStorageId === acct.avatarOwnedStorageId ? await ctx.storage.getUrl(acct.avatarStorageId) : null) ?? acct.googleAvatarUrl ?? undefined,
+      authorImagePublic: showProfilePhoto === true,
       rating,
       text: text.trim(),
       product: b.lineItems[0]?.title,
       listingId: b.lineItems[0]?.listingId,
       verifiedBookingId: bookingId,
       date: Date.now(),
-      published: true,
-      incentivized:!encoreGate(b),encoreReward:!encoreGate(b),
-    });
-    const encore=await unlockLoyalty(ctx,acct);
-    return { ok: true,encoreLevel:encore.level };
+      published: false,
+      moderationStatus: "pending" as const,
+      moderationAt: undefined,
+      moderationNote: undefined,
+      incentivized: false,
+      encoreReward: false,
+    };
+    const reviewId = existing ? existing._id : await ctx.db.insert("reviews", review);
+    if (existing) await ctx.db.patch(reviewId, review);
+    const earnedLoyalty = await unlockLoyalty(ctx, acct);
+    const earnedEncoreReward = earnedLoyalty.completed !== null && earnedLoyalty.earnedLevel > (priorLoyalty.earnedLevel ?? 0);
+    if (earnedEncoreReward) await ctx.db.patch(reviewId, { incentivized: true, encoreReward: true });
+    return { ok: true, status: "pending" as const };
   },
 });

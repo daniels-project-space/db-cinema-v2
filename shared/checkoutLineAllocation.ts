@@ -14,11 +14,12 @@ export function checkoutLineAllocation(
   discount: number,
   membershipCredit: number,
   accountCredit: number,
+  otherAmounts: number[] = [],
 ): Allocation[] {
   const afterDiscount = allocateSaving(rentalAmounts, discount);
   const afterMembership = allocateSaving(afterDiscount, membershipCredit);
-  const afterAccount = allocateSaving([...afterMembership, ...deliveryAmounts], accountCredit);
-  return [...rentalAmounts, ...deliveryAmounts].map((gross, index) => {
+  const afterAccount = allocateSaving([...afterMembership, ...deliveryAmounts, ...otherAmounts], accountCredit);
+  return [...rentalAmounts, ...deliveryAmounts, ...otherAmounts].map((gross, index) => {
     const discounted = afterDiscount[index] ?? gross;
     const membershipNet = afterMembership[index] ?? gross;
     const card = afterAccount[index];

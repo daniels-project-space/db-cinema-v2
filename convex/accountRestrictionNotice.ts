@@ -42,7 +42,7 @@ export const claim = internalMutation({ args: { noticeId: v.id("account_restrict
     return null;
   }
   await ctx.db.patch(noticeId, { state: "delivering", updatedAt: Date.now() });
-  return { recipient: notice.recipient };
+  return { recipient: notice.recipient, reason: typeof notice.reason === "string" ? notice.reason.slice(0, 500) : "" };
 } });
 export const finish = internalMutation({ args: { noticeId: v.id("account_restriction_notices"), result: v.union(v.literal("sent"), v.literal("skipped"), v.literal("uncertain")) }, handler: async (ctx, { noticeId, result }) => {
   const notice = await ctx.db.get(noticeId);

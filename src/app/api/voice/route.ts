@@ -1,25 +1,27 @@
 import { savedCardChargeLimit } from "../../../../shared/rentalSecurity";
 import { contentsText } from "../../../../shared/rentalContents";
-import { explicitlyNoOptionalAddOns, minimumRentalCombinedTotal, minimumRentalNextStep, minimumRentalOfferText } from "../../../../shared/gafferEmailQuote";
+import { explicitlyNoOptionalAddOns, gafferQuotePriceBreakdown, minimumRentalCombinedTotal, minimumRentalNextStep, minimumRentalOfferText } from "../../../../shared/gafferEmailQuote";
 import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { handleChat, quoteRentalEnquiry } from "@/lib/gaffer";
 import { formatGafferEmailReply } from "@/lib/inboundEmail";
 import { rentalEmail } from "../../../../shared/rentalEmail";
-import { sendMail, supportEmailFrom } from "../../../../convex/lib/mailer";
+import { sendMail } from "../../../../convex/lib/mailer";
 import { createHash } from "node:crypto";
 import { deriveItemType } from "../../../../convex/lib/taxonomy";
 import { equipmentOfferLabel, equipmentRequest, normalizeEquipmentName } from "../../../../shared/equipmentIdentity";
 import { spokenPackingReview, spokenRentalItem } from "@/lib/voiceQuoteFormatting";
-import { PICKUP_SLOTS } from "@/lib/site";
+import { PICKUP_SLOTS, CONTACT_EMAIL } from "@/lib/site";
 import { dayMs } from "@/lib/dates";
 import { rateLimit } from "@/lib/ratelimit";
+import { formatRate } from "@/lib/pricing";
 import { londonToday, resolveDate, speak } from "@/lib/voiceDates";
 
 /**
- * /api/voice — tool endpoint for the Gaffer voice agent (SignalWire phone line
- * and the in-browser call both land here).
+ * /api/voice — server-side tool endpoint used by the Gaffer voice agent.
+ * Phone and browser sessions connect through their voice provider separately;
+ * this endpoint handles the agent's catalogue and booking-tool requests.
  *
  * Everything the agent says about stock, prices, dates and availability comes
  * from this endpoint, because the model on its own gets all four wrong: it told
@@ -80,12 +82,13 @@ const say = (result: string, extra: Record<string, unknown> = {}) =>
   });
 
 const money = (n: number | null | undefined) => (n == null ? "" : `£${Math.round(n)}`);
+const rateMoney = (n: number | null | undefined) => (n == null ? "" : `£${formatRate(n)}`);
 
 /** Read prices as a range the way a person would, not as a list. */
 function priceRange(from: number | null, to: number | null) {
   if (from == null) return "";
-  if (to == null || to === from) return `${money(from)} a day`;
-  return `from ${money(from)} to ${money(to)} a day`;
+  if (to == null || to === from) return `${rateMoney(from)} a day`;
+  return `from ${rateMoney(from)} to ${rateMoney(to)} a day`;
 }
 
 /** Join item names for speech: "the A, the B and the C". */
@@ -124,7 +127,7 @@ function shorten(title: string): string {
 
 type Match = {
   id: string; title: string; slug: string; category: string;
-  daily: number | null; deposit: number | null; minDays: number; deal: number | null;
+  daily: number | null; deposit: number | null; minDays: number;
 };
 
 /** Phone answers consume the same physical allocation and period prices as email. */
@@ -296,7 +299,7 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     : configurationConflict
     ? `${!enquiry.timed ? "The listed package estimate" : "Gear hire for the listed package"} is ${money(configurationConflict.total)} for ${duration}.`
     : enquiry.total !== null
-    ? `${!enquiry.timed ? "The hire estimate" : enquiry.complete ? "Gear hire" : "Confirmed gear hire"} is ${money(enquiry.total)} for ${duration}.`
+    ? `${!enquiry.timed ? "The hire estimate" : enquiry.complete ? "Gear hire" : "Confirmed gear hire"} is ${enquiry.sameDayFee ? gafferQuotePriceBreakdown(enquiry) : money(enquiry.memberBenefit?.total ?? enquiry.total)} for ${duration}.`
     : "I can't give a gear hire total until I can confirm the quantities.";
   const combined = minimumRentalCombinedTotal(enquiry);
   const combinedPrice = combined !== null && enquiry.total !== null ? `Together, gear hire would be ${enquiry.timeWindowPricingConservative ? "up to " : ""}${money(combined)}.` : "";
@@ -346,7 +349,9 @@ export async function POST(req: NextRequest) {
     body.name || body.function_name || body.function?.name ||
     new URL(req.url).searchParams.get("fn") || "";
   const args: any = body.args || body.arguments || body.function?.arguments || body || {};
-  const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+  const convexUrl = configuredConvexUrl();
+  if (!convexUrl) return NextResponse.json({ error: "voice tool is not configured" }, { status: 503 });
+  const c = new ConvexHttpClient(convexUrl);
   const today = londonToday();
 
   try {
@@ -428,13 +433,13 @@ export async function POST(req: NextRequest) {
         const pkgs: Match[] = (s?.packages ?? []).filter((p: Match) => p.id !== top.id);
         const alt = pkgs.length
           ? ` We also do it in ${pkgs.length} package${pkgs.length > 1 ? "s" : ""} — ` +
-            `${readList(pkgs.slice(0, 2).map((p) => p.title))}, from ${money(Math.min(...pkgs.map((p) => p.daily ?? 0).filter(Boolean)))} a day.`
+            `${readList(pkgs.slice(0, 2).map((p) => p.title))}, from ${rateMoney(Math.min(...pkgs.map((p) => p.daily ?? 0).filter(Boolean)))} a day.`
           : hits.length > 1
             ? ` We've also got ${readList(hits.slice(1, 3).map((h) => h.title))}.`
             : "";
 
         return say(
-          `Yes — we've got the ${shorten(top.title)}, ${money(top.daily)} a day.${alt} ` +
+          `Yes — we've got the ${shorten(top.title)}, ${rateMoney(top.daily)} a day.${alt} ` +
           `${packed} Want me to check your dates?`,
           { items: hits },
         );
@@ -446,7 +451,7 @@ export async function POST(req: NextRequest) {
         const bits: string[] = [];
         if (st?.openingHours) bits.push(`We're open ${st.openingHours}`);
         if (st?.deliveryMaxKm) bits.push(`we deliver up to about ${st.deliveryMaxKm} kilometres across London`);
-        bits.push("pickup is from central London and we'll confirm the exact spot when the booking's set");
+        bits.push("pickup is in Trafalgar Square and we'll confirm the exact spot when the booking's set");
         return say(`${bits.join(", ")}. Anything else I can help with?`);
       }
 
@@ -525,9 +530,8 @@ export async function POST(req: NextRequest) {
             const deliveryKey = `voice-followup:${createHash("sha256").update(`${email.toLowerCase()}|${kind}|${parts}|${dayKey}`).digest("hex")}`;
             const sent = await sendMail({
               deliveryKey,
-              from: supportEmailFrom(),
               to: email,
-              replyTo: supportEmailFrom(),
+              replyTo: CONTACT_EMAIL,
               subject: heading,
               html: voiceFollowUpEmailBody(reply, heading),
             });
@@ -560,7 +564,23 @@ export async function POST(req: NextRequest) {
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-// Some agents probe the URL with GET first — return a simple health response.
+function configuredConvexUrl(): string | null {
+  const value = process.env.NEXT_PUBLIC_CONVEX_URL?.trim();
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    if ((parsed.protocol !== "https:" && parsed.protocol !== "http:") || !parsed.hostname) return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+// Some agents probe the URL with GET first; report readiness only when the
+// webhook's server-side dependencies are configured (not provider readiness).
 export async function GET() {
+  if (!process.env.VOICE_WEBHOOK_SECRET || !configuredConvexUrl()) {
+    return NextResponse.json({ ok: false, error: "voice tool is not configured" }, { status: 503 });
+  }
   return NextResponse.json({ ok: true, service: "db-cinema voice webhook", today: londonToday() });
 }

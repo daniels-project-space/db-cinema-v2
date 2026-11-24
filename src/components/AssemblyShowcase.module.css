@@ -141,7 +141,7 @@
 .orbitItem .lightRays { transform-box: fill-box; transform-origin: center; animation: rayBreath 2.2s ease-in-out infinite; }
 .orbitItem .audioWave { animation: audioBreath 2s ease-in-out infinite; }
 .orbitItem .gimbalMotion { transform-box: fill-box; transform-origin: center; animation: gimbalSettle 3.8s ease-in-out infinite; }
-.needsCaption { position: absolute; right: 0; bottom: 7px; color: #ffffff4a; font: 7px var(--font-mono), monospace; letter-spacing: .16em; }
+.needsCaption { position: absolute; right: 0; bottom: 7px; max-width: 100%; color: #ffffffa3; font: 8px var(--font-mono), monospace; letter-spacing: .12em; text-align: right; text-shadow: 0 1px 8px #000; }
 
 .budgetScene { gap: clamp(20px, 4vw, 46px); padding-left: 5px; }
 .dial { position: relative; width: 132px; height: 132px; flex: 0 0 132px; filter: drop-shadow(0 0 18px #fb923c17); }
@@ -188,7 +188,7 @@
 .refinedCopy { min-width: 0; flex: 1; }
 .refinedCopy>strong { display: block; margin-top: 7px; color: #fff; font: 500 clamp(24px, 3vw, 37px)/1 var(--font-display), sans-serif; letter-spacing: -.04em; }
 .refinedCopy>strong small { color: #ffffff72; font: 8px var(--font-mono), monospace; letter-spacing: .1em; }
-.refinedCopy p { margin: 9px 0 0; color: #ffffff8a; font-size: 9px; line-height: 1.4; }
+.refinedCopy p { display: -webkit-box; margin: 9px 0 0; overflow: hidden; color: #ffffff8a; font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .refinedRule { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: #ffffff56; font: 7px var(--font-mono), monospace; letter-spacing: .12em; }
 .refinedRule i { width: 22px; height: 1px; background: var(--assembly-accent); box-shadow: 0 0 8px #fb923c75; animation: ruleExtend 2.2s ease-in-out infinite alternate; }
 
@@ -226,27 +226,28 @@
 }
 
 @media (max-width: 620px) {
-  .root { grid-template-columns: 1fr; align-content: start; gap: 8px; min-height: 300px; padding: 14px 20px 18px; border-radius: 25px; }
+  .root { grid-template-columns: 1fr; align-content: start; gap: 8px; min-height: 0; padding: 14px 20px 18px; border-radius: 25px; }
   .identity { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; align-items: center; column-gap: 11px; padding: 0 0 8px; border-right: 0; border-bottom: 1px solid #ffffff14; }
   .brandLockup { grid-column: 1; grid-row: 1 / 3; align-self: center; }
   .brandLockup b { font-size: 18px; }
   .assemblyName { grid-column: 2; grid-row: 1; margin: 0; overflow: visible; font-size: clamp(17px, 5.2vw, 20px); line-height: 1; white-space: nowrap; }
   .assemblySecondLine { display: inline; }
   .identityNote { display: none; }
-  .openBuilder { grid-column: 2; grid-row: 2; margin-top: 4px; font-size: 7px; }
+  .openBuilder { grid-column: 2; grid-row: 2; margin-top: 4px; font-size: 10px; }
   .demoHeader { min-height: 25px; }
   .slogan { font-size: 15px; }
   .progress { gap: 5px; padding-top: 5px; }
   .progress i { width: 4px; height: 4px; }
   .progress i[data-active="true"] { width: 13px; }
-  .sceneViewport { height: 124px; }
-  .briefIris { width: 88px; height: 88px; flex-basis: 88px; margin: 0 12px 0 0; }
-  .briefIris svg { width: 82px; height: 82px; }
+  .sceneViewport { height: 140px; }
+  .sceneKicker { font-size: 10px; letter-spacing: .08em; }
+  .briefIris { width: 72px; height: 72px; flex-basis: 72px; margin: 0 10px 0 0; }
+  .briefIris svg { width: 68px; height: 68px; }
   .briefDetails>strong { font-size: 19px; }
-  .crewLine { gap: 6px; margin-top: 7px; font-size: 8px; }
-  .crewLine svg { width: 44px; height: 26px; }
-  .briefDetails p { font-size: 6px; }
-  .focusSweep { left: 95px; }
+  .crewLine { gap: 5px; margin-top: 7px; font-size: 11px; }
+  .crewLine svg { width: 30px; height: 26px; }
+  .briefDetails p { color: #ffffffb8; font-size: 10px; line-height: 1.4; letter-spacing: .02em; }
+  .focusSweep { left: 77px; }
   .needsOrbitLine { width: 220px; height: 77px; }
   .needsCore { width: 68px; height: 68px; }
   .needsCore svg { width: 54px; height: 54px; }
@@ -256,7 +257,7 @@
   .orbitTwo { right: 8%; }
   .orbitThree { left: 22%; }
   .orbitFour { right: 21%; }
-  .needsCaption { font-size: 6px; }
+  .needsCaption { font-size: 7px; letter-spacing: .08em; }
   .budgetScene { gap: 14px; }
   .dial { width: 108px; height: 108px; flex-basis: 108px; }
   .dialReadout strong { font-size: 16px; }
@@ -268,21 +269,21 @@
   .cameraGlyph { width: 100%; }
   .refinedScene { gap: 9px; }
   .refinedCopy>strong { font-size: 25px; }
-  .refinedCopy p { margin-top: 7px; font-size: 8px; }
+  .refinedCopy p { margin-top: 7px; font-size: 9px; }
   .refinedRule { margin-top: 9px; font-size: 6px; }
 }
 
 @media (max-width: 390px) {
-  .root { min-height: 286px; padding: 12px 16px 14px; }
+  .root { min-height: 0; padding: 12px 16px 14px; }
   .brandLockup { gap: 6px; }
   .brandLockup b { font-size: 16px; }
   .brandLockup span { font-size: 6px; }
   .assemblyName { font-size: clamp(18px, 5.4vw, 21px); }
-  .sceneViewport { height: 120px; }
+  .sceneViewport { height: 140px; }
   .briefIris { width: 74px; height: 74px; flex-basis: 74px; margin-right: 9px; }
   .briefIris svg { width: 70px; height: 70px; }
   .briefDetails>strong { font-size: 17px; }
-  .briefDetails p { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .briefDetails p { max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
   .budgetScene { gap: 9px; }
   .dial { width: 94px; height: 94px; flex-basis: 94px; }
   .dialReadout strong { font-size: 14px; }

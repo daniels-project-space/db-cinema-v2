@@ -30,6 +30,7 @@ type Me = {
   storeCredit: number;
   earnedCredit:number;refundCredit:number;referralCode:string|null;
   loyaltyLevel:number;loyaltyPercent:number;loyaltyCelebratedLevel:number;
+  loyaltyHistoricalLevel:number;
   membershipTier: string | null;
   membershipActive: boolean;
   membershipAdminGranted?: boolean;
@@ -37,7 +38,8 @@ type Me = {
   membershipHasBillingSubscription?: boolean;
   membershipPerksPending: boolean;
   loyaltyEligible: boolean;
-  loyaltyCompleted: number;
+  loyaltyCompleted: number | null;
+  loyaltyAdminAssigned?: boolean;
   loyaltyCelebrated: boolean;
   membershipStatus: string | null;
   membershipPaidThrough: number | null;
@@ -52,9 +54,9 @@ type AccountCtx = {
   token: string | null;
   me: Me;
   loading: boolean;
-  signUp: (email: string, password: string, name?: string, next?: "chat" | "review" | "verification", bookingId?: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string | undefined, next: "chat" | "review" | "verification" | undefined, bookingId: string | undefined, acceptance: AccountTermsAcceptance) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
-  signInWithGoogle: (credential: string) => Promise<void>;
+  signInWithGoogle: (credential: string, acceptance?: AccountTermsAcceptance) => Promise<void>;
   signOut: () => Promise<void>;
   acceptSession: (token: string) => void;
   updateProfile: (patch: {
@@ -65,6 +67,8 @@ type AccountCtx = {
   }) => Promise<void>;
   toggleFavorite: (listingId: string) => Promise<void>;
 };
+
+export type AccountTermsAcceptance = { termsVersion: string; privacyNoticeVersion: string };
 
 const Ctx = createContext<AccountCtx | null>(null);
 const KEY = "dbc_acct";
@@ -79,7 +83,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const meRes = useQuery(api.accounts.me, token ? { token } : "skip");
-  const verificationFresh=useFreshVerification(meRes?.verificationReadyUntil);
+  const verificationFresh=useFreshVerification(meRes?.verificationValidUntil);
   const me=useMemo(()=>meRes ? {...meRes,idVerified:meRes.idVerified&&verificationFresh} : null,[meRes,verificationFresh]);
   const signUpA = useAction(api.accounts.signUp);
   const signInA = useAction(api.accounts.signIn);
@@ -107,8 +111,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = useCallback(
-    async (email: string, password: string, name?: string, next?: "chat" | "review" | "verification", bookingId?: string) => {
-      const { token } = await signUpA({ email, password, name, next, bookingId: bookingId as any });
+    async (email: string, password: string, name: string | undefined, next: "chat" | "review" | "verification" | undefined, bookingId: string | undefined, acceptance: AccountTermsAcceptance) => {
+      const { token } = await signUpA({ email, password, name, next, bookingId: bookingId as any, termsAndPrivacyAcknowledged: true, ...acceptance });
       if(!token)return;
       persist(token);
       // Someone who took a Gaffer call, got an email follow-up and only then
@@ -130,8 +134,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     [signInA],
   );
   const signInWithGoogle = useCallback(
-    async (credential: string) => {
-      const { token } = await signInGoogleA({ credential });
+    async (credential: string, acceptance?: AccountTermsAcceptance) => {
+      const { token } = await signInGoogleA({ credential, ...(acceptance ? { termsAndPrivacyAcknowledged: true, ...acceptance } : {}) });
       persist(token);
     },
     [signInGoogleA],
@@ -175,7 +179,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     >
       {children}
       {token && meRes && <PrivatePortraitOnboarding key={token} token={token} />}
-      {token && meRes?.loyaltyEligible && !meRes.loyaltyCelebrated && <LoyaltyCelebration level={meRes.loyaltyLevel} subscriptionActive={meRes.membershipActive} onAcknowledge={()=>acknowledgeLoyalty({token,level:meRes.loyaltyLevel})}/> }
+      {token && meRes?.loyaltyCompleted != null && meRes.loyaltyCompleted > 0 && !meRes.loyaltyCelebrated && <LoyaltyCelebration level={meRes.loyaltyCompleted} subscriptionActive={meRes.membershipActive} onAcknowledge={()=>acknowledgeLoyalty({token,level:meRes.loyaltyCompleted!})}/> }
     </Ctx.Provider>
   );
 }

@@ -11,7 +11,7 @@ const gm={_id:'gm',slug:'gm',title:'Sony 24-70mm f2.8 GM lens',itemType:'lens',s
 const wide={...gm,_id:'wide',slug:'wide',title:'Sony 16-35mm f2.8 GM lens',specs:{...gm.specs,lensFocal:'16-35'},demandScore:10,components:[{inventoryUnitId:'wide',qty:1}]};
 const mystery={...gm,_id:'mystery',slug:'mystery',title:'Mystery 50mm lens',specs:{coverage:'ff'},components:[{inventoryUnitId:'mystery',qty:1}]};
 const rf={...cam,_id:'r5',slug:'r5',title:'Canon R5 camera body',specs:{mount:'RF',coverage:'ff'},components:[{inventoryUnitId:'r5',qty:1}]};
-let rows=[cam,gm,wide],availability=1,availabilityWithBasket=1,checks=[],intent={},narration='',modelHandoff=false,modelResolved=false,modelSuggestions=[];
+let rows=[cam,gm,wide],availability=1,availabilityWithBasket=1,checks=[],intent={},narration='',modelHandoff=false,modelResolved=false,modelSupportRequested=false,modelReply='Grounded response',modelSuggestions=[];
 setMock('convex/browser',{ConvexHttpClient:class{async query(name,args){
  if(name==='catalog.listListings')return rows;
  if(name==='catalog.byItemType')return rows.filter(r=>args.types.includes(r.itemType));
@@ -32,7 +32,7 @@ setMock('convex/browser',{ConvexHttpClient:class{async query(name,args){
 }}});
 setMock('@/lib/ai',{generateBotObject:async({prompt})=>{
  if(prompt.startsWith('You parse'))return intent;
- narration=prompt;return {reply:'Grounded response',suggestions:modelSuggestions,humanRequested:modelHandoff,resolvedInquiry:modelResolved};
+ narration=prompt;return {reply:modelReply,suggestions:modelSuggestions,humanRequested:modelHandoff,supportRequested:modelSupportRequested,resolvedInquiry:modelResolved};
 }});
 process.env.OPENROUTER_API_KEY='isolated-fixture-no-provider-call';
 const {handleChat}=load('src/lib/gaffer.ts');
@@ -41,8 +41,10 @@ async function chat(next,message,cart,channel){
  return handleChat({messages:[{role:'user',content:message}],cart,channel});
 }
 (async()=>{
- const window={start:'2026-11-20',end:'2026-11-21'};
+ const window={start:'2035-11-20',end:'2035-11-21'};
  let result=await chat({intent:'build_kit',itemTypes:['lens','camera'],...window},'Build a camera and lens kit for 20–21 November');
+ assert.match(narration,/Offer the \[Open contact form\].*Only if the customer explicitly asks to email us/s,'catalogue answers retain conditional, approved contact actions when a handoff becomes useful');
+ assert.match(narration,/Never send someone to the contact page just to avoid answering or checking/,'resolve-first guidance applies to non-support intents too');
  assert.deepEqual(result.cards.map(c=>c.item.listingId),['fx3','wide'],'actual planner reasons progressively about included glass, despite lens-first model output');
  assert(result.cards.every(c=>c.item.needsTimes&&c.item.available===null));
  assert.equal(checks.length,0);
@@ -55,7 +57,7 @@ async function chat(next,message,cart,channel){
 	assert(narration.includes('10:00 pickup and 17:00 return'));
 	assert.equal(checks.length,2);
 	modelSuggestions=['Book the FX3','Add XLR handle unit','Try a compatible lens'];
-	result=await chat({intent:'price',subject:'Sony FX3',itemTypes:['camera'],start:'2026-11-03',end:'2026-11-03',pickupTime:'10:00',returnTime:'18:00'},'I need an FX3 camera body only for 3 November, pickup 10:00 and return 18:00.');
+ result=await chat({intent:'price',subject:'Sony FX3',itemTypes:['camera'],start:'2035-11-03',end:'2035-11-03',pickupTime:'10:00',returnTime:'18:00'},'I need an FX3 camera body only for 3 November, pickup 10:00 and return 18:00.');
 	assert.equal(result.enquiry.complete,true,'the requested FX3 body remains the quoted item');
 	assert.deepEqual(result.suggestions,['Book the FX3'],'camera-only chat must suppress unrelated handles and lens upsells');
 	modelSuggestions=[];
@@ -102,6 +104,20 @@ async function chat(next,message,cart,channel){
  result=await chat({intent:'other'},'Would your team please contact me directly?',undefined,'chat');
  assert.equal(Object.hasOwn(result,'humanRequested'),false,'the email-only routing signal is not exposed by the regular chat endpoint');
  modelResolved=true;result=await chat({intent:'other'},'What are the opening hours?',undefined,'chat');assert.equal(result.resolvedInquiry,true,'Only a model-classified complete and grounded reply is eligible for signed completion');assert.match(narration,/If FALSE is TRUE, ask for pickup and return dates/,'A general question must not request rental dates');
+ modelReply='The studio opens at 9am. [Open contact form](https://dbcinemarentals.com/contact)';
+ result=await chat({intent:'other'},'What are the opening hours?',undefined,'chat');
+ assert.equal(result.reply,'The studio opens at 9am.','A resolved answer never appends an unrequested support handoff');
+ assert(!Object.hasOwn(result,'supportActionsEligible'),'Support eligibility remains internal and is not client-controlled');
+ modelReply='[Open contact form](https://dbcinemarentals.com/contact)';modelSupportRequested=true;
+ result=await chat({intent:'other'},'How can I contact the team?',undefined,'chat');
+ assert.match(result.reply,/\[Open contact form\]\(https:\/\/dbcinemarentals\.com\/contact\)/,'An explicit contact request retains the approved, rendered contact action');
+ modelSupportRequested=false;modelReply='I cannot verify that account-specific change from the information here. [Open contact form](https://dbcinemarentals.com/contact)';modelResolved=false;
+ result=await chat({intent:'other'},'Can you change my account?',undefined,'chat');
+ assert.match(result.reply,/\[Open contact form\]/,'An unresolved capability boundary may offer the contact action');
+ modelReply='Which pickup dates should I check? [Open contact form](https://dbcinemarentals.com/contact)';
+ result=await chat({intent:'build_kit',itemTypes:['camera']},'I need a camera kit soon',undefined,'chat');
+ assert.equal(result.reply,'Which pickup dates should I check?','A clarifying question stays in chat rather than diverting to support');
+ modelResolved=true;modelReply='Grounded response';
  result=await chat({intent:'build_kit',itemTypes:['camera'],...window},'Build a camera kit for 20–21 November');assert.equal(result.resolvedInquiry,false,'Missing times or unconfirmed stock cannot be marked resolved');assert.match(narration,/If TRUE is TRUE, dates are known but pickup\/return times are incomplete/);
  modelHandoff=true;result=await chat({intent:'other'},'I need a human',undefined,'chat');assert.equal(result.resolvedInquiry,false,'Human-required cases cannot be marked resolved');
  console.log('PASS actual Gaffer planner/narration pipeline: progressive kit contents, timed availability gate, unavailable-stock rejection, unknown fit and camera-specific mount rules. Controlled model/catalogue transport; no provider writes.');

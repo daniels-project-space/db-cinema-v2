@@ -49,10 +49,10 @@ const {settleAuthenticatedLateCharge}=load('convex/bookings.ts');
     metadata:{bookingId:'booking-1',purpose:'late_rental_time_separate_charge'}};
   intents.set(intent.id,intent);
   const mutations=[];
-  let owner=true;
+  let owner=true,verified=true;
   const ctx={
     runQuery:async ref=>{
-      if(ref==='accounts:_byToken')return owner?{email:'renter@example.invalid'}:{email:'someone-else@example.invalid'};
+      if(ref==='accounts:_byToken')return owner?{email:'renter@example.invalid',...(verified?{emailVerifiedAt:now}: {})}:{email:'someone-else@example.invalid',emailVerifiedAt:now};
       if(ref==='bookings:lateFeeContext')return booking;
       if(ref==='bookings:pendingLateAuthentications')return ['booking-1'];
       throw Error(`Unexpected query ${ref}`);
@@ -63,6 +63,9 @@ const {settleAuthenticatedLateCharge}=load('convex/bookings.ts');
   await assert.rejects(resume.handler(ctx,{token:'other',bookingId:'booking-1'}),/access denied/);
   assert.equal(mutations.length,0);
   owner=true;
+  verified=false;
+  await assert.rejects(resume.handler(ctx,{token:'renter',bookingId:'booking-1'}),/access denied/,'An unverified email cannot recover a guest rental payment');
+  verified=true;
   process.env.LATE_FEE_AUTOCOLLECT_ENABLED='false';
   assert.deepEqual(await resume.handler(ctx,{token:'renter',bookingId:'booking-1'}),
     {status:'paused',clientSecret:null});

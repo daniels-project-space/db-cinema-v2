@@ -1,8 +1,11 @@
 const assert = require("node:assert/strict");
 const { load } = require("./lib/rentalTestHarness.cjs");
 const { GAFFER_VOICE_PROMPT } = require("./lib/gafferVoicePrompt.cjs");
+const { PROMPT: GAFFER_SYSTEM_PROMPT } = require("./gaffer-system-prompt.js");
 const { syncGafferVoiceAgentPrompt } = require("./lib/gafferVoiceAgentPrompt.cjs");
 const { pageBrief } = load("src/components/gaffer/callContext.ts");
+const fs = require("node:fs");
+const path = require("node:path");
 
 assert.match(GAFFER_VOICE_PROMPT, /one quote call for the complete item list/i);
 assert.match(GAFFER_VOICE_PROMPT, /item_2 through item_8/i);
@@ -16,9 +19,24 @@ assert.match(GAFFER_VOICE_PROMPT, /clear shoot context/i);
 assert.match(GAFFER_VOICE_PROMPT, /camera-only\/no-extras request/i);
 assert.match(GAFFER_VOICE_PROMPT, /Call request_callback only when the caller explicitly asks/i);
 assert.doesNotMatch(GAFFER_VOICE_PROMPT, /Always call request_callback|for any booking, inquiry, issue/i);
-assert.match(GAFFER_VOICE_PROMPT, /The Grand Building, Trafalgar Square, London, WC2N 5EJ/);
-assert.match(GAFFER_VOICE_PROMPT, /outside the Waterstones bookstore at the confirmed time/);
+assert.match(GAFFER_VOICE_PROMPT, /pickup is in Trafalgar Square/i);
+assert.doesNotMatch(GAFFER_VOICE_PROMPT, /The Grand Building|Waterstones|WC2N\s*5EJ/i);
 assert.match(GAFFER_VOICE_PROMPT, /Never infer booking status from payment, a saved card or an estimate/);
+assert.match(GAFFER_VOICE_PROMPT, /authorized booking result containing their signed cancellation terms, current booking status and scheduled pickup time/i);
+assert.match(GAFFER_VOICE_PROMPT, /a standard new-rental price\/availability quote is not an extension quote/i);
+assert.match(GAFFER_VOICE_PROMPT, /The quote tools do not reserve equipment.*checkout.*final stock check/i,
+  "voice never presents a quote as a booking or reserved stock");
+assert.match(GAFFER_VOICE_PROMPT, /If no account details are available, direct the customer to the signed-in Gaffer chat in Account/i,
+  "voice does not imply it can see a caller's account without authenticated booking context");
+assert.match(GAFFER_SYSTEM_PROMPT, /Static knowledge and the current general policy must never override that rental's signed terms/i);
+assert.match(GAFFER_SYSTEM_PROMPT, /A standard new-rental quote is not an extension quote/i);
+const voiceKnowledgeSource = fs.readFileSync(path.join(__dirname, "../scripts/gaffer-knowledge.js"), "utf8");
+const policyDocument = voiceKnowledgeSource.match(/const POLICY_DOC = `([\s\S]*?)`;/)?.[1] ?? "";
+assert.match(policyDocument, /static\s+knowledge document is not authoritative for amounts, permissions, refunds or eligibility/i);
+assert.match(policyDocument, /only an authorized booking result that[\s\S]*?includes the signed terms and scheduled pickup time/i);
+assert.match(policyDocument, /A normal new-rental quote is not an extension quote/i);
+assert.doesNotMatch(policyDocument, /5% of the item's replacement value|full refundable security deposit equal to the replacement value/i,
+  "the static voice KB must not retain the superseded deposit policy");
 assert.match(GAFFER_VOICE_PROMPT, /Before speaking, choose one considered answer/i,
   "the agent should settle on its answer before beginning to speak");
 assert.match(GAFFER_VOICE_PROMPT, /do not voice provisional conclusions, change conclusions mid-response, or restart your own active response/i,
@@ -56,7 +74,7 @@ const fetchImpl = async (_url, options = {}) => {
     agentId: "fixture-agent", apiKey: "fixture-key", prompt: GAFFER_VOICE_PROMPT, fetchImpl,
   });
   assert.equal(preview.mode, "dry-run");
-  assert.deepEqual(preview.turnSettings, { turn_eagerness: "normal", speculative_turn: false });
+  assert.deepEqual(preview.turnSettings, { turn_eagerness: "patient", speculative_turn: false });
   assert.deepEqual(calls.map(call => call.method), ["GET"], "default run must stay read-only");
 
   const applied = await syncGafferVoiceAgentPrompt({
@@ -66,13 +84,13 @@ const fetchImpl = async (_url, options = {}) => {
   assert.deepEqual(calls.slice(1).map(call => call.method), ["GET", "PATCH", "GET"]);
   assert.deepEqual(calls[2].body.conversation_config, {
     agent: { prompt: { prompt: GAFFER_VOICE_PROMPT } },
-    turn: { turn_eagerness: "normal", speculative_turn: false },
+    turn: { turn_eagerness: "patient", speculative_turn: false },
   }, "the release update changes only the reviewed prompt and turn settings");
   assert.equal(agent.conversation_config.tts.voice_id, "voice-kept");
   assert.deepEqual(agent.conversation_config.agent.prompt.tool_ids, toolIds);
   assert.equal(agent.conversation_config.agent.first_message, "Hello");
   assert.equal(agent.conversation_config.turn.turn_timeout, 7, "other turn settings stay untouched");
-  assert.equal(agent.conversation_config.turn.turn_eagerness, "normal");
+  assert.equal(agent.conversation_config.turn.turn_eagerness, "patient");
   assert.equal(agent.conversation_config.turn.speculative_turn, false);
   assert.equal((await syncGafferVoiceAgentPrompt({
     agentId: "fixture-agent", apiKey: "fixture-key", prompt: GAFFER_VOICE_PROMPT, fetchImpl,
@@ -101,5 +119,5 @@ const fetchImpl = async (_url, options = {}) => {
   assert.equal(rollbackAgent.conversation_config.turn.turn_timeout, 7, "rollback preserves other turn settings");
   assert.deepEqual(rollbackAgent.conversation_config.agent.prompt.tool_ids, toolIds, "rollback retains attached tools");
   assert.equal(rollbackAgent.conversation_config.tts.voice_id, "voice-kept", "rollback retains the voice");
-  console.log("PASS Gaffer voice update: concise answer policy, normal non-speculative turns, read-only preview, exact readback, rollback and preservation of tools, voice and other turn settings.");
+  console.log("PASS Gaffer voice update: concise answer policy, patient non-speculative turns, read-only preview, exact readback, rollback and preservation of tools, voice and other turn settings.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -2,7 +2,7 @@ import { query, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { accountForToken, ownedBooking, postRentalMessage } from "./lib/rentalChat";
 import { assertCreditOffer, creditOfferFingerprint } from "./lib/rentalCreditPolicy";
-import { SETUP_INTENT_SECURITY_POLICY_VERSION } from "../shared/rentalSecurity";
+import { isSetupIntentSecurityPolicy } from "../shared/rentalSecurity";
 
 export const byId = internalQuery({ args: { offerId: v.id("rental_credit_offers") }, handler: async (ctx, { offerId }) => ctx.db.get(offerId) });
 export const context = internalQuery({
@@ -17,7 +17,7 @@ export const get = query({
     const processing = booking.status === "confirmed" && booking.cancellationDecision?.fullCreditOfferId === offerId;
     let eligible = processing;
     try { assertCreditOffer(offer, booking); eligible = processing || (offer.status === "offered" && !booking.cancellationDecision); } catch {}
-    return { amountPence: offer.amountPence, status: offer.status, eligible, enabled: process.env.CUSTOMER_BOOKING_ACTIONS === "true", securityPolicyVersion: booking.securityPolicyVersion ?? null };
+    return { amountPence: offer.amountPence, status: offer.status, eligible, enabled: process.env.CUSTOMER_BOOKING_ACTIONS === "true", bookingId: String(offer.bookingId), securityPolicyVersion: booking.securityPolicyVersion ?? null };
   },
 });
 export const create = internalMutation({
@@ -34,7 +34,7 @@ export const create = internalMutation({
     if (existing) return existing._id;
     const id = await ctx.db.insert("rental_credit_offers", { ...args, createdAt: Date.now(), expiresAt: Date.now() + 30 * 60000, status: "offered" });
     await postRentalMessage(ctx, { accountId: args.accountId, bookingId: args.bookingId, sender: "bot",
-      text: `You can choose to cancel for £${(args.amountPence / 100).toFixed(2)} account credit, valid for one year and applied automatically to a future rental. ${booking.securityPolicyVersion === SETUP_INTENT_SECURITY_POLICY_VERSION ? "This offer does not include a deposit refund or card-hold release; any future security claim remains governed by the saved-card agreement." : "This includes the remaining paid security payment; choosing it replaces a card refund. Any unused card holds will be released."} Nothing changes unless you accept the offer below. A card refund under the usual cancellation policy remains available through the team.`,
+      text: `The team can review a proposed £${(args.amountPence / 100).toFixed(2)} account-credit option for this cancellation. ${isSetupIntentSecurityPolicy(booking.securityPolicyVersion) ? "It does not include a deposit refund or card-hold release; any future security claim remains governed by the saved-card agreement." : "The proposal includes the remaining paid security payment; any unused card holds will be released if the team approves cancellation."} Requesting a review does not cancel your rental or issue credit. The team must approve the request before anything changes.`,
       meta: { kind: "full_credit_offer", offerId: id } });
     return id;
   },

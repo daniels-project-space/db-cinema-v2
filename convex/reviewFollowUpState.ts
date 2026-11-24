@@ -4,7 +4,8 @@ import { encoreGate } from "./lib/loyalty";
 import { reviewContext } from "./lib/reviewContext";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { reviewFingerprint, reviewGate, reviewSuppressed } from "./lib/reviewEligibility";
+import { reviewFingerprint, reviewFollowUpClaimed, reviewFollowUpDueAt, reviewGate, reviewSuppressed } from "./lib/reviewEligibility";
+import { reconcileReviewInvitationMessage } from "./lib/reviewInvitationState";
 
 export const candidates = internalQuery({
   args: {},
@@ -12,9 +13,10 @@ export const candidates = internalQuery({
     .withIndex("by_review_check", q => q.eq("status", "returned"))
     .order("asc")
     .filter(q => q.and(q.neq(q.field("remindedReview"), true),
+      q.eq(q.field("reviewInvitationMessageId"), undefined),
       q.neq(q.field("reviewFollowUpStatus"), "sent"),
       q.neq(q.field("reviewFollowUpStatus"), "sending"),q.neq(q.field("reviewFollowUpStatus"), "failed")))
-    .take(50);return Promise.all(rows.map(async b => { const account=await accountForRental(ctx,b);return {...await reviewContext(ctx,b),customerEmail:account?.email??(b.accountId?undefined:b.guestEmail),prizeOffersAllowed:!!account?.marketingEmails&&!encoreGate(b),encoreOffersAllowed:!!account?.marketingEmails&&!encoreGate(b)}; }));},
+    .take(50);return Promise.all(rows.map(async b => { const account=await accountForRental(ctx,b);return {...await reviewContext(ctx,b),hasAccount:!!account,customerEmail:account?.email??(b.accountId?undefined:b.guestEmail),prizeOffersAllowed:!!account?.marketingEmails&&!encoreGate(b),encoreOffersAllowed:!!account?.marketingEmails&&!encoreGate(b)}; }));},
 });
 export const context = internalQuery({
   args: { bookingId: v.id("bookings") },
@@ -25,8 +27,10 @@ export const recordCheck = internalMutation({
   args: { bookingId: v.id("bookings"), fingerprint: v.string(), reason: v.optional(v.string()), claim: v.boolean() },
   handler: async (ctx, { bookingId, fingerprint, reason, claim }) => {
     const b = await ctx.db.get(bookingId);
-    if (!b || reviewFingerprint(b) !== fingerprint || ["sending","failed"].includes(b.reviewFollowUpStatus??"")) return false;
-    const blocked = reviewGate(b) ?? reason;
+    if (!b || reviewFingerprint(b) !== fingerprint) return false;
+    if (reviewFollowUpClaimed(b)) return false;
+    if (await reconcileReviewInvitationMessage(ctx, b)) return false;
+    const blocked = reviewGate(await reviewContext(ctx, b)) ?? reason;
     if (blocked) {
       if (blocked !== "already_sent") await ctx.db.patch(bookingId, {
         reviewFollowUpStatus: reviewSuppressed(blocked) ? "suppressed" : "waiting",
@@ -34,10 +38,22 @@ export const recordCheck = internalMutation({
       });
       return false;
     }
+    const existingReview = await ctx.db.query("reviews")
+      .withIndex("by_booking", q => q.eq("verifiedBookingId", bookingId)).first();
+    if (existingReview) {
+      await ctx.db.patch(bookingId, {
+        reviewFollowUpStatus: "suppressed", reviewFollowUpReason: "review_already_exists",
+        reviewFollowUpCheckedAt: Date.now(), remindedReview: true,
+      });
+      return false;
+    }
     const now = Date.now();
-    const due = b.reviewFollowUpDueAt ?? Math.max(now, b.returnedAt ?? 0,
-      ...(b.lineItems.map(li => li.end))) + 86400000;
-    const account=await accountForRental(ctx,b),recipient=account?.email??(b.accountId?null:b.guestEmail);
+    const due = reviewFollowUpDueAt(b, now);
+    const account=await accountForRental(ctx,b);
+    // Account holders receive the interactive invitation in their rental chat.
+    // Email is reserved for guests who do not have a chat-capable account.
+    if (account || b.reviewInvitationMessageId) return false;
+    const recipient=b.accountId?null:b.guestEmail;
     const ready = claim && !!recipient && now >= due;
     await ctx.db.patch(bookingId, {
       reviewFollowUpStatus: ready ? "sending" : "waiting",

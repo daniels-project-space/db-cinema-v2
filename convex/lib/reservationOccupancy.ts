@@ -12,8 +12,8 @@ export async function reservationOccupancy(ctx: any, row: any, now = Date.now())
     const pending = ["pending_payment", "pending_verification"].includes(booking?.status);
     paidVerificationHold = !!(pending && checkoutPaid);
     // Unpaid baskets and unverified checkout holds remain advisory. A payment
-    // receipt turns the exact physical allocation into a real stock hold while
-    // Didit is processing, waiting for input, or reviewing the documents.
+    // receipt turns this allocation into a durable stock hold; a Didit result
+    // alone (including rejection) cannot release it before explicit resolution.
     if (pending && !paidVerificationHold) return null;
     if (booking?.status === "cancelled") return null;
   }

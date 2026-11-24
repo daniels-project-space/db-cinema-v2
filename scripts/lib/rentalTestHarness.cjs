@@ -120,7 +120,7 @@ const db = {
             return q;
           },
         };
-        fn(q);
+        if (fn) fn(q);
         return query;
       },
       filter(fn) {
@@ -185,11 +185,24 @@ module.exports = {
   load,
   db,
   put,
+  putFreshSharedStock: () => {
+    const now = Date.now();
+    const prior = (tables.get("rmv2_sync_state") ?? []).find(row => row.key === "shared-stock-v1");
+    const fields = {
+      key: "shared-stock-v1",
+      status: "ok",
+      lastSyncedAt: now,
+      cursor: JSON.stringify({ version: 2, turnaroundBufferMinutes: 60, checkedAt: now }),
+    };
+    if (prior) { Object.assign(prior, fields); return prior; }
+    return put("rmv2_sync_state", fields);
+  },
   tables,
   docs,
   confirmSyntheticSwapStock: (id) => {
-    put('swap_stock_operations',{swapId:id,operation:'acquire',state:'confirmed',receipt:{requestId:`fixture-${id}`,fingerprint:'synthetic'}});
-    put('swap_stock_operations',{swapId:id,operation:'beginExecution',state:'confirmed',request:{args:{id:`fixture-${id}`,fingerprint:'synthetic',executionKey:`swap_execution_${id}`}}});
+    const requestId=`fixture-${id}`,fingerprint='synthetic';
+    put('swap_stock_operations',{swapId:id,operation:'acquire',state:'confirmed',receipt:{requestId,fingerprint}});
+    put('swap_stock_operations',{swapId:id,operation:'beginExecution',state:'confirmed',receipt:{state:'execution_started'},request:{args:{id:requestId,fingerprint,executionKey:`swap_execution_${id}`}}});
   },
   setMock: (name, value) => mocks.set(name, value),
 };

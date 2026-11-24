@@ -7,6 +7,7 @@ class FixtureStripe {
   constructor() {
     this.webhooks = { constructEvent: () => ({ type:'checkout.session.completed', data:{ object:currentSession } }) };
     this.subscriptions = { retrieve: async () => { throw Error('synthetic subscription outage'); } };
+    this.paymentIntents = { retrieve: async id => ({id,status:'succeeded',amount_received:currentSession.amount_total,currency:currentSession.currency}) };
   }
 }
 h.setMock('stripe', { default:FixtureStripe });
@@ -29,9 +30,9 @@ const ctx = { db:h.db, scheduler:{runAfter:async (...args)=>scheduled.push(args)
 };
 function fixture(day, credit) {
   const booking = h.put('bookings', { status:'pending_payment', guestEmail:account.email, accountId:account._id, fulfilment:'pickup',
-    stripeCheckoutSessionId:`cs_test_${day}`, subtotal:100, total:100-credit, depositAmount:0, membershipCreditApplied:credit,
+    stripeCheckoutSessionId:`cs_test_${day}`, subtotal:100, total:100-credit, depositAmount:0, membershipCreditApplied:credit,currency:'GBP',
     lineItems:[{listingId:listing._id,title:listing.title,start:Date.UTC(2030,0,day),end:Date.UTC(2030,0,day),qty:1,total:100,deposit:0}] });
-  currentSession = { id:booking.stripeCheckoutSessionId, status:'complete', payment_status:'paid', payment_intent:`pi_${day}`, subscription:'sub_fixture', metadata:{bookingId:booking._id,membershipTier:'plus'} };
+  currentSession = { id:booking.stripeCheckoutSessionId, status:'complete', payment_status:'paid', payment_intent:`pi_${day}`, amount_total:Math.round((100-credit)*100),currency:'gbp',subscription:'sub_fixture', metadata:{bookingId:booking._id,membershipTier:'plus'} };
   return booking;
 }
 (async () => {

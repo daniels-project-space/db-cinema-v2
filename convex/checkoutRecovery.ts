@@ -16,6 +16,29 @@ import { bump } from "./rateLimit";
 import { basketKey, recoveryBookingState, recoveryBookingsForAccount } from "./lib/checkoutRecovery";
 import {quote} from "./lib/pricing";
 import {listingImages} from "./lib/catalogImages";
+import { rentalPricingDays } from "../shared/rentalDuration";
+const DAY_MS = 86400000;
+const WEEK_MS = 7 * DAY_MS;
+const ACTIVITY_WRITE_INTERVAL_MS = 5 * 60000;
+
+function followupDueAt(updatedAt:number,stage:"day_one"|"week_one") {
+  return updatedAt + (stage === "day_one" ? DAY_MS : WEEK_MS);
+}
+
+function recoveryExpiry(lines:any[],now:number) {
+  return Math.min(now + 8 * DAY_MS, Math.min(...lines.map((line:any)=>line.start)) + DAY_MS);
+}
+
+async function relatedRecoveryBookings(ctx:any, recovery:any, account:any) {
+  const bookings = await recoveryBookingsForAccount(ctx, account);
+  const related = bookings.filter((booking:any) => basketKey(booking.lineItems) === basketKey(recovery.lines));
+  if (recovery.bookingId) {
+    const linked = await ctx.db.get(recovery.bookingId);
+    if (linked && !related.some((booking:any) => booking._id === linked._id)) related.push(linked);
+  }
+  return related;
+}
+
 const line = v.object({
   listingId: v.id("listings"),
   qty: v.number(),
@@ -23,12 +46,10 @@ const line = v.object({
   end: v.number(),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),
 });
 export const sync = mutation({
-  // Accept older clients' flag, but populated baskets are saved automatically.
-  args: { token: v.string(), enabled: v.optional(v.boolean()), lines: v.array(line) },
+  // Follow-up mail is sent only after the renter opts in for the current basket.
+  args: { token: v.string(), enabled: v.optional(v.boolean()), emailFollowupConsent: v.optional(v.boolean()), lines: v.array(line) },
   handler: async (ctx, a) => {
     const account = await requireAccount(ctx, a.token);
-    if(!(await bump(ctx,`basket-activity:${account._id}`,60,60000)).allowed)
-      throw new Error("Please wait before updating your basket again.");
     const rows = await ctx.db
       .query("checkout_recoveries")
       .withIndex("by_account", (q) => q.eq("accountId", account._id))
@@ -39,6 +60,8 @@ export const sync = mutation({
         if (r.state !== "stopped")
           await ctx.db.patch(r._id, {
             state: "stopped",
+            followupStage: "complete",
+            emailFollowupConsentAt: undefined,
             leaseUntil: undefined,
           });
       return null;
@@ -47,6 +70,20 @@ export const sync = mutation({
     for (const l of a.lines) dates(l.start, l.end);
     for (const l of a.lines)
       if (!(await ctx.db.get(l.listingId))) throw new Error("Item not found.");
+    const emailFollowupConsent = a.emailFollowupConsent ?? !!current?.emailFollowupConsentAt;
+    if (!emailFollowupConsent) {
+      if (current && (current.state === "waiting" || current.emailFollowupConsentAt))
+        await ctx.db.patch(current._id, {
+          state: "sent",
+          followupStage: "complete",
+          emailFollowupConsentAt: undefined,
+          leaseUntil: undefined,
+        });
+      return current?._id ?? null;
+    }
+    const isNewConsent = !current?.emailFollowupConsentAt || current.followupStage === "complete";
+    if (!isNewConsent && !(await bump(ctx,`basket-activity:${account._id}`,60,60000)).allowed)
+      throw new Error("Please wait before updating your basket again.");
     // Never re-arm a completed/cancelled checkout from another open browser tab.
     const bookings = await recoveryBookingsForAccount(ctx,account);
     const linked = rows.filter(
@@ -63,24 +100,45 @@ export const sync = mutation({
           basketKey(b.lineItems) === basketKey(a.lines) &&
           recoveryBookingState(b) === "stopped",
       )
-    )
+    ) {
+      if (current) await ctx.db.patch(current._id,{state:"stopped",followupStage:"complete",emailFollowupConsentAt:undefined,leaseUntil:undefined});
       return null;
+    }
     if (current && basketKey(current.lines) === basketKey(a.lines)) {
       const now=Date.now();
       const changed=JSON.stringify(current.lines)!==JSON.stringify(a.lines);
-      if(current.state==="waiting"&&(changed||now-current.updatedAt>=30_000))
-        await ctx.db.patch(current._id,{lines:a.lines,updatedAt:now,dueAt:now+30*60000,attempts:0,leaseUntil:undefined});
-      else if(current.state==="sent"&&changed)await ctx.db.patch(current._id,{lines:a.lines,updatedAt:now});
+      if (changed || !current.emailFollowupConsentAt || current.followupStage === "complete") {
+        await ctx.db.patch(current._id,{
+          lines:a.lines,
+          updatedAt:now,
+          dueAt:followupDueAt(now,"day_one"),
+          expiresAt:recoveryExpiry(a.lines,now),
+          state:"waiting",
+          followupStage:"day_one",
+          emailFollowupConsentAt:current.followupStage === "complete" ? now : current.emailFollowupConsentAt ?? now,
+          attempts:0,
+          leaseUntil:undefined,
+        });
+      } else if(current.state === "waiting" && now - current.updatedAt >= ACTIVITY_WRITE_INTERVAL_MS) {
+        const stage = current.followupStage === "week_one" ? "week_one" : "day_one";
+        await ctx.db.patch(current._id,{
+          lines:a.lines,
+          updatedAt:now,
+          dueAt:followupDueAt(now,stage),
+          expiresAt:recoveryExpiry(a.lines,now),
+          attempts:0,
+          leaseUntil:undefined,
+        });
+      }
       return current._id;
     }
-    if (
-      !(await bump(ctx, `checkout-recovery:${account._id}`, 30, 3600000))
-        .allowed
-    )
+    if (!(await bump(ctx, `checkout-recovery:${account._id}`, 30, 3600000)).allowed)
       throw new Error("Please wait before saving another checkout.");
     if (current)
       await ctx.db.patch(current._id, {
         state: "stopped",
+        followupStage: "complete",
+        emailFollowupConsentAt: undefined,
         leaseUntil: undefined,
       });
     const now = Date.now();
@@ -88,12 +146,11 @@ export const sync = mutation({
       accountId: account._id,
       lines: a.lines,
       consentAt: now,
+      emailFollowupConsentAt: now,
+      followupStage: "day_one",
       updatedAt: now,
-      dueAt: now + 30 * 60000,
-      expiresAt: Math.min(
-        now + 7 * 86400000,
-        Math.min(...a.lines.map((l) => l.start)) + 86400000,
-      ),
+      dueAt: followupDueAt(now,"day_one"),
+      expiresAt: recoveryExpiry(a.lines,now),
       state: "waiting",
       attempts: 0,
     });
@@ -131,10 +188,11 @@ export const resume = query({
     return {
       title: "Your saved checkout",
       lines: r.lines,
+      emailFollowupsEnabled: Boolean(r.emailFollowupConsentAt && r.followupStage !== "complete"),
       items: await kitDetails(ctx, r.lines),
       cartLines: await Promise.all(r.lines.map(async line=>{
         const listing=await ctx.db.get(line.listingId);if(!listing)return null;
-        const days=Math.round((line.end-line.start)/86400000)+1,price=quote(listing.pricing,days);
+        const days=rentalPricingDays(line.start,line.end,line.pickupTime,line.returnTime),price=quote(listing.pricing,days);
         return {listingId:line.listingId,qty:line.qty,title:listing.title,slug:listing.slug,heroImage:listingImages(listing)[0]??null,
           start:new Date(line.start).toISOString().slice(0,10),end:new Date(line.end).toISOString().slice(0,10),
           pickupTime:line.pickupTime,returnTime:line.returnTime,days,perDay:price.perDay,total:price.total,deposit:listing.depositAmount};
@@ -174,6 +232,15 @@ export const _claim = internalMutation({
       await ctx.db.patch(id, { state: "stopped" });
       return null;
     }
+    if (!r.emailFollowupConsentAt || r.followupStage === "complete") {
+      await ctx.db.patch(id,{state:"sent",followupStage:"complete",emailFollowupConsentAt:undefined,leaseUntil:undefined});
+      return null;
+    }
+    if (!r.followupStage) {
+      const dueAt=followupDueAt(r.updatedAt,"day_one");
+      await ctx.db.patch(id,{followupStage:"day_one",dueAt});
+      return null;
+    }
     if (process.env.CHECKOUT_RECOVERY_ENABLED !== "true" || process.env.RENTAL_CHECKOUT_ENABLED !== "true") return null;
     if ((await ctx.db.query("settings").first())?.acceptingOrders === false) return null;
     const account = await ctx.db.get(r.accountId);
@@ -181,16 +248,7 @@ export const _claim = internalMutation({
       await ctx.db.patch(id,{state:"stopped",leaseUntil:undefined});return null;
     }
     // Recheck permanent ownership and payment state immediately before claiming.
-    const bookings = await recoveryBookingsForAccount(ctx,account);
-    const related = bookings.filter(
-      (b) =>
-        basketKey(b.lineItems) === basketKey(r.lines),
-    );
-    if (r.bookingId) {
-      const linked = await ctx.db.get(r.bookingId);
-      if (linked && !related.some((b) => b._id === linked._id))
-        related.push(linked);
-    }
+    const related = await relatedRecoveryBookings(ctx,r,account);
     if (related.some((b) => recoveryBookingState(b) === "stopped")) {
       await ctx.db.patch(id, { state: "stopped" });
       return null;
@@ -213,7 +271,7 @@ export const _claim = internalMutation({
     }
     const leaseUntil = now + 10 * 60000;
     await ctx.db.patch(id, { leaseUntil, dueAt:leaseUntil, attempts: r.attempts + 1 });
-    return { id, leaseUntil, email: account.email };
+    return { id, leaseUntil, email: account.email, stage:r.followupStage, updatedAt:r.updatedAt, emailFollowupConsentAt:r.emailFollowupConsentAt };
   },
 });
 export const _finish = internalMutation({
@@ -221,21 +279,47 @@ export const _finish = internalMutation({
     id: v.id("checkout_recoveries"),
     leaseUntil: v.number(),
     sent: v.boolean(),
+    stage: v.union(v.literal("day_one"),v.literal("week_one")),
+    updatedAt: v.number(),
+    emailFollowupConsentAt: v.number(),
   },
   handler: async (ctx, a) => {
     const r = await ctx.db.get(a.id);
-    if (!r || r.state !== "waiting" || r.leaseUntil !== a.leaseUntil) return;
-    await ctx.db.patch(
-      a.id,
-      a.sent
-        ? { state: "sent", deliveredAt: Date.now(), leaseUntil: undefined }
-        : { dueAt: Date.now() + 5*60000*2**Math.max(0,r.attempts-1), leaseUntil: undefined },
-    );
+    if (!r || r.state !== "waiting" || r.leaseUntil !== a.leaseUntil || r.followupStage !== a.stage || r.updatedAt !== a.updatedAt || r.emailFollowupConsentAt !== a.emailFollowupConsentAt) return;
+    if (!a.sent) {
+      await ctx.db.patch(a.id,{dueAt:Date.now()+5*60000*2**Math.max(0,r.attempts-1),leaseUntil:undefined});
+      return;
+    }
+    const deliveredAt=Date.now();
+    if (a.stage === "day_one") {
+      await ctx.db.patch(a.id,{
+        state:"waiting",
+        followupStage:"week_one",
+        deliveredAt,
+        dueAt:followupDueAt(r.updatedAt,"week_one"),
+        attempts:0,
+        leaseUntil:undefined,
+      });
+      return;
+    }
+    await ctx.db.patch(a.id,{state:"sent",followupStage:"complete",deliveredAt,attempts:0,leaseUntil:undefined});
   },
 });
 
 /** Fence a claimed email against basket activity, payment, account changes and pause controls. */
-export const _ready=internalQuery({args:{id:v.id("checkout_recoveries"),leaseUntil:v.number(),email:v.string()},handler:async(ctx,a)=>{
+export const _ready=internalQuery({args:{id:v.id("checkout_recoveries"),leaseUntil:v.number(),email:v.string(),stage:v.union(v.literal("day_one"),v.literal("week_one")),updatedAt:v.number(),emailFollowupConsentAt:v.number()},handler:async(ctx,a)=>{
  const r=await ctx.db.get(a.id),account=r?await ctx.db.get(r.accountId):null;
- return !!r&&r.state==="waiting"&&r.leaseUntil===a.leaseUntil&&a.leaseUntil>Date.now()&&!!account&&account.email===a.email&&account.blockedAt==null&&!(account.emailVerificationRequired&&!account.emailVerifiedAt)&&process.env.CHECKOUT_RECOVERY_ENABLED==="true"&&process.env.RENTAL_CHECKOUT_ENABLED==="true"&&(await ctx.db.query("settings").first())?.acceptingOrders!==false;
+ if(!r||r.state!=="waiting"||r.leaseUntil!==a.leaseUntil||r.followupStage!==a.stage||r.updatedAt!==a.updatedAt||r.emailFollowupConsentAt!==a.emailFollowupConsentAt||a.leaseUntil<=Date.now()||!account||account.email!==a.email||account.blockedAt!=null||account.emailVerificationRequired&&!account.emailVerifiedAt||process.env.CHECKOUT_RECOVERY_ENABLED!=="true"||process.env.RENTAL_CHECKOUT_ENABLED!=="true"||(await ctx.db.query("settings").first())?.acceptingOrders===false)return false;
+ return (await relatedRecoveryBookings(ctx,r,account)).every((booking:any)=>recoveryBookingState(booking)==="recoverable");
 }});
+
+export const disableFollowups = mutation({
+  args:{token:v.string(),id:v.string()},
+  handler:async(ctx,a)=>{
+    const account=await requireAccount(ctx,a.token),id=ctx.db.normalizeId("checkout_recoveries",a.id),row=id?await ctx.db.get(id):null;
+    if(!row||row.accountId!==account._id)return false;
+    if(row.followupStage==="complete"&&!row.emailFollowupConsentAt)return true;
+    await ctx.db.patch(row._id,{state:"sent",followupStage:"complete",emailFollowupConsentAt:undefined,leaseUntil:undefined});
+    return true;
+  },
+});

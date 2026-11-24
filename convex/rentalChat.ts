@@ -9,7 +9,7 @@ import {
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { verificationValidUntil } from "../shared/verificationProgress";
+import { renterHandoverDetailsReady } from "./lib/renterRentalActionGate";
 import { paginationOptsValidator } from "convex/server";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { listingRentalImages } from "./lib/catalogImages";
@@ -21,14 +21,15 @@ import {
 } from "./availability";
 import { rentalReplyTemplates } from "./lib/rentalReplyTemplates";
 import { acknowledgeOwnerNotifications } from "./lib/adminPush";
-import { accountForRental, rentalsForAccount } from "./lib/rentalAccount";
+import { accountForRental, belongsToRentalAccount, hasVerifiedRentalEmail, rentalsForAccount } from "./lib/rentalAccount";
 import { bookingStockLines } from "../shared/rentalWindow";
+import { verificationWindowClosed } from "../shared/verificationProgress";
 import {
   requiresDroneLicence,
   droneLicenceStatusForRental,
 } from "./lib/droneVerification";
 import { assertVerificationArchive } from "./verificationArchive";
-import { LEO_SUPPORT_PHONE, TRAFALGAR_PICKUP_ADDRESS, TRAFALGAR_PICKUP_INSTRUCTIONS } from "../shared/pickupLocation";
+import { LEO_SUPPORT_PHONE, redactPickupDisclosureText, TRAFALGAR_PICKUP_ADDRESS, TRAFALGAR_PICKUP_INSTRUCTIONS } from "../shared/pickupLocation";
 import {
   accountForToken,
   ownedBooking,
@@ -45,18 +46,49 @@ async function ownerAccount(ctx: any, bookingId?: any, accountId?: any) {
   }
   return accountId ? ctx.db.get(accountId) : null;
 }
+async function markLinkedEmailThreadsRead(ctx: any, accountId: any, bookingId: any, marker: { at: number; creationTime?: number }) {
+  const threads = await ctx.db
+    .query("email_threads")
+    .withIndex("by_account_booking_updated", (q: any) =>
+      q.eq("accountId", accountId).eq("bookingId", bookingId),
+    )
+    .take(101);
+  if (threads.length > 100) return;
+
+  for (const emailThread of threads) {
+    if ((emailThread.unreadOwner ?? 0) <= 0 || !emailThread.latestInboundMessageId) continue;
+    const latestInbound = await ctx.db.get(emailThread.latestInboundMessageId);
+    if (
+      !latestInbound ||
+      latestInbound.threadId !== emailThread._id ||
+      latestInbound.direction !== "in" ||
+      latestInbound.bookingId !== bookingId ||
+      !latestInbound.profileMessageId
+    ) continue;
+    const chatMessage = await ctx.db.get(latestInbound.profileMessageId);
+    if (
+      !chatMessage ||
+      chatMessage.accountId !== accountId ||
+      chatMessage.bookingId !== bookingId ||
+      chatMessage.sender !== "renter" ||
+      chatMessage.meta?.channel !== "email" ||
+      chatMessage.meta?.emailThreadId !== String(emailThread._id) ||
+      chatMessage.meta?.emailMessageId !== String(latestInbound._id)
+    ) continue;
+    const coveredByReadMarker = chatMessage.at < marker.at ||
+      chatMessage.at === marker.at && marker.creationTime != null && chatMessage._creationTime <= marker.creationTime;
+    if (coveredByReadMarker) await ctx.db.patch(emailThread._id, { unreadOwner: 0 });
+  }
+}
 async function bookingView(
   ctx: any,
   b: any,
   account: any,
   options: { includeAvailability?: boolean; thread?: any; availabilityCache?: AvailabilityReadCache } = {},
 ) {
-  const verificationExpiresAt = verificationValidUntil(b);
-  const handoverReady =
-    ["confirmed", "active"].includes(b.status) &&
-    !!b.paidConfirmedAt &&
-    b.idVerifyStatus === "verified" &&
-    (verificationExpiresAt ?? 0) > Date.now();
+  // Use this booking's verification decision. The account-level 90-day
+  // reuse badge only controls later bookings, not this rental.
+  const handoverReady = renterHandoverDetailsReady(b);
   let verificationArchiveReady = false;
   if (b.idVerifyStatus === "verified") {
     try {
@@ -67,6 +99,9 @@ async function bookingView(
   const thread =
     options.thread ??
     (account ? await rentalThread(ctx, account._id, b._id) : null);
+  const renterLastMessage = thread?.lastMessage == null
+    ? null
+    : renterSafeHandoverPreview(thread.lastMessage, b, handoverReady);
   const items = await Promise.all(
     bookingStockLines(b).map(async (li: any) => {
       const l = await getAvailabilityListing(ctx, li.listingId, options.availabilityCache);
@@ -126,10 +161,10 @@ async function bookingView(
     _id: b._id,
     status: b.status,
     idVerifyStatus: b.idVerifyStatus ?? "required",
+    verificationWindowClosed: verificationWindowClosed(b),
     idVerificationSource: b.idVerificationSource ?? null,
     verificationChecks: b.verificationChecks ?? null,
     verificationArchiveReady,
-    verificationExpiresAt,
     handoverDetails: handoverReady ? {
       phone: LEO_SUPPORT_PHONE,
       pickupAddress: b.fulfilment === "delivery" ? (typeof b.address === "string" ? b.address : null) : TRAFALGAR_PICKUP_ADDRESS,
@@ -168,11 +203,30 @@ async function bookingView(
     escalated: !!thread?.escalated,
     unreadOwner: thread?.unreadOwner ?? 0,
     unreadRenter: thread?.unreadRenter ?? 0,
-    lastMessage: thread?.lastMessage ?? null,
+    lastMessage: renterLastMessage,
     lastSender: thread?.lastSender ?? null,
     createdAt: b._creationTime,
     updatedAt: thread?.updatedAt ?? b._creationTime,
   };
+}
+
+function renterSafeHandoverPreview(value: unknown, booking: any, handoverReady: boolean): string | null {
+  if (typeof value !== "string") return null;
+  if (handoverReady) return value;
+  return redactPickupDisclosureText(value, booking?.address).slice(0, 160) || "Booking details are being updated.";
+}
+
+function renterSafeMessage(message: any, booking: any, handoverReady: boolean): any {
+  if (handoverReady || !message || message.sender === "renter") return message;
+  const meta = message.meta && typeof message.meta === "object" ? { ...message.meta } : message.meta;
+  if (meta && typeof meta === "object") {
+    delete meta.supportPhone;
+    delete meta.pickupMapUrl;
+  }
+  let text = renterSafeHandoverPreview(message.text, booking, false);
+  if (message.meta?.kind === "booking_confirmation")
+    text = "Your booking details are being updated. Collection and contact details will appear here when the rental is ready.";
+  return { ...message, text, ...(meta ? { meta } : {}) };
 }
 export const mine = query({
   args: { token: v.string() },
@@ -232,16 +286,17 @@ export const messages = query({
     { token, bookingId, admin, accountId, paginationOpts },
   ) => {
     let a: any;
+    let renterBooking: any = null;
     if (admin) {
       if (!checkAdminToken(token)) return null;
       a = await ownerAccount(ctx, bookingId, accountId);
     } else {
       a = await accountForToken(ctx, token);
       if (!a) return null;
-      if (bookingId) await ownedBooking(ctx, a, bookingId);
+      if (bookingId) renterBooking = await ownedBooking(ctx, a, bookingId);
     }
     if (!a)
-      return { page: [], isDone: true, continueCursor: "", escalated: false };
+      return { page: [], isDone: true, continueCursor: "", notificationPromptMessageId: null, escalated: false };
     // Account filter also protects old rows created before booking ownership was enforced.
     const page = await ctx.db
       .query("messages")
@@ -252,9 +307,14 @@ export const messages = query({
         numItems: Math.min(50, paginationOpts.numItems),
       });
     const thread = await rentalThread(ctx, a._id, bookingId);
+    const projectedPage = admin || !bookingId
+      ? page.page
+      : page.page.map((message: any) => renterSafeMessage(message, renterBooking, renterHandoverDetailsReady(renterBooking)));
     return {
       ...page,
+      page: projectedPage,
       notificationScope: admin ? null : String(a._id),
+      notificationPromptMessageId: admin ? null : thread?.notificationPromptMessageId ?? null,
       escalated: !!thread?.escalated,
       caseArchivedAt: admin ? thread?.caseArchivedAt ?? null : null,
       replyState: admin ? await conversationReplyState(ctx, a._id, bookingId, !!thread?.escalated) : null,
@@ -298,8 +358,9 @@ export const sendOwner = mutation({
     bookingId: v.optional(v.id("bookings")),
     accountId: v.optional(v.id("accounts")),
     text: v.string(),
+    requestId: v.optional(v.string()),
   },
-  handler: async (ctx, { token, bookingId, accountId, text }) => {
+  handler: async (ctx, { token, bookingId, accountId, text, requestId }) => {
     await assertAdmin(ctx, token, "rentalChat.sendOwner");
     const a = await ownerAccount(ctx, bookingId, accountId);
     if (!a)
@@ -308,15 +369,29 @@ export const sendOwner = mutation({
       );
     if (!text.trim() || text.trim().length > 2000)
       throw Error("Write a message of up to 2,000 characters.");
+    if (requestId != null) {
+      if (!/^[a-zA-Z0-9_-]{16,80}$/.test(requestId)) throw Error("Refresh the conversation and try again.");
+      const prior = await ctx.db.query("messages")
+        .withIndex("by_account_client_request", q => q.eq("accountId", a._id).eq("clientRequestId", requestId))
+        .first();
+      if (prior) {
+        if (prior.sender !== "owner" || prior.bookingId !== bookingId || prior.text !== text.trim())
+          throw Error("That message retry no longer matches the original. Refresh the conversation and try again.");
+        return { ok: true };
+      }
+    }
     const messageId = await postRentalMessage(ctx, {
       accountId: a._id,
       bookingId,
       sender: "owner",
       text: text.trim(),
+      clientRequestId: requestId,
     });
     const t = await rentalThread(ctx, a._id, bookingId);
     if (t && !t.escalated) {
-      await ctx.db.patch(t._id, { escalated: true, gafferGeneration: (t.gafferGeneration ?? 0) + 1 });
+      const message = await ctx.db.get(messageId as Id<"messages">);
+      const handoffAt = message?.at ?? Date.now();
+      await ctx.db.patch(t._id, { escalated: true, escalatedAt:handoffAt,lastHumanActivityAt:handoffAt,tgMessageId:undefined, gafferGeneration: (t.gafferGeneration ?? 0) + 1 });
       await scheduleGafferAutoResume(ctx, a._id, bookingId);
     }
     const message = await ctx.db.get(messageId as Id<"messages">);
@@ -349,7 +424,10 @@ export const markRead = mutation({
       throw Error("Invalid read marker");
     const previous = admin ? t.ownerReadAt : t.renterReadAt;
     const previousCreationTime = admin ? t.ownerReadCreationTime : t.renterReadCreationTime;
-    if (previous != null && (previous > seen.at || previous === seen.at && previousCreationTime != null && previousCreationTime > seen._creationTime)) return;
+    if (previous != null && (previous > seen.at || previous === seen.at && previousCreationTime != null && previousCreationTime > seen._creationTime)) {
+      if (admin && bookingId) await markLinkedEmailThreadsRead(ctx, a._id, bookingId, { at: previous, creationTime: previousCreationTime });
+      return;
+    }
     if (admin)
       await acknowledgeOwnerNotifications(ctx, a._id, bookingId, seen.at, { at: seen.at, creationTime: seen._creationTime });
     // at is monotonic for new messages; creation time disambiguates historical ties.
@@ -375,6 +453,7 @@ export const markRead = mutation({
         bookingId,
         admin ? { chatUnreadOwner: unread } : { chatUnreadRenter: unread },
       );
+    if (admin && bookingId) await markLinkedEmailThreadsRead(ctx, a._id, bookingId, { at: seen.at, creationTime: seen._creationTime });
   },
 });
 export const setHandler = mutation({
@@ -389,13 +468,15 @@ export const setHandler = mutation({
     const a = await ownerAccount(ctx, bookingId, accountId);
     if (!a) throw Error("No renter account yet");
     const t = await rentalThread(ctx, a._id, bookingId);
+    const now=Date.now();
     if (t)
-      await ctx.db.patch(t._id, { escalated: !gaffer, gafferGeneration: (t.gafferGeneration ?? 0) + 1, updatedAt: Math.max(Date.now(), (t.updatedAt ?? 0) + 1) });
+      await ctx.db.patch(t._id, { escalated: !gaffer, escalatedAt:!gaffer?now:undefined,lastHumanActivityAt:undefined,tgMessageId:undefined, gafferGeneration: (t.gafferGeneration ?? 0) + 1, updatedAt: Math.max(now, (t.updatedAt ?? 0) + 1) });
     else
       await ctx.db.insert("chat_threads", {
         accountId: a._id,
         bookingId,
         escalated: !gaffer,
+        ...(!gaffer?{escalatedAt:now}:{}),
         gafferGeneration: 1,
         updatedAt: Date.now(),
       });
@@ -407,6 +488,7 @@ export const setHandler = mutation({
         ? "Gaffer is here to help with this rental."
         : "The team is handling this conversation.",
     });
+    if(!gaffer)await scheduleGafferAutoResume(ctx,a._id,bookingId);
     const message = await ctx.db.get(messageId as Id<"messages">);
     if (message) await acknowledgeOwnerNotifications(ctx, a._id, bookingId, message.at, { at: message.at, creationTime: message._creationTime });
   },
@@ -421,10 +503,10 @@ export const minePage = query({
       .query("bookings")
       .withIndex("by_guest_chat_updated", (q) => q.eq("guestEmail", a.email))
       .filter((q) =>
-        q.or(
+        hasVerifiedRentalEmail(a) ? q.or(
           q.eq(q.field("accountId"), undefined),
           q.eq(q.field("accountId"), a._id),
-        ),
+        ) : q.eq(q.field("accountId"),a._id),
       )
       .order("desc")
       .paginate({
@@ -448,6 +530,7 @@ export const adminPage = query({
       return { page: [], isDone: true, continueCursor: "" };
     const statuses = [
       "pending_payment",
+      "pending_verification",
       "confirmed",
       "active",
       "returned",
@@ -596,9 +679,7 @@ export const migrateLegacyUnread = internalMutation({
       const b = m.bookingId ? await ctx.db.get(m.bookingId) : null;
       if (
         m.bookingId &&
-        (!b ||
-          (b.guestEmail ?? "").trim().toLowerCase() !==
-            account.email.trim().toLowerCase())
+        !belongsToRentalAccount(b,account)
       )
         continue;
       const t = await rentalThread(ctx, m.accountId, m.bookingId);

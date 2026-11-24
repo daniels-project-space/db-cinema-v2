@@ -1,0 +1,22 @@
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const h = require('./lib/rentalTestHarness.cjs');
+const now = Date.UTC(2030, 0, 1);
+const originalNow = Date.now;
+Date.now = () => now;
+const notify = h.load('convex/notify.ts');
+const {dateLabel} = h.load('shared/rentalWindow.ts');
+const booking = h.put('bookings', { guestEmail:'renter@example.invalid', status:'pending_verification', checkoutPaidAt:now, verificationProvider:'didit', idVerifyStatus:'required', pickupTime:'10:00', total:50, lineItems:[{title:'Camera',start:dateLabel(now+86400000),end:dateLabel(now+2*86400000),lineTotal:50}] });
+let savedHash;
+const ctx = { runQuery:async(ref)=>{assert.equal(ref,'bookings.get');return booking;}, runMutation:async(ref,args)=>{assert.equal(ref,'accountClaims.preparePendingVerification');savedHash=args.secretHash;return {email:booking.guestEmail};} };
+(async()=>{try{
+ const mail=await notify.paidVerificationEmail.handler(ctx,{bookingId:booking._id,reminder:false,prepareOnly:true});
+ const match=mail.html.match(/account\/access\?next=verification#([A-Za-z0-9_-]+)/);
+ assert(match,'Payment notice contains a private one-time verification link');
+ assert.equal(crypto.createHash('sha256').update(match[1]).digest('hex'),savedHash,'Only the hash is persisted by the claim boundary');
+ assert.match(mail.html,/expires in 24 hours/i);
+ booking.lineItems[0].start=dateLabel(now-86400000);savedHash=undefined;
+ assert.equal(await notify.paidVerificationEmail.handler(ctx,{bookingId:booking._id,reminder:false,prepareOnly:true}),null,'A closed verification window must not produce an access link');
+ assert.equal(savedHash,undefined);
+ console.log('PASS merged verification email: hashed one-time link and expired-window gate. Synthetic only.');
+}finally{Date.now=originalNow;}})().catch(error=>{console.error(error);process.exitCode=1;});

@@ -1,5 +1,6 @@
 import {stockWindow} from "./stockWindows";
 import {bookingStockLines,rentalWindow} from "../../shared/rentalWindow";
+import { storedBookingComponents } from "./bookingComponentAllocation";
 /** Verify the current catalogue still describes the physical units reserved for this hire.
  * Aggregate equal periods/components; do not guess a replacement for missing legacy evidence. */
 export async function assertRentalAllocation(ctx: any, booking: any, reservations: any[]) {
@@ -13,8 +14,9 @@ export async function assertRentalAllocation(ctx: any, booking: any, reservation
   if (!booking.lineItems?.length) throw Error("The kit inventory mapping needs a team check.");
   for (const line of bookingStockLines<any>(booking)) {
     const listing = await ctx.db.get(line.listingId);
-    if (!listing?.components?.length || !Number.isSafeInteger(line.qty) || line.qty < 1) throw Error("The kit inventory mapping needs a team check.");
-    for (const component of listing.components) {
+    const components = await storedBookingComponents(ctx, line, booking._id) ?? listing?.components;
+    if (!components?.length || !Number.isSafeInteger(line.qty) || line.qty < 1) throw Error("The kit inventory mapping needs a team check.");
+    for (const component of components) {
       if (!Number.isSafeInteger(component.qty) || component.qty < 1) throw Error("The kit inventory mapping needs a team check.");
       add(expected, line.listingId, component.inventoryUnitId, line.start, line.end, component.qty * line.qty);
       const precise=stockWindow(line,true),full=stockWindow(line,false);

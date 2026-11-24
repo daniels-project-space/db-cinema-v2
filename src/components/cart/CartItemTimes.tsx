@@ -7,14 +7,27 @@ import { dayMs, daysInclusive } from "@/lib/dates";
 import { rentalPricingDays } from "../../../shared/rentalDuration";
 import { TimeSlotPicker } from "../checkout/TimeSlotPicker";
 import { useCart, type CartItem } from "./CartProvider";
+import { SmartImage } from "@/components/SmartImage";
+import { useAccount } from "@/components/account/AccountProvider";
+import { selectSharedTimePair } from "../../../shared/checkoutTimeSelection";
 
-/** Checkout keeps each line's own clocks and collapses completed time controls. */
-export function CartItemTimes({ item, delivery = false, initiallyExpanded = false }: { item: CartItem; delivery?: boolean; initiallyExpanded?: boolean }) {
-  const cart = useCart(), id = useId(), priceQuote = useAction(api.checkout.priceQuote);
+type CommonTimeSlots = {
+  pickupSlots?: string[];
+  returnSlots?: string[];
+  pickupBoundarySlots?: string[];
+  returnBoundarySlots?: string[];
+  validPairs?: Array<{ pickupTime: string; returnTime: string }>;
+  stockStatus?: "fresh" | "refresh_required";
+};
+
+/** Checkout can set one stock-checked pickup/return pair for the full kit. */
+export function CartItemTimes({ item, delivery = false, initiallyExpanded = false, onNotice, useSharedTimes = false, commonSlots }: { item: CartItem; delivery?: boolean; initiallyExpanded?: boolean; onNotice?: (notice: string | null) => void; useSharedTimes?: boolean; commonSlots?: CommonTimeSlots }) {
+  const cart = useCart(), account = useAccount(), id = useId(), priceQuote = useAction(api.checkout.priceQuote);
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const pickupTime = item.pickupTime || "";
   const returnTime = item.returnTime || "";
+  const isFirstBasketItem = cart.items[0]?.key === item.key;
   const sameDay = item.start === item.end;
   const invalidOrder = sameDay && !!pickupTime && !!returnTime && returnTime <= pickupTime;
   const billableDays = invalidOrder ? daysInclusive(item.start, item.end) : rentalPricingDays(dayMs(item.start), dayMs(item.end), pickupTime, returnTime);
@@ -22,7 +35,7 @@ export function CartItemTimes({ item, delivery = false, initiallyExpanded = fals
   useEffect(() => { if (invalidOrder) setExpanded(true); }, [invalidOrder]);
   useEffect(() => { if (initiallyExpanded) setExpanded(true); }, [initiallyExpanded]);
 
-  const slots = useQuery(api.availability.forTimeSlots, {
+  const slots = useQuery(api.availability.forTimeSlots, useSharedTimes ? "skip" : {
     listingId: item.listingId as any,
     start: dayMs(item.start),
     end: dayMs(item.end),
@@ -37,34 +50,56 @@ export function CartItemTimes({ item, delivery = false, initiallyExpanded = fals
     })),
   });
 
-  async function choose(first: string, last: string, notice?: string) {
+  async function choose(first: string, last: string, notice?: string, prefer: "pickup" | "return" = "pickup") {
     if (busy) return;
     setBusy(true);
     setError(null);
+    onNotice?.(null);
     try {
-      let total = item.total;
-      const invalidSameDayOrder = item.start === item.end && !!first && !!last && last <= first;
-      if (first && last && !invalidSameDayOrder) {
-        const quote = await priceQuote({
-          items: [{
-            listingId: item.listingId as any,
-            title: item.title,
-            start: dayMs(item.start),
-            end: dayMs(item.end),
-            pickupTime: first,
-            returnTime: last,
-            qty: 1,
-            total: item.total,
-            deposit: item.deposit,
-            offerType: item.offerType,
-          }],
-          customerEmail: "",
-          fulfilment: "pickup",
-          protection: "verify",
-        });
-        total = quote.items[0].total;
+      let pickup = first, returned = last;
+      if (useSharedTimes) {
+        if (commonSlots?.stockStatus !== "fresh") throw new Error("Checking live availability for one time that fits the whole kit. Try again in a moment.");
+        const pairs = commonSlots.validPairs ?? [];
+        const requestedPickup = first || pickupTime;
+        const requestedReturn = last || returnTime;
+        const pair = selectSharedTimePair(pairs, requestedPickup || undefined, requestedReturn || undefined, prefer);
+        if (!pair) throw new Error("No shared collection time is available for the whole kit. Try changing a date or time.");
+        pickup = pair.pickupTime;
+        returned = pair.returnTime;
       }
-      cart.updateDates(item.key, item.start, item.end, total, first || undefined, last || undefined, notice);
+      const invalidSameDayOrder = item.start === item.end && !!pickup && !!returned && returned <= pickup;
+      if (!pickup || !returned || invalidSameDayOrder) throw new Error("Choose a pickup and a later return time.");
+      const pricedIndex = cart.items.findIndex(entry => entry.key === item.key);
+      if (pricedIndex < 0) throw new Error("This basket item changed. Refresh checkout and try again.");
+      const quoteItems = cart.items.map((entry, index) => ({
+        listingId: entry.listingId as any,
+        title: entry.title,
+        start: dayMs(entry.start),
+        end: dayMs(entry.end),
+        pickupTime: useSharedTimes || index === pricedIndex ? pickup : entry.pickupTime,
+        returnTime: useSharedTimes || index === pricedIndex ? returned : entry.returnTime,
+        qty: 1,
+        total: entry.total,
+        deposit: entry.deposit,
+        offerType: entry.offerType,
+      }));
+      const quote = await priceQuote({
+        items: quoteItems,
+        customerEmail: account.me?.email ?? "",
+        token: account.token && account.me ? account.token : undefined,
+        selectedMembership: cart.membership ? { tier: cart.membership.tier, intro: cart.membership.intro } : undefined,
+        promoCode: cart.promo ?? undefined,
+        fulfilment: "pickup",
+        protection: "verify",
+      });
+      if (quote.items.length !== cart.items.length) throw new Error("The updated price does not match the items in your kit. Refresh checkout and try again.");
+      if (useSharedTimes) {
+        const changed = cart.items.some(entry => entry.pickupTime !== pickup || entry.returnTime !== returned);
+        cart.updateAllTimes(pickup, returned, quote.items.map(line => line.total), changed ? `All items set to ${pickup} pickup and ${returned} return.` : notice);
+      } else {
+        cart.updateDates(item.key, item.start, item.end, quote.items[pricedIndex].total, pickup, returned, notice);
+      }
+      if (notice) onNotice?.(notice);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not update this rental time.");
     } finally {
@@ -74,7 +109,8 @@ export function CartItemTimes({ item, delivery = false, initiallyExpanded = fals
 
   function choosePickup(time: string) {
     if (sameDay && returnTime && time >= returnTime) {
-      const next = slots?.validPairs?.filter(pair => pair.pickupTime === time && pair.returnTime > time).map(pair => pair.returnTime).sort()[0];
+      const pairs = useSharedTimes ? commonSlots?.validPairs : slots?.validPairs;
+      const next = pairs?.filter(pair => pair.pickupTime === time && pair.returnTime > time).map(pair => pair.returnTime).sort()[0];
       if (next) {
         void choose(time, next, `Pickup saved at ${time}. Return moved to ${next} so it is later than pickup.`);
         return;
@@ -94,23 +130,32 @@ export function CartItemTimes({ item, delivery = false, initiallyExpanded = fals
       aria-controls={`${id}-controls`}
       onClick={() => setExpanded(value => !value)}
     >
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-medium text-white/85">{item.title}</span>
-        <span className="block text-[11px] text-white/45">{dateLabel(item.start)}{item.start !== item.end ? ` – ${dateLabel(item.end)}` : ""}</span>
+      <span className="flex min-w-0 flex-1 items-center gap-2.5">
+        <span data-testid="checkout-item-thumbnail" className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-white/10 shadow-sm shadow-black/25">
+          <SmartImage src={item.heroImage} fallbackSources={item.imageSources ?? []} alt="" className="h-full w-full" fit="cover" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span title={item.title} className="block text-xs font-medium leading-snug text-white/85 sm:text-sm" style={{ display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden" }}>{item.title}</span>
+          <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-[11px]">
+            <span className="text-white/45">{dateLabel(item.start)}{item.start !== item.end ? ` – ${dateLabel(item.end)}` : ""}</span>
+            <span className={`${pickupTime && returnTime && !invalidOrder ? "text-accent-200/80" : "text-amber-200/75"}`}>{status}</span>
+          </span>
+        </span>
       </span>
       <span className="flex shrink-0 items-center gap-2">
-        <span className={`text-xs ${pickupTime && returnTime && !invalidOrder ? "text-accent-200/80" : "text-amber-200/75"}`}>{status}</span>
-        <svg className={`h-4 w-4 text-white/45 transition-transform ${expanded ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m5 7.5 5 5 5-5"/></svg>
+        <svg data-testid="checkout-times-chevron" className={`h-4 w-4 text-white/45 transition-transform duration-300 ease-out motion-reduce:transition-none ${expanded ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m5 7.5 5 5 5-5"/></svg>
       </span>
     </button>
     {expanded && <div id={`${id}-controls`} className="mt-2 rounded-lg border border-white/10 bg-white/[.02] p-2.5">
       <div className="grid grid-cols-2 gap-2 sm:gap-3">
-        <TimeSlotPicker id={`${id}-pickup`} label={`${delivery ? "Delivery" : "Pickup"} · ${dateLabel(item.start)}`} value={pickupTime} onChange={choosePickup} disabled={!slots || busy} allowedSlots={slots?.available ? slots.pickupBoundarySlots ?? slots.pickupSlots : undefined} />
-        <TimeSlotPicker id={`${id}-return`} label={`${delivery ? "Collection" : "Return"} · ${dateLabel(item.end)}`} value={returnTime} onChange={time => void choose(pickupTime, time)} disabled={!slots || busy} allowedSlots={slots?.available ? slots.returnBoundarySlots ?? slots.returnSlots : undefined} />
+        <TimeSlotPicker id={`${id}-pickup`} label={`${delivery ? "Delivery" : "Pickup"} · ${dateLabel(item.start)}`} value={pickupTime} onChange={choosePickup} disabled={useSharedTimes ? commonSlots?.stockStatus !== "fresh" || !commonSlots.validPairs?.length || busy : !slots || !!slots.stockStatus || busy} allowedSlots={useSharedTimes ? commonSlots?.pickupBoundarySlots ?? commonSlots?.pickupSlots : slots?.available ? slots.pickupBoundarySlots ?? slots.pickupSlots : undefined} />
+        <TimeSlotPicker id={`${id}-return`} label={`${delivery ? "Collection" : "Return"} · ${dateLabel(item.end)}`} value={returnTime} onChange={time => void choose(pickupTime, time, undefined, "return")} disabled={useSharedTimes ? commonSlots?.stockStatus !== "fresh" || !commonSlots.validPairs?.length || busy : !slots || !!slots.stockStatus || busy} allowedSlots={useSharedTimes ? commonSlots?.returnBoundarySlots ?? commonSlots?.returnSlots : slots?.available ? slots.returnBoundarySlots ?? slots.returnSlots : undefined} />
       </div>
-      {pickupTime && returnTime && !invalidOrder && <p className="mt-2 text-[11px] text-accent-200/75" aria-live="polite">{billableDays} rental day{billableDays === 1 ? "" : "s"} · billed by the selected rental duration</p>}
+      {(useSharedTimes ? commonSlots?.stockStatus === "refresh_required" : slots?.stockStatus === "refresh_required") && <p className="mt-2 text-xs text-white/60" role="status">Refreshing shared stock before showing times…</p>}
+      {useSharedTimes && commonSlots?.stockStatus === "fresh" && !commonSlots.validPairs?.length && <p className="mt-2 text-xs text-amber-200" role="status">No pickup and return pair fits every item. Change a date or turn off shared times.</p>}
+      {pickupTime && returnTime && !invalidOrder && <p className="mt-2 text-[11px] leading-relaxed text-accent-200/75" aria-live="polite">{billableDays} rental day{billableDays === 1 ? "" : "s"} · billed by selected duration{isFirstBasketItem ? ". Each started 24-hour block counts as a day, so crossing a 24-hour boundary adds a rental day; the checkout total updates with your times." : ""}</p>}
       {invalidOrder && <p role="alert" className="mt-2 text-xs text-amber-200">Return must be later than pickup on the same day. Choose a later return time or change the return date.</p>}
-      {pickupTime && returnTime && slots && !slots.available && !invalidOrder && <p className="mt-2 text-xs text-amber-200">Unavailable for this full rental period. Adjust a time or date, or choose a replacement in your basket.</p>}
+      {!useSharedTimes && pickupTime && returnTime && slots?.stockStatus === "fresh" && !slots.available && !invalidOrder && <p className="mt-2 text-xs text-amber-200">Unavailable for this full rental period. Adjust a time or date, or choose a replacement in your basket.</p>}
       {busy && <p className="mt-2 text-xs text-white/55" role="status">Updating rental duration and price…</p>}
       {error && <p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
     </div>}

@@ -7,7 +7,7 @@ import { checkAdminToken } from "./adminAuth";
 import { isMarketingOnly } from "./lib/marketingInventory";
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { lateFeeQuote } from "./lib/lateFee";
-import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
+import { bookingRentalRevenueBreakdown } from "./lib/rentalRevenue";
 import { requiresDroneLicence } from "./lib/droneVerification";
 import { isExcludedAnalyticsEvent } from "../shared/analyticsTraffic";
 import { bump } from "./rateLimit";
@@ -350,7 +350,7 @@ export const adminSummary = query({
         const id = String(line.listingId ?? "");
         if (id && !sourceImages.has(id)) sourceImages.set(id, ctx.db.get(line.listingId).then(listing => listingImages(listing)));
         const images = id ? await sourceImages.get(id)! : [];
-        return { title: line.title, qty: line.qty ?? 1, start: line.start, end: line.end, heroImage: images[0] ?? null, imageSources: images };
+        return { listingId: id || undefined, title: line.title, qty: line.qty ?? 1, start: line.start, end: line.end, heroImage: images[0] ?? null, imageSources: images };
       })) : [];
       return { _id: b._id, guestEmail: b.guestEmail, customerName: b.guestName ?? b.agreementName ?? null,
         status: b.status, verification: b.idVerifyStatus ?? "required", verificationConfirmationIssue: b.verificationConfirmationIssue ?? null, requiresDroneLicence: await requiresDroneLicence(ctx, b), droneVerification: b.droneLicenceStatus ?? null, start: starts.length ? Math.min(...starts) : null, end: ends.length ? Math.max(...ends) : null,
@@ -385,36 +385,83 @@ export const adminSummary = query({
 });
 
 /** Admin-only Insights: first-party observations, never invented render values. */
+type DashboardRevenueMonth = { at: number; rentalPence: number; cashPence: number; creditPence: number };
+
 export const dashboardPanels = query({
   args: { token: v.string(), now: v.number() },
   handler: async (ctx, { token, now }) => {
     if (!checkAdminToken(token)) return { authorized: false as const };
     const date = new Date(now);
-    const months = Array.from({ length: 6 }, (_, i) => ({
-      at: Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 5 + i, 1), rentalPence: 0,
+    const months: DashboardRevenueMonth[] = Array.from({ length: 6 }, (_, i) => ({
+      at: Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 5 + i, 1), rentalPence: 0, cashPence: 0, creditPence: 0,
     }));
     const [rows, listings] = await Promise.all([
       ctx.db.query("bookings").withIndex("by_creation_time", q => q.gte("_creationTime", months[0].at)).take(1001),
       ctx.db.query("listings").withIndex("by_active", q => q.eq("active", true)).take(1001),
     ]);
-    const paid = rows.slice(0, 1000).filter(b => b._creationTime <= now && b.stripePaymentIntentId && b.currency === "GBP" &&
-      (["confirmed", "active", "returned"].includes(b.status) || b.status === "cancelled" && !!b.cancellationDecision));
+    const paid = rows.slice(0, 1000).filter(b => b._creationTime <= now && b.currency === "GBP" &&
+      (["confirmed", "active", "returned"].includes(b.status) ||
+        b.status === "cancelled" && b.cancellationDecision?.quote?.mode === "no_refund"));
+    let receiptIssues = 0;
     await Promise.all(paid.map(async b => {
-      const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", q => q.eq("bookingId", b._id)).collect();
-      // Booking totals include applied, paid additions and extensions. The original
-      // rentalPaidPence snapshot does not; using it would omit later kit changes.
-      const pence = Math.max(0, Math.round((b.total - b.depositAmount) * 100) - confirmedRentalRefundPence(refunds));
-      const month = [...months].reverse().find(m => b._creationTime >= m.at);
-      if (month) month.rentalPence += pence;
+      if (b.status === "cancelled" && (b.cancellationDecision?.quote?.refundAmount !== 0 || b.cancellationDecision?.quote?.creditAmount !== 0)) {
+        receiptIssues += 1;
+        return;
+      }
+      let ledger;
+      try { ledger = await bookingRentalRevenueBreakdown(ctx, b); }
+      catch { ledger = { complete: false as const }; }
+      if (!ledger.complete) {
+        receiptIssues += 1;
+        return;
+      }
+      const paidAt = typeof b.checkoutPaidAt === "number" && Number.isFinite(b.checkoutPaidAt) ? b.checkoutPaidAt : b._creationTime;
+      const month = [...months].reverse().find(m => paidAt >= m.at);
+      if (month) {
+        month.cashPence += ledger.cashPence;
+        month.creditPence += ledger.creditPence;
+        month.rentalPence += ledger.cashPence + ledger.creditPence;
+      }
     }));
     const categories = new Map<string, number>();
     for (const listing of listings.slice(0, 1000)) {
       const category = listing.category || "Other";
       categories.set(category, (categories.get(category) ?? 0) + 1);
     }
-    return { authorized: true as const, months, totalPence: months.reduce((n, m) => n + m.rentalPence, 0),
-      receiptCount: paid.length, partialReceipts: rows.length > 1000, partialCatalogue: listings.length > 1000,
-      categories: [...categories].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([name, count]) => ({ name, count })) };
+    const partialReceipts = rows.length > 1000;
+    const receiptsAvailable = !partialReceipts && receiptIssues === 0;
+    const receiptUnavailableReason = partialReceipts
+      ? "The reporting window contains more than 1,000 rentals; the total is incomplete."
+      : receiptIssues
+        ? "A payment, refund, or account-credit record needs reconciliation; the total is not shown."
+        : undefined;
+    const shared = {
+      receiptIssueCount: receiptIssues,
+      receiptCount: paid.length,
+      partialReceipts,
+      partialCatalogue: listings.length > 1000,
+      categories: [...categories].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([name, count]) => ({ name, count })),
+    };
+    if (!receiptsAvailable) return {
+      authorized: true as const,
+      ...shared,
+      receiptsAvailable: false as const,
+      receiptUnavailableReason,
+      months: [] as DashboardRevenueMonth[],
+      totalPence: null,
+      cashTotalPence: null,
+      creditTotalPence: null,
+    };
+    return {
+      authorized: true as const,
+      ...shared,
+      receiptsAvailable: true as const,
+      receiptUnavailableReason: undefined,
+      months,
+      totalPence: months.reduce((n, m) => n + m.rentalPence, 0),
+      cashTotalPence: months.reduce((n, m) => n + m.cashPence, 0),
+      creditTotalPence: months.reduce((n, m) => n + m.creditPence, 0),
+    };
   },
 });
 

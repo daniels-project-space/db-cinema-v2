@@ -1,5 +1,9 @@
 export type DeliveryQuoteLeg = { oneWay: number; fee: number };
-export const CHAT_DELIVERY_TERMS_VERSION = "2026-11-chat-delivery-v1";
+export const CHAT_DELIVERY_TERMS_VERSION = "2026-11-chat-delivery-v3";
+const PREVIOUS_CHAT_DELIVERY_TERMS_VERSION = "2026-11-chat-delivery-v2";
+const LEGACY_CHAT_DELIVERY_TERMS_VERSION = "2026-11-chat-delivery-v1";
+const LEGACY_DELIVERY_BASE_VERSION = "2026-10-delivery-v2";
+const LEGACY_DELIVERY_BASE_TEXT = "Delivery uses an agreed third-party courier. Times are estimates and may be affected by traffic. The final delivery price is shown in your accepted quotation. Courier delays do not remove statutory rights; tell us promptly so we can assess the delay and available remedy.";
 
 export function deliveryQuoteTermsVersion(baseVersion: string) {
   return `${baseVersion}+${CHAT_DELIVERY_TERMS_VERSION}`;
@@ -32,7 +36,28 @@ export function deliveryDiscountPence(amountPence: number, discountPct: number) 
 
 export function deliveryQuoteTerms(baseText: string, deliveryLegs: "one_way" | "round_trip") {
   const legs = deliveryLegs === "one_way"
-    ? "This quote covers delivery to your address only. You must return the equipment at the agreed return time to The Grand Building, Trafalgar Square, London, WC2N 5EJ. Please meet us outside the Waterstones bookstore at Trafalgar Square at the confirmed time."
+    ? "This quote covers delivery to your address only. Return the equipment at the agreed time in Trafalgar Square. We will share the exact meeting point after payment, verification and booking confirmation."
     : "This quote covers courier delivery to your address and courier collection at the agreed return time.";
   return `${baseText} ${legs}`;
+}
+
+export function supportsDeliveryQuoteTerms(baseVersion: string, baseText: string, version: string, text: string, deliveryLegs: "one_way" | "round_trip") {
+  if (version === deliveryQuoteTermsVersion(baseVersion) && text === deliveryQuoteTerms(baseText, deliveryLegs)) return true;
+  const baseTextMatches = baseVersion === LEGACY_DELIVERY_BASE_VERSION && baseText === LEGACY_DELIVERY_BASE_TEXT;
+  if (!baseTextMatches) return false;
+
+  const previousVersion = `${LEGACY_DELIVERY_BASE_VERSION}+${PREVIOUS_CHAT_DELIVERY_TERMS_VERSION}`;
+  const previousLegs = deliveryLegs === "one_way"
+    ? ["This quote covers delivery to your address only. You must return the equipment at the agreed return time to The Grand Building, Trafalgar Square, London, WC2N 5EJ. Please meet us at the confirmed time outside the Waterstones bookstore in Trafalgar Square."]
+    : ["This quote covers courier delivery to your address and courier collection at the agreed return time."];
+  if (version === previousVersion && previousLegs.some(legText => text === `${baseText} ${legText}`)) return true;
+
+  const legacyVersion = `${LEGACY_DELIVERY_BASE_VERSION}+${LEGACY_CHAT_DELIVERY_TERMS_VERSION}`;
+  const legacyLegs = deliveryLegs === "one_way"
+    ? [
+      "This quote covers delivery to your address only. Return the equipment at the agreed time in Trafalgar Square. The exact meeting point is shared after payment, verification and booking confirmation.",
+      "This quote covers delivery to your address only. You must return the equipment at the agreed return time to The Grand Building, Trafalgar Square, London, WC2N 5EJ. Please meet us outside the Waterstones bookstore at Trafalgar Square at the confirmed time.",
+    ]
+    : ["This quote covers courier delivery to your address and courier collection at the agreed return time."];
+  return version === legacyVersion && legacyLegs.some(legText => text === `${LEGACY_DELIVERY_BASE_TEXT} ${legText}`);
 }

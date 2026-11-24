@@ -4,8 +4,9 @@ import { checkAdminToken } from "./adminAuth";
 import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
 import { accountVerificationReady } from "./lib/accountVerificationReady";
 import { archiveRetention, documentCopyAvailable } from "./verificationArchive";
+import { CURRENT_PRIVACY_NOTICE_VERSION } from "../shared/legalVersioning";
 
-const NOTICE_VERSION = "2026-11-06";
+const NOTICE_VERSION = CURRENT_PRIVACY_NOTICE_VERSION;
 
 async function portraitAdminRead(ctx: any, token: string): Promise<boolean> {
   if (process.env.ADMIN_SESSION_VERIFICATION_V2 !== "enabled") return checkAdminToken(token);
@@ -79,7 +80,8 @@ export const selected = query({
     const now = Date.now();
     if (process.env.PRIVATE_VERIFICATION_PHOTO_ENABLED !== "true" || !Number.isSafeInteger(args.refresh)) return null;
     const account = await ctx.db.get(args.accountId);
-    if (!account || account.privateVerificationPortraitNoticeVersion !== NOTICE_VERSION || account.privateVerificationPortraitConsentVersion !== NOTICE_VERSION || !Number.isSafeInteger(account.privateVerificationPortraitNotifiedAt) || account.privateVerificationPortraitNotifiedAt! <= 0 || account.privateVerificationPortraitNotifiedAt! > now || !Number.isSafeInteger(account.privateVerificationPortraitConsentedAt) || account.privateVerificationPortraitConsentedAt! < account.privateVerificationPortraitNotifiedAt! || account.privateVerificationPortraitConsentedAt! > now || !Number.isSafeInteger(account.createdAt) || now < account.createdAt + 86400000 || account.avatarStorageId || account.googleAvatarUrl) return null;
+    const verifiedAt = account?.rentalVerification?.verifiedAt;
+    if (!account || typeof verifiedAt !== "number" || !Number.isSafeInteger(verifiedAt) || verifiedAt <= 0 || verifiedAt > now || now < verifiedAt + 86400000 || account.privateVerificationPortraitNoticeVersion !== NOTICE_VERSION || account.privateVerificationPortraitConsentVersion !== NOTICE_VERSION || !Number.isSafeInteger(account.privateVerificationPortraitNotifiedAt) || account.privateVerificationPortraitNotifiedAt! <= 0 || account.privateVerificationPortraitNotifiedAt! > now || !Number.isSafeInteger(account.privateVerificationPortraitConsentedAt) || account.privateVerificationPortraitConsentedAt! < account.privateVerificationPortraitNotifiedAt! || account.privateVerificationPortraitConsentedAt! > now || account.avatarStorageId || account.googleAvatarUrl) return null;
     if (!await accountVerificationReady(ctx, account)) return null;
     const source = await ctx.db.get(account.rentalVerification!.sourceBookingId);
     if (!source || source.accountId !== account._id || !source.diditSessionId) return null;

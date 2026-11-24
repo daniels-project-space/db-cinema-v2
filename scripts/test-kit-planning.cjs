@@ -53,6 +53,7 @@ const start = londonDay() + 30 * DAY,
   ctx = { db, scheduler: { runAfter: async () => {} } };
 (async () => {
   const booked = put("bookings", {
+    accountId: account._id,
     guestEmail: account.email,
     status: "returned",
     lineItems: [
@@ -242,11 +243,12 @@ const start = londonDay() + 30 * DAY,
     rId = await recovery.sync.handler(ctx, {
       token: "a",
       enabled: true,
+      emailFollowupConsent: true,
       lines,
     });
   assert.ok(rId);
   assert.equal(
-    await recovery.sync.handler(ctx, { token: "a", enabled: true, lines }),
+    await recovery.sync.handler(ctx, { token: "a", enabled: true, emailFollowupConsent: true, lines }),
     rId,
     "same basket retains its identity",
   );
@@ -278,6 +280,9 @@ const start = londonDay() + 30 * DAY,
     id: rId,
     leaseUntil: c.leaseUntil,
     sent: false,
+    stage: c.stage,
+    updatedAt: c.updatedAt,
+    emailFollowupConsentAt: c.emailFollowupConsentAt,
   });
   assert.equal(r.state, "waiting");
   assert.ok(r.dueAt > Date.now());
@@ -288,11 +293,15 @@ const start = londonDay() + 30 * DAY,
     id: rId,
     leaseUntil: c.leaseUntil,
     sent: true,
+    stage: c.stage,
+    updatedAt: c.updatedAt,
+    emailFollowupConsentAt: c.emailFollowupConsentAt,
   });
   assert.equal(r.state, "stopped", "clearing the basket wins over delayed receipt");
   const id2 = await recovery.sync.handler(ctx, {
     token: "a",
     enabled: true,
+    emailFollowupConsent: true,
     lines: [{ listingId: listing._id, qty: 1, start, end }],
   });
   assert.equal(
@@ -313,6 +322,7 @@ const start = londonDay() + 30 * DAY,
     await recovery.sync.handler(ctx, {
       token: "a",
       enabled: true,
+      emailFollowupConsent: true,
       lines: [{ listingId: listing._id, qty: 1, start, end }],
     }),
     null,
@@ -401,6 +411,7 @@ const start = londonDay() + 30 * DAY,
   const recovery3 = await recovery.sync.handler(ctx, {
     token: "a",
     enabled: true,
+    emailFollowupConsent: true,
     lines: [{ listingId: listing2._id, qty: 1, start, end }],
   });
   await db.patch(recovery3, { dueAt: Date.now() - 1 });
@@ -410,7 +421,8 @@ const start = londonDay() + 30 * DAY,
   await db.patch(recovery3, { dueAt: Date.now() - 1 });
   accepted = true;
   assert.equal((await recoveryMail.processDue.handler(actionCtx, {})).sent, 1);
-  assert.equal((await db.get(recovery3)).state, "sent");
+  assert.equal((await db.get(recovery3)).state, "waiting", "First email keeps the one-week stage queued");
+  assert.equal((await db.get(recovery3)).followupStage, "week_one");
   assert.equal(
     (await recoveryMail.processDue.handler(actionCtx, {})).sent,
     0,
@@ -427,6 +439,7 @@ const start = londonDay() + 30 * DAY,
   const recoveryId = await recovery.sync.handler(ctx, {
     token: "payer",
     enabled: true,
+    emailFollowupConsent: true,
     lines: paymentLines,
   });
   const pendingBooking = put("bookings", {
@@ -457,6 +470,7 @@ const start = londonDay() + 30 * DAY,
     await recovery.sync.handler(ctx, {
       token: "payer",
       enabled: true,
+      emailFollowupConsent: true,
       lines: paymentLines,
     }),
     recoveryId,
@@ -497,6 +511,9 @@ const start = londonDay() + 30 * DAY,
     id: recoveryId,
     leaseUntil: recoverable.leaseUntil,
     sent: true,
+    stage: recoverable.stage,
+    updatedAt: recoverable.updatedAt,
+    emailFollowupConsentAt: recoverable.emailFollowupConsentAt,
   });
   assert.equal(
     (await db.get(recoveryId)).state,

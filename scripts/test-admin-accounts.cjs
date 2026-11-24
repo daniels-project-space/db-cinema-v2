@@ -14,21 +14,40 @@ const ctx = {db, scheduler:{runAfter:async()=>{}}, runQuery:async(ref,args)=>{
   if(ref==='catalog.repriceLines')return catalog.repriceLines.handler(ctx,args);
   if(ref==='bookings.availableCheckoutCredit')return bookings.availableCheckoutCredit.handler(ctx,args);
   throw Error('Unexpected query '+ref);
+},runMutation:async(ref,args)=>{
+  if(ref==='accounts._reservePasswordSignInAttempt')return accounts._reservePasswordSignInAttempt.handler(ctx,args);
+  throw Error('Unexpected mutation '+ref);
 }};
 const account = put('accounts',{email:'person@example.invalid',name:'QA Renter',salt:'private-salt',hash:'private-hash',createdAt:1});
 const session = put('sessions',{accountId:account._id,token:'person-session',expiresAt:Date.now()+3600000});
 const emailLink = put('account_access_links',{accountId:account._id,secretHash:'private-link',createdAt:1,expiresAt:Date.now()+3600000});
 const change = (level,token='fixture-admin')=>admin.setLevel.handler(ctx,{token,accountId:account._id,level,expectedLevel:account.adminMembershipTier ?? 'automatic',reason:'QA access change'});
 const encore = (level,token='fixture-admin',reason='QA Encore promotion')=>admin.setEncoreLevel.handler(ctx,{token,accountId:account._id,level,expectedLevel:account.adminEncoreLevel ?? 'automatic',reason});
-const restrictionState = value=>({blockedAt:value.blockedAt ?? null,noticeId:value.restrictionNoticeId ?? null,reason:value.blockedReason ?? '',revision:value.restrictionRevision ?? 0});
-const block = blocked=>admin.setBlocked.handler(ctx,{token:'fixture-admin',accountId:account._id,blocked,reason:'QA access change',expected:restrictionState(account)});
+const restrictionState = value=>({blockedAt:value.blockedAt ?? null,restrictionClass:value.restrictionClass??null,noticeId:value.restrictionNoticeId ?? null,reason:value.blockedReason ?? '',revision:value.restrictionRevision ?? 0});
+const block = (blocked,restrictionClass=account.restrictionClass??'access_only')=>admin.setBlocked.handler(ctx,{token:'fixture-admin',accountId:account._id,blocked,restrictionClass,reason:'QA access change',expected:restrictionState(account)});
 (async()=>{
   assert.deepEqual((await admin.search.handler(ctx,{token:'wrong',email:''})).items,[]);
-  await assert.rejects(change('studio','wrong'),/unauthorized/);
-  await assert.rejects(encore(3,'wrong'),/unauthorized/);
+  const adminDetail=await admin.detail.handler(ctx,{token:'fixture-admin',accountId:account._id});
+  assert.equal(adminDetail.email,account.email,'An authenticated admin can read the selected account details');
+  for(const token of ['person-session','guest-session','wrong'])
+    await assert.rejects(admin.detail.handler(ctx,{token,accountId:account._id}),/unauthorized/i,'Customer and guest credentials cannot read admin account details');
+  for(const token of ['person-session','guest-session','wrong'])
+    await assert.rejects(admin.addNote.handler(ctx,{token,accountId:account._id,text:'Synthetic internal note'}),/unauthorized/i,'Customer and guest credentials cannot add internal account notes');
+  await admin.addNote.handler(ctx,{token:'fixture-admin',accountId:account._id,text:'Synthetic internal note'});
+  assert.equal((tables.get('account_admin_notes')??[]).at(-1).text,'Synthetic internal note','An authenticated admin can add an internal note');
+  const credits=load('convex/accountCredits.ts');
+  assert.deepEqual(await credits.adminHistory.handler(ctx,{token:'fixture-admin',accountId:account._id}),[],'An authenticated admin can read account billing history');
+  for(const token of ['person-session','guest-session','wrong'])
+    await assert.rejects(credits.adminHistory.handler(ctx,{token,accountId:account._id}),/unauthorized/i,'Customer and guest credentials cannot read admin billing history');
+  const verification=load('convex/verificationArchive.ts');
+  assert.deepEqual(await verification.accountDocuments.handler(ctx,{token:'fixture-admin',accountId:account._id}),[],'An authenticated admin can read the selected verification archive list');
+  for(const token of ['person-session','guest-session','wrong'])
+    await assert.rejects(verification.accountDocuments.handler(ctx,{token,accountId:account._id}),/unauthorized/i,'Customer and guest credentials cannot list private verification archives');
+  await assert.rejects(change('studio','wrong'),/unauthorized/i);
+  await assert.rejects(encore(3,'wrong'),/unauthorized/i);
   await assert.rejects(encore(2,'fixture-admin',' '),/reason/);
   const originalProfile={name:account.name??null,phone:account.phone??null,address:account.address??null};
-  await assert.rejects(admin.updateProfile.handler(ctx,{token:session.token,accountId:account._id,name:'Forged',phone:'+44 7700 900555',address:'1 Test Street',expected:originalProfile,reason:'Renter cannot edit admin profile'}),/unauthorized/,'A renter session cannot change customer profile details');
+  await assert.rejects(admin.updateProfile.handler(ctx,{token:session.token,accountId:account._id,name:'Forged',phone:'+44 7700 900555',address:'1 Test Street',expected:originalProfile,reason:'Renter cannot edit admin profile'}),/unauthorized/i,'A renter session cannot change customer profile details');
   await admin.updateProfile.handler(ctx,{token:'fixture-admin',accountId:account._id,name:'  QA Renter Two  ',phone:'+44 7700 900555',address:'  1 Test Street\nLondon  ',expected:originalProfile,reason:'Corrected contact details'});
   assert.equal(account.name,'QA Renter Two');assert.equal(account.phone,'+44 7700 900555');assert.equal(account.address,'1 Test Street London','Address whitespace is normalized');
   await assert.rejects(admin.updateProfile.handler(ctx,{token:'fixture-admin',accountId:account._id,name:'Stale edit',phone:'+44 7700 900777',address:'2 Test Street',expected:originalProfile,reason:'Stale profile edit'}),/changed in another session/,'A stale profile editor cannot overwrite newer values');
@@ -45,6 +64,18 @@ const block = blocked=>admin.setBlocked.handler(ctx,{token:'fixture-admin',accou
   assert.equal(account.adminEncoreLevel,1,'Stale Encore change cannot overwrite a newer one');
   await admin.setEncoreLevel.handler(ctx,{token:'fixture-admin',accountId:account._id,level:1,expectedLevel:'automatic',reason:'Retry'});
   await encore('automatic');
+  await assert.rejects(admin.setRentalAccess.handler(ctx,{token:session.token,accountId:account._id,level:'studio',expectedLevel:'automatic',encoreLevel:2,expectedEncoreLevel:'automatic',reason:'Renter cannot promote accounts'}),/unauthorized/i,'A renter session cannot use the combined membership control');
+  const combined=await admin.setRentalAccess.handler(ctx,{token:'fixture-admin',accountId:account._id,level:'studio',expectedLevel:'automatic',encoreLevel:2,expectedEncoreLevel:'automatic',reason:'Combined membership correction'});
+  assert.deepEqual(combined,{updated:true,levelChanged:true,encoreChanged:true});
+  assert.equal(account.adminMembershipTier,'studio');assert.equal(account.adminEncoreLevel,2,'Both selected access values update in one mutation');
+  const combinedAudit=(tables.get('account_admin_changes')??[]).filter(row=>row.accountId===account._id&&['level','encore_level'].includes(row.kind)&&row.reason==='Combined membership correction');
+  assert.deepEqual(combinedAudit.map(row=>row.kind).sort(),['encore_level','level'],'A combined promotion records both changed entitlement fields');
+  assert.equal(combinedAudit[0].at,combinedAudit[1].at,'Both audit entries share one atomic change timestamp');
+  await assert.rejects(admin.setRentalAccess.handler(ctx,{token:'fixture-admin',accountId:account._id,level:'pro',expectedLevel:'automatic',encoreLevel:3,expectedEncoreLevel:'automatic',reason:'Stale combined edit'}),/changed in another session/,'A stale field prevents both changes from being applied');
+  assert.equal(account.adminMembershipTier,'studio');assert.equal(account.adminEncoreLevel,2,'A rejected stale save cannot partially change membership');
+  assert.deepEqual(await admin.setRentalAccess.handler(ctx,{token:'fixture-admin',accountId:account._id,level:'studio',expectedLevel:'studio',encoreLevel:2,expectedEncoreLevel:2,reason:'No-op membership save'}),{updated:false},'Saving unchanged access values is a no-op');
+  await admin.setRentalAccess.handler(ctx,{token:'fixture-admin',accountId:account._id,level:'automatic',expectedLevel:'studio',encoreLevel:'automatic',expectedEncoreLevel:2,reason:'Restore earned access'});
+  assert.equal(account.adminMembershipTier,undefined);assert.equal(account.adminEncoreLevel,undefined,'Returning both selectors to automatic restores earned access');
   for(const [level,percent] of [[1,2],[2,4],[3,10]]) {
     await encore(level);
     assert.equal(account.adminEncoreLevel,level);
@@ -53,6 +84,11 @@ const block = blocked=>admin.setBlocked.handler(ctx,{token:'fixture-admin',accou
     assert.equal(progress.level,level);
     assert.equal(progress.percent,percent);
     assert.equal(progress.eligible,true);
+    const renterProfile=await accounts.me.handler(ctx,{token:session.token});
+    assert.equal(renterProfile.loyaltyLevel,level,'The renter profile reflects the admin-assigned Encore level');
+    assert.equal(renterProfile.loyaltyPercent,percent,'The renter profile displays the matching Encore discount');
+    assert.equal(renterProfile.loyaltyCompleted,0,'The renter profile does not misrepresent assigned status as earned rentals');
+    assert.equal(renterProfile.loyaltyEligible,true,'The assigned level is visible as eligible to the renter');
   }
   await encore('automatic');assert.equal(account.adminEncoreLevel,undefined);
   assert.equal((await loyaltyProgress(ctx,account)).eligible,false,'Automatic restores earned progress');
@@ -91,26 +127,34 @@ const block = blocked=>admin.setBlocked.handler(ctx,{token:'fixture-admin',accou
   await change('automatic');assert.equal(membershipTierFor(account),'plus');
   const camera=put('listings',{active:true,title:'QA Camera',pricing:{daily:200},depositAmount:1000});
   const input={items:[{listingId:camera._id,title:camera.title,start:Date.UTC(2027,0,8),end:Date.UTC(2027,0,9),qty:1,total:1,deposit:1}],customer:{email:account.email},token:session.token,fulfilment:'pickup',protection:'verify'};
-  await change('pro');const price=await calculateRentalPrice(ctx,input);assert.equal(price.weekendSaving,100,'Promotion reaches real rental pricing');
-  await change('standard');assert.equal((await calculateRentalPrice(ctx,input)).weekendSaving,0,'Demotion removes the actual weekend benefit');
+  await change('pro');assert.equal((await calculateRentalPrice(ctx,input)).weekendSaving,0,'Rental benefits stay inactive before the first clean completed rental');account.firstCleanRentalCompletedAt=Date.now()-1;const price=await calculateRentalPrice(ctx,input);assert.equal(price.weekendSaving,100,'An active promotion reaches real rental pricing after a clean completed rental');
+  await change('standard');assert.equal((await calculateRentalPrice(ctx,input)).weekendSaving,0,'Demotion removes the actual weekend benefit');delete account.firstCleanRentalCompletedAt;
   const rental=put('bookings',{guestEmail:account.email,status:'confirmed',total:100});
   const balance=(tables.get('credits')??[]).map(c=>({...c}));
   const activeSnapshot=restrictionState(account);
-  await assert.rejects(admin.setBlocked.handler(ctx,{token:session.token,accountId:account._id,blocked:true,reason:'Renter cannot restrict accounts',expected:activeSnapshot}),/unauthorized/,'A renter session cannot access the admin restriction action');
+  await assert.rejects(admin.setBlocked.handler(ctx,{token:'fixture-admin',accountId:account._id,blocked:true,reason:'Missing restriction class',expected:activeSnapshot}),/Choose an account restriction type/,'The write API requires an explicit restriction class');
+  await assert.rejects(admin.setBlocked.handler(ctx,{token:session.token,accountId:account._id,blocked:true,restrictionClass:'access_only',reason:'Renter cannot restrict accounts',expected:activeSnapshot}),/unauthorized/i,'A renter session cannot access the admin restriction action');
   assert.equal(account.blockedAt,undefined,'Denied renter restriction attempts do not change account state');
   await block(true);assert.equal(docs.has(session._id),false);assert.equal(docs.has(emailLink._id),false);
+  const priorBlockedAt=account.blockedAt,priorNoticeId=account.restrictionNoticeId,priorNoticeCount=(tables.get('account_restriction_notices')??[]).length;
+  await admin.setBlocked.handler(ctx,{token:'fixture-admin',accountId:account._id,blocked:true,restrictionClass:'identity_safety_blacklist',reason:'Escalated after identity review',expected:restrictionState(account)});
+  assert.equal(account.restrictionClass,'identity_safety_blacklist','A blocked account can be explicitly reclassified');
+  assert.equal(account.blockedAt,priorBlockedAt,'Reclassification preserves the current blockedAt identity');
+  assert.equal(account.restrictionNoticeId,priorNoticeId,'Reclassification keeps the original renter notice binding');
+  assert.equal((tables.get('account_restriction_notices')??[]).length,priorNoticeCount,'Reclassification does not send a duplicate renter email');
+  assert.equal(tables.get('account_admin_changes').at(-1).kind,'restriction_reclassify','Reclassification has a distinct audit event');
   const firstRestriction=restrictionState(account);
   await block(false);await block(true);
-  await assert.rejects(admin.setBlocked.handler(ctx,{token:'fixture-admin',accountId:account._id,blocked:false,reason:'Stale unblock',expected:firstRestriction}),/changed in another session/);
-  await assert.rejects(admin.setBlocked.handler(ctx,{token:'fixture-admin',accountId:account._id,blocked:true,reason:'Stale restriction',expected:activeSnapshot}),/changed in another session/);
+  await assert.rejects(admin.setBlocked.handler(ctx,{token:'fixture-admin',accountId:account._id,blocked:false,restrictionClass:'access_only',reason:'Stale unblock',expected:firstRestriction}),/changed in another session/);
+  await assert.rejects(admin.setBlocked.handler(ctx,{token:'fixture-admin',accountId:account._id,blocked:true,restrictionClass:'access_only',reason:'Stale restriction',expected:activeSnapshot}),/changed in another session/);
   assert(account.blockedAt != null,'A stale unblock cannot remove a newer restriction');
   await block(false);
-  await assert.rejects(admin.setBlocked.handler(ctx,{token:'fixture-admin',accountId:account._id,blocked:true,reason:'Stale active state',expected:activeSnapshot}),/changed in another session/,'An active → restricted → active cycle invalidates the old review');
+  await assert.rejects(admin.setBlocked.handler(ctx,{token:'fixture-admin',accountId:account._id,blocked:true,restrictionClass:'access_only',reason:'Stale active state',expected:activeSnapshot}),/changed in another session/,'An active → restricted → active cycle invalidates the old review');
   await block(true);
   assert.equal(await accounts.me.handler(ctx,{token:session.token}),null);
   assert.equal(await accounts._authFor.handler(ctx,{token:session.token}),null);
   await assert.rejects(accounts._session.handler(ctx,{accountId:account._id,token:'replacement'}),/blocked/);
-  await assert.rejects(accounts.signIn.handler(ctx,{email:account.email,password:'anything'}),/blocked/);
+  await assert.rejects(accounts.signIn.handler(ctx,{email:account.email,password:'anything'}),error=>error.data?.code==='INVALID_CREDENTIALS','Password sign-in does not reveal that an email is blocked');
   await assert.rejects(google._upsertGoogle.handler(ctx,{email:account.email,googleId:'qa-google',token:'google-session'}),/blocked/);
   assert.equal(await claims.prepareSignIn.handler(ctx,{email:account.email,secretHash:'new-link'}),null);
   put('account_access_links',{accountId:account._id,secretHash:'stale-link',createdAt:1,expiresAt:Date.now()+3600000});

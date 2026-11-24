@@ -1,6 +1,14 @@
 const assert=require('node:assert/strict');
 const {load,db,put,setMock}=require('./lib/rentalTestHarness.cjs');
 const security=load('shared/rentalSecurity.ts');
+for(const [value,limit] of [[0,50],[999.99,50],[1000,100],[3999.99,100],[4000,200],[4500,250],[5000,300]]) assert.equal(security.immediateClaimSecurityLimit(value),limit,`immediate-claim cap scales at ${value}`);
+assert.equal(security.cardLimitForPolicy(security.PREVIOUS_IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION,4500),200,'previous immediate-claim consent keeps the flat £200 ceiling');
+assert.equal(security.cardLimitForPolicy(security.IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION,4500),250,'new immediate-claim consent scales above £4,000');
+assert.equal(security.isImmediateClaimSecurityPolicy(security.PREVIOUS_IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION),true,'previous policy retains its immediate-claim handling');
+assert.equal(security.isScaledImmediateClaimSecurityPolicy(security.PREVIOUS_IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION),false,'previous policy does not inherit the new scaled cap');
+assert.equal(security.cardLimitForPolicy(security.SETUP_INTENT_SECURITY_POLICY_VERSION,4500),200,'archived SetupIntent policy retains its fixed £200 tier');
+assert.equal(security.cardHoldFor(4500),200,'existing card-hold authorisations keep their agreed tier');
+assert.throws(()=>security.immediateClaimSecurityLimit(NaN),/Invalid/);
 for(const protection of ['verify','deposit']) {
  for(const [value,deposit,hold] of [[0,100,0],[299.99,100,30],[300,100,30],[999.99,100,100],[2500,62.5,250],[10000,100,1000]]) assert.deepEqual(security.securityForPolicy(security.LEGACY_TEN_PERCENT_HOLD_POLICY,protection,value),protection==='deposit'&&value>=1000?{deposit:value/2,hold:value}:{deposit,hold});
 }
@@ -40,6 +48,18 @@ const line={listingId:lens._id,title:'forged',qty:1,start:day,end:day,total:1,de
  p=await calculateRentalPrice(ctx,{items:[line],customer:{email:'renter@example.invalid'},fulfilment:'pickup',protection:'deposit'});assert.equal(p.depositHoldAmount,0);assert.equal(p.depositAmount,0);assert.equal(p.savedCardLimit,250,'No former protection choice may create an upfront charge/hold');
  await db.patch(lens._id,{depositAmount:150});
  member=true;p=await calculateRentalPrice(ctx,{items:[line],token:'token',customer:{email:'renter@example.invalid'},fulfilment:'pickup'});assert.equal(p.depositAmount,0);assert.equal(p.depositHoldAmount,0);assert.equal(p.savedCardLimit,15);
+ process.env.SETUP_INTENT_SECURITY_POLICY_ENABLED='true';
+ const camera=put('listings',{active:true,title:'Two camera bodies',depositAmount:6400,pricing:{daily:10000},components:[]});
+ const sound=put('listings',{active:true,title:'Sound kit',depositAmount:700,pricing:{daily:1000},components:[]});
+ const card=put('listings',{active:true,title:'Memory card',depositAmount:200,pricing:{daily:500},components:[]});
+ const mulanItems=[camera,sound,card].map(item=>({...line,listingId:item._id,deposit:1}));
+ p=await calculateRentalPrice(ctx,{items:mulanItems,customer:{email:'renter@example.invalid'},fulfilment:'pickup'});
+ assert.equal(p.replacementSum,7300,'security uses all three authoritative listing values, not client-supplied amounts');
+ assert.equal(p.securityPolicyVersion,security.IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION);
+ assert.equal(p.savedCardLimit,530,'the current scaled policy quotes £530 for £7,300 of equipment');
+ assert.equal(p.depositAmount,0);assert.equal(p.depositHoldAmount,0);
+ assert.equal(security.cardLimitForPolicy(security.SETUP_INTENT_SECURITY_POLICY_VERSION,7300),200,'the earlier signed setup-intent policy retains its £200 limit');
+ delete process.env.SETUP_INTENT_SECURITY_POLICY_ENABLED;
  process.env.STRIPE_SECRET_KEY='sk_test_fixture';
  let amount=0;const writes=[];
  const holdCtx={runQuery:async()=>({amount,status:'confirmed'}),runMutation:async(_ref,args)=>writes.push(args)};

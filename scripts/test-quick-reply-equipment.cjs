@@ -114,14 +114,10 @@ function snapshot() {
     state.prepare.handler(ctx, { ...reviewed, expectedQuote: "different" }),
     /request has changed/,
   );
-  // A fresh removal review binds the entire rental, not just the selected line.
+  // Standalone removal is fail-closed until the renter-approved atomic
+  // equipment-change settlement is used.
   const c = booking();
   c.lineItems.push({ ...c.lineItems[0], qty: 2, lineTotal: 120 });
-  const removeReview = await ops.details.handler(ctx, {
-    token,
-    bookingId: c._id,
-  });
-  c.total += 1;
   await assert.rejects(
     ops.removeItem.handler(ctx, {
       token,
@@ -133,9 +129,8 @@ function snapshot() {
       expectedStart: start,
       expectedEnd: end,
       reason: "Customer needs fewer lenses",
-      expectedSnapshot: removeReview.controlsSnapshot,
     }),
-    /rental changed/,
+    /Use the renter-approved equipment change flow/,
   );
   assert.equal(
     c.lineItems.length,

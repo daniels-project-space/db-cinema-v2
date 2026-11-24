@@ -10,7 +10,8 @@ for (const [alias, file] of Object.entries({
 })) setMock(alias, load(file));
 
 setMock("next/server", { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } });
-setMock("@/lib/ratelimit", { rateLimit: async () => ({ allowed: true }) });
+let rateAllowed = true;
+setMock("@/lib/ratelimit", { rateLimit: async () => ({ allowed: rateAllowed, retryAfterSec: 30 }) });
 
 const camera = {
   _id: "fx3-body",
@@ -56,9 +57,10 @@ const basket = [
 
 let refreshed = 0;
 let liveAvailable = true;
+let refreshFails = false;
 const calls = [];
 setMock("convex/browser", { ConvexHttpClient: class {
-  async action(_name, args) { calls.push("refresh"); refreshed++; assert.equal(args.items.length, 2); assert.equal(args.items[0].pickupTime, "10:00"); return { checkedAt: Date.now(), availability: {} }; }
+  async action(_name, args) { calls.push("refresh"); refreshed++; assert.equal(args.items.length, 2); assert.equal(args.items[0].pickupTime, "10:00"); if (refreshFails) throw Error("stock unavailable"); return { checkedAt: Date.now(), availability: {} }; }
   async query(name, args) {
     calls.push(name);
     if (name === "catalog.listingsByIds") return [camera, standardLens];
@@ -87,7 +89,16 @@ const { POST } = load("src/app/api/compat/route.ts");
   liveAvailable = false;
   const unavailable = await POST({ json: async () => ({ items: basket }) });
   assert.equal(unavailable.body.upgrades.length, 0, "unavailable upgrades are removed after the live basket stock check");
-  console.log("PASS checkout compatibility route: refreshes shared stock, falls back to the bounded legacy catalogue, and offers only a live available exact-focal upgrade.");
+  rateAllowed = false;
+  const limited = await POST({ json: async () => ({ items: basket }) });
+  assert.equal(limited.status, 429);
+  assert.equal(limited.body.unknown, true, "rate limiting is an unknown check, not a clean compatibility result");
+  rateAllowed = true;
+  refreshFails = true;
+  const failedRefresh = await POST({ json: async () => ({ items: basket }) });
+  assert.equal(failedRefresh.status, 503);
+  assert.equal(failedRefresh.body.unknown, true, "a failed live stock refresh must be distinguishable from a successful check");
+  console.log("PASS checkout compatibility route: refreshes shared stock, falls back to the bounded legacy catalogue, offers only live available upgrades, and marks failed checks unknown.");
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

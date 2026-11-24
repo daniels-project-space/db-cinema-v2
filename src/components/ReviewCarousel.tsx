@@ -1,5 +1,5 @@
 "use client";
-import { REVIEW_PRIZE_GBP } from "../../shared/reviewPrize";
+import { reviewIncentiveDisclosure } from "../../shared/reviewDisclosure";
 
 import { ChatAvatar } from "./rentals/ChatIdentity";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -76,7 +76,7 @@ export function ReviewCarousel() {
               &rdquo;
             </span>
             <Stars n={r.rating} />
-            {r.incentivized && <span className="text-[10px] text-amber-200/80">{r.encoreReward?"Encore benefit":""}{r.encoreReward&&r.prizeEntry?" + ":""}{r.prizeEntry?`£${REVIEW_PRIZE_GBP} story-prize entrant`:""} · incentivised review</span>}
+            {reviewIncentiveDisclosure(r) && <span data-testid="review-incentive-disclosure" className="text-[10px] text-amber-200/80">{reviewIncentiveDisclosure(r)}</span>}
             <blockquote className="review-carousel-quote min-h-0 flex-1 text-sm leading-relaxed text-white/70">
               {r.text}
             </blockquote>

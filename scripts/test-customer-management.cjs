@@ -112,7 +112,7 @@ put("bookings", {
 (async () => {
   assert.equal(await admin.directoryAccess.handler(ctx, { token: "renter-session" }), false);
   assert.deepEqual(await admin.directory.handler(ctx, { token: "renter-session", search: "", paginationOpts: { numItems: 10, cursor: null }, filter: "all", tier: "all" }), { page: [], isDone: true, continueCursor: "" });
-  assert.deepEqual(await admin.searchMessages.handler(ctx, { token: "renter-session", search: "Owned", filter: "all", tier: "all" }), { items: [], truncated: false });
+  assert.deepEqual(await admin.searchMessages.handler(ctx, { token: "renter-session", search: "Owned", filter: "all", tier: "all" }), { page: [], isDone: true, continueCursor: "" });
   assert.deepEqual(await admin.directoryMetrics.handler(ctx, { token: "renter-session", accountIds: [account._id] }), []);
   assert.deepEqual(await admin.possibleRestrictedIdentityMatches.handler(ctx, { token: "renter-session", bookingId: owned._id }), { matches: [], more: false });
   await assert.rejects(() => admin.setStarred.handler(ctx, { token: "renter-session", accountId: account._id, starred: true }), /unauthorized/);

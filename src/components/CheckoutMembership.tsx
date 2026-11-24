@@ -167,6 +167,8 @@ export function CheckoutMembership({
       tier: selected?.tier ?? recommendedTier.key,
       intro: "none",
       termsAccepted: true,
+      accountTermsAcceptedVersion: selected?.accountTermsAcceptedVersion,
+      privacyNoticeAcceptedVersion: selected?.privacyNoticeAcceptedVersion,
     });
     setCelebrating(true);
     if (celebrationTimer.current) clearTimeout(celebrationTimer.current);
@@ -178,20 +180,16 @@ export function CheckoutMembership({
     else onChange(null);
   };
   const benefits = [
-    `Pay £${displayTier.monthlyGbp}/month → £${displayTier.monthlyCredit.toFixed(2)} credit to spend`,
-    "Credit stacks monthly · valid for one year",
-    ...(displayTier.weekend
-      ? [
-          "Subscription-exclusive weekends · 2-for-1 / 3-for-2 · £100 saving cap",
-        ]
-      : []),
+    `£${displayTier.monthlyCredit.toFixed(2)} rental credit each paid month · rolls over for one year`,
+    displayTier.weekend
+      ? "Weekend 2-for-1 / 3-for-2 · save up to £100"
+      : "Use your monthly credit on rental charges",
     displayTier.key === "studio"
       ? "One London delivery included each month"
       : `${displayTier.deliveryPct}% off future delivery`,
-    "Security is shown in your quote · saved-card permission applies",
     displayTier.filmFund
       ? "Film Fund entry included when applications open"
-      : "Film Fund entry £15/project when applications open",
+      : "Film Fund entry £15 per project when applications open",
   ];
   return (
     <>
@@ -278,15 +276,27 @@ export function CheckoutMembership({
           />
         ) : null}
         <div className={`${compact ? "mt-1" : "mt-2"} flex items-center justify-between gap-2`}>
-          <p className="font-mono text-[9px] uppercase tracking-[.15em] text-white/50">
+          <p className="font-mono text-xs uppercase tracking-[.08em] text-white/60">
             {displayTier.name} subscription · £{displayTier.monthlyGbp}/month
           </p>
-          {compact && selected && <button type="button" data-testid="remove-membership" onClick={removeSelection} className="shrink-0 text-[10px] text-white/45 underline">Remove membership</button>}
+          {compact && selected && <button type="button" data-testid="remove-membership" onClick={removeSelection} className="shrink-0 text-xs text-white/60 underline">Remove membership</button>}
         </div>
-        {!me && <p className="mt-2 text-[10px] leading-4 text-white/55">Membership requires an account. After successful payment, we create one using your booking details and email you a secure sign-in link.</p>}
+        {!me && <p className="mt-2 text-xs leading-4 text-white/70">After payment, we’ll email your secure account sign-in link.</p>}
+        {!current && !pending && <ul
+          data-testid="membership-pitch-benefits"
+          aria-label="Four subscription benefits"
+          className={`mt-2 grid ${compact ? "grid-cols-2 gap-x-2 gap-y-1 text-xs leading-4" : "gap-1.5 text-[11px]"} text-white/70`}
+        >
+          {benefits.map((benefit, index) => (
+            <li key={benefit} className="flex min-w-0 items-start gap-1.5">
+              <SubscriptionBenefitSymbol benefit={benefit} index={index} />
+              <span className={index === 0 ? "font-medium text-white/90" : undefined}>{benefit}</span>
+            </li>
+          ))}
+        </ul>}
         {compact ? (
           <>
-            {!current && <label className="mt-1 flex cursor-pointer items-start gap-2 text-[9px] leading-[14px] text-white/55">
+            {!current && <label className="mt-1 flex cursor-pointer items-start gap-2 text-xs leading-4 text-white/70">
               <input
                 type="checkbox"
                 className="mt-0.5 h-4 w-4 shrink-0 accent-[#acd17c]"
@@ -324,28 +334,6 @@ export function CheckoutMembership({
               <p className="mt-1 text-[10px] text-white/45">
                 Net saving includes today’s membership fee.
               </p>
-            )}
-            {!current && (
-              <ul
-                aria-label="Future subscription benefits"
-                className="mt-3 grid gap-1.5 text-[11px] text-white/70"
-              >
-                {benefits.map((benefit, index) => (
-                  <li key={benefit} className="flex items-center gap-2">
-                    <SubscriptionBenefitSymbol
-                      benefit={benefit}
-                      index={index}
-                    />
-                    <span
-                      className={
-                        index === 0 ? "font-medium text-white/90" : undefined
-                      }
-                    >
-                      {benefit}
-                    </span>
-                  </li>
-                ))}
-              </ul>
             )}
             {!current && (
               <p
@@ -396,9 +384,9 @@ export function CheckoutMembership({
           </>
         )}
         {!current && (
-          <p className={compact ? "mt-1 text-[9px] leading-3 text-white/45" : "mt-2 text-[10px] leading-4 text-white/45"}>
+          <p className={compact ? "mt-1 text-xs leading-4 text-white/65" : "mt-2 text-[10px] leading-4 text-white/45"}>
             {compact
-              ? "First rental: verification & saved-card setup. Other perks start next booking."
+              ? "First rental: verify & save a card. Perks start next booking."
               : "This first rental still requires verification and saved-card setup. Other perks start on future bookings."}
           </p>
         )}
@@ -406,7 +394,7 @@ export function CheckoutMembership({
           type="button"
           data-testid="membership-benefits"
           onClick={() => setOpen(true)}
-          className="mt-2 text-[10px] text-white/55 underline underline-offset-4"
+          className="mt-2 text-xs text-white/65 underline underline-offset-4"
         >
           See the subscription benefits
         </button>}

@@ -5,7 +5,7 @@ import { queueOwnerNotification } from "./lib/adminPush";
 import { swapAuthorityAvailable } from "./lib/rentalSwapAuthority";
 import { postRentalMessage } from "./lib/rentalChat";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
-import { verificationValidUntil } from "../shared/verificationProgress";
+import { bookingVerificationExpired } from "../shared/verificationProgress";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
@@ -54,25 +54,59 @@ export const conflicts = query({args:{token:v.string(),bookingId:v.id("bookings"
   return Promise.all(rows.map(async row=>{const swap=await ctx.db.get(row.swapId);return {id:row._id,legacy:row.deliveryState===undefined,pending:row.deliveryState==="pending",oldTitle:swap?.oldLine.title??"Original item",newTitle:swap?.newLine.title??"Replacement item"};}));
 }});
 
+/**
+ * Legacy receipt recovery is automatic only when the immutable stock claim,
+ * the saved receipt window, and today's exact local allocation still agree.
+ * Any uncertainty leaves the existing rental fence in place for review.
+ */
+async function legacyDeliveryCandidate(ctx:any,receiptId:any,bookingId?:any):Promise<any>{
+  if(!swapAuthorityAvailable()||process.env.SHARED_STOCK_BRIDGE_EXPERIMENTAL!=="true")return {error:"Stock receipt recovery is not enabled."};
+  const receipt=await ctx.db.get(receiptId),booking=receipt?await ctx.db.get(receipt.bookingId):null;
+  if(!receipt||bookingId&&receipt.bookingId!==bookingId||receipt.deliveryState!==undefined||receipt.acknowledgedAt!==undefined||receipt.stockRisk===true||!booking||booking.status!=="confirmed"||booking.cancellationDecision||booking.returnDecision)return {error:"This receipt needs individual stock review."};
+  const swap=await ctx.db.get(receipt.swapId);
+  if(!swap||swap.bookingId!==booking._id||swap.status!=="applied"||swap.stockAppliedAt!==receipt.appliedAt||booking.activeItemSwapId&&booking.activeItemSwapId!==swap._id||booking.activeAdditionId||booking.activeDeliveryQuoteId||booking.activeExtensionId||booking.activePriceAdjustmentId)return {error:"The rental has another operation or inconsistent receipt."};
+  if((booking.rmv2SyncLeaseUntil??0)>Date.now()||!Number.isSafeInteger(booking.rmv2Revision)||!Number.isSafeInteger(receipt.bookingRevision)||receipt.bookingRevision>booking.rmv2Revision||receipt.bookingRevision<1||!await exactAllocation(ctx,booking,receipt))return {error:"The current stock allocation or delivery needs individual review."};
+  const oldest=await ctx.db.query("swap_stock_applied_receipts").withIndex("by_booking_delivery",(q:any)=>q.eq("bookingId",booking._id).eq("deliveryState",undefined)).first();
+  const pending=await ctx.db.query("swap_stock_applied_receipts").withIndex("by_booking_delivery",(q:any)=>q.eq("bookingId",booking._id).eq("deliveryState","pending")).first();
+  if(oldest?._id!==receipt._id||pending)return {error:"Review earlier or pending stock receipts first."};
+  try{await assertStockExecution(ctx,swap._id);}catch{return {error:"The equipment stock execution is not confirmed."};}
+  const claim=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",(q:any)=>q.eq("swapId",swap._id).eq("operation","acquire")).unique();
+  const execution=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",(q:any)=>q.eq("swapId",swap._id).eq("operation","beginExecution")).unique();
+  if(claim?.receipt?.requestId!==receipt.managerRequestId||claim.receipt.fingerprint!==receipt.fingerprint||execution?.request?.args?.executionKey!==receipt.executionKey)return {error:"The original stock claim does not match this receipt."};
+  return {receipt,booking,swap};
+}
+
+async function queueLegacyDeliveryRetry(ctx:any,candidate:any){
+  await ctx.db.patch(candidate.booking._id,{activeItemSwapId:candidate.swap._id});
+  await ctx.db.patch(candidate.receipt._id,{deliveryState:"pending"});
+  await queueRmv2Sync(ctx,candidate.booking._id);
+}
+
+/** Recover only provably exact legacy receipts; Rental Manager still provides the acknowledgement. */
+export const recoverSafeLegacyReceipts=internalMutation({args:{},handler:async ctx=>{
+  if(!swapAuthorityAvailable()||process.env.SHARED_STOCK_BRIDGE_EXPERIMENTAL!=="true")return {scanned:0,queued:0,disabled:true};
+  // Bounded indexed pages prevent a long-lived ambiguous receipt from starving
+  // later rows. Unsafe rows stay visible in the admin stock review.
+  const state=await ctx.db.query("swap_stock_audit_backfill").withIndex("by_key",q=>q.eq("key","safe-legacy-v1")).unique();
+  const page=await ctx.db.query("swap_stock_applied_receipts").withIndex("by_delivery_state",q=>q.eq("deliveryState",undefined)).paginate({cursor:state?.cursor??null,numItems:10});
+  let queued=0;
+  for(const receipt of page.page){
+    const candidate=await legacyDeliveryCandidate(ctx,receipt._id);
+    if(candidate.error)continue;
+    await queueLegacyDeliveryRetry(ctx,candidate);
+    queued++;
+  }
+  const update={cursor:page.isDone?null:page.continueCursor,complete:false,updatedAt:Date.now()};
+  if(state)await ctx.db.patch(state._id,update);else await ctx.db.insert("swap_stock_audit_backfill",{key:"safe-legacy-v1",...update});
+  return {scanned:page.page.length,queued,disabled:false};
+}});
+
 export const retryLegacyDelivery = mutation({args:{token:v.string(),bookingId:v.id("bookings"),id:v.id("swap_stock_applied_receipts"),confirmed:v.boolean()},handler:async(ctx,args)=>{
   await stockAdminWrite(ctx,args.token,"swapStockAudit.retryLegacyDelivery");
   if(!args.confirmed)throw Error("Confirm the receipt review first.");
-  if(!swapAuthorityAvailable()||process.env.SHARED_STOCK_BRIDGE_EXPERIMENTAL!=="true")throw Error("Stock receipt recovery is not enabled.");
-  const receipt=await ctx.db.get(args.id),booking=await ctx.db.get(args.bookingId);
-  if(!receipt||receipt.bookingId!==args.bookingId||receipt.deliveryState!==undefined||receipt.acknowledgedAt!==undefined||receipt.stockRisk===true||!booking||booking.status!=="confirmed"||booking.cancellationDecision||booking.returnDecision)throw Error("This receipt needs individual stock review.");
-  const swap=await ctx.db.get(receipt.swapId);
-  if(!swap||swap.bookingId!==booking._id||swap.status!=="applied"||swap.stockAppliedAt!==receipt.appliedAt||booking.activeItemSwapId&&booking.activeItemSwapId!==swap._id||booking.activeAdditionId||booking.activeDeliveryQuoteId||booking.activeExtensionId||booking.activePriceAdjustmentId)throw Error("The rental has another operation or inconsistent receipt.");
-  if((booking.rmv2SyncLeaseUntil??0)>Date.now()||!Number.isSafeInteger(booking.rmv2Revision)||!Number.isSafeInteger(receipt.bookingRevision)||receipt.bookingRevision>booking.rmv2Revision!||receipt.bookingRevision<1||!await exactAllocation(ctx,booking,receipt))throw Error("The current stock allocation or delivery needs individual review.");
-  const oldest=await ctx.db.query("swap_stock_applied_receipts").withIndex("by_booking_delivery",q=>q.eq("bookingId",booking._id).eq("deliveryState",undefined)).first();
-  const pending=await ctx.db.query("swap_stock_applied_receipts").withIndex("by_booking_delivery",q=>q.eq("bookingId",booking._id).eq("deliveryState","pending")).first();
-  if(oldest?._id!==receipt._id||pending)throw Error("Review earlier or pending stock receipts first.");
-  await assertStockExecution(ctx,swap._id);
-  const claim=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",q=>q.eq("swapId",swap._id).eq("operation","acquire")).unique();
-  const execution=await ctx.db.query("swap_stock_operations").withIndex("by_swap_operation",q=>q.eq("swapId",swap._id).eq("operation","beginExecution")).unique();
-  if(claim?.receipt?.requestId!==receipt.managerRequestId||claim.receipt.fingerprint!==receipt.fingerprint||execution?.request?.args?.executionKey!==receipt.executionKey)throw Error("The original stock claim does not match this receipt.");
-  await ctx.db.patch(booking._id,{activeItemSwapId:swap._id});
-  await ctx.db.patch(receipt._id,{deliveryState:"pending"});
-  await queueRmv2Sync(ctx,booking._id);
+  const candidate=await legacyDeliveryCandidate(ctx,args.id,args.bookingId);
+  if(candidate.error)throw Error(candidate.error);
+  await queueLegacyDeliveryRetry(ctx,candidate);
   return {status:"pending" as const};
 }});
 
@@ -150,7 +184,7 @@ export const record = internalMutation({args:{id:v.id("swap_stock_applied_receip
   const canFence=(risk||attempts>=3)&&!changed&&!held&&booking.status==="confirmed"&&!booking.activeItemSwapId&&!booking.activeAdditionId&&!booking.activeDeliveryQuoteId&&!booking.activeExtensionId&&!booking.activePriceAdjustmentId&&!booking.cancellationDecision&&!booking.returnDecision;
   if(canFence)await ctx.db.patch(booking._id,{activeItemSwapId:swap._id});
   const heldAfter=held||canFence;
-  const clear=!changed&&!risk&&args.result?.status==="confirmed"&&args.result.result?.stockRisk===false&&held&&swap.status==="applied"&&booking.status==="confirmed"&&booking.idVerifyStatus==="verified"&&(verificationValidUntil(booking)??0)>now&&!booking.cancellationDecision&&!booking.returnDecision&&!!account&&account.blockedAt==null&&belongsToRentalAccount(booking,account);
+  const clear=!changed&&!risk&&args.result?.status==="confirmed"&&args.result.result?.stockRisk===false&&held&&swap.status==="applied"&&booking.status==="confirmed"&&booking.idVerifyStatus==="verified"&&!bookingVerificationExpired(booking,now)&&!booking.cancellationDecision&&!booking.returnDecision&&!!account&&account.blockedAt==null&&belongsToRentalAccount(booking,account);
   if(changed||risk||attempts>=3){
     await queueOwnerNotification(ctx,{eventKey:`swap-stock-audit:${args.id}:${changed?"changed":risk?"risk":"unavailable"}`,kind:"checkout_failure",accountId:swap.accountId,bookingId:booking._id,title:"Equipment stock needs checking",body:changed?"The rental changed during a stock check. Check current inventory before handover.":risk?heldAfter?"A possible external booking conflicts with this equipment swap. The rental is locked until stock is checked.":"A possible external booking conflicts with this equipment swap. Another rental operation may be in progress; check it before handover.":"Rental Manager could not confirm this equipment swap's availability. Check stock before handover."});
   }

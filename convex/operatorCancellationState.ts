@@ -1,13 +1,15 @@
 import {internalMutation,internalQuery,query,mutation} from "./_generated/server";
-import { assertSwapStockReconciled } from "./lib/swapStockFence";
+import { assertActiveItemSwapReady, assertSwapStockReconciled, expireUnacceptedItemSwap } from "./lib/swapStockFence";
 import {v,ConvexError} from "convex/values";
 import {accountForRental} from "./lib/rentalAccount";
+import {postRentalMessage} from "./lib/rentalChat";
 import {londonRentalInstant} from "../shared/rentalWindow";
-import {OPERATOR_CANCEL_GRACE_MS,operatorCancellationOptions} from "../shared/operatorCancellationCredit";
+import {OPERATOR_CANCEL_GRACE_MS,operatorCancellationCreditAllowed,operatorCancellationOptions} from "../shared/operatorCancellationCredit";
 import {queueRentalEmail} from "./lib/rentalEmailQueue";
 import {queueRmv2Sync} from "./lib/rmv2SyncQueue";
 import {queueOwnerNotification} from "./lib/adminPush";
 import {assertAdmin,checkAdminToken} from "./adminAuth";
+import { bumpVerificationRetentionRevision } from "./lib/verificationRetentionRevision";
 const DAY=86400000;
 const money=v.object({cashRemainingPence:v.number(),securityRemainingPence:v.number(),spentCreditPence:v.number()});
 export const ownerStatus=query({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,a)=>{
@@ -20,9 +22,13 @@ export const resumeAdmin=mutation({args:{token:v.string(),offerId:v.id("operator
  const row=await ctx.db.get(a.offerId),now=Date.now();if(!row||row.state!=="review")throw Error("This cancellation does not need manual recovery.");
  const account=await ctx.db.get(row.accountId),booking=await ctx.db.get(row.bookingId);
  if(!account||booking?.cancellationDecision?.operatorOfferId!==row._id)throw Error("The cancellation ownership changed.");
- if(row.choice)await ctx.db.patch(row._id,{state:"chosen",dueAt:now,leaseUntil:0,attempts:0,lastError:undefined,updatedAt:now});
+ const creditInvalidated=row.choice==="credit"&&!operatorCancellationCreditAllowed(account,row);
+ const recovery=await ctx.db.query("rental_cancellations").withIndex("by_booking",q=>q.eq("bookingId",row.bookingId)).unique();
+ if(creditInvalidated&&(booking.cancellationDecision?.quote||recovery))throw Error("The settlement has already started. Review its existing payment record before resuming.");
+ const choice=creditInvalidated?"refund":row.choice;
+ if(choice)await ctx.db.patch(row._id,{state:"chosen",choice,dueAt:now,leaseUntil:0,attempts:0,lastError:undefined,updatedAt:now});
  else await ctx.db.patch(row._id,{state:"waiting",recipientEmail:account.email,choiceDeadline:undefined,emailDeliveryId:undefined,cashRemainingPence:undefined,securityRemainingPence:undefined,spentCreditPence:undefined,dueAt:Math.max(now,row.decisionAfter),leaseUntil:0,attempts:0,lastError:undefined,updatedAt:now});
- return {state:row.choice?"chosen":"waiting"};
+ return {state:choice?"chosen":"waiting",...(creditInvalidated?{choice:"refund" as const}:{})};
 }});
 export const begin=internalMutation({args:{bookingId:v.id("bookings"),reason:v.string()},handler:async(ctx,a)=>{
  const prior=await ctx.db.query("operator_cancellation_offers").withIndex("by_booking",q=>q.eq("bookingId",a.bookingId)).unique();if(prior)return prior;
@@ -32,14 +38,18 @@ export const begin=internalMutation({args:{bookingId:v.id("bookings"),reason:v.s
  if((b.currency??"GBP").toUpperCase()!=="GBP"||!b.stripePaymentIntentId&&b.total>0)throw Error("The original GBP rental payment needs review.");
  const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",b._id)).take(501);
  if(reservations.length>500||reservations.some(r=>r.source!=="site"))throw Error("Only direct website rental stock can be cancelled here.");
- if(b.cancellationDecision||b.returnDecision||b.activeAdditionId||b.activeExtensionId||b.activePriceAdjustmentId||b.activeItemSwapId||["starting","processing"].includes(b.depositHoldRenewalStatus??""))throw Error("Finish the active rental operation first.");
- await assertSwapStockReconciled(ctx, b._id);
+ if(b.cancellationDecision||b.returnDecision||b.activeAdditionId||b.activeExtensionId||b.activePriceAdjustmentId||["starting","processing"].includes(b.depositHoldRenewalStatus??""))throw Error("Finish the active rental operation first.");
+ await assertSwapStockReconciled(ctx, b._id, undefined, true);
+ await assertActiveItemSwapReady(ctx,b,true);
  const pickupAt=Math.min(...b.lineItems.map(line=>londonRentalInstant(line.start,line.pickupTime??b.pickupTime??"00:00")));
  if(pickupAt<=now)throw Error("The rental has already reached its pickup time.");
  const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",b._id)).take(101);
  if(refunds.length>100||refunds.some(r=>["prepared","pending"].includes(r.status)))throw Error("Finish or review the existing refund first.");
- const id=await ctx.db.insert("operator_cancellation_offers",{bookingId:b._id,accountId:account._id,recipientEmail:account.email,reason:a.reason.trim().slice(0,400)||"Equipment unexpectedly unavailable",state:"waiting",cancelledAt:now,decisionAfter:now+OPERATOR_CANCEL_GRACE_MS,pickupAt,dueAt:now+OPERATOR_CANCEL_GRACE_MS,generation:0,attempts:0,leaseUntil:0,updatedAt:now});
+ const expiredProposal=b.activeItemSwapId?await expireUnacceptedItemSwap(ctx,b):null;
+ const id=await ctx.db.insert("operator_cancellation_offers",{bookingId:b._id,accountId:account._id,recipientEmail:account.email,reason:a.reason.trim().slice(0,400)||"DB Cinema cancellation",state:"waiting",cancelledAt:now,decisionAfter:now+OPERATOR_CANCEL_GRACE_MS,pickupAt,dueAt:now+OPERATOR_CANCEL_GRACE_MS,generation:0,attempts:0,leaseUntil:0,restrictionRevisionAtStart:account.restrictionRevision??0,updatedAt:now});
  await ctx.db.patch(b._id,{status:"cancelled",cancelledAt:now,adminCancellationReason:a.reason.trim().slice(0,400),accountId:account._id,cancellationDecision:{kind:"full_refund",createdAt:now,operatorOfferId:id}});
+ await bumpVerificationRetentionRevision(ctx,{...b,accountId:account._id});
+ if(expiredProposal)await postRentalMessage(ctx,{accountId:account._id,bookingId:b._id,sender:"system",text:"The pending equipment-change offer closed when the rental was cancelled. Your original confirmed items and price were unchanged."});
  for(const r of reservations){if(r.status==="hold")await ctx.db.delete(r._id);else if(r.status!=="cancelled")await ctx.db.patch(r._id,{status:"cancelled"});}
  await queueOwnerNotification(ctx,{eventKey:`operator-cancel-start:${id}`,kind:"booking_cancelled",accountId:account._id,bookingId:b._id,title:"Rental cancelled · settlement waiting",body:"The one-hour account decision window has started. No refund or account credit has been issued."});
  await queueRmv2Sync(ctx,b._id);
@@ -59,7 +69,7 @@ export const prepare=internalMutation({args:{offerId:v.id("operator_cancellation
  operatorCancellationOptions(a.amounts);
  const b=await ctx.db.get(row.bookingId),account=await ctx.db.get(row.accountId);
  if(!account||!b||b.cancellationDecision?.operatorOfferId!==row._id)throw new ConvexError({code:"OPERATOR_CANCELLATION_REVIEW",message:"The cancellation account or rental changed."});
- if(account.blockedAt!=null){await ctx.db.patch(row._id,{...a.amounts,state:"chosen",choice:"refund",choiceAt:now,dueAt:now,leaseUntil:0,updatedAt:now});return {refundOnly:true};}
+ if(!operatorCancellationCreditAllowed(account,row)){await ctx.db.patch(row._id,{...a.amounts,state:"chosen",choice:"refund",choiceAt:now,dueAt:now,leaseUntil:0,updatedAt:now});return {refundOnly:true};}
  if(account.email!==row.recipientEmail)throw new ConvexError({code:"OPERATOR_CANCELLATION_REVIEW",message:"The recipient changed. Review the account before sending the cancellation choice."});
  const emailDeliveryId=await queueRentalEmail(ctx,row.bookingId,"cancellation_choice");
  await ctx.db.patch(row._id,{...a.amounts,state:"email_pending",choiceDeadline:now+7*DAY,emailDeliveryId,dueAt:now+60000,attempts:0,leaseUntil:0,updatedAt:now});return {refundOnly:false};
@@ -67,6 +77,11 @@ export const prepare=internalMutation({args:{offerId:v.id("operator_cancellation
 export const advance=internalMutation({args:{offerId:v.id("operator_cancellation_offers"),generation:v.number()},handler:async(ctx,a)=>{
  const row=await ctx.db.get(a.offerId),now=Date.now();if(!row||row.generation!==a.generation||row.leaseUntil<=now)return null;
  if(row.state!=="email_pending"&&row.state!=="offered")return null;
+ const account=await ctx.db.get(row.accountId);
+ if(!operatorCancellationCreditAllowed(account,row)){
+  await ctx.db.patch(row._id,{state:"chosen",choice:"refund",choiceAt:now,dueAt:now,leaseUntil:0,updatedAt:now});
+  return ctx.db.get(row._id);
+ }
  const email=row.emailDeliveryId?await ctx.db.get(row.emailDeliveryId):null;
  if(email?.state==="sent"){
   if(now>=(row.choiceDeadline??Infinity))await ctx.db.patch(row._id,{state:"chosen",choice:"refund",choiceAt:now,dueAt:now,leaseUntil:0,updatedAt:now});
@@ -79,10 +94,20 @@ export const advance=internalMutation({args:{offerId:v.id("operator_cancellation
 }});
 export const choose=internalMutation({args:{offerId:v.id("operator_cancellation_offers"),choice:v.union(v.literal("refund"),v.literal("credit")),recipientEmail:v.string()},handler:async(ctx,a)=>{
  const row=await ctx.db.get(a.offerId),now=Date.now();if(!row||row.recipientEmail!==a.recipientEmail)throw Error("This cancellation link is invalid.");
- if(row.choice){if(row.choice!==a.choice)throw Error("A different settlement was already selected.");return row;}
- const account=await ctx.db.get(row.accountId),email=row.emailDeliveryId?await ctx.db.get(row.emailDeliveryId):null;
+ const account=await ctx.db.get(row.accountId),creditAllowed=operatorCancellationCreditAllowed(account,row);
+ if(row.choice){
+  if(row.choice===a.choice&&!(row.choice==="credit"&&!creditAllowed))return row;
+  if(row.choice==="credit"&&!creditAllowed&&a.choice==="refund"){
+   const booking=await ctx.db.get(row.bookingId),recovery=await ctx.db.query("rental_cancellations").withIndex("by_booking",q=>q.eq("bookingId",row.bookingId)).unique();
+   if(booking?.cancellationDecision?.quote||recovery)throw Error("The settlement already started and needs team review.");
+   await ctx.db.patch(row._id,{state:"chosen",choice:"refund",choiceAt:now,dueAt:now,leaseUntil:0,updatedAt:now});return ctx.db.get(row._id);
+  }
+  if(row.choice!==a.choice)throw Error("A different settlement was already selected.");
+  throw Error("Account credit is no longer available. The original-payment refund is the only choice.");
+ }
+ const email=row.emailDeliveryId?await ctx.db.get(row.emailDeliveryId):null;
  if(!account||account.email!==row.recipientEmail||email?.state!=="sent"||!["email_pending","offered"].includes(row.state)||now>=(row.choiceDeadline??0))throw Error("This choice is not currently available. Contact the team.");
- if(a.choice==="credit"&&account.blockedAt!=null)throw Error("Only the original-payment refund is available for this account.");
+ if(a.choice==="credit"&&!creditAllowed)throw Error("Only the original-payment refund is available for this account.");
  await ctx.db.patch(row._id,{state:"chosen",choice:a.choice,choiceAt:now,dueAt:now,leaseUntil:0,updatedAt:now});return ctx.db.get(row._id);
 }});
 export const finishAttempt=internalMutation({args:{offerId:v.id("operator_cancellation_offers"),generation:v.number(),complete:v.boolean(),review:v.optional(v.boolean())},handler:async(ctx,a)=>{

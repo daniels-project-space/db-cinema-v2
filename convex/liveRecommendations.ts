@@ -2,18 +2,21 @@ import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { stockRequest } from "./lib/stockRequest";
 import { assertRentalInventory, type RentalInventoryCache } from "./lib/rentalInventory";
+import { hasFreshSharedStock } from "./lib/shared_stock_sync";
 import { rentalUnavailable } from "./lib/marketingInventory";
 import { listingImages } from "./lib/catalogImages";
 import { quote } from "./lib/pricing";
 import { verifiedKitEvidence } from "./lib/compatibilityEvidence";
 import { effectiveLensSpecs } from "../shared/opticalFacts";
-import { recommendationCompatible, rentableCandidate } from "../shared/recommendationPolicy";
+import { alreadySupplied, recommendationCompatible, rentableCandidate } from "../shared/recommendationPolicy";
 import { lensPriority } from "../shared/recommendationRanking";
 import { bundleContentSimilarity } from "../shared/verifiedRentalCopy";
 import { RENTAL_TIME_SLOTS } from "../shared/rentalWindow";
 import { rentalPricingDays } from "../shared/rentalDuration";
 import { createPublicListingCopy } from "./lib/publicListingCopy";
 import { parseMounts } from "./lib/mount";
+import { deriveItemType } from "./lib/taxonomy";
+import { CHECKOUT_ACCESSORY_OFFER, CHECKOUT_ACCESSORY_OFFER_LIMIT, checkoutAccessoryCompatible, checkoutAccessoryPercent, checkoutAccessoryTotals, isCheckoutAccessory } from "../shared/checkoutAccessoryOffer";
 
 const group = v.object({ key: v.string(), types: v.optional(v.array(v.string())), listingId: v.optional(v.id("listings")),
   start: v.optional(v.number()), end: v.optional(v.number()), pickupTime: v.optional(v.string()), returnTime: v.optional(v.string()),
@@ -35,6 +38,7 @@ export const options = query({
   args: { groups:v.array(group), basket:v.array(stockRequest), selectedIds:v.optional(v.array(v.id("listings"))), refresh:v.optional(v.number()) },
   handler:async(ctx,{groups,basket,selectedIds=[]})=>{
     if(groups.length>16||basket.length+selectedIds.length>100||new Set(groups.map(g=>g.key)).size!==groups.length)throw Error("Too many recommendation choices");
+    const stockFresh = await hasFreshSharedStock(ctx);
     const records=new Map<string,any>();
     for(const id of new Set([...basket.map(i=>String(i.listingId)),...selectedIds.map(String),...groups.flatMap(g=>g.listingId?[String(g.listingId)]:[])]))records.set(id,await ctx.db.get(id as any));
     const decoratePublic=createPublicListingCopy(ctx),displayById=new Map<string,any>();
@@ -78,7 +82,7 @@ export const options = query({
         const chosen=selectedFor(l),context=[...contextBasket,...chosen];
         let available:boolean|null=null;
         if(rentalUnavailable(l)||!rentableCandidate(l))available=false;
-        else if(ready){
+        else if(ready&&stockFresh){
           const units=new Set((l.components??[]).map((c:any)=>String(c.inventoryUnitId)));
           const retained=retainedBasket.filter(line=>records.get(String(line.listingId))?.components?.some((c:any)=>units.has(String(c.inventoryUnitId))));
           const other=chosen.filter(r=>(r.components??[]).some((c:any)=>units.has(String(c.inventoryUnitId)))).map(r=>({listingId:r._id,start:g.start!,end:g.end!,pickupTime:g.pickupTime,returnTime:g.returnTime,qty:1}));
@@ -86,7 +90,7 @@ export const options = query({
         }
         const price=quote(l.pricing,days),total=price.total;
         const requestCompatible=recommendationCompatible(l,context,evidence);
-        options.push({...describe(publicListing),available,needsTimes:!ready,requestCompatible,automaticEligible:!rentalUnavailable(l)&&rentableCandidate(l)&&requestCompatible,
+        options.push({...describe(publicListing),available,availabilityStatus:stockFresh?"checked":"refresh_required",needsTimes:!ready,requestCompatible,automaticEligible:!rentalUnavailable(l)&&rentableCandidate(l)&&requestCompatible,
           start:g.start===undefined?null:new Date(g.start).toISOString().slice(0,10),end:g.end===undefined?null:new Date(g.end).toISOString().slice(0,10),
           pickupTime:g.pickupTime??null,returnTime:g.returnTime??null,days,perDay:Math.round(total/days*100)/100,total,deposit:l.depositAmount??0});
       }
@@ -95,13 +99,99 @@ export const options = query({
     }
     let selectionOk:boolean|null=selection.length===0?true:null;
     const window=groups.find(validWindow);
-    if(window&&selection.length){try{await assertRentalInventory(ctx,[...basket.map(line=>({...line,qty:line.qty??1})),...selection.map(l=>({listingId:l._id,start:window.start!,end:window.end!,pickupTime:window.pickupTime,returnTime:window.returnTime,qty:1}))],undefined,cache);selectionOk=true;}catch{selectionOk=false;}}
+    if(window&&selection.length&&stockFresh){try{await assertRentalInventory(ctx,[...basket.map(line=>({...line,qty:line.qty??1})),...selection.map(l=>({listingId:l._id,start:window.start!,end:window.end!,pickupTime:window.pickupTime,returnTime:window.returnTime,qty:1}))],undefined,cache);selectionOk=true;}catch{selectionOk=false;}}
     // Wall-clock expiry alone does not invalidate a reactive query. Tell the
     // visible client exactly when an expiring hold needs a fresh evaluation.
     let nextRefreshAt=Date.now()+5*60000;
     for(const rows of cache.reservations.values())for(const row of rows)if(row.status==="hold"&&row.holdExpiresAt>Date.now())nextRefreshAt=Math.min(nextRefreshAt,row.holdExpiresAt+50);
     const stockState=await ctx.db.query("rmv2_sync_state").withIndex("by_key",q=>q.eq("key","shared-stock-v1")).first();
     try{const checkedAt=JSON.parse(stockState?.cursor??"null")?.checkedAt,precise=cache.precision?await cache.precision:false;if(Number.isSafeInteger(checkedAt)&&(checkedAt+5*60000>Date.now()||precise))nextRefreshAt=Math.min(nextRefreshAt,checkedAt+5*60000+50);}catch{}
-    return {groups:result,basket:basketRecords.map(l=>describe(displayById.get(String(l._id))??l)),selected:selection.map(l=>describe(displayById.get(String(l._id))??l)),compatibilityKits:evidence,selectionOk,nextRefreshAt};
+    return {groups:result,basket:basketRecords.map(l=>describe(displayById.get(String(l._id))??l)),selected:selection.map(l=>describe(displayById.get(String(l._id))??l)),compatibilityKits:evidence,selectionOk,stockStatus:stockFresh?"fresh":"refresh_required",nextRefreshAt};
+  },
+});
+
+const checkoutAccessoryLine = v.object({
+  listingId: v.id("listings"), start: v.number(), end: v.number(),
+  pickupTime: v.optional(v.string()), returnTime: v.optional(v.string()),
+  offerType: v.optional(v.string()),
+});
+const CHECKOUT_ACCESSORY_CATALOG_LIMIT = 500;
+
+/** The checkout accessory shelf only returns fresh, physically available matches.
+ * It is advisory; checkout recalculates the ladder and rechecks inventory before payment. */
+export const checkoutAccessoryOffers = query({
+  args: { items: v.array(checkoutAccessoryLine) },
+  handler: async (ctx, { items }) => {
+    if (!items.length || items.length > 100) throw Error("Refresh your basket before viewing accessory offers.");
+    const offerCount = items.filter(item => item.offerType === CHECKOUT_ACCESSORY_OFFER).length;
+    if (offerCount > CHECKOUT_ACCESSORY_OFFER_LIMIT) throw Error("Choose up to three checkout accessories.");
+    const validWindow = (item: typeof items[number]) => Number.isSafeInteger(item.start) && Number.isSafeInteger(item.end) &&
+      item.start % DAY === 0 && item.end % DAY === 0 && item.end >= item.start && item.end - item.start <= 365 * DAY &&
+      RENTAL_TIME_SLOTS.includes(item.pickupTime as any) && RENTAL_TIME_SLOTS.includes(item.returnTime as any) &&
+      (item.start !== item.end || item.returnTime! > item.pickupTime!);
+    if (items.some(item => !validWindow(item))) return { offers: [], status: "times_needed" as const, percent: null };
+
+    const stockFresh = await hasFreshSharedStock(ctx);
+    if (!stockFresh) return { offers: [], status: "refresh_required" as const, percent: null };
+
+    const records = new Map<string, any>();
+    for (const item of items) records.set(String(item.listingId), await ctx.db.get(item.listingId));
+    const listingFor = (item: typeof items[number]) => {
+      const row = records.get(String(item.listingId));
+      if (!row || !row.active) throw Error("A basket item is no longer available. Refresh your basket.");
+      return { ...row, itemType: row.itemType ?? deriveItemType(row.title), catalogItemType: row.itemType ?? null, _id: String(row._id), listingId: String(row._id) };
+    };
+    const baseLines = items.flatMap((item, index) => item.offerType === CHECKOUT_ACCESSORY_OFFER ? [] : [{ item, listing: listingFor(item) }]);
+    const baseSubtotal = baseLines.reduce((sum, line) => {
+      const days = rentalPricingDays(line.item.start, line.item.end, line.item.pickupTime, line.item.returnTime);
+      return sum + quote(line.listing.pricing, days).total;
+    }, 0);
+    const percent = checkoutAccessoryPercent(baseSubtotal);
+    if (percent === null || !baseLines.length || offerCount >= CHECKOUT_ACCESSORY_OFFER_LIMIT)
+      return { offers: [], status: "not_eligible" as const, percent };
+
+    const evidence = await verifiedKitEvidence(ctx);
+    const base = baseLines.map(line => line.listing);
+    const usedIds = new Set(items.map(item => String(item.listingId)));
+    const candidateRows = await ctx.db.query("listings").withIndex("by_active", q => q.eq("active", true)).take(CHECKOUT_ACCESSORY_CATALOG_LIMIT + 1);
+    if (candidateRows.length > CHECKOUT_ACCESSORY_CATALOG_LIMIT)
+      return { offers: [], status: "refresh_required" as const, percent: null };
+    const candidates = candidateRows.flatMap(row => {
+      const listing = { ...row, itemType: row.itemType ?? deriveItemType(row.title), catalogItemType: row.itemType ?? null, _id: String(row._id), listingId: String(row._id) };
+      if (!isCheckoutAccessory(listing) || usedIds.has(String(row._id)) || rentalUnavailable(row) || !rentableCandidate(listing) ||
+          !listingImages(row).length || !checkoutAccessoryCompatible(listing, base, evidence) || alreadySupplied(listing, base)) return [];
+      const matching = baseLines.find(line => checkoutAccessoryCompatible(listing, [line.listing], evidence));
+      if (!matching) return [];
+      const days = rentalPricingDays(matching.item.start, matching.item.end, matching.item.pickupTime, matching.item.returnTime);
+      if (days < (row.minimumRentalDays ?? 1)) return [];
+      const total = quote(row.pricing, days).total;
+      return [{ row, listing, matching, days, total }];
+    }).sort((left, right) => (right.row.demandScore ?? 0) - (left.row.demandScore ?? 0) || left.total - right.total || String(left.row._id).localeCompare(String(right.row._id)));
+
+    const cache: RentalInventoryCache = { records: new Map(records), reservations: new Map() };
+    const selected = items.map(item => ({ listingId: item.listingId, start: item.start, end: item.end, pickupTime: item.pickupTime, returnTime: item.returnTime, qty: 1 }));
+    const offers: any[] = [];
+    for (const candidate of candidates) {
+      if (offers.length >= CHECKOUT_ACCESSORY_OFFER_LIMIT - offerCount) break;
+      cache.records.set(String(candidate.row._id), candidate.row);
+      try {
+        await assertRentalInventory(ctx, [...selected, { listingId: candidate.row._id, start: candidate.matching.item.start,
+          end: candidate.matching.item.end, pickupTime: candidate.matching.item.pickupTime,
+          returnTime: candidate.matching.item.returnTime, qty: 1 }], undefined, cache);
+      } catch { continue; }
+      const images = listingImages(candidate.row);
+      const discounted = checkoutAccessoryTotals(candidate.total, percent);
+      offers.push({ listingId: candidate.row._id, slug: candidate.row.slug, title: candidate.row.title,
+        itemType: candidate.listing.itemType, heroImage: images[0], imageSources: images,
+        start: new Date(candidate.matching.item.start).toISOString().slice(0, 10),
+        end: new Date(candidate.matching.item.end).toISOString().slice(0, 10),
+        pickupTime: candidate.matching.item.pickupTime, returnTime: candidate.matching.item.returnTime,
+        days: candidate.days, perDay: Math.round(discounted.total / candidate.days * 100) / 100,
+        originalTotal: candidate.total, total: discounted.total, saving: discounted.saving, percent,
+        deposit: candidate.row.depositAmount ?? 0,
+        availabilityStatus: "checked" as const });
+      usedIds.add(String(candidate.row._id));
+    }
+    return { offers, status: "ready" as const, percent };
   },
 });

@@ -68,10 +68,10 @@ class StripeFixture {
   };
 }
 setMock("stripe", { default: StripeFixture });
-setMock("./lib/mailer", {
-  sendMail: async (a) => {
+setMock("./mailer", {
+  sendBusinessMailTracked: async (a) => {
     events.push(["email", a]);
-    return true;
+    return { sent: true, resendEmailId: `re_fixture_${events.filter((event) => event[0] === "email").length}` };
   },
 });
 setMock("./lib/rmv2SyncQueue", { queueRmv2Sync: async () => {} });
@@ -96,15 +96,31 @@ const ctx = {
   db,
   scheduler,
   runQuery: async (ref, a) =>
-    ref === "accounts.me"
+    ref === "accounts._byToken"
       ? { _id: "acct", email: "renter@example.invalid" }
       : { pickupSecurity: security, holdRenewal: holds, checkout }[
           ref.split(".")[0]
         ][ref.split(".")[1]].handler(ctx, a),
   runMutation: async (ref, a) => {
     if (ref === "pickupSecurity.result" && onResult) await onResult(a);
+    if (ref === "emailInbox.prepareRentalContextEmail") {
+      events.push(["email_prepare", a]);
+      return {
+        ok: true,
+        state: "claimed",
+        providerId: `rental-context:${a.deliveryKey}`,
+        replyTo: "rental-reply@example.invalid",
+      };
+    }
+    if (ref === "emailInbox.finishRentalContextEmail") {
+      events.push(["email_finish", a]);
+      return true;
+    }
     const result = await ({ pickupSecurity: security })[ref.split(".")[0]][ref.split(".")[1]].handler(ctx, a);
-    const snapshot = structuredClone(result);
+    const normalized = ref === "pickupSecurity.claim" && result
+      ? { ...result, securityHoldAttempts: (await db.get(a.bookingId)).securityHoldAttempts }
+      : result;
+    const snapshot = structuredClone(normalized);
     if (ref === "pickupSecurity.claim" && onClaim) await onClaim();
     return snapshot;
   },
@@ -330,6 +346,15 @@ async function due(b) {
   await save(b);
   await due(b);
   assert.equal(b.depositHoldStatus, "requires_action");
+  const successfulNotice = events.filter((event) => event[0] === "email");
+  assert.equal(successfulNotice.length, 1, "Bank authentication requirement sends one customer notice");
+  assert.equal(successfulNotice[0][1].to, "renter@example.invalid");
+  assert.equal(successfulNotice[0][1].subject, "Your rental card hold needs attention");
+  assert.equal(successfulNotice[0][1].deliveryKey, `rental-context:rental-hold:pickup:${b._id}:${b.securityHoldGeneration}`);
+  assert.match(successfulNotice[0][1].html, /needs bank authentication/);
+  assert.equal(successfulNotice[0][1].replyTo, "rental-reply@example.invalid");
+  assert.equal(events.filter((event) => event[0] === "email_prepare").length, 1);
+  assert.equal(events.filter((event) => event[0] === "email_finish").length, 1);
   const resumed = await holds.resumePickup.handler(ctx, {
     token: "valid",
     bookingId: b._id,
@@ -400,6 +425,7 @@ async function due(b) {
   await save(b);
   await due(b);
   assert.equal(b.depositHoldStatus, "processing");
+  assert.equal(events.filter((event) => event[0] === "email").length, 0, "Transient attempt remains quiet while retry is available");
   assert(b.securityHoldRetryAt > clock);
   const keys = [];
   for (let n = 0; n < 2; n++) {
@@ -408,6 +434,8 @@ async function due(b) {
       bookingId: b._id,
       generation: b.securityHoldGeneration,
     });
+    assert.equal(events.filter((event) => event[0] === "email").length, n === 0 ? 0 : 1,
+      n === 0 ? "Second transient attempt remains eligible for retry without a premature notice" : "Final exhausted attempt notifies the renter");
   }
   assert.equal(b.securityHoldAttempts, 3);
   assert.equal(b.depositHoldStatus, "failed");
@@ -419,10 +447,15 @@ async function due(b) {
     1,
     "Uncertain provider retries reuse same intent key",
   );
-  assert(
-    events.some((e) => e[0] === "email"),
-    "Exhausted transient attempts notify customer",
-  );
+  const exhaustedNotices = events.filter((event) => event[0] === "email");
+  assert.equal(exhaustedNotices.length, 1, "Exhausted transient attempts send exactly one customer notice");
+  assert.equal(exhaustedNotices[0][1].to, "renter@example.invalid");
+  assert.equal(exhaustedNotices[0][1].deliveryKey, `rental-context:rental-hold:pickup:${b._id}:${b.securityHoldGeneration}`);
+  assert.match(exhaustedNotices[0][1].html, /could not be completed/);
+  assert.equal(events.filter((event) => event[0] === "email_prepare").length, 1,
+    "Exhaustion is recorded once in the shared rental email outbox");
+  assert.equal(events.filter((event) => event[0] === "email_finish").length, 1,
+    "Exhaustion delivery result is recorded once");
   events=[];
   await assert.rejects(holds.updatePickupCard.handler(ctx,{token:"valid",bookingId:b._id}), /outcome is still unknown/, "Exhausted uncertain requests cannot be replaced by fresh-generation holds");
   assert(!events.some(e=>e[0]==="setup"));
@@ -439,10 +472,10 @@ async function due(b) {
 
   error = null;
   methods.set("pm_card", { id: "pm_card", type: "card", customer: "cus_test" });
-  intents.set("pi_paid", { status: "succeeded", payment_method: "pm_card" });
-  setups.set("seti", { status: "succeeded", payment_method: "pm_card" });
-  subscriptions.set("sub_paid", { default_payment_method: "pm_card" });
-  subscriptions.set("sub_trial", { pending_setup_intent: "seti" });
+  intents.set("pi_paid", { status: "succeeded", customer:"cus_test", setup_future_usage:"off_session", payment_method: "pm_card" });
+  setups.set("seti", { status: "succeeded", customer:"cus_test", usage:"off_session", payment_method: "pm_card" });
+  subscriptions.set("sub_paid", { customer:"cus_test", default_payment_method: "pm_card" });
+  subscriptions.set("sub_trial", { customer:"cus_test", pending_setup_intent: "seti" });
   for (const s of [
     { payment_intent: "pi_paid" },
     { setup_intent: "seti" },

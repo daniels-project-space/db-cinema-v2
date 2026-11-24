@@ -27,11 +27,13 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
     for (let attempt = 0; attempt < 100 && !await client.evaluate('!!document.querySelector("[data-testid=admin-rental-case]")'); attempt++) await wait(100);
     await client.evaluate('document.querySelector("summary").click()'); await wait(50);
     const openingScreenshot = await client.cmd("Page.captureScreenshot", { format: "png" }); fs.writeFileSync("/tmp/dbc-rental-case-opening-320.png", Buffer.from(openingScreenshot.data, "base64"));
-    assert.match(await client.evaluate('document.querySelector("[data-testid=admin-rental-case]").textContent'), /does not submit a claim to an insurer or charge the customer/i);
+    assert.match(await client.evaluate('document.querySelector("[data-testid=admin-rental-case]").textContent'), /internal record only · insurer not contacted/i);
     await client.evaluate(`(()=>{const select=document.querySelector('[aria-label="Affected case item"]');select.value='unit:0';select.dispatchEvent(new Event('change',{bubbles:true}));const input=document.querySelector('[aria-label="Case issue and evidence"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'Damaged mount photographed on return.');input.dispatchEvent(new Event('input',{bubbles:true}));})()`); await wait(50);
+    await client.evaluate(`(()=>{const select=document.querySelector('[aria-label="Case type"]');select.value='insurance_follow_up';select.dispatchEvent(new Event('change',{bubbles:true}));})()`); await wait(50);
+    assert.match(await client.evaluate('document.querySelector("[data-testid=admin-rental-case]").textContent'), /Internal preparation only\. This does not file a claim or confirm cover/);
     await client.evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent==='Review case').click()`); await wait(50);
     assert.equal(await client.evaluate("window.calls.length"), 0, "review does not create a case");
-    assert.match(await client.evaluate(`document.querySelector('[aria-label="Review internal case"]').textContent`), /Camera body.*Damaged mount photographed on return/s, 'Confirmation shows the selected item and exact issue');
+    assert.match(await client.evaluate(`document.querySelector('[aria-label="Review internal case"]').textContent`), /Insurance follow-up.*Camera body.*Damaged mount photographed on return/s, 'Confirmation shows the selected item and exact issue');
     assert.equal(await client.evaluate(`(()=>{const section=document.querySelector('[aria-label="Review internal case"]');return [...section.querySelectorAll('button')].every(button=>button.getBoundingClientRect().height>=44)})()`),true,'Review controls are touch-sized');
     await client.evaluate(`document.querySelector('[aria-label="Review internal case"]').scrollIntoView({block:'center',behavior:'instant'})`); await wait(50);
     const screenshot = await client.cmd("Page.captureScreenshot", { format: "png" }); fs.writeFileSync("/tmp/dbc-rental-case-320.png", Buffer.from(screenshot.data, "base64"));
@@ -41,8 +43,8 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
     await client.evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent==='Review case').click()`); await wait(50);
     await client.evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent==='Confirm internal case').click()`); await wait(80);
     const call = await client.evaluate("window.calls[0]");
-    assert.equal(call.token, "fixture-admin"); assert.equal(call.bookingId, "fixture-rental"); assert.equal(call.itemKey, "unit:0"); assert.equal(call.details, "Damaged mount photographed on return."); assert.equal(call.confirmed, true); assert.match(call.requestId, /^[a-f0-9-]{36}$/);
-    assert.match(await client.evaluate('document.querySelector("[role=status]").textContent'), /Internal case opened/);
+    assert.equal(call.token, "fixture-admin"); assert.equal(call.bookingId, "fixture-rental"); assert.equal(call.itemKey, "unit:0"); assert.equal(call.caseType, "insurance_follow_up"); assert.equal(call.details, "Damaged mount photographed on return."); assert.equal(call.confirmed, true); assert.match(call.requestId, /^[a-f0-9-]{36}$/);
+    assert.match(await client.evaluate('document.querySelector("[role=status]").textContent'), /Insurance follow-up opened/);
     await client.evaluate(`[...document.querySelectorAll('summary')].find(element=>element.textContent.includes('Return inspection')).click();[...document.querySelectorAll('button')].find(button=>button.textContent==='Resolve case').click()`);await wait(50);
     assert.match(await client.evaluate(`document.querySelector('details:not([data-testid])').textContent`),/Case ID: existing-case/,'The case history identifies the exact case for investigation');assert.match(await client.evaluate(`document.querySelector('details:not([data-testid])').textContent`),/Opened: Missing or invalid/,'Missing legacy dates are not presented as a real timestamp');
     await client.evaluate(`(()=>{const input=document.querySelector('textarea:not([aria-label])');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'Resolved after insurance review');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);await wait(50);

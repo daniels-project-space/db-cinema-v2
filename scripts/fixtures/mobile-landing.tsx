@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { HeroCinematic } from "../../src/components/HeroCinematic";
 import { HyggloReviewRows, type VerifiedHyggloHighlight } from "../../src/components/HyggloReviewShowcase";
+import { ViewfinderHUD } from "../../src/components/ViewfinderHUD";
 
 const categories = [
   { name: "Cameras", count: 3 },
@@ -28,9 +29,10 @@ createRoot(document.getElementById("root")!).render(
   <>
     <section
       data-testid="mobile-landing-hero"
-      className="section-window relative isolate min-h-[clamp(28rem,72svh,44rem)] overflow-hidden"
+      className="section-window relative isolate min-h-[clamp(24rem,68svh,38rem)] overflow-hidden sm:min-h-[54svh] lg:min-h-[calc(100vh-93px)]"
     >
-      <HeroCinematic categories={categories} />
+      <HeroCinematic categories={categories} rating={{ ratingValue: 4.73, reviewCountLabel: "1,300+" }} />
+      <ViewfinderHUD />
     </section>
     <main data-testid="mobile-next-section" className="px-4 py-8">
       <HyggloReviewRows reviews={new URLSearchParams(window.location.search).has("many") ? manyReviews : [sampleReview]} />

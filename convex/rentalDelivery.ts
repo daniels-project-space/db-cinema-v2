@@ -2,12 +2,14 @@ import Stripe from "stripe";
 import { action, internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
-import { deliveryAmountPence, deliveryDiscountPence, deliveryQuoteTerms, deliveryQuoteTermsVersion, rentalDeliveryBookingFingerprint } from "../shared/rentalDeliveryQuote";
+import { deliveryAmountPence, deliveryQuoteTerms, deliveryQuoteTermsVersion, rentalDeliveryBookingFingerprint } from "../shared/rentalDeliveryQuote";
 import { DELIVERY_ACCEPTANCE_TEXT, DELIVERY_TERMS_VERSION } from "../shared/rentalAgreement";
 import { groupDeliveryItems } from "../shared/deliveryGroups";
+import { membershipDeliveryBenefit } from "../shared/rentalBenefits";
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { tierByKey } from "./lib/membership";
 import { londonMonth } from "./lib/memberDelivery";
+import { renterHandoverDetailsReady } from "./lib/renterRentalActionGate";
 
 function stripe() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -32,8 +34,10 @@ export const createQuote = action({
     const booking = context?.booking;
     const account = context?.account;
     if (!booking || !account || account.blockedAt != null) throw Error("A valid renter account and rental conversation are required.");
-    if (booking.status !== "confirmed" || booking.idVerifyStatus !== "verified" || booking.fulfilment !== "pickup" || booking.deliveryLegs || booking.cancellationDecision || booking.returnDecision || booking.activeAdditionId || booking.activeDeliveryQuoteId || booking.activeExtensionId || booking.activePriceAdjustmentId)
-      throw Error("Only a verified, confirmed rental with pickup selected can receive a delivery quote.");
+    if (context.deliveryRequest && (context.deliveryRequest.status !== "approved" || context.deliveryRequest.requestedDeliveryLegs !== args.deliveryLegs))
+      throw Error("Review the renter’s latest delivery request and quote its approved delivery type before sending a price.");
+    if (!renterHandoverDetailsReady(booking) || booking.status !== "confirmed" || booking.fulfilment !== "pickup" || booking.deliveryLegs || booking.cancellationDecision || booking.returnDecision || booking.activeAdditionId || booking.activeDeliveryQuoteId || booking.activeExtensionId || booking.activePriceAdjustmentId || booking.activeItemSwapId)
+      throw Error("Only a paid, verified, confirmed rental with pickup selected can receive a delivery quote.");
     const deliveryAddress = args.deliveryAddress.trim();
     if (deliveryAddress.length < 10 || deliveryAddress.length > 300) throw Error("Enter the delivery address the renter gave you.");
     const postcode = postcodeFromAddress(deliveryAddress);
@@ -53,8 +57,8 @@ export const createQuote = action({
     const isStudioBenefit = activeTier?.key === "studio" && quote.isLondon && baseAmountPence > 0
       ? await ctx.runQuery(internal.membershipBenefits.deliveryAvailable, { accountId: account._id, month: benefitMonth, prospective: false })
       : false;
-    const discountPct = isStudioBenefit ? 100 : activeTier?.deliveryPct ?? 0;
-    const discountPence = deliveryDiscountPence(baseAmountPence, discountPct);
+    const deliveryBenefit = membershipDeliveryBenefit(account, baseAmountPence, isStudioBenefit);
+    const discountPence = deliveryBenefit.discountPence;
     const termsText = deliveryQuoteTerms(DELIVERY_ACCEPTANCE_TEXT, args.deliveryLegs);
     const row: any = await ctx.runMutation(internal.rentalDeliveryState.prepareQuote, {
       token: args.token,
@@ -66,7 +70,7 @@ export const createQuote = action({
       baseAmountPence,
       discountPence,
       amountPence: baseAmountPence - discountPence,
-      membershipTier: activeTier?.key,
+      membershipTier: deliveryBenefit.membershipTier,
       benefitMonth: isStudioBenefit ? benefitMonth : undefined,
       isStudioBenefit: !!isStudioBenefit,
       termsVersion: deliveryQuoteTermsVersion(DELIVERY_TERMS_VERSION),
@@ -78,18 +82,21 @@ export const createQuote = action({
 });
 
 export const accept = action({
-  args: { token: v.string(), id: v.id("rental_delivery_quotes"), accepted: v.boolean() },
+  args: { token: v.string(), id: v.id("rental_delivery_quotes"), accepted: v.boolean(), useAccountCredit: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const quote: any = await ctx.runMutation(internal.rentalDeliveryState.accept, args);
-    if (quote.amountPence === 0) return { url: null, free: true, paid: true, amountPence: 0 };
+    if ((quote.cardDuePence ?? quote.amountPence) === 0) return { url: null, free: quote.amountPence === 0, paid: true, amountPence: quote.amountPence, cardDuePence: 0, creditAppliedPence: quote.creditAppliedPence ?? 0 };
     if (quote.checkoutSessionId && quote.paymentUrl) {
       const existing = await stripe().checkout.sessions.retrieve(quote.checkoutSessionId);
-      if (existing.status === "open" && existing.url) return { url: existing.url, free: false, paid: false, amountPence: quote.amountPence };
+      if (existing.status === "open" && existing.url) return { url: existing.url, free: false, paid: false, amountPence: quote.amountPence, cardDuePence: quote.cardDuePence ?? quote.amountPence };
       if (existing.status === "complete" && existing.payment_status === "paid") {
         await ctx.runAction((internal as any).rentalDelivery.finalizePaid, { id: quote._id, sessionId: existing.id });
-        return { url: null, free: false, paid: true, amountPence: quote.amountPence };
+        return { url: null, free: false, paid: true, amountPence: quote.amountPence, cardDuePence: quote.cardDuePence ?? quote.amountPence };
       }
-      if (existing.status === "expired" || existing.status === "complete") {
+      if (existing.status === "complete") {
+        return { url: null, free: false, paid: false, processing: true, amountPence: quote.amountPence, cardDuePence: quote.cardDuePence ?? quote.amountPence };
+      }
+      if (existing.status === "expired") {
         await ctx.runMutation(internal.rentalDeliveryState.expire, { id: quote._id, sessionId: existing.id });
         throw Error("This payment link has expired. Ask the rental team for a fresh delivery quote.");
       }
@@ -102,9 +109,9 @@ export const accept = action({
     await client.paymentMethodConfigurations.retrieve(configurationId);
     const appUrl = process.env.APP_URL;
     if (!appUrl) throw Error("The rental payment return address is unavailable.");
-    const amount = context.quote.amountPence;
+    const amount = context.quote.cardDuePence ?? context.quote.amountPence;
     const legLabel = context.quote.deliveryLegs === "one_way" ? "One-way equipment delivery" : "Equipment delivery and collection";
-    const meta = { rentalDeliveryQuoteId: String(context.quote._id), bookingId: String(context.booking._id), purpose: "rental_delivery" };
+    const meta = { rentalDeliveryQuoteId: String(context.quote._id), bookingId: String(context.booking._id), purpose: "rental_delivery", cardDuePence: String(amount), creditAppliedPence: String(context.quote.creditAppliedPence ?? 0) };
     const expiresAt = Math.floor(Date.now() / 1000) + 31 * 60;
     const proposedParams: Stripe.Checkout.SessionCreateParams = {
       mode: "payment",
@@ -128,7 +135,15 @@ export const accept = action({
       await ctx.runAction((internal as any).rentalDelivery.finalizePaid, { id: context.quote._id, sessionId: session.id });
       return { url: null, free: false, paid: true, amountPence: amount };
     }
-    return { url: bound.paymentUrl, free: false, paid: false, amountPence: amount };
+    return { url: bound.paymentUrl, free: false, paid: false, amountPence: context.quote.amountPence, cardDuePence: amount };
+  },
+});
+
+export const decline = action({
+  args: { token: v.string(), id: v.id("rental_delivery_quotes") },
+  handler: async (ctx, args) => {
+    await ctx.runMutation(internal.rentalDeliveryState.decline, args);
+    return { ok: true };
   },
 });
 
@@ -138,9 +153,13 @@ export const finalizePaid = internalAction({
     const context: any = await ctx.runQuery(internal.rentalDeliveryState.quoteContext, { id });
     if (!context?.quote || context.quote.checkoutSessionId !== sessionId || !context.quote.acceptedAt) throw Error("The delivery payment does not match its accepted quote.");
     const session = await stripe().checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] });
-    if (session.status !== "complete" || session.payment_status !== "paid" || session.amount_total !== context.quote.amountPence || session.metadata?.rentalDeliveryQuoteId !== String(id) || session.metadata?.bookingId !== String(context.quote.bookingId)) throw Error("Stripe has not confirmed the full delivery payment.");
+    const cardDuePence=context.quote.cardDuePence??context.quote.amountPence;
+    if (session.status !== "complete" || session.payment_status !== "paid" || session.amount_total !== cardDuePence || session.metadata?.rentalDeliveryQuoteId !== String(id) || session.metadata?.bookingId !== String(context.quote.bookingId) || context.quote.creditOptIn&&(session.metadata?.cardDuePence!==String(cardDuePence)||session.metadata?.creditAppliedPence!==String(context.quote.creditAppliedPence??0))) throw Error("Stripe has not confirmed the accepted delivery card balance.");
     const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
-    return await ctx.runMutation(internal.rentalDeliveryState.markPaid, { id, sessionId, paymentIntentId, amountPence: context.quote.amountPence });
+    if(!paymentIntentId)throw Error("The delivery payment has no confirmed card transaction.");
+    const intent=await stripe().paymentIntents.retrieve(paymentIntentId);
+    if(intent.status!=="succeeded"||intent.amount_received!==cardDuePence||intent.currency!=="gbp"||intent.metadata.rentalDeliveryQuoteId!==String(id)||intent.metadata.bookingId!==String(context.quote.bookingId)||context.quote.creditOptIn&&(intent.metadata.cardDuePence!==String(cardDuePence)||intent.metadata.creditAppliedPence!==String(context.quote.creditAppliedPence??0)))throw Error("Stripe's card payment does not match the accepted delivery balance.");
+    return await ctx.runMutation(internal.rentalDeliveryState.markPaid, { id, sessionId, paymentIntentId, amountPence: cardDuePence });
   },
 });
 
@@ -152,6 +171,46 @@ export const markFailed = internalAction({
 export const expire = internalAction({
   args: { id: v.id("rental_delivery_quotes"), sessionId: v.optional(v.string()) },
   handler: async (ctx, args): Promise<boolean> => await ctx.runMutation(internal.rentalDeliveryState.expire, args),
+});
+
+async function recoverQuotePaymentWithEvidence(ctx: any, id: any): Promise<{ status: string }> {
+    const context: any = await ctx.runQuery(internal.rentalDeliveryState.quoteContext, { id });
+    const quote = context?.quote;
+    if (!quote || !quote.acceptedAt || !quote.checkoutParams || !quote.checkoutExpiresAt) throw Error("This delivery payment has no recoverable checkout.");
+    if (quote.status === "paid") return { status: "paid" };
+    if (quote.status === "expired") return { status: "expired" };
+    if (!["creating_checkout", "checkout_open"].includes(quote.status)) throw Error("This delivery payment is closed.");
+    const client = stripe();
+    let sessionId = quote.checkoutSessionId;
+    if (!sessionId) {
+      const matches: string[] = [];
+      const result = await client.checkout.sessions.list({ created: { gte: Math.floor((quote.acceptedAt - 5000) / 1000), lte: Math.floor(quote.checkoutExpiresAt / 1000) }, limit: 100 });
+      for (const entry of result.data) if (entry.metadata?.rentalDeliveryQuoteId === String(id)) matches.push(entry.id);
+      if (result.has_more || matches.length !== 1) return { status: "needs_review" };
+      sessionId = matches[0];
+    }
+    let session = await client.checkout.sessions.retrieve(sessionId);
+    const cardDuePence = quote.cardDuePence ?? quote.amountPence;
+    if (session.id !== sessionId || session.mode !== "payment" || session.currency !== "gbp" || session.amount_total !== cardDuePence || session.metadata?.rentalDeliveryQuoteId !== String(id) || session.metadata?.bookingId !== String(quote.bookingId) || session.metadata?.purpose !== "rental_delivery" || session.metadata?.cardDuePence !== String(cardDuePence) || session.metadata?.creditAppliedPence !== String(quote.creditAppliedPence ?? 0)) return { status: "needs_review" };
+    await ctx.runMutation(internal.rentalDeliveryState.bindRecoveredSession, { id, sessionId });
+    if (session.status === "complete" && session.payment_status === "paid") {
+      await ctx.runAction((internal as any).rentalDelivery.finalizePaid, { id, sessionId });
+      return { status: "paid" };
+    }
+    if (session.status === "open" && (quote.checkoutExpiresAt ?? 0) <= Date.now()) session = await client.checkout.sessions.expire(sessionId);
+    if (session.status === "expired" && session.payment_status === "unpaid") {
+      await ctx.runMutation(internal.rentalDeliveryState.expire, { id, sessionId });
+      return { status: "expired" };
+    }
+    return { status: "processing" };
+}
+
+export const recoverQuotePayment = action({
+  args: { token: v.string(), id: v.id("rental_delivery_quotes") },
+  handler: async (ctx, { token, id }): Promise<{ status: string }> => {
+    await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "rentalDelivery.recoverQuotePayment" });
+    return await recoverQuotePaymentWithEvidence(ctx, id);
+  },
 });
 
 export const cancelQuote = action({
@@ -179,9 +238,26 @@ export const reconcile = internalAction({
   args: {},
   handler: async ctx => {
     const quotes: any[] = await ctx.runQuery(internal.rentalDeliveryState.pendingReconcile, {});
-    let completed = 0;
+    let completed = 0, expiredRecoveryChecks = 0;
     for (const quote of quotes) {
       try {
+        if (quote.status === "creating_checkout" && !quote.checkoutSessionId && quote.checkoutParams) {
+          if ((quote.checkoutExpiresAt ?? 0) <= Date.now()) {
+            if (quote.recoveryAutoCheckedAt || expiredRecoveryChecks >= 2) continue;
+            expiredRecoveryChecks++;
+            const recovery = await recoverQuotePaymentWithEvidence(ctx, quote._id);
+            if (recovery.status === "needs_review") await ctx.runMutation(internal.rentalDeliveryState.markRecoveryNeedsReview, { id: quote._id });
+            completed++;
+            continue;
+          }
+          const session = await stripe().checkout.sessions.create(JSON.parse(quote.checkoutParams), { idempotencyKey: `dbc-delivery-quote-${quote._id}` });
+          if (!session.url) throw Error("Stripe did not return the recoverable delivery payment link.");
+          await ctx.runMutation(internal.rentalDeliveryState.bindSession, { id: quote._id, sessionId: session.id, url: session.url, sessionParams: quote.checkoutParams });
+          if (session.status === "complete" && session.payment_status === "paid") await ctx.runAction((internal as any).rentalDelivery.finalizePaid, { id: quote._id, sessionId: session.id });
+          else if (session.status === "expired") await ctx.runMutation(internal.rentalDeliveryState.expire, { id: quote._id, sessionId: session.id });
+          completed++;
+          continue;
+        }
         if (quote.status === "awaiting_acceptance" || quote.status === "creating_checkout" && !quote.checkoutSessionId) {
           await ctx.runMutation(internal.rentalDeliveryState.expire, { id: quote._id, ...(quote.checkoutSessionId ? { sessionId: quote.checkoutSessionId } : {}) });
           completed++;
@@ -194,6 +270,9 @@ export const reconcile = internalAction({
         completed++;
       } catch (error) {
         console.error("Delivery quote reconciliation deferred", quote._id, error);
+        if (quote.status === "creating_checkout" && !quote.checkoutSessionId && quote.checkoutParams && (quote.checkoutExpiresAt ?? 0) <= Date.now()) {
+          await ctx.runMutation(internal.rentalDeliveryState.markRecoveryNeedsReview, { id: quote._id });
+        }
       }
     }
     return { completed };

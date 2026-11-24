@@ -27,7 +27,7 @@ function ImageSources({ sources, alt, className, imgClassName, fit, loading }: {
       <span>Listing photo unavailable</span>
     </div> : (
       // eslint-disable-next-line @next/next/no-img-element
-      <img key={src} ref={ref} src={src} alt={alt} loading={loading} decoding="async" data-image-pending={hydrated && loadedIndex !== index ? "true" : undefined} style={{ objectFit: fit }} onLoad={() => setLoadedIndex(index)}
+      <img key={src} ref={ref} src={src} alt={alt} loading={loading} decoding="async" referrerPolicy="no-referrer" data-image-pending={hydrated && loadedIndex !== index ? "true" : undefined} style={{ objectFit: fit }} onLoad={() => setLoadedIndex(index)}
         onError={advance}
         className={`smart-img ${loadedIndex === index ? "loaded" : ""} absolute inset-0 h-full w-full object-cover ${imgClassName}`} />
     )}

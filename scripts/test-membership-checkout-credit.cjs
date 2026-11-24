@@ -1,7 +1,8 @@
 const assert = require('node:assert/strict');
 const {load,db,put,setMock}=require('./lib/rentalTestHarness.cjs');
 const realNow=Date.now,now=realNow();Date.now=()=>now;
-const billing=load('convex/membershipBenefits.ts'),bookings=load('convex/bookings.ts'),checkout=load('convex/checkout.ts');
+const mail=[];setMock('./mailer',{sendBusinessMailTracked:async m=>{mail.push(m);return {sent:true,resendEmailId:'resend-fixture'}}});
+const billing=load('convex/membershipBenefits.ts'),bookings=load('convex/bookings.ts'),checkout=load('convex/checkout.ts'),accounts=load('convex/accounts.ts');
 const {calculateRentalPrice}=load('convex/lib/rentalPrice.ts'),catalog=load('convex/catalog.ts');
 const {MEMBERSHIP_TERMS_VERSION}=load('shared/membership.ts');
 const {shouldResetMembershipPreference}=load('shared/membershipSelection.ts');
@@ -27,16 +28,20 @@ const camera=put('listings',{active:true,title:'Camera',pricing:{daily:300},depo
 let account;
 const ctx={db,scheduler:{runAfter:async()=>{}},runQuery:async(ref,args)=>{
  if(ref==='accounts._byEmail')return load('convex/accounts.ts')._byEmail.handler({db},args);
- if(ref==='accounts._byToken')return account;
+ if(ref==='accounts._byToken'){
+  const session=await db.query('sessions').withIndex('by_token',q=>q.eq('token',args.token)).first();
+  if(session?.accountId===account?._id)return accounts._byToken.handler({db},args);
+  return account;
+ }
  if(ref==='catalog.repriceLines')return catalog.repriceLines.handler({db},args);
  if(ref==='bookings.availableCheckoutCredit')return bookings.availableCheckoutCredit.handler({db},args);
  throw Error('Unexpected query '+ref);
 }};
-const input=()=>({items:[{listingId:camera._id,title:'Camera',start:Date.UTC(2027,0,4),end:Date.UTC(2027,0,4),qty:1,total:1,deposit:1}],token:'fixture',customerEmail:account.email,fulfilment:'pickup',protection:'verify'});
+const input=()=>({items:[{listingId:camera._id,title:'Camera',start:Date.UTC(2027,0,4),end:Date.UTC(2027,0,4),qty:1,total:1,deposit:1}],token:'fixture',customerEmail:account.email,fulfilment:'pickup',pickupTime:'10:00',protection:'verify'});
 async function prepare(tier='plus') {
  const args=input(),price=await calculateRentalPrice(ctx,{...args,customer:{email:account.email},selectedMembership:{tier,intro:'none'}});
  const reservation=await billing.reserveCheckout.handler(ctx,{accountId:account._id,tier,intro:'none',requestId:'r-'+account._id,termsVersion:MEMBERSHIP_TERMS_VERSION});
- const pendingArgs={pricingVersion:price.pricingVersion,benefitKind:price.benefitKind,refundCreditApplied:price.refundCreditApplied,earnedCreditApplied:price.earnedCreditApplied,customerEmail:account.email,fulfilment:'pickup',deliveryFee:0,lineItems:price.items.map(i=>({listingId:i.listingId,title:i.title,start:i.start,end:i.end,qty:1,lineTotal:i.total})),subtotal:price.subtotal,depositAmount:price.depositAmount,discount:price.totalReduction,total:price.totalBeforeCredit,expectedTotalDue:price.totalDue,creditAccountId:account._id,membershipCheckoutId:reservation._id,membershipCreditApplied:price.membershipCreditApplied,membershipSignupOfferSaving:price.membershipSignupOfferSaving,currency:'GBP'};
+ const pendingArgs={pricingVersion:price.pricingVersion,benefitKind:price.benefitKind,refundCreditApplied:price.refundCreditApplied,earnedCreditApplied:price.earnedCreditApplied,customerEmail:account.email,fulfilment:'pickup',pickupTime:args.pickupTime,deliveryFee:0,lineItems:price.items.map(i=>({listingId:i.listingId,title:i.title,start:i.start,end:i.end,qty:1,lineTotal:i.total})),subtotal:price.subtotal,depositAmount:price.depositAmount,discount:price.totalReduction,total:price.totalBeforeCredit,expectedTotalDue:price.totalDue,creditAccountId:account._id,membershipCheckoutId:reservation._id,membershipCreditApplied:price.membershipCreditApplied,membershipSignupOfferSaving:price.membershipSignupOfferSaving,currency:'GBP'};
  const pending=await bookings.createPending.handler(ctx,pendingArgs);
  await assert.rejects(bookings.createPending.handler(ctx,pendingArgs),/already reserved/);
  await billing.bindCheckout.handler(ctx,{id:reservation._id,sessionId:'cs-'+account._id,bookingId:pending.bookingId});
@@ -51,7 +56,13 @@ async function pay(fixture,fee=1900,historical={}) {
  return {args,grant:await db.get(id),credit:await db.get((await db.get(id)).creditId)};
 }
 async function passDidit(fixture) {
- await db.patch(fixture.booking._id,{idVerifyStatus:'verified',idVerificationSource:'didit',idVerifiedAt:now,verificationChecks:{identity:'approved',selfie:'approved',address:'approved'}});
+ await db.patch(fixture.booking._id,{idVerifyStatus:'verified',idVerificationSource:'didit',idVerifiedAt:now,diditDecisionAt:now,verificationChecks:{identity:'approved',selfie:'approved',address:'approved'}});
+}
+async function recordRentalPayment(fixture,paymentIntentId='pi-rental-fixture') {
+ const sessionId='cs-rental-'+fixture.booking._id;
+ await bookings.bindCheckoutSession.handler(ctx,{bookingId:fixture.booking._id,sessionId});
+ await bookings.recordPaidCheckoutReceipt.handler(ctx,{bookingId:fixture.booking._id,sessionId,paymentIntentId,amountTotalPence:fixture.booking.checkoutExpectedAmountPence,currency:'GBP',paymentStatus:'paid'});
+ return paymentIntentId;
 }
 (async()=>{
  assert(!renderQuotedHook(undefined,null).includes('membership-upsell'),'Initial loading must not show an empty savings card');
@@ -76,6 +87,9 @@ async function passDidit(fixture) {
    assert.equal((checkoutHtml.match(/data-testid="add-membership"/g)||[]).length,1);
    assert(checkoutHtml.includes('Selecting this card confirms the'),'One-click recurring-payment consent must be visible');
    assert(checkoutHtml.includes('text-3xl'),'Checkout savings hook must be prominent');
+   const checkoutBenefits=checkoutHtml.match(/<ul[^>]*data-testid="membership-pitch-benefits"[^>]*>[\s\S]*?<\/ul>/)?.[0];
+   assert(checkoutBenefits,'The compact checkout subscription pitch visibly lists its benefits');
+   assert.equal((checkoutBenefits.match(/<li\b/g)||[]).length,4,'Checkout presents exactly four tier-specific benefits');
   } else {
    assert.equal(checkoutHtml,'','No actual net saving means no checkout offer or fallback button');
   }
@@ -87,18 +101,16 @@ async function passDidit(fixture) {
  const renewedCredit=put('credits',{accountId:account._id,amount:128.7,remaining:128.7,kind:'earned',createdAt:now,expiresAt:now+86400000,status:'active'});
  const renewedQuote=await checkout.priceQuote.handler(ctx,input());
  assert.equal(renewedQuote.earnedCreditApplied,128.7);
- assert.equal(renewedQuote.membershipNetSaving,128.7,'Active subscriber headline includes actual renewed credit used, not a zero discount field');
- assert.match(renderQuotedHook(renewedQuote,account),/<h3[^>]*>Subscribe to save £128\.70<\/h3>/,'Actual signed-in card must render the savings headline');
+ assert.equal(renewedQuote.membershipNetSaving,0,'Previously earned credit pays the bill and is not a new membership saving');
+ assert(!renderQuotedHook(renewedQuote,account).includes('Subscribe to save £128.70'));
  assert.equal(renewedQuote.membershipFee,0,'Do not subtract or bill another membership month for an existing subscriber');
  await db.patch(renewedCredit._id,{remaining:10});
  const partialRenewedQuote=await checkout.priceQuote.handler(ctx,input());
- assert.equal(partialRenewedQuote.membershipNetSaving,10,'Show actual remaining credit applied, never the full monthly allowance');
- assert.match(renderQuotedHook(partialRenewedQuote,account),/<h3[^>]*>Subscribe to save £10\.00<\/h3>/);
+ assert.equal(partialRenewedQuote.membershipNetSaving,0,'Partial account credit is funding rather than a saving');
  put('credits',{accountId:account._id,amount:280,remaining:280,kind:'refund',createdAt:now,expiresAt:now+86400000,status:'active'});
  const refundAndEarnedQuote=await checkout.priceQuote.handler(ctx,input());
  assert.equal(refundAndEarnedQuote.refundCreditApplied,280);
- assert.equal(refundAndEarnedQuote.membershipNetSaving,10,'Refund credit is payment, not subscription savings');
- assert.match(renderQuotedHook(refundAndEarnedQuote,account),/<h3[^>]*>Subscribe to save £10\.00<\/h3>/);
+ assert.equal(refundAndEarnedQuote.membershipNetSaving,0,'Neither refund nor earned credit is a subscription saving');
  await db.patch(renewedCredit._id,{remaining:0});
  const noRenewedCredit=await checkout.priceQuote.handler(ctx,input());
  assert.equal(noRenewedCredit.membershipNetSaving,0,'No applied earned credit or price benefit means no invented saving');
@@ -152,11 +164,11 @@ async function passDidit(fixture) {
  assert.equal(retiredSelected.membershipCreditApplied,128.7);assert.equal(retiredSelected.membershipSignupOfferSaving,10);
  assert.equal(retiredSelected.combinedTotalDue-retiredSelected.depositAmount,1865.3,'Savings includes the £99 subscription fee and excludes security');
  extras[0].quietDeal=50;
- const competingQuiet=await checkout.priceQuote.handler(ctx,restoredBasket);
- assert.equal(competingQuiet.benefitKind,'none');assert.equal(competingQuiet.totalReduction,0,'legacy Quiet Deal fields cannot alter checkout pricing');
- assert.deepEqual(competingQuiet.membershipOffer,retiredBase.membershipOffer,'membership savings remain available after legacy Quiet Deal metadata is ignored');
- assert.equal(competingQuiet.recommendations.find(r=>r.tier==='studio').netSaving,39.7);
- assert.match(renderQuotedHook(competingQuiet,account),/<h3[^>]*>Subscribe to save £39\.70<\/h3>/);
+ const legacyDealIgnored=await checkout.priceQuote.handler(ctx,restoredBasket);
+ assert.equal(legacyDealIgnored.benefitKind,'none');assert.equal(legacyDealIgnored.totalReduction,0);
+ assert.deepEqual(legacyDealIgnored.membershipOffer,{tier:'studio',netSaving:39.7,state:'join'},'A stale Quiet Deal cannot suppress valid membership benefits');
+ assert.equal(legacyDealIgnored.recommendations.find(r=>r.tier==='studio').netSaving,39.7);
+ assert.match(renderQuotedHook(legacyDealIgnored,account),/<h3[^>]*>Subscribe to save £39\.70<\/h3>/,'A legacy deal field cannot replace a genuine membership saving');
  extras[0].quietDeal=undefined;
  account=put('accounts',{email:'large@example.invalid'});camera.pricing.daily=300;
  const large=await checkout.priceQuote.handler(ctx,input());assert.equal(large.recommendations[0].netSaving,39.7);
@@ -165,12 +177,28 @@ async function passDidit(fixture) {
  assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),0,'unpaid credit is unavailable to other rentals');
  await passDidit(f);
  await assert.rejects(bookings.confirm.handler(ctx,{bookingId:f.booking._id}),/has not settled/);
- assert.equal(f.price.depositAmount,0,"first checkout never takes security money");account.membershipTier='studio';const receipt=await pay(f,1900,{historicalBonusPercent:10,historicalPriceId:'price_fixture',historicalTermsVersion:'fixture'});account.membershipTier='plus';assert.equal(receipt.grant.earnedCreditPence,2090,'first-month checkout uses invoice terms even if the current tier changes');assert.equal(account.membershipPerksPendingBookingId,f.booking._id);assert.equal(load("shared/membership.ts").paidDepositExempt(account),false);assert.equal(receipt.credit.remaining,0);assert.equal(!!account.membershipSignupOfferUsed,true);
- await bookings.confirm.handler(ctx,{bookingId:f.booking._id,paymentIntentId:'pi-fixture'});
- await bookings.confirm.handler(ctx,{bookingId:f.booking._id,paymentIntentId:'pi-fixture'});
- assert.equal(receipt.credit.remaining,0,'confirm does not spend first-month credit twice');assert.equal(account.membershipPerksPendingBookingId,undefined);assert.equal(load('shared/membership.ts').paidDepositExempt(account),true);
- const mail=[];setMock('./lib/mailer',{sendMail:async m=>{mail.push(m);return true}});
- await load('convex/invoice.ts').invoiceEmail.handler({runQuery:async(ref,args)=>{assert.equal(ref,'bookings.receiptContext');return bookings.receiptContext.handler(ctx,args)}},{bookingId:f.booking._id});
+ assert.equal(f.price.depositAmount,0,"first checkout never takes security money");account.membershipTier='studio';const receipt=await pay(f,1900,{historicalBonusPercent:10,historicalPriceId:'price_fixture',historicalTermsVersion:'fixture'});account.membershipTier='plus';assert.equal(receipt.grant.earnedCreditPence,2090,'first-month checkout uses invoice terms even if the current tier changes');assert.equal(account.membershipPerksPendingBookingId,f.booking._id);assert.equal(load("shared/membership.ts").paidDepositExempt(account),false);assert.equal(load("shared/membership.ts").membershipRentalBenefitsActiveNow(account),false,'the attached membership checkout does not unlock recurring benefits while its first rental is pending');assert.equal(receipt.credit.remaining,0);assert.equal(!!account.membershipSignupOfferUsed,true);
+ const rentalPaymentIntent=await recordRentalPayment(f);
+ await bookings.confirm.handler(ctx,{bookingId:f.booking._id,paymentIntentId:rentalPaymentIntent});
+ const firstRentalConfirmedAt=account.firstRentalPaidAt;
+ await bookings.confirm.handler(ctx,{bookingId:f.booking._id,paymentIntentId:rentalPaymentIntent});
+ assert.equal(receipt.credit.remaining,0,'confirm does not spend first-month credit twice');assert.equal(account.membershipPerksPendingBookingId,undefined);assert(Number.isSafeInteger(firstRentalConfirmedAt),'successful first-booking confirmation records the first paid-rental marker');assert.equal(load('shared/membership.ts').membershipRentalBenefitsActiveNow(account),false,'paid confirmation alone does not unlock recurring membership benefits before a clean return');
+ assert.equal(account.firstRentalPaidAt,firstRentalConfirmedAt,'replaying the same booking confirmation does not reset the first-rental activation point');
+ mail.length=0;
+ await load('convex/invoice.ts').invoiceEmail.handler({
+  runQuery:async(ref,args)=>{assert.equal(ref,'bookings.receiptContext');return bookings.receiptContext.handler(ctx,args)},
+  runMutation:async(ref,args)=>{
+   if(ref==='bookings.saveInitialInvoiceSnapshot')return load('convex/bookings.ts').saveInitialInvoiceSnapshot.handler(ctx,args);
+   if(ref==='emailInbox.prepareRentalContextEmail'){
+    assert.equal(args.bookingId,f.booking._id);assert.equal(args.recipientEmail,account.email);
+    return {ok:true,state:'claimed',providerId:`fixture-${args.deliveryKey}`,replyTo:'reply@example.invalid'};
+   }
+   if(ref==='emailInbox.finishRentalContextEmail'){
+    assert.equal(args.bookingId,f.booking._id);assert.equal(args.result,'sent');return true;
+   }
+   throw Error('Unexpected invoice email mutation '+ref);
+  },
+ },{bookingId:f.booking._id});
  assert(mail[0].html.includes('Account credit above includes £20.90 from your first subscription month'),'receipt email reads the real internal credit breakdown');
  await billing.grantPaidInvoice.handler(ctx,{...receipt.args,checkoutId:undefined,invoiceId:'renewal-'+account._id});
  assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),20.9,'renewal grants full monthly credit');
@@ -179,7 +207,7 @@ async function passDidit(fixture) {
  assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),41.8,'cancel restores used credit exactly once');
  await billing.revokeRefundedInvoice.handler(ctx,{invoiceId:receipt.args.invoiceId,membershipRefundedPence:1900});
  assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),20.9,'membership refund revokes restored first-month credit but preserves renewal credit');
- account=put('accounts',{email:'reverse-before-cancel@example.invalid'});const second=await prepare();const paid=await pay(second);await passDidit(second);await bookings.confirm.handler(ctx,{bookingId:second.booking._id});
+ account=put('accounts',{email:'reverse-before-cancel@example.invalid'});const second=await prepare();const paid=await pay(second);await passDidit(second);await bookings.confirm.handler(ctx,{bookingId:second.booking._id,paymentIntentId:await recordRentalPayment(second)});
  await billing.revokeRefundedInvoice.handler(ctx,{invoiceId:paid.args.invoiceId,membershipRefundedPence:1900});assert.equal(account.membershipCreditDebtPence,2090);
  await bookings._finalizeCancellation.handler(ctx,{bookingId:second.booking._id,accountId:account._id,mode:'refund',refundAmount:second.booking.total,creditAmount:second.booking.creditApplied,currency:'GBP'});
  assert.equal(account.membershipCreditDebtPence,0);assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),0,'restoration clears the reversal offset without gifting new credit');
@@ -188,7 +216,7 @@ async function passDidit(fixture) {
  account=put('accounts',{email:'pro-welcome@example.invalid'});camera.pricing.daily=200;const welcome=await prepare('pro');assert.equal(welcome.price.membershipSignupOfferSaving,10);assert.equal(welcome.price.combinedTotalDue,welcome.price.depositAmount+180.2);await pay(welcome,4900);assert.equal(!!account.membershipSignupOfferUsed,true);account.membershipActive=false;account.membershipStatus='canceled';camera.pricing.daily=300;const upgrade=await calculateRentalPrice(ctx,{...input(),customer:{email:account.email},selectedMembership:{tier:'studio',intro:'none'}});assert.equal(upgrade.membershipSignupOfferSaving,0,'switching/rejoining Studio cannot repeat the Pro signup discount');
  account=put('accounts',{email:'weekend-signup@example.invalid'});camera.pricing.daily=300;const weekendInput=input();weekendInput.items[0].start=Date.UTC(2027,0,8);weekendInput.items[0].end=Date.UTC(2027,0,9);const weekend=await calculateRentalPrice(ctx,{...weekendInput,customer:{email:account.email},selectedMembership:{tier:'pro',intro:'none'}});assert.equal(weekend.weekendSaving,0,'checkout-added membership has no weekend perk on its first rental');assert.equal(weekend.membershipSignupOfferSaving,10);assert.equal(weekend.depositAmount,0);assert.equal(weekend.deliveryReduction,0);
  account=put('accounts',{email:'unused-credit@example.invalid'});camera.pricing.daily=50;const partial=await prepare('pro');const partialReceipt=await pay(partial,4900);assert.equal(partial.price.membershipCreditApplied,50);assert.equal(partialReceipt.credit.remaining,8.8,'unused first-month credit survives');
- await passDidit(partial);await bookings.confirm.handler(ctx,{bookingId:partial.booking._id});
+ await passDidit(partial);await bookings.confirm.handler(ctx,{bookingId:partial.booking._id,paymentIntentId:await recordRentalPayment(partial)});
  await billing.revokeRefundedInvoice.handler(ctx,{invoiceId:partialReceipt.args.invoiceId,membershipRefundedPence:2450});
  await bookings._finalizeCancellation.handler(ctx,{bookingId:partial.booking._id,accountId:account._id,mode:'refund',refundAmount:0,creditAmount:partial.booking.creditApplied,currency:'GBP'});
  assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),29.4);
@@ -200,5 +228,31 @@ async function passDidit(fixture) {
  account=put('accounts',{email:'debt-before-payment@example.invalid'});camera.pricing.daily=100;const reserved=await prepare();account.membershipCreditDebtPence=600;await pay(reserved);assert.equal(account.membershipCreditDebtPence,600,'a later reversal cannot steal credit promised to an open checkout');
  account=put('accounts',{email:'actual-welcome@example.invalid',membershipCreditDebtPence:2090});camera.pricing.daily=100;const joined=await prepare();assert.equal(joined.price.benefitKind,'joining');assert.equal(joined.price.membershipSignupOfferSaving,5);assert.equal(joined.price.membershipCreditApplied,0);await pay(joined);assert.equal(account.membershipSignupOfferUsed,true,'a chosen joining discount is recorded once');
  account=put('accounts',{email:'unpaid-cancel@example.invalid'});const abandoned=await prepare();await db.patch(abandoned.booking._id,{status:'cancelled'});const late=await pay(abandoned);assert.equal(late.credit.remaining,20.9,'a late paid invoice does not consume credit for an already-closed rental');
+ account=put('accounts',{email:'credit-and-encore@example.invalid',adminEncoreLevel:3,loyaltyPercent:10,firstCleanRentalCompletedAt:now-86400000});camera.pricing.daily=100;
+ put('sessions',{token:'fixture',accountId:account._id,expiresAt:now+86400000});
+ const authoritativeEncoreAccount=await accounts._byToken.handler({db},{token:'fixture'});assert.equal(authoritativeEncoreAccount.loyaltyEligible,true);assert.equal(authoritativeEncoreAccount.loyaltyLevel,3);assert.equal(authoritativeEncoreAccount.loyaltyPercent,10);
+ const earned=put('credits',{accountId:account._id,amount:20,remaining:20,kind:'earned',createdAt:now,expiresAt:now+86400000,status:'active'});
+ const combined=await calculateRentalPrice(ctx,{...input(),customer:{email:account.email},useAccountCredit:true});
+ assert.equal(combined.benefitKind,'loyalty');assert.equal(combined.loyaltySaving,10);assert.equal(combined.earnedCreditApplied,20);assert.equal(combined.totalDue,70);
+ const combinedArgs={pricingVersion:combined.pricingVersion,benefitKind:combined.benefitKind,useAccountCredit:true,refundCreditApplied:combined.refundCreditApplied,earnedCreditApplied:combined.earnedCreditApplied,customerEmail:account.email,accountId:account._id,creditAccountId:account._id,fulfilment:'pickup',pickupTime:'10:00',deliveryFee:0,lineItems:combined.items.map(i=>({listingId:i.listingId,title:i.title,start:i.start,end:i.end,qty:1,lineTotal:i.total})),subtotal:combined.subtotal,depositAmount:combined.depositAmount,discount:combined.totalReduction,loyaltySaving:combined.loyaltySaving,total:combined.totalBeforeCredit,expectedTotalDue:combined.totalDue,currency:'GBP'};
+ const combinedPending=await bookings.createPending.handler(ctx,combinedArgs);
+ assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),0,'pending rental reserves earned credit once');
+ await assert.rejects(bookings.createPending.handler(ctx,combinedArgs),/credit|balance/i,'concurrent checkout cannot spend reserved credit');
+ await passDidit({booking:await db.get(combinedPending.bookingId)});
+ const combinedFixture={booking:await db.get(combinedPending.bookingId)};
+ const combinedPayment=await recordRentalPayment(combinedFixture);
+ await bookings.confirm.handler(ctx,{bookingId:combinedPending.bookingId,paymentIntentId:combinedPayment});
+ await bookings.confirm.handler(ctx,{bookingId:combinedPending.bookingId,paymentIntentId:combinedPayment});
+ assert.equal(earned.remaining,0,'confirmation and replay debit credit exactly once');
+ await bookings._finalizeCancellation.handler(ctx,{bookingId:combinedPending.bookingId,accountId:account._id,mode:'refund',refundAmount:combined.totalDue,creditAmount:combined.creditApplied,currency:'GBP'});
+ await bookings._finalizeCancellation.handler(ctx,{bookingId:combinedPending.bookingId,accountId:account._id,mode:'refund',refundAmount:combined.totalDue,creditAmount:combined.creditApplied,currency:'GBP'});
+ assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),20,'cancellation restores the used credit once, without reversing the original discount');
+ account=put('accounts',{email:'penny-credit@example.invalid'});camera.pricing.daily=0.3;
+ put('credits',{accountId:account._id,amount:0.1,remaining:0.1,kind:'refund',createdAt:now,expiresAt:now+86400000,status:'active'});
+ put('credits',{accountId:account._id,amount:0.2,remaining:0.2,kind:'earned',createdAt:now,expiresAt:now+86400000,status:'active'});
+ const pennies=await calculateRentalPrice(ctx,{...input(),customer:{email:account.email},useAccountCredit:true});
+ assert.equal(pennies.refundCreditApplied,0.1);assert.equal(pennies.earnedCreditApplied,0.2);
+ const pennyArgs={...combinedArgs,accountId:account._id,creditAccountId:account._id,customerEmail:account.email,benefitKind:pennies.benefitKind,refundCreditApplied:pennies.refundCreditApplied,earnedCreditApplied:pennies.earnedCreditApplied,lineItems:pennies.items.map(i=>({listingId:i.listingId,title:i.title,start:i.start,end:i.end,qty:1,lineTotal:0.3})),subtotal:0.3,depositAmount:0,discount:0,loyaltySaving:0,total:0.3,expectedTotalDue:0};
+ assert.equal((await bookings.createPending.handler(ctx,pennyArgs)).creditApplied,0.3,'£0.10 plus £0.20 can exactly fund £0.30');
  console.log('PASS same-checkout membership credit: charge-only thresholds, net fees, one-time £5/£10 joining offers, no unpaid/double spending, capped/unused credit, renewals, restoration and refund ordering.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>{Date.now=realNow});

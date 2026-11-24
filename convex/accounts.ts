@@ -1,8 +1,11 @@
 import { assertVerificationArchive } from "./verificationArchive";
 import { retainVerificationArchiveLink } from "./lib/verificationArchiveLink";
 import { renterVerificationNote, verificationValidUntil } from "../shared/verificationProgress";
+import { enqueueVerifiedGuestClaims } from "./lib/guestRentalClaimQueue";
+import { renterHandoverDetailsReady } from "./lib/renterRentalActionGate";
 import { ensureReferralCode } from "./lib/referrals";
-import { belongsToRentalAccount, rentalsForAccount } from "./lib/rentalAccount";
+import { belongsToRentalAccount, hasVerifiedRentalEmail, rentalsForAccount } from "./lib/rentalAccount";
+import { checkoutBenefitAccount, membershipRentalBenefitAccount } from "./lib/rentalBenefitAccount";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
 import { creditKind } from "./lib/checkoutCredit";
@@ -10,7 +13,7 @@ import { loyaltyProgress, celebratedLoyaltyLevel, ENCORE_POLICY_VERSION } from "
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { usableCredit } from "./lib/creditLedger";
 import { verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
-import { accountVerificationReady } from "./lib/accountVerificationReady";
+import { accountVerificationBadge, accountVerificationReady } from "./lib/accountVerificationReady";
 import { deletePrivateFile } from "./lib/privateStorage";
 import { droneDocumentType } from "./lib/droneDocument";
 import {
@@ -20,14 +23,16 @@ import {
   internalQuery,
   internalMutation,
 } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { listingRentalImages } from "./lib/catalogImages";
+import { gafferCancellationFacts } from "./lib/gafferCancellationFacts";
 import { stream, mergedStream } from "convex-helpers/server/stream";
 import schema from "./schema";
 import { accountAuthError, validAccountEmail } from "../shared/accountAuth";
 import { LEO_SUPPORT_PHONE, TRAFALGAR_PICKUP_ADDRESS, TRAFALGAR_PICKUP_INSTRUCTIONS } from "../shared/pickupLocation";
+import { CURRENT_PRIVACY_NOTICE_VERSION, legalVersionForPolicy } from "../shared/legalVersioning";
 
 // ── crypto helpers (Web Crypto, available in Convex actions) ──────
 const toHex = (b: Uint8Array) =>
@@ -58,6 +63,11 @@ async function pbkdf2(password: string, saltHex: string) {
 }
 
 const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+const PASSWORD_SIGNIN_WINDOW_MS = 15 * 60 * 1000;
+const PASSWORD_SIGNIN_ATTEMPT_LIMIT = 8;
+// Use the same PBKDF2 cost when the email has no usable password, so the
+// public sign-in action returns the same credential error for every state.
+const DUMMY_PASSWORD_SALT_HEX = "00112233445566778899aabbccddeeff";
 
 // ── internal db helpers ──────────────────────────────────────────
 export const _byEmail = internalQuery({
@@ -76,8 +86,7 @@ export const _byToken = internalQuery({
   handler: async (ctx, { token }) => {
     const account=await resolve(ctx,token);
     if (!account) return null;
-    const loyalty=await loyaltyProgress(ctx,account);
-    return {...account,loyaltyEligible:loyalty.eligible,loyaltyLevel:loyalty.level,loyaltyPercent:loyalty.percent,loyaltyCompleted:loyalty.completed};
+    return checkoutBenefitAccount(ctx,account);
   },
 });
 
@@ -89,6 +98,10 @@ export const _create = internalMutation({
     name: v.optional(v.string()),
     token: v.string(),
     pendingEmailVerification: v.optional(v.boolean()),
+    accountTermsVersion: v.string(),
+    accountTermsAcceptedAt: v.number(),
+    privacyNoticeVersion: v.string(),
+    privacyNoticeAcknowledgedAt: v.number(),
   },
   handler: async (ctx, a) => {
     if(await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",a.email)).first())throw new ConvexError(accountAuthError("ACCOUNT_EXISTS"));
@@ -98,6 +111,10 @@ export const _create = internalMutation({
       hash: a.hash,
       emailVerificationRequired: !!a.pendingEmailVerification,
       name: a.name,
+      accountTermsVersion: a.accountTermsVersion,
+      accountTermsAcceptedAt: a.accountTermsAcceptedAt,
+      privacyNoticeVersion: a.privacyNoticeVersion,
+      privacyNoticeAcknowledgedAt: a.privacyNoticeAcknowledgedAt,
       createdAt: Date.now(),
     });
     await ensureReferralCode(ctx,accountId);
@@ -129,14 +146,49 @@ export async function _applyPendingCollectiveGrant(ctx: any, accountId: any, ema
 }
 
 export const _session = internalMutation({
-  args: { accountId: v.id("accounts"), token: v.string() },
-  handler: async (ctx, { accountId, token }) => {
+  args: { accountId: v.id("accounts"), token: v.string(), expectedPasswordHash: v.optional(v.string()) },
+  handler: async (ctx, { accountId, token, expectedPasswordHash }) => {
     const account = await ctx.db.get(accountId);
-    if (!account || account.blockedAt != null) throw new ConvexError(accountAuthError("ACCOUNT_BLOCKED"));
-    if (account.emailVerificationRequired && !account.emailVerifiedAt)
-      throw new ConvexError(accountAuthError("EMAIL_VERIFICATION_REQUIRED"));
+    if (!account || account.blockedAt != null || account.emailVerificationRequired && !account.emailVerifiedAt ||
+        expectedPasswordHash !== undefined && account.hash !== expectedPasswordHash)
+      throw new ConvexError(expectedPasswordHash !== undefined
+        ? accountAuthError("INVALID_CREDENTIALS")
+        : accountAuthError(account?.blockedAt != null ? "ACCOUNT_BLOCKED" : "EMAIL_VERIFICATION_REQUIRED"));
     const now = Date.now();
+    await ctx.db.patch(accountId, { passwordSignInWindowStartedAt: undefined, passwordSignInAttemptCount: undefined });
     await ctx.db.insert("sessions", { token, accountId, createdAt: now, expiresAt: now + SESSION_TTL_MS });
+    if (account.emailVerifiedAt && !account.emailVerificationRequired) await enqueueVerifiedGuestClaims(ctx,accountId);
+  },
+});
+
+/** Reserve one of eight password checks per account in a 15-minute fixed
+ * window. The counter lives on the account row, so arbitrary emails cannot
+ * create an unbounded number of limiter rows. The window expires lazily on the
+ * next attempt; success and password changes clear it. Convex actions do not
+ * expose the source IP, so this is keyed by the normalized account email. */
+export const _reservePasswordSignInAttempt = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    if (!validAccountEmail(email) || email !== email.trim().toLowerCase()) return null;
+    const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", email)).first();
+    if (!account || account.blockedAt != null || account.emailVerificationRequired && !account.emailVerifiedAt ||
+        !account.hash || !account.salt) return null;
+
+    const now = Date.now();
+    let windowStartedAt = account.passwordSignInWindowStartedAt;
+    let attempts = account.passwordSignInAttemptCount ?? 0;
+    if (!Number.isSafeInteger(windowStartedAt) || windowStartedAt! > now || now - windowStartedAt! >= PASSWORD_SIGNIN_WINDOW_MS ||
+        !Number.isSafeInteger(attempts) || attempts < 0) {
+      windowStartedAt = now;
+      attempts = 0;
+    }
+    if (attempts >= PASSWORD_SIGNIN_ATTEMPT_LIMIT) return { throttled: true as const };
+
+    await ctx.db.patch(account._id, {
+      passwordSignInWindowStartedAt: windowStartedAt,
+      passwordSignInAttemptCount: attempts + 1,
+    });
+    return { accountId: account._id, salt: account.salt, hash: account.hash, throttled: false as const };
   },
 });
 
@@ -159,19 +211,67 @@ export const sweepExpiredSessions = internalMutation({
   },
 });
 
+/** Remove the account-level Didit reuse grant once its 90-day window ends.
+ * Rental-level verification state is deliberately untouched, so an already
+ * confirmed or active booking keeps its original approval. The nested-field
+ * index and page cap keep the cleanup bounded as the account table grows. */
+export const purgeExpiredRentalVerification = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, { cursor }) => {
+    const now = Date.now();
+    const page = await ctx.db.query("accounts")
+      .withIndex("by_rental_verification_expiry", q => q.lte("rentalVerification.expiresAt", now))
+      .order("asc")
+      .paginate({ cursor: cursor ?? null, numItems: 50, maximumRowsRead: 50 });
+    let cleared = 0;
+    for (const candidate of page.page) {
+      const account = await ctx.db.get(candidate._id);
+      const record = account?.rentalVerification;
+      const indexedRecord = candidate.rentalVerification;
+      if (!account || !record || !indexedRecord ||
+        !Number.isSafeInteger(record.expiresAt) || record.expiresAt > now ||
+        record.sourceBookingId !== indexedRecord.sourceBookingId ||
+        record.verifiedAt !== indexedRecord.verifiedAt ||
+        record.expiresAt !== indexedRecord.expiresAt) continue;
+      const canonicalExpiry = verificationValidUntil(record);
+      if (!Number.isSafeInteger(canonicalExpiry)) continue;
+      if (canonicalExpiry! > now) {
+        if (record.expiresAt !== canonicalExpiry)
+          await ctx.db.patch(account._id, { rentalVerification: { ...record, expiresAt: canonicalExpiry! } });
+        continue;
+      }
+      await ctx.db.patch(account._id, { rentalVerification: undefined, idVerified: false });
+      cleared++;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.accounts.purgeExpiredRentalVerification, { cursor: page.continueCursor });
+    return { cleared, hasMore: !page.isDone };
+  },
+});
+
 // ── public actions ───────────────────────────────────────────────
 export const signUp = action({
-  args: { email: v.string(), password: v.string(), name: v.optional(v.string()), next: v.optional(v.union(v.literal("chat"),v.literal("review"),v.literal("verification"))), bookingId: v.optional(v.id("bookings")) },
-  handler: async (ctx, { email, password, name, next, bookingId }): Promise<{ token: string }> => {
+  args: { email: v.string(), password: v.string(), name: v.optional(v.string()), next: v.optional(v.union(v.literal("chat"),v.literal("review"),v.literal("verification"))), bookingId: v.optional(v.id("bookings")), termsAndPrivacyAcknowledged: v.boolean(), termsVersion: v.string(), privacyNoticeVersion: v.string() },
+  handler: async (ctx, { email, password, name, next, bookingId, termsAndPrivacyAcknowledged, termsVersion, privacyNoticeVersion }): Promise<{ token: string }> => {
     const e = email.trim().toLowerCase();
-    if (!validAccountEmail(e) || password.length < 6)
+    if (!validAccountEmail(e) || password.length < 8 || password.length > 256)
       throw new ConvexError(accountAuthError("SIGNUP_INVALID_INPUT"));
+    if (!termsAndPrivacyAcknowledged)
+      throw new ConvexError(accountAuthError("SIGNUP_TERMS_REQUIRED"));
+    const policy = await ctx.runQuery(api.settings.get, {});
+    const currentTermsVersion = legalVersionForPolicy(policy);
+    if (termsVersion !== currentTermsVersion || privacyNoticeVersion !== CURRENT_PRIVACY_NOTICE_VERSION)
+      throw new ConvexError(accountAuthError("SIGNUP_TERMS_UPDATED"));
     const existing = await ctx.runQuery(internal.accounts._byEmail, { email: e });
     if (existing) throw new ConvexError(accountAuthError("ACCOUNT_EXISTS"));
     const salt = randomHex(16);
     const hash = await pbkdf2(password, salt);
     const token = randomHex(24);
-    await ctx.runMutation(internal.accounts._create, { email: e, salt, hash, name, token, pendingEmailVerification: true });
+    const acceptedAt = Date.now();
+    await ctx.runMutation(internal.accounts._create, {
+      email: e, salt, hash, name, token, pendingEmailVerification: true,
+      accountTermsVersion: currentTermsVersion, accountTermsAcceptedAt: acceptedAt,
+      privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION, privacyNoticeAcknowledgedAt: acceptedAt,
+    });
     await ctx.scheduler.runAfter(0,internal.accountAccess.sendForSignup,{email:e,credentialHash:hash,next,bookingId});
     return { token: "" };
   },
@@ -181,18 +281,17 @@ export const signIn = action({
   args: { email: v.string(), password: v.string() },
   handler: async (ctx, { email, password }): Promise<{ token: string }> => {
     const e = email.trim().toLowerCase();
-    if (!validAccountEmail(e) || !password)
+    if (!validAccountEmail(e) || !password || password.length > 256)
       throw new ConvexError(accountAuthError("INVALID_INPUT"));
-    const acct: any = await ctx.runQuery(internal.accounts._byEmail, { email: e });
-    if (!acct) throw new ConvexError(accountAuthError("INVALID_CREDENTIALS"));
-    if (acct.blockedAt != null) throw new ConvexError(accountAuthError("ACCOUNT_BLOCKED"));
-    if(acct.emailVerificationRequired&&!acct.emailVerifiedAt)throw new ConvexError(accountAuthError("EMAIL_VERIFICATION_REQUIRED"));
-    if (!acct.hash || !acct.salt)
-      throw new ConvexError(accountAuthError("PASSWORD_NOT_SET"));
-    const hash = await pbkdf2(password, acct.salt);
-    if (hash !== acct.hash) throw new ConvexError(accountAuthError("INVALID_CREDENTIALS"));
+    const attempt: any = await ctx.runMutation(internal.accounts._reservePasswordSignInAttempt, { email: e });
+    if (!attempt || attempt.throttled) {
+      await pbkdf2(password, DUMMY_PASSWORD_SALT_HEX);
+      throw new ConvexError(accountAuthError("INVALID_CREDENTIALS"));
+    }
+    const hash = await pbkdf2(password, attempt.salt);
+    if (hash !== attempt.hash) throw new ConvexError(accountAuthError("INVALID_CREDENTIALS"));
     const token = randomHex(24);
-    await ctx.runMutation(internal.accounts._session, { accountId: acct._id, token });
+    await ctx.runMutation(internal.accounts._session, { accountId: attempt.accountId, token, expectedPasswordHash: attempt.hash });
     return { token };
   },
 });
@@ -226,8 +325,12 @@ export const me = query({
   handler: async (ctx, { token }) => {
     const a: any = await resolve(ctx, token);
     if (!a) return null;
-    const loyalty = await loyaltyProgress(ctx,a);
-    const verification=await accountVerificationReady(ctx,a);
+    const [benefitAccount,loyalty,verification,verificationBadge] = await Promise.all([
+      membershipRentalBenefitAccount(ctx,a),
+      loyaltyProgress(ctx,a),
+      accountVerificationReady(ctx,a),
+      accountVerificationBadge(ctx,a),
+    ]);
     const now = Date.now();
     const credits = await ctx.db
       .query("credits")
@@ -243,7 +346,10 @@ export const me = query({
       loyaltyLevel:loyalty.level,loyaltyPercent:loyalty.percent,loyaltyCelebratedLevel:celebratedLoyaltyLevel(a),
       loyaltyEligible: loyalty.eligible,
       loyaltyCompleted: loyalty.completed,
-      loyaltyCelebrated: (celebratedLoyaltyLevel(a))>=loyalty.level,
+      loyaltyAdminAssigned: a.adminEncoreLevel != null,
+      loyaltyHistoricalLevel: loyalty.historicalLevel,
+      membershipFirstCleanRentalCompletedAt: benefitAccount.membershipFirstCleanRentalCompletedAt ?? null,
+      loyaltyCelebrated: loyalty.completed === null || celebratedLoyaltyLevel(a) >= loyalty.completed,
       membershipPerksPending: !!a.membershipPerksPendingBookingId,
       _id: a._id,
       email: a.email,
@@ -253,8 +359,8 @@ export const me = query({
       marketingEmails: a.marketingEmails ?? false,
       favorites: (a.favorites ?? []) as string[],
       avatarUrl: a.avatarStorageId && a.avatarStorageId === a.avatarOwnedStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : (a.googleAvatarUrl ?? null),
-      idVerified: !!verification,
-      verificationValidUntil: verification?.expiresAt ?? null,
+      idVerified: !!verificationBadge,
+      verificationValidUntil: verificationBadge?.expiresAt ?? null,
       verificationReadyUntil: verification?.proofExpiresAt ?? null,
       hasPassword: !!a.hash,
       membershipTier: membershipTierFor(a) ?? null,
@@ -390,10 +496,9 @@ export const updateProfile = mutation({
   handler: async (ctx, { token, ...patch }) => {
     const a: any = await resolve(ctx, token);
     if (!a) throw new Error("unauthorized");
-    const changed = (patch.name != null && verificationDetail(patch.name) !== verificationDetail(a.name)) ||
-      (patch.address != null && verificationDetail(patch.address) !== verificationDetail(a.address));
-    await ctx.db.patch(a._id, { ...patch, ...(changed ? { rentalVerification: undefined, idVerified: false } : {}) });
-    if (changed) {
+    const identityNameChanged = patch.name != null && verificationDetail(patch.name) !== verificationDetail(a.name);
+    await ctx.db.patch(a._id, { ...patch, ...(identityNameChanged ? { rentalVerification: undefined, idVerified: false } : {}) });
+    if (identityNameChanged) {
       const [linked, linkedPending, legacy, legacyPending] = await Promise.all([
         ctx.db.query("bookings").withIndex("by_account_status", q => q.eq("accountId", a._id).eq("status", "confirmed")).take(101),
         ctx.db.query("bookings").withIndex("by_account_status", q => q.eq("accountId", a._id).eq("status", "pending_verification")).take(101),
@@ -562,8 +667,11 @@ export const myBookings = query({
 });
 
 async function enrichBookings(ctx:any,rows:any[]) {
-    const allReviews = await ctx.db.query("reviews").collect();
-    const reviewed = new Set(allReviews.map((r:any) => r.verifiedBookingId).filter(Boolean));
+    const cancellationAssessedAt = Date.now();
+    const reviewed = new Set((await Promise.all(rows.map(async (booking:any) => {
+      const review = await ctx.db.query("reviews").withIndex("by_booking", (q:any) => q.eq("verifiedBookingId", booking._id)).first();
+      return review && (review.moderationStatus !== "rejected" || review.published) ? String(booking._id) : null;
+    }))).filter(Boolean));
 
     // resolve a display image url for a listing (R2 → source → gallery), cached across bookings
     const listingCache = new Map<string, any>();
@@ -611,14 +719,18 @@ async function enrichBookings(ctx:any,rows:any[]) {
       const starts = b.lineItems.map((li: any) => li.start);
       const ends = b.lineItems.map((li: any) => li.end);
       const verificationExpiresAt = verificationValidUntil(b);
-      const handoverReady = ["confirmed", "active"].includes(b.status) && !!b.paidConfirmedAt &&
-        b.idVerifyStatus === "verified" && (verificationExpiresAt ?? 0) > Date.now();
+      const cancellation = gafferCancellationFacts(b, cancellationAssessedAt);
+      // Keep contact and location details private until payment, confirmed
+      // status and a complete booking-level Didit approval are all recorded.
+      const handoverReady = renterHandoverDetailsReady(b);
       out.push({
         _id: b._id,
         status: b.status,
         idVerifyStatus: b.idVerifyStatus ?? "required",
         paidConfirmedAt: b.paidConfirmedAt ?? null,
         verificationExpiresAt,
+        verificationLateApprovalBlocked: b.verificationLateBlockedProviderStatus === "Approved" && !!b.verificationLateBlockedAt,
+        cancellation,
         handoverDetails: handoverReady ? {
           phone: LEO_SUPPORT_PHONE,
           pickupAddress: b.fulfilment === "delivery" ? (typeof b.address === "string" ? b.address : null) : TRAFALGAR_PICKUP_ADDRESS,
@@ -652,7 +764,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
         lateFeeStatus: b.lateFeeStatus ?? null,
         currency: b.currency ?? "GBP",
         fulfilment: b.fulfilment,
-        address: b.address ?? null,
+        address: handoverReady ? b.address ?? null : null,
         pickupTime: b.pickupTime ?? null,
         returnTime: b.returnTime ?? null,
         verificationNote: renterVerificationNote(b.verificationNote),
@@ -660,15 +772,17 @@ async function enrichBookings(ctx:any,rows:any[]) {
         documentExpiresAt: b.documentExpiresAt ?? null,
         verificationChecks: b.verificationChecks ?? null,
         idVerificationSource: b.idVerificationSource ?? null,
+        verificationProvider: b.verificationProvider ?? null,
         cancellationPending: !!b.cancellationDecision && b.status !== "cancelled",
         returnPending: !!b.returnDecision && b.status !== "returned",
         requiresDroneLicence: await requiresDroneLicence(ctx, b),
         droneLicenceStatus: await droneLicenceStatusForRental(ctx, b),
-        reviewed: reviewed.has(b._id),
+        reviewed: reviewed.has(String(b._id)),
         firstSlug: lines[0]?.slug ?? null,
         start: starts.length ? Math.min(...starts) : null,
         end: ends.length ? Math.max(...ends) : null,
         at: b._creationTime,
+        deliveryLegs: b.deliveryLegs ?? null,
       });
     }
     return out;
@@ -678,7 +792,7 @@ export const myBookingsPage=query({args:{token:v.string(),paginationOpts:paginat
  const a:any=await resolve(ctx,token);if(!a)return {page:[],isDone:true,continueCursor:""};
  const linked = stream(ctx.db, schema).query("bookings").withIndex("by_account", q => q.eq("accountId", a._id)).order("desc");
  const legacy = stream(ctx.db, schema).query("bookings").withIndex("by_account_guestEmail", q => q.eq("accountId", undefined).eq("guestEmail", a.email)).order("desc");
- const page = await mergedStream([linked, legacy], ["_creationTime"]).paginate({...paginationOpts, numItems:Math.min(50,paginationOpts.numItems), maximumRowsRead:100});
+ const page = await mergedStream(hasVerifiedRentalEmail(a)?[linked, legacy]:[linked], ["_creationTime"]).paginate({...paginationOpts, numItems:Math.min(50,paginationOpts.numItems), maximumRowsRead:100});
  return {...page,page:await enrichBookings(ctx,page.page)};
 }});
 
@@ -700,14 +814,14 @@ export const _authFor = internalQuery({
 export const _setPassword = internalMutation({
   args: { accountId: v.id("accounts"), salt: v.string(), hash: v.string() },
   handler: async (ctx, { accountId, salt, hash }) => {
-    await ctx.db.patch(accountId, { salt, hash });
+    await ctx.db.patch(accountId, { salt, hash, passwordSignInWindowStartedAt: undefined, passwordSignInAttemptCount: undefined });
   },
 });
 
 export const changePassword = action({
   args: { token: v.string(), oldPassword: v.string(), newPassword: v.string() },
   handler: async (ctx, { token, oldPassword, newPassword }) => {
-    if (newPassword.length < 6) throw new Error("New password must be 6+ characters.");
+    if (newPassword.length < 8 || newPassword.length > 256) throw new Error("New password must be 8 to 256 characters.");
     const a: any = await ctx.runQuery(internal.accounts._authFor, { token });
     if (!a) throw new Error("unauthorized");
     if(a.hash&&a.salt){const oldHash = await pbkdf2(oldPassword,a.salt);if(oldHash!==a.hash)throw new Error("Current password is incorrect.");}
@@ -726,7 +840,7 @@ export const deleteAccount = mutation({
     if (!a) throw new Error("unauthorized");
     if (a.stripeSubscriptionId) throw new Error("Please contact the team to request deletion. Your subscription needs to be checked and cancelled first so billing does not continue.");
     if (a.membershipActive) throw new Error("Please contact the team to request deletion so we can review your membership and account records.");
-    if (a.lastRestrictedAt != null) throw new Error("Please contact the team to request deletion so we can review your account records.");
+    if (a.lastRestrictedAt != null || a.identitySafetyRetentionAt != null) throw new Error("Please contact the team to request deletion so we can review your account records.");
     const [booking, guestBooking, archive, credit, thread, rentalCase, attachment, adminNote, adminChange] = await Promise.all([
       ctx.db.query("bookings").withIndex("by_account", q => q.eq("accountId", a._id)).first(),
       ctx.db.query("bookings").withIndex("by_guestEmail_status", q => q.eq("guestEmail", a.email.trim().toLowerCase())).first(),
@@ -840,10 +954,12 @@ export const acknowledgeLoyalty = mutation({
   handler:async(ctx,{token,level})=>{
     const account=await resolve(ctx,token);
     if(!account)throw Error("Sign in to your account.");
-    const progress=await loyaltyProgress(ctx,account),earned=level??progress.level;
-    if(!Number.isInteger(earned)||earned<1||earned>progress.level)throw Error("Complete a clean rental and its review before claiming this Encore level.");
+    const progress=await loyaltyProgress(ctx,account);
+    if(progress.completed===null)throw Error("Your reviewed rental history needs a check before claiming this Encore level.");
+    const earned=level??progress.completed;
+    if(!Number.isInteger(earned)||earned<1||earned>progress.completed)throw Error("Submit an honest review after a clean, settled rental before claiming this Encore level.");
     const celebrated=celebratedLoyaltyLevel(account);
-    if(earned>celebrated)await ctx.db.patch(account._id,{loyaltyPolicyVersion:ENCORE_POLICY_VERSION,loyaltyLevel:progress.level,loyaltyCelebratedLevel:earned,...(earned===3?{loyaltyUnlockedAt:account.loyaltyUnlockedAt??Date.now(),loyaltyCelebratedAt:Date.now()}:{})});
+    if(earned>celebrated)await ctx.db.patch(account._id,{loyaltyPolicyVersion:ENCORE_POLICY_VERSION,loyaltyLevel:progress.earnedLevel,loyaltyHistoricalLevel:progress.historicalLevel||undefined,loyaltyCelebratedLevel:earned,...(earned===3?{loyaltyUnlockedAt:account.loyaltyUnlockedAt??Date.now(),loyaltyCelebratedAt:Date.now()}:{})});
     return true;
   },
 });

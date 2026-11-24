@@ -1,11 +1,14 @@
 import { ensureReferralCode } from "./lib/referrals";
 import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
+import { api } from "./_generated/api";
 import { v } from "convex/values";
 import { studioDeliveryAvailable } from "./lib/memberDelivery";
 import { monthlyCreditPence, tierByKey, MEMBERSHIP_TERMS_VERSION } from "../shared/membership";
 import { membershipSnapshot } from "./lib/membershipSnapshot";
+import { firstEligibleRentalConfirmationAt } from "./lib/rentalBenefitAccount";
 import { adminSessionMigrationReady, assertAdminScopeSession } from "./adminAccountSessionV2";
 import { assertAdmin } from "./adminAuth";
+import { legalVersionForPolicy, CURRENT_PRIVACY_NOTICE_VERSION } from "../shared/legalVersioning";
 
 const intro = v.union(v.literal("trial"), v.literal("credit"), v.literal("none"));
 
@@ -80,6 +83,10 @@ export const syncSubscription = internalMutation({
       // Completing a trial consumes the offer even though its first invoice is £0.
       if (checkout.intro !== "none") await ctx.db.patch(a.accountId, { membershipIntroUsed: true, membershipIntroChoice: checkout.intro });
     }
+    const savedFirstRentalPaidAt = account.firstRentalPaidAt;
+    const firstRentalPaidAt = typeof savedFirstRentalPaidAt === "number" && Number.isSafeInteger(savedFirstRentalPaidAt) && savedFirstRentalPaidAt > 0
+      ? savedFirstRentalPaidAt
+      : await firstEligibleRentalConfirmationAt(ctx, account);
     await ctx.db.patch(a.accountId, {
       membershipSubscriptionCreatedAt: a.subscriptionCreatedAt,
       stripeSubscriptionId: a.subscriptionId, membershipTier: a.tier,
@@ -87,6 +94,7 @@ export const syncSubscription = internalMutation({
       ...(a.paidThrough ? { membershipPaidThrough: a.paidThrough } : {}),
       membershipTrialEnd: a.trialEnd, membershipCancelAtPeriodEnd: a.cancelAtPeriodEnd,
       membershipSource: undefined,
+      ...(firstRentalPaidAt !== undefined ? { firstRentalPaidAt } : {}),
       // A lifecycle event cannot manufacture paid entitlement. Only paid invoices extend it.
       ...(!["active", "trialing"].includes(a.status) ? { membershipPaidThrough: undefined } : {}),
     });
@@ -104,10 +112,12 @@ export const grantPaidInvoice = internalMutation({
       } else await assertAdmin(ctx, a.adminRetryToken, "membershipBenefits.grantPaidInvoiceRetry");
     }
     if (!Number.isSafeInteger(a.paidMembershipPence) || a.paidMembershipPence <= 0 || !Number.isSafeInteger(a.periodEnd)) throw Error("Invalid paid membership invoice.");
+    if (a.initialRefundedPence !== undefined && (!Number.isSafeInteger(a.initialRefundedPence) || a.initialRefundedPence < 0)) throw Error("Invalid refunded membership amount.");
     const existing = await ctx.db.query("membership_credit_grants").withIndex("by_invoice", q => q.eq("invoiceId", a.invoiceId)).unique();
     if (existing) {
       if (existing.accountId !== a.accountId || existing.subscriptionId !== a.subscriptionId || existing.paidMembershipPence !== a.paidMembershipPence) throw Error("Membership invoice ownership mismatch.");
       if (a.historicalBonusPercent !== undefined && existing.historicalBonusPercent !== undefined && (existing.historicalBonusPercent !== a.historicalBonusPercent || existing.historicalPriceId !== a.historicalPriceId || existing.historicalTermsVersion !== a.historicalTermsVersion)) throw Error("Membership invoice historical terms mismatch.");
+      if (a.initialRefundedPence !== undefined) await revokeRefundedInvoiceInMutation(ctx, {invoiceId:a.invoiceId,membershipRefundedPence:a.initialRefundedPence});
       return existing._id;
     }
     let recoveryJob: any;
@@ -180,12 +190,22 @@ export const deliveryAvailable = internalQuery({
 
 /** Unverified guest stub grants no session and no access to existing account balances. */
 export const bootstrapCheckoutAccount = internalMutation({
- args:{email:v.string(),name:v.string(),seedHash:v.string()},
+ args:{email:v.string(),name:v.string(),seedHash:v.string(),termsAndPrivacyAcknowledged:v.boolean(),accountTermsVersion:v.string(),privacyNoticeVersion:v.string()},
  handler:async(ctx,a)=>{
+  const policy=await ctx.runQuery(api.settings.get,{});
+  if(!a.termsAndPrivacyAcknowledged||a.accountTermsVersion!==legalVersionForPolicy(policy)||a.privacyNoticeVersion!==CURRENT_PRIVACY_NOTICE_VERSION)
+   throw Error("Accept the current account Terms and Privacy Notice before creating a membership account.");
   const email=a.email.trim().toLowerCase();
   const existing=await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",email)).unique();
-  if(existing){if(existing.checkoutSeedHash===a.seedHash&&!existing.hash&&!existing.googleId&&!existing.stripeSubscriptionId)return existing;throw Error("Sign in to your existing account before adding a membership.");}
-  const id=await ctx.db.insert("accounts",{email,name:a.name,checkoutSeedHash:a.seedHash,emailVerificationRequired:true,createdAt:Date.now()});await ensureReferralCode(ctx,id);return (await ctx.db.get(id))!;
+  const acceptedAt=Date.now();
+  if(existing){
+   if(existing.checkoutSeedHash===a.seedHash&&!existing.hash&&!existing.googleId&&!existing.stripeSubscriptionId){
+    await ctx.db.patch(existing._id,{accountTermsVersion:a.accountTermsVersion,accountTermsAcceptedAt:acceptedAt,privacyNoticeVersion:a.privacyNoticeVersion,privacyNoticeAcknowledgedAt:acceptedAt});
+    return (await ctx.db.get(existing._id))!;
+   }
+   throw Error("Sign in to your existing account before adding a membership.");
+  }
+  const id=await ctx.db.insert("accounts",{email,name:a.name,checkoutSeedHash:a.seedHash,emailVerificationRequired:true,accountTermsVersion:a.accountTermsVersion,accountTermsAcceptedAt:acceptedAt,privacyNoticeVersion:a.privacyNoticeVersion,privacyNoticeAcknowledgedAt:acceptedAt,createdAt:acceptedAt});await ensureReferralCode(ctx,id);return (await ctx.db.get(id))!;
  }
 });
 
@@ -225,6 +245,9 @@ async function revokeRefundedInvoiceInMutation(ctx:MutationCtx,a:{invoiceId:stri
   const credits=await ctx.db.query("credits").withIndex("by_account",q=>q.eq("accountId",grant.accountId)).collect();
   const reservedBySource=new Map<string,number>();
   for(const b of pending.filter(b=>b.creditAllocations))for(const allocation of b.creditAllocations!)reservedBySource.set(allocation.creditId,(reservedBySource.get(allocation.creditId)??0)+Math.round(allocation.amount*100));
+  const operations=await ctx.db.query("rental_credit_reservations").withIndex("by_account_state",q=>q.eq("accountId",grant.accountId).eq("state","reserved")).take(501);
+  if(operations.length>500)throw Error("Open credit reservations need reconciliation before reversing membership credit.");
+  for(const operation of operations)for(const allocation of operation.allocations){if(!Number.isSafeInteger(allocation.amountPence)||allocation.amountPence<0)throw Error("An account-credit reservation needs reconciliation.");reservedBySource.set(String(allocation.creditId),(reservedBySource.get(String(allocation.creditId))??0)+allocation.amountPence);}
   let reserved=Math.max(0,pending.filter(b=>!b.creditAllocations).reduce((n,b)=>n+Math.round(((b.creditApplied??0)-(b.membershipCreditApplied??0))*100),0)-credits.filter(c=>c.status==="active").reduce((n,c)=>n+(c.revokedPendingPence??0),0));
   // Cancellation can restore first-month credit into a new linked credit row.
   // Revoke that balance too; a returned rental must not turn it into free money.

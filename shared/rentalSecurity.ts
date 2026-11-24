@@ -6,13 +6,25 @@ export const REFUNDABLE_DEPOSIT_POLICY_VERSION = "2026-10-refundable-deposit-v1"
 export const ASSESSMENT_SECURITY_POLICY_VERSION = "2026-10-refundable-assessment-v2";
 export const CARD_HOLD_SECURITY_POLICY_VERSION = "2026-11-card-hold-v1";
 export const SETUP_INTENT_SECURITY_POLICY_VERSION = "2026-11-setup-intent-v1";
+/** Previous immediate-claim policy keeps its original flat £50/£100/£200 ceiling. */
+export const PREVIOUS_IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION = "2026-11-immediate-claim-v2";
+/** New rentals use the approved ceiling that scales above £4,000. */
+export const IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION = "2026-11-immediate-claim-v3";
 export function hasCashDepositPolicy(version?:string|null){return version===REFUNDABLE_DEPOSIT_POLICY_VERSION || version===ASSESSMENT_SECURITY_POLICY_VERSION;}
 export function isCardHoldSecurityPolicy(version?:string|null){return version===CARD_HOLD_SECURITY_POLICY_VERSION;}
-export function isSetupIntentSecurityPolicy(version?:string|null){return version===SETUP_INTENT_SECURITY_POLICY_VERSION;}
+export function isSetupIntentSecurityPolicy(version?:string|null){return version===SETUP_INTENT_SECURITY_POLICY_VERSION||version===PREVIOUS_IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION||version===IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION;}
+export function isImmediateClaimSecurityPolicy(version?:string|null){return version===PREVIOUS_IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION||version===IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION;}
+export function isScaledImmediateClaimSecurityPolicy(version?:string|null){return version===IMMEDIATE_CLAIM_SECURITY_POLICY_VERSION;}
 export function assessmentDepositFor(value:number){return refundableDepositFor(value) || 20;}
-export function cardLimitForPolicy(version:string|undefined,value:number){return version===ASSESSMENT_SECURITY_POLICY_VERSION || isCardHoldSecurityPolicy(version) ? 0 : isSetupIntentSecurityPolicy(version) ? setupIntentSecurityLimit(value) : savedCardChargeLimit(value);}
+export function cardLimitForPolicy(version:string|undefined,value:number){
+  if(version===ASSESSMENT_SECURITY_POLICY_VERSION || isCardHoldSecurityPolicy(version)) return 0;
+  if(isScaledImmediateClaimSecurityPolicy(version)) return immediateClaimSecurityLimit(value);
+  if(isImmediateClaimSecurityPolicy(version)) return setupIntentSecurityLimit(value);
+  if(version===SETUP_INTENT_SECURITY_POLICY_VERSION) return setupIntentSecurityLimit(value);
+  return savedCardChargeLimit(value);
+}
 export function depositForBookingPolicy(b:any,value:number){
- if(b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION)return b.securityWaiverReason ? 0 : assessmentDepositFor(value);
+ if(b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION)return ["active_membership","encore"].includes(b.securityWaiverReason??"") ? 0 : assessmentDepositFor(value);
  return refundableDepositFor(value);
 }
 export function refundableDepositFor(replacementSum: number) {
@@ -31,6 +43,17 @@ export function cardHoldFor(replacementSum: number) {
 
 export function setupIntentSecurityLimit(replacementSum: number) {
   return cardHoldFor(replacementSum);
+}
+
+/** Current immediate-claim ceiling: £50 below £1k, £100 below £4k, then £200 plus £100 per additional £1,000, scaled continuously to the penny. */
+export function immediateClaimSecurityLimit(replacementSum: number) {
+  if (!Number.isFinite(replacementSum) || replacementSum < 0 || !Number.isSafeInteger(Math.round(replacementSum * 100)))
+    throw Error("Invalid equipment replacement value.");
+  const valuePence = Math.round(replacementSum * 100);
+  if (valuePence < 100_000) return 50;
+  if (valuePence < 400_000) return 100;
+  const limitPence = 20_000 + Math.round((valuePence - 400_000) / 10);
+  return limitPence / 100;
 }
 
 export const LEGACY_TEN_PERCENT_HOLD_POLICY = "2026-10-ten-percent-hold-v2";

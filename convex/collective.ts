@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { accountForToken } from "./lib/rentalChat";
+import { accountIdentityVerified } from "../shared/verificationProgress";
 
 const NEONS = ["cyan", "violet", "amber", "green", "pink", "blue", "orange"];
 
@@ -110,7 +111,7 @@ export const myMembership = query({
     if (!app) return null;
     const bankProvided = !!app.bankAccountNumber;
     // ID is cleared by Stripe Identity at the account level (or a manual admin mark on the app)
-    const idVerified = acct.idVerified === true || app.idStatus === "verified";
+    const idVerified = accountIdentityVerified(acct) || app.idStatus === "verified";
     const operational = app.status === "approved" && bankProvided && idVerified;
     return {
       kind: app.kind as "gear-provider" | "professional",

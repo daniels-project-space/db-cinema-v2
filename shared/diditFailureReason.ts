@@ -1,7 +1,10 @@
 /** Customer-safe explanations derived from Didit warning codes. Do not expose
  * raw provider text, identity data, or fraud signals to the renter. */
 export const DIDIT_UNREADABLE_ID = "We could not read your photo ID clearly enough to verify it. Please use a valid photo ID and make sure the whole document, your photo and details are clear and well lit.";
-export const DIDIT_FAILURE_SUPPORT = "We could not complete the verification. Please contact the team from your rental conversation so we can help.";
+export const DIDIT_FAILURE_SUPPORT = "We could not complete the verification. You can retry the unsuccessful steps or contact the team from your rental conversation.";
+export const DIDIT_RETRY_UNAVAILABLE = "Didit cannot offer another attempt for this decision. Message our team in your rental conversation for help.";
+export const DIDIT_DOCUMENT_EXPIRED = "Your photo ID has expired. Upload a current ID to continue verification.";
+
 export const DIDIT_EXPIRED_ID = "Your photo ID has expired. Please use a valid photo ID.";
 export const DIDIT_ADDRESS_DETAILS = "We could not read the address on your proof of address. Please use a document that clearly shows your address.";
 export const DIDIT_ADDRESS_EXPIRED = "Your proof of address is too old or has expired. Please use a recent, valid document.";
@@ -9,15 +12,20 @@ export const DIDIT_ADDRESS_UNSUPPORTED = "We could not recognise your proof of a
 export const DIDIT_ADDRESS_DATE_UNREADABLE = "We could not check the date on your proof of address. Please upload a recent document with a clearly readable issue date.";
 export const DIDIT_ID_NOT_VERIFIED = "We could not verify your photo ID. Please check that it is valid and the entire document is clear and well lit.";
 export const DIDIT_ID_PHOTO_MISSING = "We could not find a photo on your ID. Please use a valid photo ID and make sure the whole document and photo are visible and well lit.";
+export function customerDiditRetryAvailable(status: unknown, note: unknown) {
+  if (status !== "rejected") return true;
+  return customerDiditFailureNote(note) !== null && note !== DIDIT_RETRY_UNAVAILABLE;
+}
 export function customerDiditFailureNote(note: unknown): string | null {
-  return [DIDIT_UNREADABLE_ID,DIDIT_FAILURE_SUPPORT,DIDIT_EXPIRED_ID,DIDIT_ADDRESS_DETAILS,DIDIT_ADDRESS_EXPIRED,DIDIT_ADDRESS_UNSUPPORTED,DIDIT_ADDRESS_DATE_UNREADABLE,DIDIT_ID_NOT_VERIFIED,DIDIT_ID_PHOTO_MISSING].includes(note as string) ? note as string : null;
+  return [DIDIT_UNREADABLE_ID,DIDIT_FAILURE_SUPPORT,DIDIT_RETRY_UNAVAILABLE,DIDIT_DOCUMENT_EXPIRED,DIDIT_EXPIRED_ID,DIDIT_ADDRESS_DETAILS,DIDIT_ADDRESS_EXPIRED,DIDIT_ADDRESS_UNSUPPORTED,DIDIT_ADDRESS_DATE_UNREADABLE,DIDIT_ID_NOT_VERIFIED,DIDIT_ID_PHOTO_MISSING].includes(note as string) ? note as string : null;
 }
 export function diditFailureReason(decision: any): string {
+  if (decision?.decision_trace?.decided_by !== "automatic") return DIDIT_RETRY_UNAVAILABLE;
   const rows = Array.isArray(decision?.id_verifications) ? decision.id_verifications : [];
   const poaRows = Array.isArray(decision?.poa_verifications) ? decision.poa_verifications : [];
   const warnings = (items:any[]) => items.flatMap((row:any) => Array.isArray(row?.warnings) ? row.warnings : []);
   const otherRows = [decision,...["liveness_checks","face_matches"].flatMap(field => Array.isArray(decision?.[field]) ? decision[field] : [])];
-  if (warnings([...rows,...poaRows,...otherRows]).some(warning => typeof warning?.risk === "string" && /BLOCKLIST|MANIPULAT|FRAUD/i.test(warning.risk))) return DIDIT_FAILURE_SUPPORT;
+  if (warnings([...rows,...poaRows,...otherRows]).some(warning => typeof warning?.risk === "string" && /BLOCKLIST|MANIPULAT|FRAUD/i.test(warning.risk))) return DIDIT_RETRY_UNAVAILABLE;
   const relevant = (items:any[]) => new Set<string>(warnings(items.filter(row => row?.status !== "Approved"))
     .filter(warning => String(warning?.log_type ?? "").toLowerCase() !== "information")
     .map(warning => typeof warning?.risk === "string" ? warning.risk : ""));
@@ -33,4 +41,3 @@ export function diditFailureReason(decision: any): string {
   if (poa.has("UNABLE_TO_VALIDATE_DOCUMENT_AGE")) return DIDIT_ADDRESS_DATE_UNREADABLE;
   return DIDIT_FAILURE_SUPPORT;
 }
-

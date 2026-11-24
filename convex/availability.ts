@@ -1,5 +1,6 @@
 import { stockRequest, stockRequestFields } from "./lib/stockRequest";
 import { stockTimePrecision, stockWindow, capacityBands, intersectCapacity, windowCapacity, rentalSlots, type CapacityBand } from "./lib/stockWindows";
+import { hasFreshSharedStock } from "./lib/shared_stock_sync";
 import { rentalWindow, RENTAL_TIME_SLOTS, londonRentalInstant } from "../shared/rentalWindow";
 import { query } from "./_generated/server";
 import { v } from "convex/values";
@@ -9,7 +10,7 @@ import { inventoryCapacity } from "./lib/inventoryCapacity";
 
 const DAY = 86400000;
 
-function dayRange(startMs: number, endMs: number): string[] {
+export function dayRange(startMs: number, endMs: number): string[] {
   const out: string[] = [];
   const d = new Date(startMs);
   d.setUTCHours(0, 0, 0, 0);
@@ -49,6 +50,7 @@ export type AvailabilityReadCache = {
   reservationsByUnit: Map<string, Promise<any[]>>;
   occupancyByReservationId: Map<string, Promise<Iv | null>>;
   stockTimePrecision?: Promise<boolean>;
+  sharedStockFresh?: Promise<boolean>;
 };
 
 export function createAvailabilityReadCache(): AvailabilityReadCache {
@@ -133,6 +135,10 @@ export async function listingAvailability(
   },
   cache?: AvailabilityReadCache,
 ) {
+  const stockFresh = cache
+    ? await (cache.sharedStockFresh ??= hasFreshSharedStock(ctx))
+    : await hasFreshSharedStock(ctx);
+  if (!stockFresh) return { available: 0, owned: 0, stockStatus: "refresh_required" as const };
   const precision = cache
     ? await (cache.stockTimePrecision ??= stockTimePrecision(ctx))
     : await stockTimePrecision(ctx);
@@ -169,6 +175,7 @@ export const forListing = query({
   args: stockRequestFields,
   handler: async (ctx, request) => {
     const {listingId,start,end}=request;
+    if (!await hasFreshSharedStock(ctx)) return { available: 0, owned: 0, stockStatus: "refresh_required" as const };
     const window=stockWindow(request,await stockTimePrecision(ctx));
     const l = await ctx.db.get(listingId);
     if (!l || rentalUnavailable(l)) return { available: 0, owned: 0 };
@@ -205,6 +212,12 @@ export const forCart = query({
   handler: async (ctx, { items }) => {
     if (items.length === 0) return {};
     if(items.length>100)throw Error("Basket is too large");
+    if (!await hasFreshSharedStock(ctx)) return Object.fromEntries(items.map(item => [String(item.listingId), {
+      available: 0,
+      demanded: items.filter(row => String(row.listingId) === String(item.listingId)).length,
+      ok: null,
+      stockStatus: "refresh_required" as const,
+    }]));
     const precision=await stockTimePrecision(ctx);
     const invalid = new Set<string>();
     const windows=items.map(i=>{try{return stockWindow(i,precision);}catch(error){if(!(error instanceof Error)||error.message!=="Return must be after pickup")throw error;invalid.add(String(i.listingId));return stockWindow({start:i.start,end:i.end},false);}});
@@ -255,7 +268,7 @@ export const forCart = query({
       if (g) g.push(ln);
       else groups.set(ln.listingId, [ln]);
     }
-    const result: Record<string, { available: number; demanded: number; ok: boolean }> = {};
+    const result: Record<string, { available: number; demanded: number; ok: boolean | null; stockStatus?: "refresh_required" }> = {};
     for (const id of invalid) result[id] = { available: 0, demanded: items.filter(i => i.listingId === id).length, ok: false };
     for (const [listingId, g] of groups) {
       if (invalid.has(listingId)) continue;
@@ -316,6 +329,13 @@ export const nextAvailableForCart = query({
       !Number.isSafeInteger(index) || index < 0 || index >= items.length
     ) || new Set(lineIndices).size !== lineIndices.length) throw Error("Invalid next availability request");
     if (!lineIndices.length) return [];
+    if (!await hasFreshSharedStock(ctx)) return lineIndices.map(lineIndex => ({
+      lineIndex,
+      currentlyAvailable: false,
+      suggestion: null,
+      searchedDays: NEXT_AVAILABLE_DAYS,
+      stockStatus: "refresh_required" as const,
+    }));
 
     const now = Date.now();
     const today = new Date(new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date(now)) + "T00:00:00.000Z").getTime();
@@ -458,8 +478,12 @@ export const forCalendar = query({
   handler: async (ctx, {listingId, monthStart, rangeStart, items,pickupTime,returnTime}) => {
     const date=new Date(monthStart);
     if(!Number.isSafeInteger(monthStart)||date.getUTCDate()!==1||date.getUTCHours()!==0||date.getUTCMinutes()!==0||date.getUTCSeconds()!==0||date.getUTCMilliseconds()!==0||(rangeStart!==undefined&&(!Number.isSafeInteger(rangeStart)||rangeStart%DAY!==0||Math.abs(monthStart-rangeStart)>365*DAY))||items.length>100||items.some(i=>!Number.isSafeInteger(i.start)||!Number.isSafeInteger(i.end)||i.end<i.start||i.end-i.start>365*DAY||i.start%DAY!==0||i.end%DAY!==0||!Number.isSafeInteger(i.qty??1)||(i.qty??1)<1||(i.qty??1)>100))throw Error("Invalid calendar stock request");
-    const precision=await stockTimePrecision(ctx);
     const days=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,0)).getUTCDate();
+    if (!await hasFreshSharedStock(ctx)) return Object.fromEntries(Array.from({length: days}, (_, index) => {
+      const key = new Date(monthStart + index * DAY).toISOString().slice(0, 10);
+      return [key, { ok: false, available: 0, stockStatus: "refresh_required" as const }];
+    }));
+    const precision=await stockTimePrecision(ctx);
     const records=new Map<string,any>();
     for(const id of new Set([String(listingId),...items.map(i=>String(i.listingId))]))records.set(id,await ctx.db.get(id as any));
     const listing=records.get(String(listingId));
@@ -514,7 +538,8 @@ export const forTimeSlots=query({
     if(items.length>100||!Number.isSafeInteger(qty)||qty<1||qty>100)throw Error("Invalid time availability request");
     const precision=await stockTimePrecision(ctx),window=stockWindow({start,end},false);
     const listing=await ctx.db.get(listingId);
-    const empty={precision,pickupSlots:[] as string[],returnSlots:[] as string[],available:0,pickupBoundarySlots:[] as string[],returnBoundarySlots:[] as string[],validPairs:[] as Array<{pickupTime:string;returnTime:string}>};
+    const empty={precision,pickupSlots:[] as string[],returnSlots:[] as string[],available:0,pickupBoundarySlots:[] as string[],returnBoundarySlots:[] as string[],validPairs:[] as Array<{pickupTime:string;returnTime:string}>,stockStatus:"fresh" as const};
+    if (!await hasFreshSharedStock(ctx)) return { ...empty, stockStatus: "refresh_required" as const };
     if(!listing||rentalUnavailable(listing)||!listing.components.length||dayRange(start,end).some(d=>blockedSet(listing.unavailableDates??[]).has(d)))return empty;
     const requirements=new Map<string,number>();
     for(const c of listing.components){if(!Number.isSafeInteger(c.qty)||c.qty<1)return empty;requirements.set(String(c.inventoryUnitId),(requirements.get(String(c.inventoryUnitId))??0)+c.qty*qty);}
@@ -536,10 +561,10 @@ export const forTimeSlots=query({
     if(!precision){
       const available=windowCapacity(bands??[],window.start,window.end);
       const slots=available?rentalSlots(bands??[],{start,end,pickupTime,returnTime}):{pickup:[],return:[],available:0,pickupBoundarySlots:[],returnBoundarySlots:[],validPairs:[]};
-      return {precision,pickupSlots:slots.pickup,returnSlots:slots.return,available:slots.available,pickupBoundarySlots:slots.pickupBoundarySlots,returnBoundarySlots:slots.returnBoundarySlots,validPairs:slots.validPairs};
+      return {precision,pickupSlots:slots.pickup,returnSlots:slots.return,available:slots.available,pickupBoundarySlots:slots.pickupBoundarySlots,returnBoundarySlots:slots.returnBoundarySlots,validPairs:slots.validPairs,stockStatus:"fresh" as const};
     }
     const slots=rentalSlots(bands??[],{start,end,pickupTime,returnTime});
-    return {precision,pickupSlots:slots.pickup,returnSlots:slots.return,available:slots.available,pickupBoundarySlots:slots.pickupBoundarySlots,returnBoundarySlots:slots.returnBoundarySlots,validPairs:slots.validPairs};
+    return {precision,pickupSlots:slots.pickup,returnSlots:slots.return,available:slots.available,pickupBoundarySlots:slots.pickupBoundarySlots,returnBoundarySlots:slots.returnBoundarySlots,validPairs:slots.validPairs,stockStatus:"fresh" as const};
   },
 });
 
@@ -547,9 +572,10 @@ export const forTimeSlots=query({
 export const forCheckoutTimeSlots=query({
  args:{items:v.array(stockRequest),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string())},
  handler:async(ctx,{items,pickupTime,returnTime})=>{
-  const empty={pickupSlots:[] as string[],returnSlots:[] as string[],pickupBoundarySlots:[] as string[],returnBoundarySlots:[] as string[],validPairs:[] as Array<{pickupTime:string;returnTime:string}>};
+  const empty={pickupSlots:[] as string[],returnSlots:[] as string[],pickupBoundarySlots:[] as string[],returnBoundarySlots:[] as string[],validPairs:[] as Array<{pickupTime:string;returnTime:string}>,stockStatus:"fresh" as const};
   if(!items.length)return empty;
   if(items.length>100)throw Error("Invalid basket time request");
+  if(!await hasFreshSharedStock(ctx))return {...empty,stockStatus:"refresh_required" as const};
   const precision=await stockTimePrecision(ctx),records=new Map<string,any>(),requirements=new Map<string,number>();
   const full=items.map(i=>stockWindow({start:i.start,end:i.end},false)),lo=Math.min(...full.map(w=>w.start)),hi=Math.max(...full.map(w=>w.end));
   for(const i of items){
@@ -587,6 +613,6 @@ export const forCheckoutTimeSlots=query({
   const pickupBoundary=new Set<string>(),returnBoundary=new Set<string>();
   for(const first of RENTAL_TIME_SLOTS)if(returnTime?fits(first,returnTime,"pickup"):RENTAL_TIME_SLOTS.some(last=>fits(first,last,"pickup")))pickupBoundary.add(first);
   for(const last of RENTAL_TIME_SLOTS)if(pickupTime?fits(pickupTime,last,"return"):RENTAL_TIME_SLOTS.some(first=>fits(first,last,"return")))returnBoundary.add(last);
-  return {pickupSlots:[...(pickups.size?pickups:allPickup)],returnSlots:[...(returns.size?returns:allReturn)],pickupBoundarySlots:RENTAL_TIME_SLOTS.filter(t=>pickupBoundary.has(t)),returnBoundarySlots:RENTAL_TIME_SLOTS.filter(t=>returnBoundary.has(t)),validPairs};
+  return {pickupSlots:[...(pickups.size?pickups:allPickup)],returnSlots:[...(returns.size?returns:allReturn)],pickupBoundarySlots:RENTAL_TIME_SLOTS.filter(t=>pickupBoundary.has(t)),returnBoundarySlots:RENTAL_TIME_SLOTS.filter(t=>returnBoundary.has(t)),validPairs,stockStatus:"fresh" as const};
  },
 });

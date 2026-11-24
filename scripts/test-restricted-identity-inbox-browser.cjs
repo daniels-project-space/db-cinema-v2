@@ -22,7 +22,8 @@ const mocks = { name: "restricted-inbox-fixture", setup(build) {
   const inboxSource = fs.readFileSync(path.join(root, "src/components/admin/RentalInbox.tsx"), "utf8");
   const panelSource = fs.readFileSync(path.join(root, "src/components/admin/PossibleRestrictedIdentityMatch.tsx"), "utf8");
   assert.match(inboxSource, /"idVerifyStatus" in focus && focus\.idVerifyStatus === "verified" && <PossibleRestrictedIdentityMatch/);
-  assert.match(inboxSource, /function openMatchedAccountChat\(accountId: string\)[\s\S]*?setStage\("general"\)[\s\S]*?setSelected\(accountId\)[\s\S]*?ownerConversationUrl\(\{ accountId \}\)/);
+  assert.match(inboxSource, /function openMatchedAccountChat\(accountId: string\)\s*\{\s*openRenterConversation\(accountId\);\s*\}/);
+  assert.match(inboxSource, /const openRenterConversation = useCallback\(\(accountId: string, bookingId\?: string\) => \{[\s\S]*?setStage\(bookingId \? "all" : "general"\);[\s\S]*?setSelected\(bookingId \?\? accountId\);[\s\S]*?ownerConversationUrl\(bookingId \? \{ bookingId \} : \{ accountId \}\)/);
   assert.doesNotMatch(panelSource, /useMutation|useAction|api\.[\w.]+\.(?:mutation|action)/, "The match panel must be read-only");
   const bundle = await esbuild.build({ stdin: { contents: fixture, resolveDir: root, loader: "tsx" }, bundle: true, write: false, platform: "browser", format: "iife", jsx: "automatic", plugins: [mocks], define: { "process.env.NODE_ENV": '"production"' } });
   const html = '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#101010;color:#eee"><main id="root"></main><script src="/bundle.js"></script></body></html>';
@@ -48,9 +49,8 @@ const mocks = { name: "restricted-inbox-fixture", setup(build) {
     await client.evaluate('window.__setMode("match")');
     for (let attempt = 0; attempt < 50 && !await client.evaluate('!!document.querySelector("[data-testid=possible-restricted-identity-match]")'); attempt++) await wait(100);
     const matchText = await client.evaluate('document.querySelector("[data-testid=possible-restricted-identity-match]").innerText');
-    assert.match(matchText, /Possible restricted-account match/);
-    assert.match(matchText, /lead, not proof/);
-    assert.match(matchText, /no booking was blocked/);
+    assert.match(matchText, /Possible identity match/);
+    assert.match(matchText, /Team reviews; no auto-block/);
     assert.match(matchText, /Sam Example/);
     assert.match(matchText, /Synthetic policy test/);
     assert.equal(await client.evaluate("window.__queryCalls.at(-1).args.token"), "synthetic-admin-token");

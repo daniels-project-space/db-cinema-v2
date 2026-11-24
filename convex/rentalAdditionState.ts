@@ -1,8 +1,9 @@
-import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, SETUP_INTENT_SECURITY_POLICY_VERSION, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
+import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, isSetupIntentSecurityPolicy, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
 import { assertSwapStockReconciled } from "./lib/swapStockFence";
 import {canDeferAdditionSecurity} from "../shared/pickupSecurity";
 import {schedulePickupHold} from "./pickupSecurity";
-import { tierByKey } from "../shared/membership";
+import { allocateSaving, tierByKey, weekendDays } from "../shared/membership";
+import { bestBenefit, memberRentalBenefitCandidates } from "../shared/rentalBenefits";
 import { internalMutation, internalQuery, query, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
@@ -21,6 +22,8 @@ import {isSavedCardRental,savedCardConsentText,securityAmendmentConsentText} fro
 import { securityForPolicy,REFUNDABLE_DEPOSIT_POLICY_VERSION,savedCardChargeLimit } from "../shared/rentalSecurity";
 import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
 import { listingRentalImages } from "./lib/catalogImages";
+import { rentalBenefitAccount } from "./lib/rentalBenefitAccount";
+import { availableRentalCreditPence,reserveRentalCredit,consumeRentalCredit,releaseRentalCredit,reservationForOperation } from "./lib/rentalCreditFunding";
 
 async function note(ctx: any, b: any, text: string, meta?: any) {
   const a = await ctx.db
@@ -134,16 +137,31 @@ async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
       end < new Date().setUTCHours(0, 0, 0, 0)
     )
       throw Error("Choose valid current or future rental dates");
+    const days = Math.round((end - start) / 86400000) + 1;
+    const account = b.accountId ? await ctx.db.get(b.accountId) : null;
+    const benefitAccount = await rentalBenefitAccount(ctx, account);
+    const grossLineTotal = a.complimentary ? 0 : quote(l.pricing, days).total * a.qty;
+    const weekendSavingPence = !a.complimentary && weekendDays(start, end)
+      ? Math.round(Math.max(0, quote(l.pricing, days).total - quote(l.pricing, days - 1).total) * a.qty * 100)
+      : 0;
+    const benefit = bestBenefit(memberRentalBenefitCandidates({
+      account: benefitAccount,
+      subtotalPence: Math.round(grossLineTotal * 100),
+      weekendSavingPence,
+    }));
+    const benefitSaving = benefit.savingPence / 100;
+    const lineTotal = allocateSaving([grossLineTotal], benefitSaving)[0];
     const line = {
       listingId: l._id,
       title: l.title,
       start,
       end,
       qty: a.qty,
-      lineTotal: a.complimentary
-        ? 0
-        : quote(l.pricing, Math.round((end - start) / 86400000) + 1).total *
-          a.qty,
+      lineTotal,
+      undiscountedLineTotal: grossLineTotal,
+      benefitKind: benefitSaving > 0 ? benefit.kind : "none",
+      benefitLabel: benefitSaving > 0 ? benefit.label : undefined,
+      benefitSaving,
     };
     await assertRenterExposure(ctx, b, [...b.lineItems, line]);
     await assertRentalInventory(ctx, [...b.lineItems, line], b._id);
@@ -154,7 +172,7 @@ async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
       b.depositHoldAmount ?? 0,
       security.hold,
     );
-    const securityCharge = ["paid_membership","new_paid_membership"].includes(b.securityWaiverReason??"") ? 0 : Math.max(
+    const securityCharge = Math.max(
       0,
       (b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION ? depositForBookingPolicy(b,value) : security.deposit) - b.depositAmount,
     );
@@ -174,7 +192,8 @@ export const preview = query({
     try {
     const p=await qualifyAddition(ctx,a);
     return {ok:true,snapshot:p.snapshot,listingId:p.l._id,title:p.l.title,qty:p.line.qty,start:p.start,end:p.end,
-      lineTotal:p.line.lineTotal,securityCharge:p.securityCharge,holdTotal:p.holdTotal,
+      lineTotal:p.line.lineTotal,undiscountedLineTotal:p.line.undiscountedLineTotal,benefitKind:p.line.benefitKind,
+      benefitLabel:p.line.benefitLabel,benefitSaving:p.line.benefitSaving,securityCharge:p.securityCharge,holdTotal:p.holdTotal,
       imageSources:p.imageSources,complimentary:!!a.complimentary,
       quoteSnapshot:JSON.stringify([p.snapshot,p.l.pricing,p.l.depositAmount,p.l.components,p.line,p.holdTotal,p.securityCharge])};
     }catch(e){return {ok:false,reason:e instanceof Error?e.message:"Equipment review failed."};}
@@ -229,6 +248,7 @@ export const prepare = internalMutation({
       baseSessionId: b.stripeCheckoutSessionId,
       ...(membership?{membershipCheckoutId:membership._id,membershipFee,membershipSessionParams:membership.sessionParams}:{}),
       status: hasCashDepositPolicy(b.securityPolicyVersion)?"awaiting_acceptance":"prepared",
+      checkoutProtocolVersion:2,
       reason: a.reason.trim().slice(0, 400),
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -251,6 +271,16 @@ export const prepare = internalMutation({
     return (await ctx.db.get(id))!;
   },
 });
+export const markSessionCreation = internalMutation({
+  args: { id: v.id("rental_additions"), creditOptIn: v.boolean(), creditAppliedPence: v.number() },
+  handler: async (ctx, { id, creditOptIn, creditAppliedPence }) => {
+    const addition = await ctx.db.get(id);
+    if (!addition || !!addition.creditOptIn !== creditOptIn || (addition.creditAppliedPence ?? 0) !== creditAppliedPence || addition.sessionId || ["applied", "applied_draft", "refunded", "expired"].includes(addition.status)) throw Error("The addition payment changed. Refresh it before continuing.");
+    const booking = await ctx.db.get(addition.bookingId);
+    if (!booking || booking.activeAdditionId !== id) throw Error("The item addition is no longer open.");
+    if (!addition.sessionCreationPending) await ctx.db.patch(id, { sessionCreationPending: true, updatedAt: Date.now() });
+  },
+});
 export const bindSession = internalMutation({
   args: {
     id: v.id("rental_additions"),
@@ -269,6 +299,8 @@ export const bindSession = internalMutation({
     await ctx.db.patch(id, {
       sessionId,
       paymentUrl: url,
+      sessionCreationPending: false,
+      recoveryNeedsReview: undefined,
       status: r.withdrawalRequestedAt ? r.status : "awaiting_payment",
       updatedAt: Date.now(),
     });
@@ -284,20 +316,30 @@ export const bindSession = internalMutation({
       await ctx.db.patch(member._id,{sessionId,state:"open",expiresAt:r.createdAt+24*3600000});
     }
     if (r.withdrawalRequestedAt) return;
+    const benefitSaving = r.benefitSaving ?? 0;
+    const benefitCopy = benefitSaving > 0
+      ? ` ${r.benefitLabel ?? "Rental discount"} saved £${benefitSaving.toFixed(2)} (was £${(r.undiscountedLineTotal ?? r.lineTotal + benefitSaving).toFixed(2)}).`
+      : "";
     await note(
       ctx,
       b,
-      r.draftReplacement
+      r.creditOptIn && !r.draftReplacement
+        ? `The team proposed adding ${r.qty}× ${r.title}: £${r.lineTotal.toFixed(2)} rental.${benefitCopy}${r.securityCharge ? ` + £${r.securityCharge.toFixed(2)} refundable security` : ""}. £${((r.creditAppliedPence ?? 0) / 100).toFixed(2)} account credit applied; £${((r.cardDuePence ?? 0) / 100).toFixed(2)} remains to pay. Your updated card hold is £${r.holdTotal.toFixed(2)}.`
+        : r.draftReplacement
         ? `The team proposed adding ${r.qty}× ${r.title}. Review the updated rental and complete its checkout.${r.membershipCheckoutId ? ` Your membership is preserved: £${(r.membershipFee??0).toFixed(2)} membership fee in this checkout${r.membershipFee===0?" (free-week trial)":""}; renewal remains as agreed.`:""}`
-        : r.securityPolicyVersion===SETUP_INTENT_SECURITY_POLICY_VERSION
-          ? `The team proposed adding ${r.qty}× ${r.title}: £${r.lineTotal.toFixed(2)} rental. No deposit or card hold is added; any future security claim remains governed by your accepted saved-card agreement. Items are confirmed after payment.`
-          : `The team proposed adding ${r.qty}× ${r.title}: £${r.lineTotal.toFixed(2)} rental${r.securityCharge ? ` + £${r.securityCharge.toFixed(2)} refundable security` : ""}. The updated card hold is £${r.holdTotal.toFixed(2)}. Items are confirmed after payment and any bank approval.`,
+        : isSetupIntentSecurityPolicy(r.securityPolicyVersion)
+          ? `The team proposed adding ${r.qty}× ${r.title}: £${r.lineTotal.toFixed(2)} rental.${benefitCopy} No deposit or card hold is added; any future security claim remains governed by your accepted saved-card agreement. Items are confirmed after payment.`
+          : `The team proposed adding ${r.qty}× ${r.title}: £${r.lineTotal.toFixed(2)} rental.${benefitCopy}${r.securityCharge ? ` + £${r.securityCharge.toFixed(2)} refundable security` : ""}. The updated card hold is £${r.holdTotal.toFixed(2)}. Items are confirmed after payment and any bank approval.`,
       {
         kind: "paylink",
         url,
-        amount: r.draftReplacement
-          ? (r.baseTotal ?? 0) + r.lineTotal + r.securityCharge + (r.membershipFee??0)
-          : r.lineTotal + r.securityCharge,
+        amount: (r.cardDuePence ?? Math.round(((r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0)) * 100)) / 100,
+        grossAmount: (r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0),
+        creditAppliedPence: r.creditAppliedPence ?? 0,
+        benefitKind: r.benefitKind ?? "none",
+        benefitLabel: r.benefitLabel,
+        benefitSaving: r.benefitSaving ?? 0,
+        undiscountedLineTotal: r.undiscountedLineTotal ?? r.lineTotal,
       },
     );
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
@@ -307,16 +349,40 @@ export const bindSession = internalMutation({
     });
   },
 });
+export const markSessionRecoveryReview = internalMutation({
+  args: { id: v.id("rental_additions") },
+  handler: async (ctx, { id }) => {
+    const addition = await ctx.db.get(id);
+    if (!addition || addition.sessionId || ["applied", "applied_draft", "refunded", "expired"].includes(addition.status)) return;
+    await ctx.db.patch(id, { recoveryNeedsReview: true, updatedAt: Date.now() });
+  },
+});
+export const bindRecoveredSession = internalMutation({
+  args: { id: v.id("rental_additions"), sessionId: v.string() },
+  handler: async (ctx, { id, sessionId }) => {
+    const addition = await ctx.db.get(id);
+    if (!addition || !sessionId.startsWith("cs_")) throw Error("Addition recovery is unavailable.");
+    if (addition.sessionId) { if (addition.sessionId !== sessionId) throw Error("A different addition payment is already attached."); return; }
+    const booking = await ctx.db.get(addition.bookingId);
+    if (!booking || booking.activeAdditionId !== id || addition.withdrawalRequestedAt || ["applied", "applied_draft", "refunded", "expired"].includes(addition.status)) throw Error("The item addition is no longer open.");
+    await ctx.db.patch(id, { sessionId, status: "awaiting_payment", sessionCreationPending: false, recoveryNeedsReview: true, updatedAt: Date.now() });
+  },
+});
 export const markPaid = internalMutation({
-  args: { id: v.id("rental_additions"), paymentIntentId: v.string() },
-  handler: async (ctx, { id, paymentIntentId }) => {
+  args: { id: v.id("rental_additions"), paymentIntentId: v.string(),amountPence:v.number() },
+  handler: async (ctx, { id, paymentIntentId,amountPence }) => {
     const r = await ctx.db.get(id);
     if (!r) throw Error("Addition missing");
+    if(!Number.isSafeInteger(amountPence)||amountPence<0)throw Error("Addition payment amount is invalid.");
+    const expectedPence=r.cardDuePence??Math.round(((r.draftReplacement?r.baseTotal??0:0)+r.lineTotal+r.securityCharge+(r.membershipFee??0))*100);
+    if(amountPence!==expectedPence)throw Error("Addition payment amount does not match the approved account-credit balance.");
     if (r.paymentIntentId && r.paymentIntentId !== paymentIntentId)
       throw Error("Addition payment mismatch");
+    if(r.cardPaidPence!=null&&r.cardPaidPence!==amountPence)throw Error("Addition payment amount mismatch.");
     if (["applied", "applied_draft", "refunded"].includes(r.status)) return;
-    await ctx.db.patch(id, {
+      await ctx.db.patch(id, {
       paymentIntentId,
+      cardPaidPence:amountPence,
       status: r.withdrawalRequestedAt ? r.status : "paid",
       updatedAt: Date.now(),
     });
@@ -363,8 +429,13 @@ export const apply = internalMutation({
       (r.draftReplacement && b.status !== "pending_payment")
     )
       return { closed: true };
+    const creditReservation=r.creditOptIn?await reservationForOperation(ctx,"addition",String(r._id)):null;
+    const grossPence=Math.round(((r.draftReplacement?r.baseTotal??0:0)+r.lineTotal+r.securityCharge+(r.membershipFee??0))*100);
+    if(r.creditOptIn&&(!creditReservation||creditReservation.state!=="reserved"&&creditReservation.state!=="consumed"||creditReservation.accountId!==r.customerAccountId||creditReservation.amountPence!==r.creditAppliedPence||r.cardDuePence!==Math.max(0,grossPence-creditReservation.amountPence)))throw Error("The saved account-credit allocation no longer matches this addition.");
+    if(!r.creditOptIn&&(r.creditAppliedPence??0)!==0)throw Error("The addition has an unselected account-credit allocation.");
+    const creditOnly=!r.paymentIntentId&&r.creditOptIn&&(r.cardDuePence??1)===0&&creditReservation?.state==="reserved";
     if (
-      (!r.paymentIntentId && (!r.complimentary || r.securityCharge>0)) ||
+      (!r.paymentIntentId && (!r.complimentary || r.securityCharge>0) && !creditOnly) ||
       (!r.draftReplacement && r.holdTotal > 0 && r.status !== "held" && !canDeferAdditionSecurity(b))
     )
       throw Error(
@@ -383,22 +454,25 @@ export const apply = internalMutation({
       await assertRenterExposure(ctx, b, [...b.lineItems, line]);
       await assertRentalInventory(ctx, [...b.lineItems, line], b._id);
     } catch (e) {
-      if (/unavailable|already reserved|Inventory capacity|£15,000|replacement value|overlapping rentals/.test(String(e)))
+      if (/unavailable|already reserved|Inventory capacity|£12,000|£15,000|replacement value|overlapping rentals/.test(String(e)))
         return { closed: true };
       throw e;
     }
     const updatedValues=await replacementValues(ctx,b,[...b.lineItems,line]);
     const updatedValue=[...b.lineItems,line].reduce((sum,li)=>sum+updatedValues.find(v=>v.listingId===li.listingId)!.unitPence*li.qty,0);
     if(hasCashDepositPolicy(b.securityPolicyVersion)&&r.replacementValuePence!==updatedValue)return {closed:true};
+    if(r.creditOptIn)await consumeRentalCredit(ctx,"addition",String(r._id));
     let amendment:any;
     if(hasCashDepositPolicy(b.securityPolicyVersion)){
       if(!r.customerAcceptedAt||!r.customerAccountId||r.priorSavedCardLimit!==b.savedCardLimit||r.baseSecurity!==b.depositAmount||r.customerConsentText!==securityAmendmentConsentText(r.proposedSavedCardLimit!,b.depositAmount+r.securityCharge,b.savedCardLimit!,b.depositAmount,b.securityPolicyVersion))throw Error("The renter must accept this equipment security update first.");
       amendment={additionId:r._id,accountId:r.customerAccountId,acceptedAt:r.customerAcceptedAt,priorDeposit:b.depositAmount,depositAmount:b.depositAmount+r.securityCharge,priorLimit:b.savedCardLimit,savedCardLimit:r.proposedSavedCardLimit,consentText:r.customerConsentText,replacementValuePence:r.replacementValuePence,sessionId:r.sessionId,paymentIntentId:r.paymentIntentId,draftReplacement:!!r.draftReplacement};
     }
+    const nextPaymentLedger = !r.draftReplacement && b.itemPaymentLedger?.length === b.lineItems.length && (r.securityCharge ?? 0) === 0 && (r.membershipFee ?? 0) === 0 && (r.creditAppliedPence ?? 0) === 0 && ((r.complimentary && r.lineTotal === 0 && !r.paymentIntentId) || (!!r.paymentIntentId && r.cardPaidPence === Math.round(r.lineTotal * 100))) ? [...b.itemPaymentLedger,{listingId:line.listingId,qty:line.qty,sources:r.paymentIntentId?[{paymentIntentId:r.paymentIntentId,amountPence:r.cardPaidPence!}]:[]}] : undefined;
     const patch: any = {
       ...(amendment?{securityAmendments:[...(b.securityAmendments??[]),amendment],savedCardLimit:amendment.savedCardLimit,savedCardConsentText:amendment.consentText,laterChargeConsentAt:amendment.acceptedAt}:{}),
       replacementValues: await replacementValues(ctx, b, [...b.lineItems, line]),
       lineItems: [...b.lineItems, line],
+      ...(b.itemPaymentLedgerVersion === 1 ? {itemPaymentLedger:nextPaymentLedger,...(!nextPaymentLedger?{itemPaymentLedgerRefundIds:undefined}:{})} : {}),
       ...(r.draftReplacement && b.checkoutLineFunding ? {checkoutLineFunding:[...b.checkoutLineFunding,{listingId:line.listingId,start:line.start,end:line.end,qty:line.qty,gross:line.lineTotal,discount:0,membershipCredit:0,accountCredit:0,card:line.lineTotal}]} : {}),
       subtotal: b.subtotal + r.lineTotal,
       total: b.total + r.lineTotal + r.securityCharge,
@@ -490,7 +564,7 @@ export const recordWithdrawalRefund = internalMutation({
     const r = await ctx.db.get(args.id);
     if (!r?.withdrawalRequestedAt || r.paymentIntentId !== args.paymentIntentId) throw Error("Withdrawal payment mismatch");
     if (r.withdrawalRefundId && r.withdrawalRefundId !== args.refundId) throw Error("Withdrawal refund mismatch");
-    const expected = Math.round(((r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0)) * 100);
+    const expected = r.cardDuePence ?? Math.round(((r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0)) * 100);
     if (args.amountPence !== expected || !["pending", "requires_action", "succeeded", "failed", "canceled"].includes(args.status)) throw Error("Withdrawal refund result mismatch");
     if (r.withdrawalRefundStatus === "succeeded") return;
     await ctx.db.patch(args.id, { withdrawalRefundId: args.refundId, withdrawalRefundStatus: args.status,
@@ -528,6 +602,7 @@ export const close = internalMutation({
     if (r.status === "refunded" || r.status === "expired") return;
     if (r.securityCreationPending) throw Error("Wait for the pending security authorisation to be reconciled");
     if (r.withdrawalRequestedAt && r.paymentIntentId && (!refunded || r.withdrawalRefundStatus !== "succeeded")) throw Error("Wait for the withdrawal refund to be confirmed");
+    await releaseRentalCredit(ctx,"addition",String(r._id));
     const b = await ctx.db.get(r.bookingId);
     await ctx.db.patch(id, {
       status: refunded ? "refunded" : "expired",
@@ -588,7 +663,7 @@ export const open = internalQuery({
       ].map((status) =>
         ctx.db
           .query("rental_additions")
-          .withIndex("by_status_updated", (q) => q.eq("status", status))
+          .withIndex("by_status_recovery_updated", (q) => q.eq("status", status).eq("recoveryNeedsReview", undefined))
           .order("asc")
           .take(30),
       ),
@@ -615,15 +690,26 @@ export const customerState = query({
     if (!b.activeAdditionId) return null;
     const r = await ctx.db.get(b.activeAdditionId as Id<"rental_additions">);
     if (!r) return null;
+    const listing = await ctx.db.get(r.listingId);
     return {
       id: r._id,
       status: r.status,
       title: r.title,
       qty: r.qty,
+      imageSources: listingRentalImages(listing),
+      rentalCharge: r.lineTotal,
+      benefitSaving: r.benefitSaving ?? 0,
+      benefitLabel: r.benefitLabel ?? null,
+      existingCheckoutBalance: r.draftReplacement ? r.baseTotal ?? 0 : 0,
       amount:
         (r.draftReplacement ? (r.baseTotal ?? 0) : 0) +
         r.lineTotal +
-        r.securityCharge,
+        r.securityCharge +(r.membershipFee??0),
+      availableAccountCreditPence:!r.draftReplacement?await availableRentalCreditPence(ctx,account._id):0,
+      creditOptIn:!!r.creditOptIn,
+      draftReplacement:!!r.draftReplacement,
+      creditAppliedPence:r.creditAppliedPence??0,
+      cardDuePence:r.cardDuePence??Math.max(0,Math.round(((r.draftReplacement?(r.baseTotal??0):0)+r.lineTotal+r.securityCharge+(r.membershipFee??0))*100)-(r.creditAppliedPence??0)),
       securityCharge: r.securityCharge,
       requiresAcceptance:hasCashDepositPolicy(r.securityPolicyVersion)&&!r.customerAcceptedAt,
       securityPolicyVersion:r.securityPolicyVersion,savedCardLimit:r.proposedSavedCardLimit,depositAmount:(r.baseSecurity??0)+r.securityCharge,
@@ -633,6 +719,31 @@ export const customerState = query({
       sessionId: r.withdrawalRequestedAt ? null : r.sessionId ?? null,
       expiresAt: r.createdAt + 24 * 3600000,
     };
+  },
+});
+
+export const selectAccountCredit = internalMutation({
+  args:{token:v.string(),bookingId:v.id("bookings"),additionId:v.id("rental_additions"),expectedSessionId:v.optional(v.string())},
+  handler:async(ctx,a)=>{
+    const account=await accountForToken(ctx,a.token);if(!account)throw Error("Sign in to use account credit.");
+    const booking=await ownedBooking(ctx,account,a.bookingId),addition=await ctx.db.get(a.additionId);
+    if(!addition||booking.activeAdditionId!==addition._id||addition.bookingId!==booking._id||addition.withdrawalRequestedAt||addition.status==="applied"||addition.status==="applied_draft"||addition.draftReplacement||addition.membershipCheckoutId)throw Error("This item addition is no longer eligible for account credit.");
+    if(hasCashDepositPolicy(addition.securityPolicyVersion)&&!addition.customerAcceptedAt)throw Error("Accept the equipment security terms before choosing account credit.");
+    if(addition.paymentIntentId)throw Error("Payment has already started. The existing card payment must be resolved first.");
+    if(addition.sessionId!==a.expectedSessionId)throw Error("The payment link changed. Refresh the addition and try again.");
+    if(addition.creditOptIn){
+      if(addition.customerAccountId!==account._id)throw Error("Account-credit choice belongs to another renter.");
+      return addition;
+    }
+    if(addition.sessionCreationPending || !addition.sessionId && addition.checkoutProtocolVersion!==2)throw Error("The existing card payment is being checked. Wait for it to be resolved before choosing account credit.");
+    const requestedPence=Math.round(addition.lineTotal*100),now=Date.now();
+    if(!Number.isSafeInteger(requestedPence)||requestedPence<=0)throw Error("This addition has no rental charge for account credit to cover.");
+    const reservation=await reserveRentalCredit(ctx,{accountId:account._id,bookingId:booking._id,operationType:"addition",operationId:String(addition._id),requestedPence,expiresAt:addition.createdAt+24*3600000});
+    if(!reservation)throw Error("No account credit is currently available.");
+    const cardDuePence=Math.max(0,Math.round((addition.lineTotal+addition.securityCharge)*100)-reservation.amountPence);
+    const patch={creditOptIn:true,creditReservationId:reservation._id,creditAppliedPence:reservation.amountPence,cardDuePence,customerAccountId:account._id,checkoutProtocolVersion:2,sessionCreationPending:false,sessionId:undefined,paymentUrl:undefined,updatedAt:now};
+    await ctx.db.patch(addition._id,patch);
+    return {...addition,...patch};
   },
 });
 

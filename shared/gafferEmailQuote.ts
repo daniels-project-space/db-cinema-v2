@@ -16,7 +16,13 @@ export type GafferEmailQuote = {
   availabilityWindow?: { pickupTime: string; returnTime: string; suggested: true };
   requirementsComplete: boolean;
   complete: boolean;
+  /** Equipment before the same-day fee, retained for a clear price breakdown. */
+  equipmentTotal?: number;
+  /** 10% surcharge applied only to equipment picked up today in London. */
+  sameDayFee?: number;
   total: number | null;
+  /** One checkout-aligned rental benefit for this signed-in quote; account credit stays separate. */
+  memberBenefit?: { kind: "weekend" | "loyalty"; label: string; saving: number; total: number; equipmentTotal?: number; sameDayFee?: number };
   /** A separately quoted, live-checked optional addition; never included in total. */
   recommendedAddOn?: {
     listingId: string;
@@ -138,6 +144,21 @@ export function minimumRentalNextStep(quote: GafferEmailQuote): string {
   return "Would another date or a different item work?";
 }
 
+export function gafferQuotePriceBreakdown(quote: GafferEmailQuote): string {
+  const member = quote.memberBenefit;
+  if (member && member.sameDayFee && member.sameDayFee > 0) {
+    const equipment = member.equipmentTotal ?? (quote.equipmentTotal ?? 0) - member.saving;
+    return `£${equipment.toFixed(2)} equipment after ${member.label} (£${member.saving.toFixed(2)}) + £${member.sameDayFee.toFixed(2)} same-day fee = £${member.total.toFixed(2)}`;
+  }
+  if (!member && quote.sameDayFee && quote.sameDayFee > 0 && quote.total !== null) {
+    const equipment = quote.equipmentTotal ?? quote.total - quote.sameDayFee;
+    return `£${equipment.toFixed(2)} equipment + £${quote.sameDayFee.toFixed(2)} same-day fee = £${quote.total.toFixed(2)}`;
+  }
+  const total = member?.total ?? quote.total;
+  if (total === null) return "";
+  return `£${total.toFixed(2)}`;
+}
+
 /** Build only a fully checked proposal; opening the link is not a reservation. */
 export function minimumRentalBasketLines(quote: GafferEmailQuote): { listingId: string; start: number; end: number; pickupTime: string; returnTime: string }[] | null {
   const validTime = (value?: string) => typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
@@ -256,9 +277,14 @@ export function gafferEmailQuoteIntro(quote: GafferEmailQuote): string {
   });
   const period = quote.start === quote.end ? date(quote.start) : date(quote.start) + " to " + date(quote.end);
   const duration = quote.days + " rental day" + (quote.days === 1 ? "" : "s");
-  const price = quote.total === null ? "" : quote.timeWindowPricingConservative
-    ? " The maximum gear hire cost across those time windows is £" + quote.total.toFixed(2) + " for " + duration + "; the final amount may be lower once the exact times are set."
-    : " Gear hire is £" + quote.total.toFixed(2) + " for " + duration + ".";
+  const quotedTotal = quote.memberBenefit?.total ?? quote.total;
+  const memberSaving = quote.memberBenefit
+    ? ` This includes one ${quote.memberBenefit.label} saving of £${quote.memberBenefit.saving.toFixed(2)}; no member benefits are stacked.`
+    : "";
+  const priceBreakdown = gafferQuotePriceBreakdown(quote);
+  const price = quotedTotal === null ? "" : quote.timeWindowPricingConservative
+    ? " The maximum gear hire cost across those time windows is " + priceBreakdown + " for " + duration + "; the final amount may be lower once the exact times are set." + (quote.sameDayFee ? "" : memberSaving)
+    : " Gear hire is " + priceBreakdown + " for " + duration + "." + (quote.sameDayFee ? "" : memberSaving);
   const timeWindow = quote.timeWindowPricingConservative
     ? " I checked " +
       (quote.pickupTimeWindow ? "the pickup window (" + quote.pickupTimeWindow.from + "–" + quote.pickupTimeWindow.to + ")" : "pickup at " + quote.pickupTime) +
@@ -284,7 +310,8 @@ export function gafferEmailQuoteIntro(quote: GafferEmailQuote): string {
     const otherRequests = quote.requests.filter(request => !request.minimumRentalOffer);
     const otherConfirmed = otherRequests.filter(request => request.fulfilled !== null && request.fulfilled > 0).map(count);
     const otherStatus = otherConfirmed.length ? `For the other gear, I can supply ${otherConfirmed.join("; ")}. ` : "";
-    const basePrice = quote.total !== null ? ` Gear hire for the confirmed items is ${quote.timeWindowPricingConservative ? "up to " : ""}£${quote.total.toFixed(2)} for ${duration}.` : "";
+    const baseTotal = quote.memberBenefit?.total ?? quote.total;
+    const basePrice = baseTotal !== null ? ` Gear hire for the confirmed items is ${quote.timeWindowPricingConservative ? "up to " : ""}£${baseTotal.toFixed(2)} for ${duration}.${quote.memberBenefit ? ` This includes one ${quote.memberBenefit.label} saving of £${quote.memberBenefit.saving.toFixed(2)}; no member benefits are stacked.` : ""}` : "";
     const combined = minimumRentalCombinedTotal(quote);
     const combinedPrice = combined !== null && quote.total !== null ? ` Together, gear hire would be ${quote.timeWindowPricingConservative ? "up to " : ""}£${combined.toFixed(2)}.` : "";
     return otherStatus + offers.join(" ") + timeWindow + basePrice + combinedPrice + " " + minimumRentalNextStep(quote);
@@ -323,7 +350,8 @@ export function gafferEmailQuoteIntro(quote: GafferEmailQuote): string {
           ? "stock not verified for " + request.quantity + " × " + name(request)
           : request.fulfilled + " of " + request.quantity + " requested " + name(request)).join("; ");
     const lead = quote.complete ? "I can quote " + requested : "The date-only check covers " + coverage;
-    const estimate = quote.total === null ? "" : " Indicative gear hire is £" + quote.total.toFixed(2) + " for " + duration + ".";
+    const estimateTotal = quote.memberBenefit?.total ?? quote.total;
+    const estimate = estimateTotal === null ? "" : " Indicative gear hire is £" + estimateTotal.toFixed(2) + " for " + duration + "." + memberSaving;
     return lead + " for " + period + "." + estimate + " A possible window is pickup at " + quote.availabilityWindow.pickupTime +
       " and return at " + quote.availabilityWindow.returnTime + ". Would that suit? I'll confirm availability once you confirm those times.";
   }

@@ -20,6 +20,9 @@ import {
 } from "../../../shared/membershipSelection";
 import { getSessionId } from "@/lib/session";
 import { switchCartSet, addCartReplacement } from "../../../shared/cartReplacementSet";
+import { dateOnlyCartEntry } from "../../../shared/cartEntry";
+import { CHECKOUT_ACCESSORY_OFFER } from "../../../shared/checkoutAccessoryOffer";
+import { applySharedTimePair } from "../../../shared/checkoutTimeSelection";
 
 export type CartItem = {
   key: string;
@@ -49,9 +52,13 @@ type CartCtx = {
   switchSet: (expected: string, keys: string[], replacements: Omit<CartItem, "key">[]) => void;
   addReplacement: (expected: string, sourceKey: string, replacement: Omit<CartItem, "key">) => void;
   duplicateItem: (key: string) => void;
-  updateDates: (key: string, start: string, end: string, total: number, pickupTime?: string, returnTime?: string, notice?: string) => void;
+  updateDates: (key: string, start: string, end: string, total: number, pickupTime?: string, returnTime?: string, notice?: string, options?: { preserveMembership?: boolean }) => void;
+  updateAllTimes: (pickupTime: string, returnTime: string, totals: number[], notice?: string) => void;
   shiftItemDates: (key: string, expectedBasketKeys: string[], expected: { start: string; end: string; pickupTime?: string; returnTime?: string }, start: string, end: string, total: number, pickupTime: string, returnTime: string, notice: string) => void;
   recoveryError: string | null;
+  recoveryFollowupConsent: boolean;
+  recoveryFollowupConsentReady: boolean;
+  setRecoveryFollowupConsent: (enabled: boolean) => void;
   remove: (key: string) => void;
   clear: () => void;
   has: (listingId: string) => boolean;
@@ -72,6 +79,15 @@ const Ctx = createContext<CartCtx | null>(null);
 const KEY = "dbc_cart_v1";
 const PKEY = "dbc_promo_v1";
 const MKEY = "dbc_membership_selection_v1";
+
+function recoveryBasketKey(lines: Array<{ listingId: string; start: number; end: number; qty: number }>) {
+  const counts = new Map<string, number>();
+  for (const line of lines) {
+    const key = `${line.listingId}|${line.start}|${line.end}`;
+    counts.set(key, (counts.get(key) ?? 0) + line.qty);
+  }
+  return JSON.stringify([...counts].sort(([left], [right]) => left.localeCompare(right)));
+}
 
 function daysForCartSelection(start: string, end: string, pickupTime?: string, returnTime?: string) {
   // Keep invalid same-day choices editable and reload-safe; checkout still
@@ -100,9 +116,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<string | null>(null);
   const track = useMutation(api.analytics.track);
   const account = useAccount();
-  const syncRecovery = useMutation(api.checkoutRecovery.sync);
-  const [recoveryError, setRecoveryError] = useState<string | null>(null);
-  const hadBasket = useRef({ token: "", value: false });
   const recoveryLines = JSON.stringify(
     items.map((i) => ({
       listingId: i.listingId,
@@ -111,19 +124,59 @@ export function CartProvider({ children }: { children: ReactNode }) {
       qty: 1,
     })),
   );
+  const syncRecovery = useMutation(api.checkoutRecovery.sync);
+  const currentRecovery = useQuery(api.checkoutRecovery.mine, account.token && account.me ? { token: account.token } : "skip");
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [recoveryConsentOverride, setRecoveryConsentOverride] = useState<boolean | null>(null);
+  const recoveryMatchesBasket = Boolean(currentRecovery && items.length && recoveryBasketKey(currentRecovery.lines) === recoveryBasketKey(JSON.parse(recoveryLines)));
+  const recoveryFollowupConsent = recoveryConsentOverride ?? Boolean(recoveryMatchesBasket && currentRecovery?.emailFollowupConsentAt && currentRecovery.followupStage !== "complete");
+  const recoveryFollowupConsentReady = Boolean(account.token && account.me && currentRecovery !== undefined);
+  const hadBasket = useRef({ token: "", value: false });
+  useEffect(() => {
+    setRecoveryConsentOverride(null);
+  }, [account.token]);
+
+  useEffect(() => {
+    const remotelyEnabled = Boolean(recoveryMatchesBasket && currentRecovery?.emailFollowupConsentAt && currentRecovery.followupStage !== "complete");
+    if (recoveryConsentOverride !== null && currentRecovery !== undefined && remotelyEnabled === recoveryConsentOverride)
+      setRecoveryConsentOverride(null);
+  }, [currentRecovery, recoveryConsentOverride, recoveryMatchesBasket]);
+
+  const setRecoveryFollowupConsent = useCallback((enabled: boolean) => {
+    setRecoveryConsentOverride(enabled);
+    setRecoveryError(null);
+  }, []);
+
   useEffect(() => {
     if (!hydrated || !account.token || !account.me) return;
     if (hadBasket.current.token !== account.token)
       hadBasket.current = { token: account.token, value: false };
-    if (!items.length && !hadBasket.current.value) return;
     if (items.length) hadBasket.current.value = true;
+    if (currentRecovery === undefined) return;
+    if (!items.length) {
+      if (!hadBasket.current.value) return;
+      hadBasket.current.value = false;
+      setRecoveryConsentOverride(false);
+      void syncRecovery({ token: account.token, lines: [], emailFollowupConsent: false })
+        .then(() => setRecoveryError(null))
+        .catch(() => {
+          hadBasket.current.value = true;
+          setRecoveryConsentOverride(null);
+          setRecoveryError("Could not stop basket reminders. Please try again.");
+        });
+      return;
+    }
+    if (!recoveryFollowupConsent && (!currentRecovery?.emailFollowupConsentAt || currentRecovery.followupStage === "complete")) return;
     let lastActivitySync = 0;
     let timer: ReturnType<typeof setTimeout>;
     const save = () => {
       lastActivitySync = Date.now();
-      void syncRecovery({ token: account.token!, lines: JSON.parse(recoveryLines) })
+      void syncRecovery({ token: account.token!, lines: JSON.parse(recoveryLines), emailFollowupConsent: recoveryFollowupConsent })
         .then(() => setRecoveryError(null))
-        .catch(() => setRecoveryError("Could not save your basket for later. Check the rental dates or try again."));
+        .catch(() => {
+          setRecoveryConsentOverride(null);
+          setRecoveryError("Could not save your basket for later. Check the rental dates or try again.");
+        });
     };
     timer = setTimeout(save, 700);
     const activity = () => {
@@ -138,7 +191,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("pointerdown", activity);
       window.removeEventListener("keydown", activity);
     };
-  }, [hydrated, account.token, account.me, recoveryLines, syncRecovery]);
+  }, [hydrated, account.token, account.me, recoveryLines, syncRecovery, currentRecovery, recoveryFollowupConsent]);
   const replace = useCallback((next: CartItem[]) => {
     setItems(next);
     setPromoState(null);
@@ -210,11 +263,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const add = useCallback(
     (item: Omit<CartItem, "key">) => {
-      const key = `${item.listingId}|${item.start}|${item.days}|${item.offerType ?? ""}|${item.pickupTime??""}|${item.returnTime??""}`;
+      const dateOnlyItem: Omit<CartItem, "key"> = item.offerType === CHECKOUT_ACCESSORY_OFFER ? item : dateOnlyCartEntry(item);
+      const key = `${dateOnlyItem.listingId}|${dateOnlyItem.start}|${dateOnlyItem.days}|${dateOnlyItem.offerType ?? ""}|${dateOnlyItem.pickupTime ?? ""}|${dateOnlyItem.returnTime ?? ""}`;
       setItems((prev) =>
-        prev.some((p) => p.listingId === item.listingId && p.start === item.start && p.end === item.end && p.pickupTime === item.pickupTime && p.returnTime === item.returnTime && p.offerType === item.offerType)
+        prev.some((p) => p.listingId === item.listingId && p.start === item.start && p.end === item.end && p.offerType === item.offerType && p.pickupTime === dateOnlyItem.pickupTime && p.returnTime === dateOnlyItem.returnTime)
           ? prev
-          : [...prev, { ...item, key }],
+          : [...prev, { ...dateOnlyItem, key }],
       );
       setToast(`${item.title.slice(0, 40)} added to your kit`);
       track({
@@ -269,16 +323,23 @@ export function CartProvider({ children }: { children: ReactNode }) {
     (key: string) => setItems((prev) => prev.filter((p) => p.key !== key)),
     [],
   );
-  const updateDates = useCallback((key: string, start: string, end: string, total: number, pickupTime?: string, returnTime?: string, notice?: string) => {
+  const updateDates = useCallback((key: string, start: string, end: string, total: number, pickupTime?: string, returnTime?: string, notice?: string, options?: { preserveMembership?: boolean }) => {
     const item = items.find(i => i.key === key);
     if (!item) throw Error("This item is no longer in your kit.");
     if (!dayMs(start) || !dayMs(end) || end < start || !Number.isFinite(total) || total < 0) throw Error("Invalid rental dates or price.");
     if (items.some(i => i.key !== key && i.listingId === item.listingId && i.start === start && i.end === end && i.pickupTime===pickupTime && i.returnTime===returnTime && i.offerType === item.offerType)) throw Error("This item is already in your kit for those dates.");
     const days = daysForCartSelection(start, end, pickupTime, returnTime);
     setItems(prev => prev.map(i => i.key === key ? { ...i, key: `${i.listingId}|${start}|${days}|${i.offerType ?? ""}|${pickupTime??""}|${returnTime??""}`, start, end, pickupTime, returnTime, days, total, perDay: Math.round(total / days * 100) / 100 } : i));
-    if(start!==item.start||end!==item.end)setMembership(null);
+    if((start!==item.start||end!==item.end)&&!options?.preserveMembership)setMembership(null);
     setToast(notice ?? (start===item.start&&end===item.end?"Collection times saved":"Rental dates and price updated"));
   }, [items]);
+  const updateAllTimes = useCallback((pickupTime: string, returnTime: string, totals: number[], notice?: string) => {
+    const current = latestItems.current;
+    const next = applySharedTimePair(current, totals, pickupTime, returnTime);
+    latestItems.current = next;
+    setItems(next);
+    setToast(notice ?? `All items set to ${pickupTime} pickup and ${returnTime} return`);
+  }, []);
   const shiftItemDates = useCallback((key: string, expectedBasketKeys: string[], expected: { start: string; end: string; pickupTime?: string; returnTime?: string }, start: string, end: string, total: number, pickupTime: string, returnTime: string, notice: string) => {
     const current = latestItems.current;
     if (current.length !== expectedBasketKeys.length || current.some((item, index) => item.key !== expectedBasketKeys[index]))
@@ -310,7 +371,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   );
 
   const subtotal = items.reduce((n, i) => n + i.total, 0);
-  const eligibleSubtotal = subtotal;
+  const eligibleSubtotal = items.reduce((sum,item)=>sum+(item.offerType===CHECKOUT_ACCESSORY_OFFER?0:item.total),0);
   const depositTotal = items.reduce((n, i) => n + i.deposit, 0);
 
   return (
@@ -322,12 +383,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
         add,
         replace,
         updateDates,
+        updateAllTimes,
         shiftItemDates,
         switchItem,
         switchSet,
         addReplacement,
         duplicateItem,
         recoveryError,
+        recoveryFollowupConsent,
+        recoveryFollowupConsentReady,
+        setRecoveryFollowupConsent,
         remove,
         clear,
         has,

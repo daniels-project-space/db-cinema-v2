@@ -1,0 +1,43 @@
+const assert=require('node:assert/strict');
+const harness=require('./lib/rentalTestHarness.cjs');
+const queuedEmails=[];
+const systemUpdates=[];
+const managerSyncs=[];
+harness.setMock('./lib/rentalExposure',{attachRenterPerson:async()=>{},assertRenterExposure:async()=>{},renterExposure:async()=>{},replacementValues:async()=>{}});
+harness.setMock('./verificationArchive',{queueVerificationArchive:async()=>{},assertVerificationArchive:async()=>{}});
+harness.setMock('./lib/restrictedIdentityMatch',{sameAccountApprovedDiditSource:async()=>null,notifyRestrictedIdentityMatch:async()=>false,queueRestrictedIdentityCheck:async()=>{}});
+harness.setMock('./lib/verificationArchiveLink',{retainVerificationArchiveLink:async()=>{}});
+harness.setMock('./lib/verificationReuse',{verificationUpdateMessage:async(_ctx,bookingId,previous,status)=>systemUpdates.push({bookingId,previous,status})});
+harness.setMock('./lib/rentalAccount',{accountForRental:async()=>null});
+harness.setMock('./lib/rmv2SyncQueue',{queueRmv2Sync:async(_ctx,bookingId)=>managerSyncs.push(bookingId)});
+harness.setMock('./lib/rentalEmailQueue',{queueRentalEmail:async(_ctx,bookingId,kind,detail)=>queuedEmails.push({bookingId,kind,detail})});
+process.env.ADMIN_TOKEN='fresh-verification-admin-fixture';
+const bookings=harness.load('convex/bookings.ts');
+const now=Date.now();
+const booking=harness.put('bookings',{_id:'legacy-rental-needs-fresh-didit',status:'confirmed',verificationProvider:'stripe',idVerifyStatus:'verified',idVerificationSource:'manual',guestEmail:'legacy-renter@example.invalid',stripeIdentitySessionId:'stale-stripe-identity-session',diditSessionId:'old-didit-session',diditEventId:'old-event',diditEventAt:now-1000,diditSessionApprovalSeen:true,diditSessionApprovedAt:now-2000,diditDecisionAt:now-3000,diditManualDecisionAt:now-4000,diditReconciledAt:now-5000,diditRetryWindowAt:now-6000,diditRetryAttempts:2,diditReviewClaim:{requestId:'stale-review',sessionId:'old-didit-session',decision:'approve',startedAt:now-1000},verificationInProgressFrom:'another-booking',idVerifiedAt:now-7000,verificationExpiresAt:now+86400000,documentExpiresAt:now+30*86400000,verificationChecks:{identity:'approved',selfie:'approved',address:'approved'},lineItems:[]});
+const ctx={db:harness.db,scheduler:{runAfter:async()=>{}}};
+const reset=()=>({idVerifyStatus:booking.idVerifyStatus,provider:booking.verificationProvider,session:booking.diditSessionId,checks:booking.verificationChecks});
+(async()=>{
+  const before=reset();
+  await assert.rejects(bookings.adminRequireReverification.handler(ctx,{token:'wrong',bookingId:booking._id,note:'Start a complete new verification'}),/unauthorized/);
+  await assert.rejects(bookings.adminRequireReverification.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:booking._id,note:'retry'}),/recorded reason/);
+  assert.deepEqual(reset(),before,'unauthorized and incomplete requests leave the rental unchanged');
+
+  await bookings.adminRequireReverification.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:booking._id,note:'Identity details need a complete fresh check'});
+  assert.equal(booking.status,'confirmed','the rental remains booked during re-verification');
+  assert.equal(booking.idVerifyStatus,'requires_input');
+  assert.equal(booking.verificationProvider,'didit','legacy/manual bookings are routed to the provider the renter flow actually opens');
+  assert.equal(booking.verificationFreshRequired,true,'a prior valid account badge cannot silently satisfy this required full re-check');
+  assert.equal(booking.diditSessionId,undefined,'the stale provider session cannot be reused');
+  assert.equal(booking.verificationChecks,undefined,'old green check labels are removed');
+  for(const key of ['idVerifiedAt','verificationExpiresAt','documentExpiresAt','idVerificationSource','diditEventId','diditEventAt','diditSessionApprovalSeen','diditSessionApprovedAt','diditDecisionAt','diditManualDecisionAt','diditReconciledAt','diditRetryWindowAt','diditRetryAttempts','diditReviewClaim','verificationInProgressFrom','stripeIdentitySessionId'])
+    assert.equal(booking[key],undefined,`${key} is reset so the previous check cannot leak into the new one`);
+  assert.match(booking.verificationNote,/Identity details need a complete fresh check/);
+  assert.deepEqual(queuedEmails,[{bookingId:booking._id,kind:'verification',detail:{verificationStatus:'requires_input'}}],'the central email pipeline notifies the booking owner with the secure in-app verification link');
+  assert.deepEqual(systemUpdates,[{bookingId:booking._id,previous:'verified',status:'requires_input'}],'the rental chat receives one verification update');
+  assert.deepEqual(managerSyncs,[booking._id],'Rental Manager receives the corresponding verification state');
+  const audit=(harness.tables.get('admin_audit_log')??[]).filter(row=>row.fn==='bookings.adminRequireReverification').at(-1);
+  assert.equal(audit.entityId,booking._id);
+  assert.equal(audit.reason,'Identity details need a complete fresh check');
+  console.log('PASS forced re-verification: admin-authenticated fresh Didit route, stale status cleared, reuse prevented, renter email/chat queued and Rental Manager synced. Fixtures only.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

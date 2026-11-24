@@ -28,14 +28,16 @@ import { tierByKey, TIERS } from "@/lib/membership";
 import { AccentPicker } from "@/components/AccentPicker";
 import { CollectiveProfile } from "@/components/account/CollectiveProfile";
 import { RenterNotificationBell } from "@/components/account/RenterNotificationBell";
+import { GuestChatHandoff } from "@/components/account/GuestChatHandoff";
 import { RenterOverview } from "@/components/account/RenterOverview";
 import { RentalCalendar } from "@/components/account/RentalCalendar";
-import { ShootLists } from "@/components/plans/ShootLists";
 import { AvatarUpload } from "@/components/account/AvatarUpload";
 import { ManagementShell } from "@/components/management/ManagementShell";
 import { InvoiceLibrary } from "@/components/management/InvoiceLibrary";
-import { accountAuthErrorMessage } from "../../../shared/accountAuth";
+import { ACCOUNT_AUTH_MESSAGES, accountAuthErrorMessage } from "../../../shared/accountAuth";
 import { PrivatePortraitPreference } from "@/components/account/PrivatePortraitPreference";
+import { useCreditBalance } from "@/components/account/useCreditBalance";
+import { legalVersionForPolicy, CURRENT_PRIVACY_NOTICE_VERSION } from "../../../shared/legalVersioning";
 
 export default function AccountPage() {
   const account = useAccount();
@@ -50,7 +52,7 @@ export default function AccountPage() {
     );
   return (
     <>
-      {account.me ? <Dashboard /> : <><SiteHeader /><main className="section-window mx-auto max-w-5xl px-6 py-12"><AuthForm /></main></>}
+      {account.me ? <><Dashboard /><GuestChatHandoff key={account.token!} token={account.token!} email={account.me.email} /></> : <><SiteHeader /><main className="section-window mx-auto max-w-5xl px-6 py-12"><AuthForm /></main></>}
     </>
   );
 }
@@ -58,11 +60,16 @@ export default function AccountPage() {
 function AuthForm() {
   const account = useAccount();
   const requestSignIn = useAction(api.accountAccess.requestSignIn);
-  const [linkSent, setLinkSent] = useState(false);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const accountPolicy = useQuery(api.settings.get, mode === "signup" ? {} : "skip");
+  const termsVersion = accountPolicy ? legalVersionForPolicy(accountPolicy) : null;
+  const [linkSent, setLinkSent] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [termsAndPrivacyAcknowledged, setTermsAndPrivacyAcknowledged] = useState(false);
+  const [acceptedTermsVersion, setAcceptedTermsVersion] = useState<string | null>(null);
+  const [termsNeedReacknowledgement, setTermsNeedReacknowledgement] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resetHref, setResetHref] = useState("/account/setup?purpose=reset");
@@ -72,12 +79,30 @@ function AuthForm() {
     if (params.get("next") === "verification" && rental)
       setResetHref(`/account/setup?purpose=reset&next=verification&rental=${encodeURIComponent(rental)}`);
   }, []);
+  const termsConsentCurrent = mode !== "signup" || (!!termsVersion && termsAndPrivacyAcknowledged && acceptedTermsVersion === termsVersion);
 
-  function accessReturn() {
+  function requireCurrentTermsAcknowledgement() {
+    setTermsAndPrivacyAcknowledged(false);
+    setAcceptedTermsVersion(null);
+    setTermsNeedReacknowledgement(true);
+    setErr(ACCOUNT_AUTH_MESSAGES.SIGNUP_TERMS_UPDATED);
+  }
+
+  useEffect(() => {
+    if (mode === "signup" && acceptedTermsVersion && termsVersion && acceptedTermsVersion !== termsVersion) {
+      setTermsAndPrivacyAcknowledged(false);
+      setAcceptedTermsVersion(null);
+      setTermsNeedReacknowledgement(true);
+      setErr(ACCOUNT_AUTH_MESSAGES.SIGNUP_TERMS_UPDATED);
+    }
+  }, [mode, acceptedTermsVersion, termsVersion]);
+
+  function authReturn() {
     const params = new URLSearchParams(window.location.search);
     const bookingId = params.get("rental");
     if (params.get("review") === "1" && bookingId) return { next: "review" as const, bookingId: bookingId as Id<"bookings"> };
     if (params.get("next") === "verification" && bookingId) return { next: "verification" as const, bookingId: bookingId as Id<"bookings"> };
+    if (window.location.hash.toLowerCase() === "#chat") return bookingId ? {next:"chat" as const,bookingId:bookingId as Id<"bookings">} : {next:"chat" as const};
     return {};
   }
 
@@ -87,24 +112,37 @@ function AuthForm() {
     const submittedEmail = String(values.get("email") ?? "").trim();
     const submittedPassword = String(values.get("password") ?? "");
     const submittedName = String(values.get("name") ?? "").trim();
+    const acceptedLegalTerms = values.get("termsAndPrivacyAcknowledged") === "on";
     setEmail(submittedEmail);
     setPassword(submittedPassword);
     setBusy(true);
     setErr(null);
     try {
       if (mode === "signup") {
-        const target = accessReturn();
-        await account.signUp(submittedEmail, submittedPassword, submittedName || undefined, target.next, target.bookingId);
+        if (!acceptedLegalTerms || !termsVersion || acceptedTermsVersion !== termsVersion) {
+          if (acceptedTermsVersion && termsVersion && acceptedTermsVersion !== termsVersion) requireCurrentTermsAcknowledgement();
+          else setErr(!termsVersion ? "The current terms are still loading. Please try again." : "Please agree to the Terms and Conditions and read the Privacy Notice.");
+          return;
+        }
+        const target = authReturn();
+        await account.signUp(submittedEmail, submittedPassword, submittedName || undefined, target.next, target.bookingId, { termsVersion, privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION });
         setLinkSent(true);
       }
       else await account.signIn(submittedEmail, submittedPassword);
     } catch (e: unknown) {
+      const errorCode = e && typeof e === "object" && "data" in e ? (e as any).data?.code : undefined;
+      if (mode === "signup" && errorCode === "SIGNUP_TERMS_UPDATED") requireCurrentTermsAcknowledgement();
       setErr(accountAuthErrorMessage(e, mode === "signup"
         ? "We couldn't create your account right now. Please try again."
         : "We couldn't sign you in right now. Please try again or request an email sign-in link."));
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleGoogleError(message: string, code?: string) {
+    setErr(message);
+    if (mode === "signup" && code === "SIGNUP_TERMS_UPDATED") requireCurrentTermsAcknowledgement();
   }
 
   return (
@@ -119,13 +157,22 @@ function AuthForm() {
       <p className="mt-2 text-sm text-white/40">
         {mode === "signup" ? "Already have one? " : "New here? "}
         <button
-          onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setErr(null); setLinkSent(false); }}
+          onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setTermsAndPrivacyAcknowledged(false); setAcceptedTermsVersion(null); setTermsNeedReacknowledgement(false); setErr(null); setLinkSent(false); }}
           className="text-accent-400 underline-offset-2 hover:underline"
         >
           {mode === "signup" ? "Sign in" : "Create one"}
         </button>
       </p>
-      {mode === "signup" && <p className="mt-4 rounded-xl border border-accent-400/15 bg-accent-400/5 px-4 py-3 text-xs leading-relaxed text-white/65">Create an account to reuse a fully approved ID and proof-of-address check for eligible rentals starting within 90 days. We show a verified badge only while your details, ID and saved documents remain valid and accessible; otherwise, we’ll ask you to verify again. Files are kept through an active rental and for 90 days after it closes, or longer while a case is open.</p>}
+      {mode === "signup" && <details data-testid="account-verification-retention" className="group mt-4 rounded-2xl border border-accent-400/15 bg-white/[0.025] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-white/75 [&::-webkit-details-marker]:hidden">
+          <span>Verification &amp; file retention</span>
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-accent-300/20 bg-accent-300/5 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-accent-200/80">90 days <span aria-hidden="true" className="transition-transform group-open:rotate-180">⌄</span></span>
+        </summary>
+        <div className="mt-2 space-y-2 border-t border-white/10 pt-2 text-xs leading-relaxed text-white/60">
+          <p>Didit approval lasts 90 days if your details stay current. Files stay during rentals and for 90 days after rental closure.</p>
+          <p>Open cases extend retention to 90 days after closure. Restrictions do not extend it.</p>
+        </div>
+      </details>}
       <form className="mt-6 flex flex-col gap-3" onSubmit={e => { e.preventDefault(); if (!busy) void go(new FormData(e.currentTarget)); }}>
         {mode === "signup" && (
           <input
@@ -154,28 +201,35 @@ function AuthForm() {
         <input
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password (6+ chars)"
+          placeholder={mode === "signup" ? "Password (8+ chars)" : "Password"}
           type="password"
           aria-label="Password"
           name="password"
+          minLength={mode === "signup" ? 8 : undefined}
+          maxLength={256}
           autoComplete={mode === "signup" ? "new-password" : "current-password"}
           required
           className="input"
         />
+        {mode === "signup" && <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.025] px-3 py-3 text-xs leading-5 text-white/65">
+          <input name="termsAndPrivacyAcknowledged" type="checkbox" checked={termsAndPrivacyAcknowledged && acceptedTermsVersion === termsVersion} onChange={e => { const checked=e.target.checked; setTermsAndPrivacyAcknowledged(checked); setAcceptedTermsVersion(checked ? termsVersion : null); if (checked) { setTermsNeedReacknowledgement(false); setErr(null); } }} disabled={!termsVersion} required className="mt-1 h-4 w-4 shrink-0 accent-[#c49a6c]" />
+          <span>I agree to the current <Link href={termsVersion ? `/legal/terms?version=${encodeURIComponent(termsVersion)}` : "/legal/terms"} target="_blank" rel="noreferrer" className="text-accent-300 underline underline-offset-2">Terms and Conditions</Link> and acknowledge the <Link href="/legal/privacy" target="_blank" rel="noreferrer" className="text-accent-300 underline underline-offset-2">Privacy Notice</Link>.</span>
+        </label>}
+        {mode === "signup" && termsNeedReacknowledgement && <p role="status" data-testid="signup-terms-reacknowledgement" className="rounded-lg border border-amber-300/20 bg-amber-300/5 px-3 py-2 text-xs text-amber-100/80">Review the updated Terms and Privacy Notice, then tick the box again.</p>}
         {err && (
           <div role="alert" className="rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">
             {err}
           </div>
         )}
-        <button type="submit" disabled={busy} className="btn-primary py-3">
+        <button type="submit" disabled={busy || (mode === "signup" && !termsConsentCurrent)} className="btn-primary py-3">
           {busy ? "…" : mode === "signup" ? "Create account" : "Sign in"}
         </button>
         {mode === "signup" && linkSent && <p role="status" className="text-xs text-accent-300">Check your email to confirm account creation and activate your password. Private rentals stay locked until then.</p>}
-        <GoogleSignIn onError={setErr} />
+        <GoogleSignIn onError={handleGoogleError} requireTermsAcceptance={mode === "signup"} termsAcceptance={mode === "signup" && termsConsentCurrent ? { termsVersion: termsVersion!, privacyNoticeVersion: CURRENT_PRIVACY_NOTICE_VERSION } : null} />
         {mode === "signin" && <>
           <Link href={resetHref} className="text-sm text-accent-300 hover:underline">Forgot password?</Link>
           <div className="mt-2 border-t border-white/10 pt-4 text-xs text-white/50">Booked without a password? Sign in with your rental email.</div>
-          <button type="button" className="btn-secondary py-3" disabled={busy || !email.trim()} onClick={async()=>{setBusy(true);setErr(null);setLinkSent(false);try{await requestSignIn({email,...accessReturn()});setLinkSent(true);}catch{setErr("Could not request a link. Please try again.");}finally{setBusy(false);}}}>Email me a sign-in link</button>
+          <button type="button" className="btn-secondary py-3" disabled={busy || !email.trim()} onClick={async()=>{setBusy(true);setErr(null);setLinkSent(false);try{await requestSignIn({email,...authReturn()});setLinkSent(true);}catch{setErr("Could not request a link. Please try again.");}finally{setBusy(false);}}}>Email me a sign-in link</button>
           {linkSent && <p role="status" className="text-xs text-accent-300">If an account uses this email, a private sign-in link is on its way. It expires in 15 minutes.</p>}
         </>}
       </form>
@@ -192,14 +246,59 @@ function Dashboard() {
     if (params.get("next") === "verification" && bookingId)
       window.location.replace(accountAccessDestination(bookingId, "verification"));
   }, []);
+  const creditBalance = useCreditBalance(account.token ?? null);
+  const [tab, setTab] = useState<"rentals" | "calendar" | "invoices" | "chat" | "profile">("rentals");
+  function navigateToTab(nextTab: typeof tab) {
+    setTab(nextTab);
+    if (window.location.hash !== `#${nextTab}`) window.location.hash = nextTab;
+  }
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [tab]);
   const unreadMessages =
     useQuery(
       api.rentalChat.unreadTotals,
-      account.token ? { token: account.token } : "skip",
+      account.token && tab !== "chat" ? { token: account.token } : "skip",
     ) ?? 0;
+  const availableCreditLabel = creditBalance?.accountId === String(me._id)
+    ? `£${creditBalance.available.toFixed(2)}`
+    : "£—";
+  const encoreCompleted = me.loyaltyCompleted;
+  const encoreMilestones = encoreCompleted === null ? 0 : Math.min(3, Math.max(0, encoreCompleted));
+  const encoreAssigned = me.loyaltyAdminAssigned === true;
+  const encoreHistoricalLevel = Math.min(3, Math.max(0, Number(me.loyaltyHistoricalLevel) || 0));
+  const encoreTierLevel = Math.max(encoreMilestones, encoreHistoricalLevel);
+  const encoreTierName = encoreAssigned
+    ? "Assigned access"
+    : encoreCompleted === null || encoreTierLevel === 0
+      ? "Building your Encore"
+      : `Encore ${["", "I", "II", "III"][encoreTierLevel]}`;
+  const encoreProgressLabel = encoreCompleted === null
+    ? "Progress unavailable"
+    : `${encoreMilestones} / 3 reviewed rentals`;
+  const encoreBenefitLabel = encoreAssigned
+    ? `Assigned · ${me.loyaltyPercent}% off`
+    : encoreHistoricalLevel > encoreMilestones
+      ? `Retained · ${me.loyaltyPercent}% off`
+    : encoreCompleted === null
+      ? "Encore status needs a check"
+      : `${me.loyaltyPercent}% off rentals`;
+  const encoreNextStep = encoreAssigned
+    ? "Assigned access and review-earned progress are tracked separately."
+    : encoreCompleted === null
+      ? "We’ll show your next tier when rental history is ready."
+      : encoreCompleted >= 3
+        ? "Top tier reached · no subscription needed."
+        : encoreHistoricalLevel > encoreMilestones
+          ? encoreHistoricalLevel >= 3
+            ? "Your earlier Encore III stays active. You’re already at the top tier."
+            : `Your earlier Encore ${["", "I", "II", "III"][encoreHistoricalLevel]} stays active. Honest reviews build the next level.`
+      : `Next clean rental + honest review earns ${[2, 4, 10][encoreMilestones]}% off. Every star counts; no subscription needed.`;
   const rentalPages = usePaginatedQuery(
     api.accounts.myBookingsPage,
-    account.token ? { token: account.token } : "skip",
+    account.token && ["rentals", "calendar", "invoices"].includes(tab)
+      ? { token: account.token }
+      : "skip",
     { initialNumItems: 30 },
   );
   const bookings =
@@ -212,9 +311,6 @@ function Dashboard() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false),
     [saveError, setSaveError] = useState<string | null>(null);
-  const [tab, setTab] = useState<
-    "rentals" | "calendar" | "invoices" | "chat" | "plans" | "profile" | "membership" | "security"
-  >("rentals");
   const [chatBooking, setChatBooking] = useState<string | null>(null);
 
   useEffect(() => {
@@ -232,11 +328,14 @@ function Dashboard() {
   // in your chat" — the chat is a tab, so the hash has to select it or they land
   // on Rentals wondering where the conversation went.
   useEffect(() => {
-    const openCredit=()=>{setTab("rentals");requestAnimationFrame(()=>requestAnimationFrame(()=>{const section=document.getElementById("credits") as HTMLDetailsElement|null;if(section){section.open=true;section.scrollIntoView({block:"center",behavior:"smooth"})}}))};
+    const openCredit=()=>openCreditTile();
+    const openProfileSection=(section:"membership"|"security")=>{setTab("profile");if(window.location.hash!==`#${section}`)window.location.hash=section;requestAnimationFrame(()=>requestAnimationFrame(()=>{const target=document.getElementById(`profile-${section}`) as HTMLDetailsElement|null;if(target){target.open=true;target.scrollIntoView({block:"start",behavior:"smooth"})}}))};
     const openFromHash = () => {
       const section=window.location.hash.slice(1).toLowerCase();
       if(section==="credits")openCredit();
-      if (["rentals", "calendar", "invoices", "chat", "plans", "profile", "membership", "security"].includes(section)) setTab(section as typeof tab);
+      if(section==="membership"||section==="security")openProfileSection(section);
+      else if(section==="plans")navigateToTab("rentals");
+      else if (["rentals", "calendar", "invoices", "chat", "profile"].includes(section)) setTab(section as typeof tab);
       if (window.location.hash.replace("#", "").toLowerCase() === "chat") {
         setTab("chat");
         const rental = new URLSearchParams(window.location.search).get(
@@ -247,8 +346,10 @@ function Dashboard() {
       }
     };
     openFromHash();
+    const legacyTab=new URLSearchParams(window.location.search).get("tab");
+    if(legacyTab==="membership"||legacyTab==="security")openProfileSection(legacyTab);
     const openChat = (event: Event) => {
-      setTab("chat");
+      navigateToTab("chat");
       const id = (event as CustomEvent<{ bookingId?: string }>).detail?.bookingId;
       if (id) setChatBooking(id);
     };
@@ -277,10 +378,24 @@ function Dashboard() {
     }
   }
 
+  function openCreditTile() {
+    setTab("rentals");
+    if (window.location.hash !== "#credits") window.location.hash = "credits";
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      document.getElementById("credits")?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }));
+  }
+
   return (
-    <ManagementShell role="renter" name={me.name || "My account"} title={{ rentals: "My rentals", calendar: "Rental calendar", invoices: "Invoices", chat: "Messages", plans: "Shoot lists", profile: "Profile", membership: "Membership", security: "Account security" }[tab]} subtitle="Manage your bookings, documents and conversations in one place." active={tab}
-      nav={[{ key: "rentals", label: "My rentals", icon: "rentals" }, { key: "calendar", label: "Calendar", icon: "calendar" }, { key: "chat", label: "Messages", icon: "messages", badge: unreadMessages }, { key: "invoices", label: "Invoices", icon: "documents" }, { key: "plans", label: "Shoot lists", icon: "calendar" }, { key: "membership", label: "Membership", icon: "people" }, { key: "profile", label: "Profile", icon: "people" }, { key: "security", label: "Security", icon: "settings" }]}
-      onNavigate={key => setTab(key as typeof tab)} actions={<><RenterNotificationBell token={account.token!} chatOpen={tab === "chat"}/><button onClick={() => account.signOut()} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] text-white/65">Sign out</button></>}>
+    <ManagementShell role="renter" name={me.name || "My account"} avatarUrl={me.avatarUrl} title={{ rentals: "My rentals", calendar: "Rental calendar", invoices: "Invoices", chat: "Messages", profile: "Profile" }[tab]} active={tab} breadcrumb={<><button type="button" onClick={()=>navigateToTab("rentals")}>Account</button><i aria-hidden="true">/</i><strong aria-current="page">{{rentals:"Rentals",calendar:"Calendar",invoices:"Invoices",chat:"Messages",profile:"Profile"}[tab]}</strong></>}
+      nav={[{ key: "rentals", label: "My rentals", icon: "rentals" }, { key: "calendar", label: "Calendar", icon: "calendar" }, { key: "chat", label: "Messages", icon: "messages", badge: unreadMessages }, { key: "invoices", label: "Invoices", icon: "documents" }, { key: "profile", label: "Profile", icon: "people" }]}
+      onNavigate={key => navigateToTab(key as typeof tab)} actions={<div className="flex items-center gap-1" data-testid="account-top-actions">
+        <Link href="/gear" aria-label="Browse gear" title="Browse gear" className="grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-white/[.04] text-white/65 transition hover:border-amber-100/30 hover:text-amber-100"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 7h18v13H3zM6 7l2-4h8l2 4M7 20V9m10 11V9M9 13h6"/></svg></Link>
+        <a href="/account#credits" onClick={event => { event.preventDefault(); openCreditTile(); }} aria-label={`Account credit ${availableCreditLabel} available`} title={`Account credit · ${availableCreditLabel}`} data-testid="account-credit-shortcut" className="grid h-9 min-w-9 place-items-center rounded-full border border-amber-100/20 bg-amber-100/[.06] px-1.5 text-[9px] font-semibold tabular-nums text-amber-100 transition hover:border-amber-100/40 hover:bg-amber-100/[.12]">{availableCreditLabel}</a>
+        <button type="button" onClick={()=>navigateToTab("profile")} aria-label="Open profile" title="Profile" className="grid h-9 w-9 place-items-center overflow-hidden rounded-full border border-white/10 bg-white/[.04] text-white/65 transition hover:border-amber-100/30 hover:text-amber-100"><ChatAvatar sender="renter" photo={me.avatarUrl} name={me.name || me.email} className="!h-7 !w-7 !rounded-full !bg-transparent" /></button>
+        <RenterNotificationBell token={account.token!} accountId={String(me._id)} chatOpen={tab === "chat"}/>
+        <button type="button" aria-label="Sign out" title="Sign out" data-testid="account-top-signout" onClick={() => account.signOut()} className="grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-white/[.04] text-white/55 transition hover:border-rose-200/30 hover:text-rose-100"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M10 4H5v16h5M14 8l4 4-4 4M8 12h10"/></svg></button>
+      </div>} menuActions={<button type="button" data-testid="account-menu-signout" onClick={() => account.signOut()}><svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M10 4H5v16h5M14 8l4 4-4 4M8 12h10"/></svg>Sign out</button>}>
       {/* Profile identity and account details. */}
       {tab === "profile" && <AccountProfilePill tier={me.membershipActive ? me.membershipTier : null}>
         <AccountFrame tier={me.membershipActive ? me.membershipTier : null}><ChatAvatar sender="renter" photo={me.avatarUrl} name={me.name || me.email} className="!h-12 !w-12" /></AccountFrame>
@@ -298,11 +413,6 @@ function Dashboard() {
                 ID verified
               </span>
             )}
-            {(me as any).storeCredit > 0 && (
-              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 font-medium text-amber-300">
-                £{(me as any).storeCredit} credit
-              </span>
-            )}
             {me.membershipActive && me.membershipTier && (
               <span className="rounded-full bg-accent-500/15 px-2 py-0.5 font-medium text-accent-300">
                 {tierByKey(me.membershipTier)?.name ?? me.membershipTier} member
@@ -312,70 +422,68 @@ function Dashboard() {
         </div>
       </AccountProfilePill>}
 
-      {tab === "calendar" && <div className="mt-6 max-w-3xl"><RentalCalendar bookings={bookings as any} loading={rentalPages.status !== "Exhausted"} onOpenRental={id=>{setChatBooking(id);setTab("chat");}} /></div>}
+      {tab === "calendar" && <div className="mt-6 max-w-3xl"><RentalCalendar bookings={bookings as any} loading={rentalPages.status !== "Exhausted"} onOpenRental={id=>{setChatBooking(id);navigateToTab("chat");}} /></div>}
       {tab === "invoices" && <><InvoiceLibrary rentals={bookings} token={account.token!} /><AccountCreditReceipts token={account.token!}/></>}
       {["calendar", "invoices"].includes(tab) && rentalPages.status === "CanLoadMore" && <button onClick={() => rentalPages.loadMore(30)} className="mt-5 rounded-lg border border-white/15 px-5 py-2 text-xs text-white/70">Load older rentals and documents</button>}
-      {tab === "plans" && <ShootLists />}
 
       {/* Renter overview: equipment, calendar and conversations first. */}
       {tab === "rentals" && <>
+        <section className="mt-5 grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Account benefits" data-testid="renter-benefit-tiles">
+          <article id="credits" className="group relative flex min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(ellipse_at_100%_0%,rgba(210,174,132,.12),transparent_58%),linear-gradient(145deg,rgba(255,255,255,.055),rgba(18,20,20,.96)_68%)] p-3 transition hover:border-amber-100/25" data-testid="account-credit-tile">
+            <span className="pointer-events-none absolute -right-5 -top-8 h-24 w-24 rounded-full border border-amber-100/10" aria-hidden="true" />
+            <div className="flex items-center gap-2 text-amber-100/65">
+              <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10h18M7 15h4"/></svg>
+              <p className="text-[11px] font-medium uppercase tracking-[.15em]">Account credit</p>
+            </div>
+            <p className="mt-3 font-display text-3xl leading-none text-white" data-testid="account-credit-balance">{creditBalance?.accountId === String(me._id) ? `£${creditBalance.available.toFixed(2)}` : "Loading…"}</p>
+            <p data-testid="account-credit-summary" className="mt-2 text-xs leading-4 text-white/55">Earned credit competes with other savings. Refund credit can pay the remaining balance. Check each credit’s expiry.</p>
+            <Link href="/account#invoices" className="mt-auto inline-flex min-h-8 items-end pt-3 text-xs text-amber-100/75 underline decoration-amber-100/25 underline-offset-4">History &amp; expiry <span aria-hidden="true" className="ml-1">↗</span></Link>
+          </article>
+          <article className="group relative flex min-w-0 flex-col overflow-hidden rounded-2xl border border-amber-100/15 bg-[radial-gradient(ellipse_at_100%_0%,rgba(235,199,158,.13),transparent_58%),linear-gradient(145deg,rgba(235,199,158,.06),rgba(18,20,20,.96)_68%)] p-3 transition hover:border-amber-100/30" aria-label={`Encore: ${encoreTierName}, ${encoreProgressLabel}, ${encoreBenefitLabel}`} data-testid="account-encore-tile">
+            <div className="flex items-center gap-2 text-amber-100/70"><EncoreCrest level={Math.max(1,me.loyaltyLevel)} className="h-7 w-7 shrink-0 text-amber-100/80"/><div><p className="text-[11px] font-medium uppercase tracking-[.15em]">Encore</p><p className="mt-0.5 text-[10px] text-white/55">{encoreTierName}</p></div><span className="ml-auto rounded-full border border-amber-100/15 bg-amber-100/[.06] px-2 py-1 text-[10px] font-medium text-amber-50">{me.loyaltyPercent}% off</span></div>
+            <p data-testid="account-encore-progress" className="mt-3 font-display text-lg leading-tight text-white">{encoreProgressLabel}</p>
+            <div className="mt-3 grid grid-cols-3 gap-1.5" aria-hidden="true">
+              {[0, 1, 2].map(step => <span key={step} className={`h-1.5 rounded-full ${step < encoreMilestones ? "bg-gradient-to-r from-amber-100/90 to-amber-300/70 shadow-[0_0_10px_rgba(235,199,158,.18)]" : "bg-white/10"}`} />)}
+            </div>
+            <p data-testid="account-encore-summary" className="mt-2 text-xs leading-5 text-white/55">{encoreNextStep}</p>
+            <span className="sr-only">Each separate clean, completed rental counts after you submit an honest review. Every star rating counts equally; no subscription is needed.</span>
+          </article>
+          {account.token&&<div className="min-w-0 sm:col-span-2 lg:col-span-1"><ReferralPanel token={account.token}/></div>}
+        </section>
         <RenterOverview bookings={bookings as any} token={account.token!}
           historyLoading={rentalPages.status !== "Exhausted"} unreadMessages={unreadMessages}
-          onOpenChat={id=>{setChatBooking(id??null);setTab("chat");}}
-          onOpenCalendar={()=>setTab("calendar")}/>
-        <details id="credits" className="mt-6 rounded-lg border border-white/10 bg-[#1b1c1b] p-5">
-          <summary className="cursor-pointer text-sm text-white/65">Account credit, rewards &amp; saved gear</summary>
-          <div className="mt-5 grid items-start gap-4 lg:grid-cols-3">
-              <div className="mb-4 rounded-3xl border border-white/[0.06] bg-[#141414] p-5">
-                <p className="text-xs text-white/35">Account credit</p>
-                <p className="mt-2 font-display text-2xl text-white">
-                  £{((me as any).storeCredit ?? 0).toFixed(2)}
-                </p>
-                <p className="mt-2 text-xs leading-relaxed text-white/40">
-                  Earned credit competes with other savings. Refund credit can pay the remaining balance. Check each credit’s expiry.
-                </p>
-              </div>
-              <div className="mb-4 rounded-3xl border border-amber-200/20 bg-gradient-to-br from-amber-200/[.07] to-transparent p-5">
-                <p className="font-mono text-[10px] uppercase tracking-[.25em] text-amber-200/65">Encore · returning filmmakers</p>
-                <p className="mt-2 font-display text-2xl text-white">{me.loyaltyEligible ? `${me.loyaltyPercent}% off your next story` : `${me.loyaltyCompleted} / 3 reviewed rentals`}</p>
-                <EncoreCrest level={Math.max(1,me.loyaltyLevel)} className="mx-auto mt-3 h-20 w-20 text-amber-100/65"/>
-                <p className="mt-2 text-xs leading-6 text-white/45">{me.loyaltyEligible ? me.membershipActive ? "Unlocked and saved. Your subscription and Encore price benefits do not stack." : "Applied automatically when it is your best saving. Rental charges only; delivery and security are excluded." : "After each separate clean rental, leave an honest review to earn 2%, then 4%, then 10% off rental charges. Every star rating counts equally. No subscription needed."}</p>
-                {me.loyaltyLevel<3&&<p className="mt-3 border-t border-white/10 pt-3 text-xs text-amber-100/60">{me.loyaltyCompleted} / 3 reviewed · Next: {me.loyaltyLevel===0?2:me.loyaltyLevel===1?4:10}%</p>}
-              </div>
-              {account.token&&<ReferralPanel token={account.token}/>}
-          </div>
-          <div className="mt-5"><Favourites /></div>
-          <Link href="/rental-stories" className="mt-5 inline-flex items-center gap-2 text-xs text-amber-200/80">Your set story could win £{REVIEW_PRIZE_GBP} · enter &amp; track →</Link>
-        </details>
+          onOpenChat={id=>{setChatBooking(id??null);navigateToTab("chat");}}
+          onOpenCalendar={()=>navigateToTab("calendar")}/>
+        <Favourites />
+        <Link href="/rental-stories" className="mt-5 inline-flex items-center gap-2 text-xs text-amber-200/80">Your set story could win £{REVIEW_PRIZE_GBP} · enter &amp; track →</Link>
       </>}
 
       {/* CHAT */}
       {tab === "chat" && (
         <div className="tab-in mt-6" id="renter-chat">
-          <RenterChat bookings={bookings as any} focusBookingId={chatBooking} />
+          <RenterChat focusBookingId={chatBooking} />
         </div>
       )}
 
       {/* PROFILE & SETTINGS */}
       {tab === "profile" && (
         <div className="tab-in mt-6 space-y-6">
-          <section className="rounded-3xl border border-white/[0.07] bg-[#141414] p-6">
-            <h2 className="font-display font-semibold text-white/80">
-              Profile
-            </h2>
+          <div className="grid gap-3 lg:grid-cols-2" data-testid="profile-membership-security">
+            <details id="profile-membership" className="group rounded-2xl border border-white/10 bg-[#141414] p-5" data-testid="profile-membership-settings">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm text-white/80"><span><strong className="block font-medium">Membership</strong><span className="mt-1 block text-xs text-white/45">{me.membershipActive && me.membershipTier ? `${tierByKey(me.membershipTier)?.name ?? me.membershipTier} plan` : "Plans, billing and member benefits"}</span></span><span className="text-accent-200 transition group-open:rotate-45" aria-hidden="true">＋</span></summary>
+              <div className="mt-5"><Membership /><p className="mt-4 text-xs text-white/45">Pro and Studio weekend deals apply automatically to eligible website rentals.</p></div>
+            </details>
+
+            <details id="profile-security" className="group rounded-2xl border border-white/10 bg-[#141414] p-5" data-testid="profile-security-settings">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm text-white/80"><span><strong className="block font-medium">Security &amp; privacy</strong><span className="mt-1 block text-xs text-white/45">Password, account access and private photo settings</span></span><span className="text-accent-200 transition group-open:rotate-45" aria-hidden="true">＋</span></summary>
+              <div className="mt-5 space-y-4"><AccountSecurity />{account.token && <PrivatePortraitPreference key={account.token} token={account.token} />}</div>
+            </details>
+          </div>
+
+          <section aria-label="Profile details" className="rounded-3xl border border-white/[0.07] bg-[#141414] p-6">
             <div className="mt-4">
               <AvatarUpload />
             </div>
-            {(me as any).storeCredit > 0 && (
-              <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-sm">
-                <span className="font-semibold text-amber-200">
-                  £{(me as any).storeCredit} store credit
-                </span>
-                <span className="text-amber-200/60">
-                  · applied automatically at your next checkout
-                </span>
-              </div>
-            )}
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <input
                 aria-label="Name"
@@ -440,22 +548,6 @@ function Dashboard() {
           <CollectiveProfile />
         </div>
       )}
-
-      {/* MEMBERSHIP */}
-      {tab === "membership" && (
-        <div className="tab-in mt-6 space-y-6">
-          <Membership />
-          <p className="mt-4 text-xs text-white/45">Pro and Studio weekend deals are applied automatically to eligible website rentals; no member coupon is needed.</p>
-        </div>
-      )}
-
-      {/* SECURITY */}
-      {tab === "security" && (
-        <div className="tab-in mt-6">
-          <AccountSecurity />
-          {account.token && <PrivatePortraitPreference key={account.token} token={account.token} />}
-        </div>
-      )}
     </ManagementShell>
   );
 }
@@ -466,7 +558,7 @@ function Favourites() {
   const favs =
     useQuery(api.catalog.listingsByIds, ids.length ? { ids } : "skip") ?? [];
   return (
-    <section className="mt-8">
+    <section id="favorites" className="mt-8" data-testid="renter-favourites">
       <div className="flex flex-wrap items-baseline gap-3">
         <h2 className="font-display font-semibold text-white/80">Favourites</h2>
         {ids.length > 0 && (
@@ -545,14 +637,16 @@ function AccountSecurity() {
           type="password"
           value={newp}
           onChange={(e) => setNewp(e.target.value)}
-          placeholder="New password (6+ chars)"
+          placeholder="New password (8+ chars)"
+          minLength={8}
+          maxLength={256}
           className="input"
         />
         {msg && <div className="text-xs text-emerald-300">{msg}</div>}
         {err && <div className="text-xs text-red-300">{err}</div>}
         <button
           onClick={changePw}
-          disabled={!oldp || newp.length < 6}
+          disabled={!oldp || newp.length < 8 || newp.length > 256}
           className="btn-primary w-fit px-6 py-2.5 text-sm"
         >
           Change password
