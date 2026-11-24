@@ -12,7 +12,7 @@ import { securityReturnPlan } from "./lib/rentalPaymentPlan";
 import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
 import { queueRentalEmail } from "./lib/rentalEmailQueue";
 import {assertRentalAllocation} from "./lib/rentalAllocation";
-import { stockAllocationFingerprint } from "./lib/stockAllocationFingerprint";
+import { stockAllocationFingerprint } from "../shared/stockAllocationFingerprint";
 import { bookingStockLines, londonRentalInstant, rentalWindow } from "../shared/rentalWindow";
 import { stockTimePrecision, stockWindow } from "./lib/stockWindows";
 import { CHECKOUT_CARD_HOLD_POLICY, CHECKOUT_HOLD_POLICY, PICKUP_HOLD_RENEWAL_LEAD_MS, isCheckoutHoldPolicy, isPickupHoldPolicyVersion } from "../shared/pickupSecurity";

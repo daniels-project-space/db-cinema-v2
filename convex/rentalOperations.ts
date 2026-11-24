@@ -8,7 +8,7 @@ import { schedulePickupHold } from "./pickupSecurity";
 import { bookingStockLines, londonRentalInstant, RENTAL_TIME_SLOTS, rentalWindow } from "../shared/rentalWindow";
 import { handoverScheduleFingerprint, pickupScheduleFingerprint, queueRentalEmail, refreshQueuedVerificationEmail } from "./lib/rentalEmailQueue";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
-import { stockAllocationFingerprint } from "./lib/stockAllocationFingerprint";
+import { stockAllocationFingerprint } from "../shared/stockAllocationFingerprint";
 import { accountForRental } from "./lib/rentalAccount";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { listingImages, listingRentalImages } from "./lib/catalogImages";

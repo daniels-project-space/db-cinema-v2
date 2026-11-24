@@ -1,4 +1,4 @@
-import { bookingStockLines } from "../../shared/rentalWindow";
+import { bookingStockLines } from "./rentalWindow";
 
 /** Stable fingerprint for the booking's logical lines and exact physical stock ledger. */
 export function stockAllocationFingerprint(booking: any, rows: any[]) {
