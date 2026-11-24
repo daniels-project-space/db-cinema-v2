@@ -1,6 +1,7 @@
 /** Exercise the real MIME and Gmail API transport with network calls mocked. */
 const assert = require("node:assert/strict");
 const h = require("./lib/rentalTestHarness.cjs");
+h.setMock("nodemailer", { default: require("nodemailer") });
 
 const originalFetch = global.fetch;
 const envKeys = ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GMAIL_TOKEN_ENCRYPTION_KEY"];
