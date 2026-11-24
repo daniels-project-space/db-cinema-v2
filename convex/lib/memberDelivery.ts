@@ -1,6 +1,7 @@
 import { hasFirstEligibleRentalConfirmation, membershipRentalBenefitsActiveNow, membershipTierFor } from "../../shared/membership";
 import { tierByKey } from "../../shared/membership";
 import { membershipRentalBenefitAccount } from "./rentalBenefitAccount";
+import { hasVerifiedRentalEmail } from "./rentalAccount";
 export function londonMonth(now = Date.now()) {
   const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit" }).formatToParts(now);
   return `${parts.find(p => p.type === "year")!.value}-${parts.find(p => p.type === "month")!.value}`;
@@ -15,7 +16,7 @@ export async function studioDeliveryAvailable(ctx: any, account: any, month: str
   // attached to an account; duplicate rows are harmless for this predicate.
   const [accountRentals, guestRentals] = await Promise.all([
     ctx.db.query("bookings").withIndex("by_account", (q: any) => q.eq("accountId", account._id)).collect(),
-    account.email
+    hasVerifiedRentalEmail(account)
       ? ctx.db.query("bookings").withIndex("by_guestEmail", (q: any) => q.eq("guestEmail", account.email)).collect()
       : Promise.resolve([]),
   ]);

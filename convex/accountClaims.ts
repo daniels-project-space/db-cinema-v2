@@ -3,8 +3,8 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v,ConvexError } from "convex/values";
 import { bump } from "./rateLimit";
-import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { linkVerificationCopies } from "./lib/verificationOwnership";
+import { enqueueVerifiedGuestClaims } from "./lib/guestRentalClaimQueue";
 /** Account bootstrap is allowed only when a paid booking has a complete,
  * self-consistent signed Terms + Privacy snapshot. This records the renter's
  * actual checkout acceptance; it never upgrades a historic agreement. */
@@ -104,7 +104,7 @@ export const exchange=internalMutation({args:{secretHash:v.string(),sessionToken
  const link=await ctx.db.query("account_access_links").withIndex("by_hash",q=>q.eq("secretHash",a.secretHash)).unique();if(!link||link.usedAt||link.expiresAt<=Date.now())throw new ConvexError({code:"ACCESS_LINK_EXPIRED",message:"This sign-in link has expired or has already been used."});
  const account=await ctx.db.get(link.accountId);if(!account)throw new ConvexError({code:"ACCESS_LINK_INVALID",message:"This sign-in link is no longer valid."});
  if(account.blockedAt!=null)throw new ConvexError({code:"ACCOUNT_BLOCKED",message:"Please contact DB Cinema Rentals for help with your account."});
- if(link.bookingId&&!belongsToRentalAccount(await ctx.db.get(link.bookingId),account))throw new ConvexError({code:"ACCESS_LINK_INVALID",message:"This sign-in link is no longer valid."});
+ if(link.bookingId){const booking=await ctx.db.get(link.bookingId);if(!booking || (booking.accountId ? booking.accountId!==account._id : !booking.guestEmail || booking.guestEmail.trim().toLowerCase()!==account.email.trim().toLowerCase()))throw new ConvexError({code:"ACCESS_LINK_INVALID",message:"This sign-in link is no longer valid."});}
  if(link.purpose==="signup"&&(account.emailVerifiedAt||account.hash!==link.credentialHash))throw new ConvexError({code:"ACCESS_LINK_EXPIRED",message:"This signup link is no longer valid. Request a new sign-in link."});
  if(account.emailVerificationRequired&&!account.emailVerifiedAt){
   // A rental/sign-in email proves ownership but must not activate a password
@@ -114,6 +114,7 @@ export const exchange=internalMutation({args:{secretHash:v.string(),sessionToken
  }
  const needsVerificationRecovery=!account.emailVerifiedAt||account.emailVerificationRequired;
  await ctx.db.patch(account._id,{emailVerifiedAt:Date.now(),emailVerificationRequired:false});
+ await enqueueVerifiedGuestClaims(ctx,account._id);
  if(needsVerificationRecovery){
   await ctx.scheduler.runAfter(0,internal.verificationArchive.linkVerifiedAccount,{accountId:account._id,cursor:null});
   await ctx.scheduler.runAfter(0,internal.emailInbox.linkVerifiedHistory,{accountId:account._id,cursor:null});

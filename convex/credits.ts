@@ -54,6 +54,8 @@ export const expire = internalMutation({
         ctx.db.query("bookings").withIndex("by_guestEmail_status",q=>q.eq("guestEmail",account.email).eq("status","pending_verification")).take(101),
       ]):[[],[],[],[]];
       if([linked,legacy,verifiedLinked,verifiedLegacy].some(rows=>rows.length>100))continue;
+      const operations=await ctx.db.query("rental_credit_reservations").withIndex("by_account_state",q=>q.eq("accountId",c.accountId).eq("state","reserved")).take(501);
+      if(operations.length>500||operations.some(operation=>operation.allocations.some(allocation=>allocation.creditId===c._id)))continue;
       const pending=[...linked,...legacy.filter(b=>b.accountId==null),...[...verifiedLinked,...verifiedLegacy.filter(b=>b.accountId==null)].filter(b=>b.checkoutCreditState!=="spent"&&!b.paidConfirmedAt)];
       const reserved=pending.some(b=>b._creationTime<c.expiresAt&&(b.creditAllocations?b.creditAllocations.some(a=>a.creditId===c._id&&a.amount>0):((b.creditApplied??0)-(b.membershipCreditApplied??0))>0));
       if(reserved)continue;

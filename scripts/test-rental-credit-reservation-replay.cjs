@@ -96,6 +96,16 @@ const ctx = { db };
   assert.equal((await db.get(splitReservation._id)).state, "restored");
   assert.equal((await db.get(splitReservation._id)).restoredPence, 5000);
 
+  const debtAccount=put('accounts',{email:'multi-source-debt@example.invalid',membershipCreditDebtPence:100});
+  const debtBooking=put('bookings',{accountId:debtAccount._id,status:'confirmed'});
+  const debtFirst=put('credits',{accountId:debtAccount._id,remaining:5,amount:5,status:'active',kind:'earned',revokedPendingPence:500,expiresAt:Date.now()+86400000});
+  const debtSecond=put('credits',{accountId:debtAccount._id,remaining:7,amount:7,status:'active',kind:'earned',revokedPendingPence:700,expiresAt:Date.now()+86400000});
+  put('rental_credit_reservations',{accountId:debtAccount._id,bookingId:debtBooking._id,operationType:'extension',operationId:'multiple-reversed-sources',state:'reserved',amountPence:1200,allocations:[{creditId:debtFirst._id,amountPence:500,kind:'earned'},{creditId:debtSecond._id,amountPence:700,kind:'earned'}],createdAt:Date.now(),updatedAt:Date.now()});
+  const snapshotDb={...db,get:async id=>{const record=await db.get(id);return record?structuredClone(record):record}};
+  await funding.consumeRentalCredit({db:snapshotDb},'extension','multiple-reversed-sources');
+  assert.equal(debtAccount.membershipCreditDebtPence,1300,'all reversed allocation debts are accumulated from a snapshot read');
+  await funding.consumeRentalCredit({db:snapshotDb},'extension','multiple-reversed-sources');assert.equal(debtAccount.membershipCreditDebtPence,1300);
+
   const legacyId = await db.insert("rental_credit_reservations", {
     accountId: account._id,
     bookingId: booking._id,

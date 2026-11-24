@@ -111,6 +111,7 @@ export function RentalExtensionPanel({ token, bookingId, admin = false, showTrig
     {admin && eligible && <AdminLateExtensionPreview token={token} bookingId={bookingId} items={state.items} />}
     {recent && <div className="mt-3 rounded-2xl border border-white/[0.08] bg-black/15 p-3" data-testid="extension-request-status">
       <div className="flex flex-wrap justify-between gap-2"><span className={`text-xs font-medium ${recent.status === "applied" ? "text-emerald-200" : "text-sky-200"}`}>{labels[recent.status] ?? recent.status}</span>{recent.amount !== null && <span className="text-sm font-semibold text-white">{formatGbp(recent.amount)}</span>}</div>
+      {admin && recent.refundRecovery && <ExtensionRefundRecovery token={token} requestId={recent.id} originalRefundId={recent.refundId ?? null} />}
       {creditSummary&&<p data-testid="extension-credit-summary" className="mt-1 text-[11px] text-emerald-200/80">{creditSummary}</p>}
       <div className={admin ? "mt-3 grid grid-cols-1 gap-2" : "mt-3 grid gap-2 sm:grid-cols-2"}>{recent.items.map(item => {
         const detail = state.items.find(row => row.index === item.lineIndex);
@@ -228,4 +229,27 @@ export function RentalExtensionPanel({ token, bookingId, admin = false, showTrig
     {error && <p role="alert" className="mt-3 text-xs text-rose-300">{error}</p>}
     {notice && <p role="status" className="mt-3 text-xs leading-relaxed text-sky-100/80">{notice}</p>}
   </section>;
+}
+
+function ExtensionRefundRecovery({ token, requestId, originalRefundId }: { token:string; requestId:string; originalRefundId:string|null }) {
+  const confirm = useAction(api.rentalExtensionPayments.confirmReplacementRefund);
+  const [replacement, setReplacement] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+  async function check() {
+    if (busy || !/^re_[A-Za-z0-9_]{1,200}$/.test(replacement.trim())) return;
+    setBusy(true); setError("");
+    try { await confirm({ token, requestId:requestId as any, refundId:replacement.trim() }); setDone(true); }
+    catch (failure) { setError(renterFacingError(failure, "Unable to confirm this refund. Review it in Stripe and try again.")); }
+    finally { setBusy(false); }
+  }
+  return <details data-testid="extension-refund-recovery" className="mt-3 rounded-xl border border-amber-200/20 bg-amber-100/[0.05] p-3 text-xs text-white/75">
+    <summary className="cursor-pointer font-medium text-amber-100">Refund needs attention</summary>
+    <p className="mt-2 leading-relaxed">Enter an already-completed Stripe refund. This only checks it; no money is sent.</p>
+    {originalRefundId && <p className="mt-2 break-all text-white/50">Original refund: {originalRefundId}</p>}
+    <label className="mt-3 block text-white/70">Completed replacement refund ID<input data-testid="extension-refund-id" value={replacement} onChange={event => { setReplacement(event.target.value); setError(""); }} maxLength={203} autoComplete="off" placeholder="re_…" className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-black/25 px-3 text-white" /></label>
+    <button type="button" data-testid="extension-refund-confirm" disabled={busy || done || !/^re_[A-Za-z0-9_]{1,200}$/.test(replacement.trim())} onClick={() => void check()} className="mt-2 min-h-11 w-full rounded-lg border border-amber-100/25 bg-amber-100/10 px-3 font-medium text-amber-50 disabled:opacity-40">{busy ? "Checking Stripe…" : done ? "Refund confirmed" : "Confirm completed refund"}</button>
+    {error && <p role="alert" className="mt-2 text-amber-100">{error}</p>}
+  </details>;
 }

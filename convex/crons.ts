@@ -2,6 +2,7 @@ import { cronJobs } from "convex/server";
 import { api, internal } from "./_generated/api";
 
 const crons = cronJobs();
+crons.interval("recover-guest-rental-claims", { minutes: 5 }, (internal as any).guestRentalClaims.dispatchDue, {});
 crons.interval("purge-component-replacement-quotes", { hours: 1 }, (internal as any).componentReplacementQuoteState.purgeExpired, {});
 crons.interval("recover-membership-refunds", { minutes: 5 }, (internal as any).membershipRefundJobs.dispatchDue, {});
 
@@ -26,6 +27,8 @@ crons.interval("recover-safe-legacy-swap-receipts",{minutes:5},internal.swapStoc
 crons.interval("audit-converted-swap-stock",{minutes:5},internal.swapStockAudit.runDue,{});
 crons.interval("backfill-converted-swap-audits",{minutes:5},internal.swapStockAudit.backfill,{});
 crons.interval("restricted-identity-alerts", { minutes: 1 }, internal.restrictedIdentityAlerts.dispatchDue, {});
+crons.interval("case-identity-alerts", { minutes: 2 }, (internal as any).caseIdentity.dispatchDue, {});
+crons.interval("case-identity-backfill", { minutes: 5 }, (internal as any).caseIdentity.runBackfill, {});
 crons.interval("retry-owner-telegram-alerts", { minutes: 2 }, internal.ownerTelegram.retryDue, {});
 crons.interval("recover-gaffer-inquiry-alerts", { minutes: 5 }, internal.chat.recoverGafferAlerts, {});
 crons.interval("purge-rental-chat-reminder-metadata", { hours: 24 }, (internal as any).rentalChatReminders.purgeMetadata, {});

@@ -12,6 +12,18 @@ const occupied=put('reservations',{source:'hygglo',stockWindowVersion:2,turnarou
 const line=(pickupTime,returnTime,extra={})=>({listingId:listing._id,start:date,end:date,pickupTime,returnTime,...extra});
 const fit=items=>availability.forCart.handler(ctx,{items});
 (async()=>{
+ const fx3=put('inventory_units',{name:'Sony FX3',quantityOwned:2,active:true});
+ const fx3Kit=put('listings',{title:'2x Sony FX3 full-frame cinema camera set',active:true,components:[{inventoryUnitId:fx3._id,qty:2}],unavailableDates:[]});
+ const kitLine={listingId:fx3Kit._id,start:date,end:date,pickupTime:'09:00',returnTime:'18:00'};
+ const beforeBasket=(await db.query('reservations').withIndex('by_unit',q=>q.eq('inventoryUnitId',fx3._id)).collect()).length;
+ assert.equal((await fit([kitLine]))[fx3Kit._id].ok,true,'the complete two-camera kit is available with two free bodies');
+ assert.equal((await fit([kitLine]))[fx3Kit._id].ok,true,'another basket does not reserve either camera');
+ assert.equal((await db.query('reservations').withIndex('by_unit',q=>q.eq('inventoryUnitId',fx3._id)).collect()).length,beforeBasket,'website basket reads create no reservations');
+ const kitBooking=put('bookings',{status:'pending_payment',lineItems:[kitLine]});
+ put('reservations',{inventoryUnitId:fx3._id,bookingId:kitBooking._id,listingId:fx3Kit._id,source:'site',status:'hold',start:date,end:date,qty:2});
+ assert.equal((await fit([kitLine]))[fx3Kit._id].ok,true,'an unpaid checkout hold remains advisory');
+ kitBooking.status='pending_verification';kitBooking.checkoutPaidAt=Date.now();
+ assert.equal((await fit([kitLine]))[fx3Kit._id].ok,false,'a paid booking pending verification reserves both cameras');
  const refresh=JSON.parse(load('convex/crons.ts').default.export())['sync-hygglo-reservations'];
  assert.equal(refresh.name,'sync.syncHyggloReservations','Freshness schedule calls the real shared-stock importer');
  const refreshMs=(refresh.schedule.minutes??0)*60000+(refresh.schedule.seconds??0)*1000;

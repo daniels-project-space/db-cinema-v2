@@ -1,4 +1,4 @@
-import { availableCreditRows } from "./checkoutCredit";
+import { availableCreditRows, reconcileReleasedCredit } from "./checkoutCredit";
 import { creditDebit } from "./creditLedger";
 
 export type RentalCreditOperation = "addition" | "extension" | "delivery" | "swap";
@@ -45,14 +45,16 @@ export async function consumeRentalCredit(ctx:any,operationType:RentalCreditOper
   if(reservation.state!=="reserved")throw Error("The account-credit reservation is no longer available.");
   const account=await ctx.db.get(reservation.accountId);
   if(!account)throw Error("The account holding this credit no longer exists.");
+  let debtPence=0;
   for(const allocation of reservation.allocations){
     const credit=await ctx.db.get(allocation.creditId),amount=allocation.amountPence;
     if(!credit||credit.accountId!==reservation.accountId||!Number.isSafeInteger(amount)||amount<=0||Math.round(credit.remaining*100)<amount)
       throw Error("Your available credit changed. Review the updated payment before continuing.");
     const debit=creditDebit(credit,amount/100);
     await ctx.db.patch(credit._id,debit.patch);
-    if(debit.debtPence)await ctx.db.patch(account._id,{membershipCreditDebtPence:(account.membershipCreditDebtPence??0)+debit.debtPence});
+    debtPence+=debit.debtPence;
   }
+  if(debtPence)await ctx.db.patch(account._id,{membershipCreditDebtPence:(account.membershipCreditDebtPence??0)+debtPence});
   await ctx.db.patch(reservation._id,{state:"consumed",consumedAt:Date.now(),updatedAt:Date.now()});
   return {amountPence:reservation.amountPence,allocations:reservation.allocations,already:false};
 }
@@ -62,6 +64,7 @@ export async function releaseRentalCredit(ctx:any,operationType:RentalCreditOper
   if(!reservation||reservation.state==="released"||reservation.state==="restored")return false;
   if(reservation.state==="consumed")throw Error("Consumed account credit must be restored with its refund.");
   await ctx.db.patch(reservation._id,{state:"released",releasedAt:Date.now(),updatedAt:Date.now()});
+  await reconcileReleasedCredit(ctx,{accountId:reservation.accountId,creditAllocations:reservation.allocations.map((allocation:any)=>({creditId:allocation.creditId,amount:allocation.amountPence/100}))});
   return true;
 }
 

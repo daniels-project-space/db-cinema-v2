@@ -50,9 +50,8 @@ async function deliverReminder(ctx:any,reminderId:Id<"rental_chat_reminders">){
   let event:ReturnType<typeof rentalChatReminderPlan>[number]|undefined;
   for(const candidate of events) if(candidate.kind===row.kind&&candidate.dueAt===row.dueAt&&await digest(candidate.key)===row.key){event=candidate;break;}
   const pickedUp=Number.isSafeInteger(booking?.pickedUpAt)&&booking.pickedUpAt>0;
-  const activeWindow=event?.lines.some(line=>{const [, , , start,end]=JSON.parse(line);return start<=event!.eventAt&&event!.eventAt<end;})??false;
   const valid=!!event&&now<=row.dueAt+GRACE_MS&&renterRentalActionReady(booking)&&!booking.cancellationDecision&&!booking.returnDecision&&!booking.returnedAt&&
-    (row.kind==="pickup"?(booking.status==="confirmed"||booking.status==="active"&&pickedUp&&booking.pickedUpAt<event.eventAt):booking.status==="active"&&pickedUp&&(row.kind!=="halfway"||activeWindow));
+    (row.kind==="pickup"?(booking.status==="confirmed"||booking.status==="active"&&pickedUp&&booking.pickedUpAt<event.eventAt):booking.status==="active"&&pickedUp);
   const account=valid&&booking.accountId?await ctx.db.get(booking.accountId as Id<"accounts">):null;
   if(!valid||!account||account._id!==booking.accountId||account.blockedAt||!Number.isSafeInteger(account.emailVerifiedAt)||account.emailVerifiedAt<=0){await ctx.db.patch(row._id,{state:"suppressed",finishedAt:now});return;}
   if(row.kind==="halfway"){
@@ -61,7 +60,7 @@ async function deliverReminder(ctx:any,reminderId:Id<"rental_chat_reminders">){
   }
   const items=event!.lines.map(line=>{const [,title,qty]=JSON.parse(line);return `${qty}× ${title || "Rental item"}`;}).join(", ");
   const time=new Intl.DateTimeFormat("en-GB",{hour:"2-digit",minute:"2-digit",timeZone:"Europe/London",hourCycle:"h23"}).format(new Date(event!.eventAt));
-  const text=row.kind==="pickup"?`Reminder: your scheduled ${booking.fulfilment==="delivery"?"delivery":"pickup"} is at ${time} London time. Items: ${items}.`:row.kind==="return"?`Reminder: your scheduled return is at ${time} London time. Items: ${items}.`: `You’re halfway through your scheduled rental period. How is everything going?`;
+  const text=row.kind==="pickup"?`Reminder: your scheduled ${booking.fulfilment==="delivery"?"delivery":"pickup"} is at ${time} London time. Items: ${items}. If anything comes up, please let us know as soon as possible.`:row.kind==="return"?`Reminder: your scheduled return is at ${time} London time. Items: ${items}.`: `You’re halfway through your scheduled rental period. How is everything going?`;
   const messageId=await postRentalMessage(ctx,{accountId:account._id,bookingId:booking._id,sender:"system",text,meta:{kind:"rental_chat_reminder",reminderKind:row.kind}});
   await ctx.db.patch(row._id,{state:"sent",finishedAt:now,messageId});
 }

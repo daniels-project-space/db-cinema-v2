@@ -16,10 +16,13 @@ export async function expireUnpaidCheckoutSession(args:{
   expireBooking:(sessionId:string,sessionStatus:"expired",paymentStatus:"unpaid")=>Promise<boolean>;
 }){
   let current=args.session;
+  const sessionId=typeof current?.id==="string"&&current.id.length>0?current.id:null;
+  if(!sessionId)throw Error("Checkout session identity is missing.");
   if(checkoutSessionState(current)==="open_unpaid"){
     try{current=await args.expireStripe(current.id);}
     catch{current=await args.retrieveStripe(current.id);}
   }
+  if(current?.id!==sessionId)throw Error("Checkout session identity changed during reconciliation.");
   const state=checkoutSessionState(current);
   if(state==="paid")return {state:"paid" as const,session:current,bookingExpired:false};
   if(state!=="expired_unpaid")return {state:"indeterminate" as const,session:current,bookingExpired:false};

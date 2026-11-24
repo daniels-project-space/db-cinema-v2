@@ -1,12 +1,17 @@
 export function explicitlyRequestsHuman(message: string): boolean {
   const text = message.toLowerCase().replace(/[’]/g, "'");
+  return text.split(/[.!?;\n]+|\b(?:but|however)\b/).some(clause => requestsHumanInClause(clause));
+}
+
+function requestsHumanInClause(text: string): boolean {
   const target = '(?:human|person|representative|agent|staff|team|manager|operator|someone|customer service|customer support|support|daniel|dan)';
-  const negated = new RegExp(`\\b(?:do not|don't|dont|no longer|not|never)\\s+(?:want|need|require|wish|ask for|speak to|talk to)(?:(?:\\s+to\\s+(?:speak|talk|chat|connect)\\s+(?:to|with))|(?:\\s+(?:help|assistance|support)\\s+from))?\\s+(?:(?:a|the|any|an|real)\\s+)*${target}\\b`);
+  const negated = new RegExp(`\\b(?:(?:do not|don't|dont|no longer|not|never)\\s+(?:want|need|require|wish|ask for|speak to|talk to|have|ask)|(?:can|could|would)\\s+you\\s+not\\s+(?:have|ask))(?:(?:\\s+to\\s+(?:speak|talk|chat|connect)\\s+(?:to|with))|(?:\\s+(?:help|assistance|support)\\s+from))?\\s+(?:(?:a|the|any|an|real)\\s+)*${target}\\b`);
   if (negated.test(text)) return false;
   const request = new RegExp(`\\b(?:(?:i|we)\\s+(?:really\\s+)?(?:need|want|would like|prefer|request)|please\\s+(?:connect|transfer|put|pass|hand|contact|reach)|(?:can|could|would|may)\\s+(?:i|you)\\s+(?:please\\s+)?(?:speak|talk|chat|connect|transfer|contact|reach|have)|(?:connect|transfer|put|pass|hand)\\s+me|(?:speak|talk|chat)\\s+(?:to|with))\\b.{0,55}\\b${target}\\b`);
   const direct = new RegExp(`\\b${target}\\s*(?:please|now)\\b`);
   const standalone = new RegExp(`^\\s*(?:a\\s+|real\\s+)?${target}\\s*[.!?]*\\s*$`);
-  return request.test(text) || direct.test(text) || standalone.test(text);
+  const callback = new RegExp(`\\b(?:(?:can|could|would)\\s+${target}|please\\s+(?:have|ask)\\s+(?:a\\s+|the\\s+)?${target})\\s+(?:please\\s+|to\\s+)?(?:call|phone|ring|email|contact|reply to)\\s+me\\b`);
+  return request.test(text) || direct.test(text) || standalone.test(text) || callback.test(text);
 }
 
 export function requiresUrgentHumanReview(message: string): boolean {

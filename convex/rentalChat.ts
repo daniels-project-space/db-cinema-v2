@@ -21,7 +21,7 @@ import {
 } from "./availability";
 import { rentalReplyTemplates } from "./lib/rentalReplyTemplates";
 import { acknowledgeOwnerNotifications } from "./lib/adminPush";
-import { accountForRental, rentalsForAccount } from "./lib/rentalAccount";
+import { accountForRental, belongsToRentalAccount, hasVerifiedRentalEmail, rentalsForAccount } from "./lib/rentalAccount";
 import { bookingStockLines } from "../shared/rentalWindow";
 import { verificationWindowClosed } from "../shared/verificationProgress";
 import {
@@ -503,10 +503,10 @@ export const minePage = query({
       .query("bookings")
       .withIndex("by_guest_chat_updated", (q) => q.eq("guestEmail", a.email))
       .filter((q) =>
-        q.or(
+        hasVerifiedRentalEmail(a) ? q.or(
           q.eq(q.field("accountId"), undefined),
           q.eq(q.field("accountId"), a._id),
-        ),
+        ) : q.eq(q.field("accountId"),a._id),
       )
       .order("desc")
       .paginate({
@@ -679,9 +679,7 @@ export const migrateLegacyUnread = internalMutation({
       const b = m.bookingId ? await ctx.db.get(m.bookingId) : null;
       if (
         m.bookingId &&
-        (!b ||
-          (b.guestEmail ?? "").trim().toLowerCase() !==
-            account.email.trim().toLowerCase())
+        !belongsToRentalAccount(b,account)
       )
         continue;
       const t = await rentalThread(ctx, m.accountId, m.bookingId);

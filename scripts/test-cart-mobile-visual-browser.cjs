@@ -21,7 +21,7 @@ const modules = {
   "@/components/GearLoopBanner": `export function GearLoopBanner({lead,accent,sub}){return <section className="mx-auto max-w-5xl px-4 py-6"><p className="text-xs uppercase tracking-widest text-amber-300">Your kit</p><h1 className="font-display text-3xl">{lead} <span className="text-amber-300">{accent}</span></h1><p className="mt-2 text-sm text-white/55">{sub}</p></section>}`,
   "@/components/cart/CheckoutStatus": `export function useCheckoutStatus(){return{enabled:true,loading:false,cancellationProtection:true,cancellationPolicyVersion:'fixture-v1'}};export function CancellationProtectionSummary({enabled,version,testId}){return enabled?<p data-testid={testId} className="mb-3">Cancellation protection · Free <a href={'/legal/cancellation?version='+version}>View terms</a></p>:null};export function CheckoutPauseNotice(){return null}`,
   "@/components/cart/ReplacementSets": `export function ReplacementSets(){return null}`,
-  "@/components/cart/useCartStockCheck": `export function useCartStockCheck(items){const availability=Object.fromEntries(items.map(i=>[i.listingId,{ok:true,available:1,demanded:1}]));return{ready:true,checking:false,error:null,needsTimes:items.some(i=>!i.pickupTime||!i.returnTime),missingTimeItems:items.filter(i=>!i.pickupTime||!i.returnTime),invalidTimeOrder:false,availability,unavailableItems:[],recheck:async()=>({availability})}}`,
+  "@/components/cart/useCartStockCheck": `export function useCartStockCheck(items){const mode=new URLSearchParams(location.search).get('stock');const availability=Object.fromEntries(items.map(i=>[i.listingId,mode==='unknown'?{ok:null,available:0,demanded:1,stockStatus:'refresh_required'}:mode==='unavailable'?{ok:false,available:0,demanded:1}:{ok:true,available:1,demanded:1}]));return{ready:mode!=='unknown',checking:false,error:null,needsTimes:mode?false:items.some(i=>!i.pickupTime||!i.returnTime),missingTimeItems:items.filter(i=>!i.pickupTime||!i.returnTime),invalidTimeOrder:false,availability,unavailableItems:[],recheck:async()=>({availability})}}`,
   "@/components/cart/CartStockNotice": `export function CartStockNotice({needsTimes}){return <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-200">{needsTimes?"Exact times are chosen at checkout":"Availability checked"}</div>}`,
   "@/components/plans/CartPlanning": `export function CartPlanning(){return null}`,
   "@/components/cart/KitCompatibility": `export function KitCompatibility(){return null}`,
@@ -83,6 +83,12 @@ const modules = {
     process.env.DBC_CDP_URL = `http://127.0.0.1:${port}`;
     browser = await connect();
     await browser.cmd("Page.enable"); await browser.cmd("Runtime.enable");
+    for (const [mode, unavailable] of [['unknown',false],['unavailable',true],['available',false]]) {
+      await browser.cmd('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/?stock=${mode}` });
+      for (let attempt=0; attempt<100 && !await browser.evaluate(`!!document.querySelector('[data-testid="basket-summary"]')`); attempt++) await wait(50);
+      assert.equal(await browser.evaluate(`document.body.textContent.includes('Unavailable for your selected dates')`), unavailable, `${mode} stock is not confused with a confirmed shortage`);
+      if (mode === 'unknown') assert.equal(await browser.evaluate(`(()=>[...document.querySelectorAll('button')].some(button=>button.disabled&&button.textContent.includes('Resolve availability')))()`),true,'unknown shared stock remains blocked at checkout');
+    }
     await browser.cmd("Page.navigate", { url: `http://127.0.0.1:${server.address().port}` });
     const until = async (expression, label) => { for (let i = 0; i < 80; i++) { if (await browser.evaluate(expression)) return; await wait(50); } throw new Error(`Timed out: ${label}; page=${await browser.evaluate("document.documentElement.outerHTML.slice(-500)")}`); };
     await until(`!!document.querySelector('[data-testid="basket-summary"]')`, "synthetic cart renders");

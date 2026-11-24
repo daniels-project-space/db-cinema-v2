@@ -169,7 +169,19 @@ async function fulfill(ctx: any, session: Stripe.Checkout.Session) {
   const result: any = await ctx.runMutation(internal.rentalExtensions.applyPaid, { requestId: id, sessionId: session.id, paymentIntentId: intent.id, amountPence: intent.amount_received });
   if (result.closed) {
     if (r.status !== "refunded") {
-      const refund = await stripe().refunds.create({ payment_intent: intent.id, metadata: { extensionRequestId: id } }, { idempotencyKey: `dbc-closed-extension-${id}` });
+      const attempt = await ctx.runMutation(internal.rentalExtensions.beginRefundCreation, { requestId:id, sessionId:session.id, paymentIntentId:intent.id });
+      if (!attempt.allowed || Date.now() >= attempt.startedAt + 23 * 3600000) {
+        await ctx.runMutation(internal.rentalExtensions.refundCreationAttention, { requestId:id, sessionId:session.id });
+        throw Error("Automatic extension refund attempts have stopped. Review the original payment in Stripe.");
+      }
+      let refund: Stripe.Refund;
+      try {
+        refund = await stripe().refunds.create({ payment_intent: intent.id, metadata: { extensionRequestId: id } }, { idempotencyKey: `dbc-closed-extension-${id}` });
+      } catch (error) {
+        try { await ctx.runMutation(internal.rentalExtensions.refundCreationAttention, { requestId:id, sessionId:session.id }); }
+        catch { console.error("Could not record an extension refund creation alert."); }
+        throw error;
+      }
       await ctx.runMutation(internal.rentalExtensions.close, { requestId: id, refundId: refund.id, paymentIntentId: intent.id, refundPending: refund.status !== "succeeded" });
       if (["failed", "canceled", "requires_action"].includes(refund.status ?? "")) await ctx.runMutation(internal.rentalExtensions.refundAttention, { requestId:id, refundId:refund.id, paymentIntentId:intent.id });
     }
@@ -189,11 +201,22 @@ export const confirmReplacementRefund = action({
     await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token:args.token, fn:"rentalExtensionPayments.confirmReplacementRefund" });
     const state:any = await ctx.runQuery(internal.rentalExtensions.context, { requestId:args.requestId });
     const request = state?.request;
-    if (!request || request.status !== "refund_pending" || !request.refundId || !request.paymentIntentId || request.refundId === args.refundId) throw Error("This refund is not ready for replacement review.");
-    const original = await stripe().refunds.retrieve(request.refundId);
+    if (!request) throw Error("This refund is not ready for replacement review.");
+    const unknown = request.status === "awaiting_payment" && !request.refundId && request.refundCreateAttemptAt && request.refundCreatePaymentIntentId && Date.now() >= request.refundCreateAttemptAt + 23 * 3600000;
+    if (unknown) {
+      const session = await stripe().checkout.sessions.retrieve(request.stripePaymentLinkId);
+      const intentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
+      const intent = intentId ? await stripe().paymentIntents.retrieve(intentId) : null;
+      if (session.id !== request.stripePaymentLinkId || session.status !== "complete" || session.payment_status !== "paid" || session.currency !== "gbp" || session.amount_total !== (request.cardDuePence ?? Math.round((request.priceDelta ?? -1) * 100)) || session.metadata?.changeRequestId !== args.requestId || intentId !== request.refundCreatePaymentIntentId || intent?.status !== "succeeded" || intent.currency !== "gbp" || intent.amount_received !== session.amount_total || intent.metadata.changeRequestId !== args.requestId) throw Error("Stripe has not confirmed the original extension payment.");
+    } else {
+      if (request.status !== "refund_pending" || !request.refundId || !request.paymentIntentId || request.refundId === args.refundId) throw Error("This refund is not ready for replacement review.");
+      const original = await stripe().refunds.retrieve(request.refundId);
+      if (original.id !== request.refundId || !["failed", "canceled"].includes(original.status ?? "") || !matchesRefund(original, request)) throw Error("Stripe has not confirmed a failed original refund.");
+    }
     const replacement = await stripe().refunds.retrieve(args.refundId);
-    if (original.id !== request.refundId || !["failed", "canceled"].includes(original.status ?? "") || !matchesRefund(original, request) || replacement.id !== args.refundId || replacement.status !== "succeeded" || !matchesRefund(replacement, request)) throw Error("Stripe has not confirmed a matching full replacement refund.");
-    await ctx.runMutation(internal.rentalExtensions.close, { requestId:args.requestId, refundId:replacement.id, paymentIntentId:request.paymentIntentId, expectedRefundId:request.refundId });
+    const paymentIntentId = unknown ? request.refundCreatePaymentIntentId : request.paymentIntentId;
+    if (replacement.id !== args.refundId || replacement.status !== "succeeded" || !matchesRefund(replacement, { ...request, paymentIntentId })) throw Error("Stripe has not confirmed a matching full replacement refund.");
+    await ctx.runMutation(internal.rentalExtensions.close, { requestId:args.requestId, refundId:replacement.id, paymentIntentId, ...(unknown ? { expectedUnknownAttemptAt:request.refundCreateAttemptAt } : { expectedRefundId:request.refundId }) });
     return { ok:true };
   },
 });

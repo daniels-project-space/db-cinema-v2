@@ -60,6 +60,8 @@ const version = shared.MEMBERSHIP_TERMS_VERSION;
   const emailMatchAccount=put('accounts',{email:'legacy-email@example.invalid',createdAt:Date.now()});
   const otherEmailAccount=put('accounts',{email:'unrelated-email@example.invalid',createdAt:Date.now()});
   const unlinkedLegacyBooking=put('bookings',{accountId:undefined,guestEmail:emailMatchAccount.email,status:'returned',pickedUpAt:completedAt-86400000,returnedAt:completedAt,actualReturnedAt:completedAt,returnDecision:{actualReturnedAt:completedAt,inspection:[{key:'camera',title:'Camera',condition:'good',details:'',openCase:false}]}});
+  assert.equal((await membershipRentalBenefitAccount(ctx,emailMatchAccount)).membershipFirstCleanRentalCompletedAt,undefined,'an unverified matching email cannot use legacy rental history');
+  emailMatchAccount.emailVerifiedAt=Date.now();
   assert.equal((await membershipRentalBenefitAccount(ctx,emailMatchAccount)).membershipFirstCleanRentalCompletedAt,completedAt,'an unlinked normalized-email clean return is recovered for its matching account');
   assert.equal((await membershipRentalBenefitAccount(ctx,otherEmailAccount)).membershipFirstCleanRentalCompletedAt,undefined,'an unlinked legacy rental is not attributed to a different email account');
   const emailCollisionAccount=put('accounts',{email:'same-email@example.invalid',createdAt:Date.now()});

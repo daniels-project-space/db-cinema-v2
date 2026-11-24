@@ -51,7 +51,7 @@ window.renderFixture();`;
                   ? `export const rentalTitle=value=>value;`
                   : args.path === "@/components/SmartImage"
                     ? `import{createElement}from'react';export function SmartImage({src,alt,className}){return createElement('img',{src,alt,className})}`
-                    : `export const api={rentalExtensions:{state:'rentalExtensions.state',quote:'rentalExtensions.quote',request:'request',decline:'decline'},rentalExtensionPayments:{approve:'approve',withdraw:'withdraw'},cartReplacements:{forCart:'replacements'}};`,
+                    : `export const api={rentalExtensions:{state:'rentalExtensions.state',quote:'rentalExtensions.quote',request:'request',decline:'decline'},rentalExtensionPayments:{approve:'approve',withdraw:'withdraw',confirmReplacementRefund:'confirmReplacementRefund'},cartReplacements:{forCart:'replacements'}};`,
         }));
       },
     }],
@@ -169,6 +169,15 @@ window.renderFixture();`;
     assert.match(await client.evaluate(`document.querySelector('[data-testid="extension-approve"]').textContent`), /Approve & send payment link/);
     assert.match(await client.evaluate(`document.body.textContent`), /Payments are unavailable for this extension/);
     assert.equal(await client.evaluate(`window.actionCalls.length`), 0, "the payment-disabled positive quote cannot call the approval action");
+    await client.evaluate(`(()=>{window.fixture.state={...window.fixture.state,requests:[{id:'refund-request',status:'refund_pending',refundRecovery:true,refundId:'re_original',items:[],amount:12.34,benefitSaving:0}]};window.renderAdminFixture()})()`);await wait(60);
+    assert.equal(await client.evaluate(`!!document.querySelector('[data-testid="extension-refund-recovery"]')`),true,'admin sees refund recovery');
+    await client.evaluate(`document.querySelector('[data-testid="extension-refund-recovery"] summary').click();const input=document.querySelector('[data-testid="extension-refund-id"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'re_replacement');input.dispatchEvent(new Event('input',{bubbles:true}))`);await wait(30);
+    await client.evaluate(`document.querySelector('[data-testid="extension-refund-recovery"]').scrollIntoView({block:'center'})`);await wait(60);
+    fs.writeFileSync('/tmp/dbc-extension-refund-recovery-320.png',Buffer.from((await client.cmd('Page.captureScreenshot',{format:'png'})).data,'base64'));
+    await client.evaluate(`document.querySelector('[data-testid="extension-refund-confirm"]').click()`);await wait(60);
+    assert.deepEqual(await client.evaluate(`window.actionCalls.at(-1)`),{ref:'confirmReplacementRefund',args:{token:'admin-token',requestId:'refund-request',refundId:'re_replacement'}},'only an explicit check asks the server to confirm the existing refund');
+    await client.evaluate(`window.renderFixture()`);await wait(60);
+    assert.equal(await client.evaluate(`!!document.querySelector('[data-testid="extension-refund-recovery"]')`),false,'renter does not see admin recovery controls');
     console.log("PASS rental extension selection: individually available conflict stays toggleable, re-quotes, and submits only the selected line; synthetic fixtures only.");
   } finally {
     if (client) { client.close(); try { await fetch(`${process.env.DBC_CDP_URL}/json/close/${client.tabId}`); } catch {} }

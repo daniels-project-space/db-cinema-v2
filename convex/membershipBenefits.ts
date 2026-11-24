@@ -245,6 +245,9 @@ async function revokeRefundedInvoiceInMutation(ctx:MutationCtx,a:{invoiceId:stri
   const credits=await ctx.db.query("credits").withIndex("by_account",q=>q.eq("accountId",grant.accountId)).collect();
   const reservedBySource=new Map<string,number>();
   for(const b of pending.filter(b=>b.creditAllocations))for(const allocation of b.creditAllocations!)reservedBySource.set(allocation.creditId,(reservedBySource.get(allocation.creditId)??0)+Math.round(allocation.amount*100));
+  const operations=await ctx.db.query("rental_credit_reservations").withIndex("by_account_state",q=>q.eq("accountId",grant.accountId).eq("state","reserved")).take(501);
+  if(operations.length>500)throw Error("Open credit reservations need reconciliation before reversing membership credit.");
+  for(const operation of operations)for(const allocation of operation.allocations){if(!Number.isSafeInteger(allocation.amountPence)||allocation.amountPence<0)throw Error("An account-credit reservation needs reconciliation.");reservedBySource.set(String(allocation.creditId),(reservedBySource.get(String(allocation.creditId))??0)+allocation.amountPence);}
   let reserved=Math.max(0,pending.filter(b=>!b.creditAllocations).reduce((n,b)=>n+Math.round(((b.creditApplied??0)-(b.membershipCreditApplied??0))*100),0)-credits.filter(c=>c.status==="active").reduce((n,c)=>n+(c.revokedPendingPence??0),0));
   // Cancellation can restore first-month credit into a new linked credit row.
   // Revoke that balance too; a returned rental must not turn it into free money.

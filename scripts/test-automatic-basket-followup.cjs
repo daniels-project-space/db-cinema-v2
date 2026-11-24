@@ -148,6 +148,34 @@ const runDue = () => mail.processDue.handler(worker, {});
   assert.equal((await h.db.get(raceId)).followupStage, "day_one", "Stale worker completion cannot consume edited work");
   assert.equal((await h.db.get(raceId)).accountId, raceOwner._id);
 
+  const paymentRaceOwner = makeAccount("payment-race@example.invalid", "payment-race");
+  const paymentRaceId = await recovery.sync.handler(ctx, { token: "payment-race", lines, emailFollowupConsent: true });
+  now = (await h.db.get(paymentRaceId)).dueAt;
+  const paymentRaceLease = await recovery._claim.handler(ctx, { id: paymentRaceId });
+  assert(paymentRaceLease);
+  const paymentRaceBooking = h.put("bookings", { accountId: paymentRaceOwner._id, guestEmail: paymentRaceOwner.email, lineItems: lines, status: "pending_payment" });
+  assert.equal(await recovery._ready.handler(ctx, paymentRaceLease), false, "A checkout created after the email lease stops a stale basket reminder");
+  paymentRaceBooking.status = "confirmed";
+  assert.equal(await recovery._ready.handler(ctx, paymentRaceLease), false, "A paid booking created after the email lease cannot receive a stale basket reminder");
+  paymentRaceBooking.status = "cancelled";
+  paymentRaceBooking.checkoutExpiredAt = now;
+  assert.equal(await recovery._ready.handler(ctx, paymentRaceLease), true, "An attested unpaid expired checkout remains recoverable");
+
+  const workerRaceOwner = makeAccount("worker-payment-race@example.invalid", "worker-payment-race");
+  const workerRaceId = await recovery.sync.handler(ctx, { token: "worker-payment-race", lines, emailFollowupConsent: true });
+  now = (await h.db.get(workerRaceId)).dueAt;
+  const sentBeforePaymentRace = deliveries.length;
+  const racingWorker = {
+    runQuery: (ref, args) => {
+      if (ref.endsWith("._due")) return [{ _id: workerRaceId }];
+      if (ref.endsWith("._ready")) h.put("bookings", { accountId: workerRaceOwner._id, guestEmail: workerRaceOwner.email, lineItems: lines, status: "confirmed" });
+      return recovery[ref.split(".").at(-1)].handler(ctx, args);
+    },
+    runMutation: worker.runMutation,
+  };
+  assert.equal((await mail.processDue.handler(racingWorker, {})).sent, 0, "A paid booking that appears between claim and readiness is not emailed");
+  assert.equal(deliveries.length, sentBeforePaymentRace, "The email transport is not invoked after the payment race is detected");
+
   const optOutOwner = makeAccount("optout@example.invalid", "optout");
   const optOutId = await recovery.sync.handler(ctx, { token: "optout", lines, emailFollowupConsent: true });
   const optOutRow = await h.db.get(optOutId);

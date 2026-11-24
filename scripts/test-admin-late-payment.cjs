@@ -4,6 +4,8 @@ const {load,db,put,tables,setMock,putFreshSharedStock} = require('./lib/rentalTe
 const stripeSessions = new Map(), stripeIntents = new Map(), idempotentSessions = new Map();
 const stripeRefunds = new Map();
 let refundStatus = 'succeeded';
+let loseRefundResponse = false;
+const idempotentRefunds = new Map();
 let sessionCreates = 0, refundCreates = 0, loseNextResponse = false;
 class Stripe {
   checkout = {sessions:{
@@ -13,7 +15,7 @@ class Stripe {
     list:async function*(){yield* stripeSessions.values();},
   }};
   paymentIntents = {retrieve:async id => stripeIntents.get(id)};
-  refunds = {create:async(params,options)=>{assert.ok(options.idempotencyKey);refundCreates++;const refund={id:`re_late_${refundCreates}`,status:refundStatus,payment_intent:params.payment_intent,currency:'gbp',amount:stripeIntents.get(params.payment_intent).amount_received};stripeRefunds.set(refund.id,refund);return refund;},retrieve:async id=>stripeRefunds.get(id)};
+  refunds = {create:async(params,options)=>{assert.ok(options.idempotencyKey);if(idempotentRefunds.has(options.idempotencyKey))return idempotentRefunds.get(options.idempotencyKey);refundCreates++;const refund={id:`re_late_${refundCreates}`,status:refundStatus,payment_intent:params.payment_intent,currency:'gbp',amount:stripeIntents.get(params.payment_intent).amount_received};stripeRefunds.set(refund.id,refund);idempotentRefunds.set(options.idempotencyKey,refund);if(loseRefundResponse){loseRefundResponse=false;throw Error('Lost refund response')}return refund;},retrieve:async id=>stripeRefunds.get(id)};
 }
 setMock('stripe',{__esModule:true,default:Stripe});
 process.env.ADMIN_TOKEN='late-payment-admin';
@@ -95,11 +97,21 @@ put('reservations',{bookingId:booking._id,listingId:listing._id,inventoryUnitId:
   stripeIntents.set('pi_late_2',{id:'pi_late_2',status:'succeeded',currency:'gbp',amount_received:secondQuote.totalPence,metadata:{...secondSession.metadata}});
   await db.patch(secondUnit._id,{quantityOwned:0});
   refundStatus='failed';
+  loseRefundResponse=true;
+  await assert.rejects(payments.finalize.handler(ctx,{sessionId:secondSession.id}),/Lost refund response/);
+  assert.equal(secondRequest.status,'awaiting_payment');assert.equal(secondBooking.activeExtensionId,secondRequest._id,'unknown provider outcome retains the lock');
+  const creationNotice=(tables.get('admin_notifications')??[]).find(n=>n.eventKey===`extension-refund-create-attention:${secondRequest._id}`);assert(creationNotice&&!creationNotice.read,'a lost refund response alerts the owner');
+  const startedAt=secondRequest.refundCreateAttemptAt;
+  const starts=await Promise.all([extensions.beginRefundCreation.handler(ctx,{requestId:secondRequest._id,sessionId:secondSession.id,paymentIntentId:'pi_late_2'}),extensions.beginRefundCreation.handler(ctx,{requestId:secondRequest._id,sessionId:secondSession.id,paymentIntentId:'pi_late_2'})]);
+  assert(starts.every(start=>start.allowed&&start.startedAt===startedAt),'concurrent retries keep the first attempt timestamp');
   await payments.finalize.handler(ctx,{sessionId:secondSession.id});await payments.finalize.handler(ctx,{sessionId:secondSession.id});
   assert.equal(secondBooking.lineItems[0].end,secondLine.end,'stock failure leaves the original return unchanged');
   assert.equal(secondRequest.status,'refund_pending');assert.equal(refundCreates,1,'a failed refund is not automatically retried');
+  assert.equal(creationNotice.read,true,'the creation warning resolves when the original refund is recovered');
   assert.equal(secondBooking.activeExtensionId,secondRequest._id,'the booking stays locked until a refund is confirmed');
   assert.equal((tables.get('admin_notifications')??[]).filter(n=>n.eventKey===`extension-refund-attention:${secondRequest._id}:re_late_1`).length,1,'failed refunds notify the owner once');
+  const adminState=await extensions.state.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:secondBooking._id,admin:true});assert.equal(adminState.requests.find(row=>row.id===secondRequest._id).refundId,'re_late_1');
+  const renterState=await extensions.state.handler(ctx,{token:'late-other',bookingId:secondBooking._id,admin:false});assert.equal('refundId' in renterState.requests.find(row=>row.id===secondRequest._id),false,'refund references are admin-only');
   await payments.reconcile.handler(ctx,{});await payments.reconcile.handler(ctx,{});
   assert.equal(refundCreates,1,'reconciliation never creates another refund after a provider failure');
   const replacement={id:'re_manual',status:'succeeded',payment_intent:'pi_late_2',currency:'gbp',amount:secondQuote.totalPence};stripeRefunds.set(replacement.id,replacement);
@@ -108,5 +120,24 @@ put('reservations',{bookingId:booking._id,listingId:listing._id,inventoryUnitId:
   await payments.confirmReplacementRefund.handler(ctx,{token:process.env.ADMIN_TOKEN,requestId:secondRequest._id,refundId:replacement.id});
   assert.equal(secondRequest.status,'refunded');assert.equal(secondBooking.activeExtensionId,undefined);assert.equal(refundCreates,1,'admin confirmation never creates a refund');
   assert.equal((tables.get('admin_notifications')??[]).find(n=>n.eventKey===`extension-refund-attention:${secondRequest._id}:re_late_1`).read,true,'confirmed replacement resolves the owner alert');
+  const unknownBooking=put('bookings',{...secondBooking,_id:'bookings-unknown',activeExtensionId:undefined});
+  const unknownRequest=put('booking_change_requests',{...secondRequest,_id:'booking_change_requests-unknown',bookingId:unknownBooking._id,status:'awaiting_payment',refundId:undefined,paymentIntentId:undefined,stripePaymentLinkId:'cs_test_unknown',refundCreateAttemptAt:Date.now()-23*3600000-1000,refundCreatePaymentIntentId:'pi_unknown'});
+  await db.patch(unknownBooking._id,{activeExtensionId:unknownRequest._id});
+  const unknownSession={id:'cs_test_unknown',status:'complete',payment_status:'paid',currency:'gbp',amount_total:secondQuote.totalPence,payment_intent:'pi_unknown',metadata:{changeRequestId:unknownRequest._id,cardDuePence:String(secondQuote.totalPence),creditAppliedPence:'0'}};
+  stripeSessions.set(unknownSession.id,unknownSession);stripeIntents.set('pi_unknown',{id:'pi_unknown',status:'succeeded',currency:'gbp',amount_received:secondQuote.totalPence,metadata:{...unknownSession.metadata}});
+  await db.patch(unknownRequest._id,{refundCreateAttemptAt:Date.now()-22*3600000});
+  await assert.rejects(payments.confirmReplacementRefund.handler(ctx,{token:process.env.ADMIN_TOKEN,requestId:unknownRequest._id,refundId:'re_verified'}),/not ready/i,'manual recovery cannot race a still-retryable unknown attempt');
+  await db.patch(unknownRequest._id,{refundCreateAttemptAt:Date.now()-23*3600000-1000});
+  await assert.rejects(payments.finalize.handler(ctx,{sessionId:unknownSession.id}),/attempts have stopped/i);
+  await assert.rejects(payments.finalize.handler(ctx,{sessionId:unknownSession.id}),/attempts have stopped/i);
+  assert.equal(refundCreates,1,'expired uncertain refunds never create another provider refund');
+  assert.equal(unknownBooking.activeExtensionId,unknownRequest._id,'expired uncertain refund retains the booking lock');
+  assert.equal((tables.get('admin_notifications')??[]).filter(n=>n.eventKey===`extension-refund-create-attention:${unknownRequest._id}`).length,1);
+  stripeRefunds.set('re_verified',{id:'re_verified',status:'succeeded',payment_intent:'pi_unknown',currency:'gbp',amount:secondQuote.totalPence});
+  await payments.confirmReplacementRefund.handler(ctx,{token:process.env.ADMIN_TOKEN,requestId:unknownRequest._id,refundId:'re_verified'});
+  assert.equal(unknownRequest.status,'refunded');assert.equal(unknownBooking.activeExtensionId,undefined,'a provider-confirmed full refund releases the lock');
+  const legacy=put('booking_change_requests',{...unknownRequest,_id:'booking_change_requests-legacy-unknown',status:'awaiting_payment',refundId:undefined,paymentIntentId:undefined,stripePaymentLinkId:'cs_test_legacy',approvedAt:Date.now()-24*3600000,refundCreateAttemptAt:undefined,refundCreatePaymentIntentId:undefined,refundCreateTrackingVersion:undefined});
+  const legacyAttempt=await extensions.beginRefundCreation.handler(ctx,{requestId:legacy._id,sessionId:'cs_test_legacy',paymentIntentId:'pi_legacy'});
+  assert.equal(legacyAttempt.allowed,false,'legacy requests with an old unknown attempt fail closed');assert.equal(legacy.refundCreateAttemptAt,legacy.approvedAt,'legacy recovery retains the conservative timestamp');
   console.log('PASS late-extension offer: admin authorization, private chat, renter acceptance, exact Stripe amount, no double charge, payment-gated dates and replay');
 })().catch(error=>{console.error(error);process.exitCode=1});

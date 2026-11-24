@@ -285,6 +285,12 @@ export const start = action({
       throw new Error("Choose the agreed pickup and return times before paying.");
     if (!a.agreement?.requestId||!/^[a-zA-Z0-9-]{16,80}$/.test(a.agreement.requestId)) throw Error("Review and sign this booking before paying.");
 
+    let currentAgreementAccepted = true;
+    try {
+      assertCurrentAgreement({...a.agreement,deliveryLegs:a.deliveryLegs,cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true",securityPolicyVersion:checkoutSecurityPolicyVersion}, a.fulfilment);
+      if(a.selectedMembership && a.selectedMembership.termsVersion !== MEMBERSHIP_TERMS_VERSION) currentAgreementAccepted=false;
+    } catch { currentAgreementAccepted=false; }
+
     const checkoutInputFingerprint=createHash("sha256").update(agreementRequestFingerprint({...a,token:undefined})).digest("hex");
     const priorAttempt=await ctx.runQuery(internal.bookings.checkoutAttempt,{requestId:a.agreement.requestId,checkoutInputFingerprint});
     const retireMembershipCheckout = async (sb:Stripe,bookingId:any,session:Stripe.Checkout.Session,requiresFreshAcceptance:boolean) => {
@@ -294,7 +300,7 @@ export const start = action({
         return {bookingId:String(bookingId),alreadyPaid:true as const,sessionId:expired.paidSession.id};
       }
       if(!expired.expired)throw new ConvexError({code:"CHECKOUT_RECONCILIATION_REQUIRED",message:"The saved checkout changed while we were checking it. Please do not pay again while we reconcile it.",freshAcceptanceRequired:false});
-      if(requiresFreshAcceptance)throw new ConvexError({code:"CHECKOUT_TERMS_CHANGED",message:"Your rental details changed. Review the updated quote and accept the terms again before paying.",freshAcceptanceRequired:true});
+      if(requiresFreshAcceptance)throw new ConvexError({code:"CHECKOUT_TERMS_CHANGED",message:"Your rental details or terms changed. Refresh checkout, review the current quote and sign again before paying.",freshAcceptanceRequired:true});
       throw new ConvexError({code:"CHECKOUT_MEMBERSHIP_SESSION_RETIRED",message:"The previous payment link was closed because your quote changed. Your current agreement is still valid; continue checkout to create a fresh payment link.",freshAcceptanceRequired:false});
     };
     if(priorAttempt?.sessionId){
@@ -316,6 +322,7 @@ export const start = action({
       }
       if(session.status!=="open"||session.payment_status!=="unpaid")
         throw new ConvexError({code:"CHECKOUT_RECONCILIATION_REQUIRED",message:"This checkout is still being reconciled. Please do not pay again.",freshAcceptanceRequired:false});
+      if(!currentAgreementAccepted) return await retireMembershipCheckout(sb,priorAttempt.bookingId,session,true);
       if(!priorAttempt.fingerprintMatches){
         const expired=await expireUnpaidCheckout(ctx,sb,priorAttempt.bookingId,session);
         if(expired.paidSession){
@@ -384,6 +391,7 @@ export const start = action({
         if(!priorAttempt||!priorAttempt.fingerprintMatches){
           return await retireMembershipCheckout(sb,existing.bookingId,session,!!priorAttempt);
         }
+        if(!currentAgreementAccepted) return await retireMembershipCheckout(sb,existing.bookingId,session,true);
         if(!["creating","open"].includes(existing.state))
           throw new ConvexError({code:"CHECKOUT_RECONCILIATION_REQUIRED",message:"This membership checkout is closed but Stripe still reports it as open. Please do not pay again while we reconcile it.",freshAcceptanceRequired:false});
         if(!session.url)throw Error("Stripe did not return a checkout URL");
@@ -420,6 +428,7 @@ export const start = action({
         }
         if(session.status!=="open"||session.payment_status!=="unpaid"||!session.url)
           throw new ConvexError({code:"CHECKOUT_RECONCILIATION_REQUIRED",message:"This checkout is still being reconciled. Please do not pay again.",freshAcceptanceRequired:false});
+        if(!currentAgreementAccepted) return await retireMembershipCheckout(sb,existing.bookingId,session,true);
         const reservationRecovery=await assertSavedCheckoutReservation(ctx,sb,existing.bookingId,session);
         if(reservationRecovery)return reservationRecovery;
         return {url:session.url};
@@ -429,7 +438,7 @@ export const start = action({
     if (a.selectedMembership)
       assertRentalBasketTrialAllowed(a.selectedMembership.intro, !!existingMembershipCheckout);
 
-    assertCurrentAgreement({...a.agreement,deliveryLegs:a.deliveryLegs,cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true",securityPolicyVersion:checkoutSecurityPolicyVersion}, a.fulfilment);
+    if(!currentAgreementAccepted) throw new ConvexError({code:"CHECKOUT_TERMS_CHANGED",message:"Rental or membership terms changed. Refresh checkout, review the current terms and sign again.",freshAcceptanceRequired:true});
 
     // New checkout must read current upstream stock, not only the scheduled
     // mirror. Existing bound membership recovery above retains its saved URL.
@@ -1841,6 +1850,7 @@ export const finalize = action({
         throw error;
       }
       if (confirmation.closed) {if(confirmation.duplicatePayment)await refundDuplicateCheckout(session);return { bookingId, paid, closed: true };}
+      if (confirmation.awaitingCreditReview) return { bookingId, paid, verificationPending: true };
       if (confirmation.awaitingVerification) {
         const hold = await authorizeHold(ctx, session);
         return { bookingId, paid, verificationPending: true, holdStatus: hold.status, holdClientSecret: hold.clientSecret };
@@ -1888,6 +1898,7 @@ export const confirmAfterVerification = internalAction({
       if (confirmation.duplicatePayment) await refundDuplicateCheckout(session);
       return;
     }
+    if (confirmation.awaitingCreditReview) return;
     if (confirmation.awaitingInventoryReview) {
       if (attempt < 3) await ctx.scheduler.runAfter(15 * 60000, internal.checkout.confirmAfterVerification, { bookingId, attempt: attempt + 1 });
       else await ctx.runMutation(internal.bookings.markVerificationConfirmationFailure, { bookingId });
@@ -1944,6 +1955,7 @@ export const reconcilePendingPayments = internalAction({
             failures++;
             continue;
           }
+          if (result.awaitingCreditReview) { failures++; continue; }
           if (result.awaitingInventoryReview) {
             await ctx.scheduler.runAfter(15 * 60000, internal.checkout.confirmAfterVerification, { bookingId: booking.bookingId, attempt: 1 });
             failures++;
@@ -2064,6 +2076,7 @@ export const stripeWebhook = internalAction({
         if (m.bookingId) {
           const confirmation = await confirmPaidBookingWithLiveStock(ctx, m.bookingId as any, s);
           if (confirmation.closed) {if(confirmation.duplicatePayment)await refundDuplicateCheckout(s);return true;}
+          if (confirmation.awaitingCreditReview) return true;
           if (confirmation.awaitingInventoryReview) {
             await ctx.scheduler.runAfter(15 * 60000, internal.checkout.confirmAfterVerification, { bookingId: m.bookingId as any, attempt: 1 });
             return true;
@@ -2475,7 +2488,7 @@ export const refundInventoryConflict = action({
 export const cancelUnpaidByCustomer = action({
  args:{token:v.string(),bookingId:v.id("bookings")},
  handler:async(ctx,{token,bookingId}):Promise<{ok:boolean;mode:string;refundAmount:number;creditAmount:number}>=>{
-  const me:any=await ctx.runQuery(api.accounts.me,{token});if(!me)throw Error("Please sign in.");
+  const me:any=await ctx.runQuery(internal.accounts._byToken,{token});if(!me)throw Error("Please sign in.");
   const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
   if(!belongsToRentalAccount(b,me))throw Error("unauthorized");
   if(b.status!=="pending_payment"||!b.siteOnly)throw Error("Only unpaid direct checkouts can be abandoned here.");
@@ -2486,7 +2499,7 @@ export const cancelByCustomer = action({
  args:{token:v.string(),bookingId:v.id("bookings"),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit"),v.literal("no_refund"))),customerChoice:v.optional(v.union(v.literal("refund"),v.literal("credit")))},
  handler:async(ctx,{token,bookingId,expectedCancellationKind,customerChoice}):Promise<{ok:boolean;mode:string;refundAmount:number;creditAmount:number}>=>{
   if(process.env.CUSTOMER_BOOKING_ACTIONS!=="true")throw Error("Online cancellation isn't available yet — please contact us to cancel.");
-  const me:any=await ctx.runQuery(api.accounts.me,{token});if(!me)throw Error("Please sign in.");
+  const me:any=await ctx.runQuery(internal.accounts._byToken,{token});if(!me)throw Error("Please sign in.");
   const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
   if(!belongsToRentalAccount(b,me))throw Error("unauthorized");
   if(b.status==="cancelled"&&b.cancellationDecision?.quote&&!b.cancellationDecision.operatorOfferId){const quote=b.cancellationDecision.quote;return {ok:true,mode:quote.mode,refundAmount:quote.refundAmount,creditAmount:quote.creditAmount};}

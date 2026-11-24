@@ -686,7 +686,7 @@ export const state = query({
       const listing = await ctx.db.get(li.listingId);
       return { index: i, listingId: li.listingId, slug: listing?.slug ?? null, title: li.title, qty: li.qty, start: li.start, end: li.end, returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime, imageSources: listingRentalImages(listing) };
     }));
-    return { status: b.status, actionReady: renterRentalActionReady(b), locked: !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId || b.activePriceAdjustmentId || b.activeItemSwapId || b.returnDecision || b.cancellationDecision), pickupTime: b.pickupTime ?? null, returnTime: b.returnTime ?? null, items, requests: rows.filter(r => r.type === "extend" && (admin || r.accountId === renterAccountId)).map(r => ({ id: r._id, status: r.status, items: r.quoteItems ?? [], amount: r.priceDelta ?? null,creditAppliedPence:r.creditAppliedPence??0,cardDuePence:r.cardDuePence??Math.round((r.priceDelta??0)*100), useAccountCredit:!!r.useAccountCredit, benefitKind: r.benefitKind, benefitLabel: r.benefitLabel, benefitSaving: r.benefitSaving ?? 0, days: r.extraDays, requestedReturnTime: r.requestedReturnTime, approvedReturnTime: r.approvedReturnTime, url: r.status === "awaiting_payment" ? r.paymentLinkUrl : undefined, expiresAt: r.expiresAt, reason: r.approvalReason, createdAt: r.createdAt })), paymentsEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" || /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") };
+    return { status: b.status, actionReady: renterRentalActionReady(b), locked: !!(b.activeAdditionId || b.activeDeliveryQuoteId || b.activeExtensionId || b.activePriceAdjustmentId || b.activeItemSwapId || b.returnDecision || b.cancellationDecision), pickupTime: b.pickupTime ?? null, returnTime: b.returnTime ?? null, items, requests: rows.filter(r => r.type === "extend" && (admin || r.accountId === renterAccountId)).map(r => ({ id: r._id, status: r.status, items: r.quoteItems ?? [], amount: r.priceDelta ?? null,creditAppliedPence:r.creditAppliedPence??0,cardDuePence:r.cardDuePence??Math.round((r.priceDelta??0)*100), useAccountCredit:!!r.useAccountCredit, benefitKind: r.benefitKind, benefitLabel: r.benefitLabel, benefitSaving: r.benefitSaving ?? 0, days: r.extraDays, requestedReturnTime: r.requestedReturnTime, approvedReturnTime: r.approvedReturnTime, url: r.status === "awaiting_payment" ? r.paymentLinkUrl : undefined, expiresAt: r.expiresAt, reason: r.approvalReason, createdAt: r.createdAt, ...(admin && (r.status === "refund_pending" || r.status === "awaiting_payment" && r.refundCreateAttemptAt) ? { refundRecovery:true, refundId:r.refundId ?? null } : {}) })), paymentsEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" || /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") };
   },
 });
 
@@ -752,7 +752,7 @@ export const prepare = internalMutation({
       const components = await storedBookingComponents(ctx, original, b!._id) ?? listing!.components;
       for (const comp of components) await ctx.db.insert("reservations", { bookingId: b!._id, extensionRequestId: requestId, listingId: item.listingId, inventoryUnitId: comp.inventoryUnitId, qty: comp.qty * item.qty, start,end,endExclusive:true,turnaroundBufferMinutes:60, source: "site", status: "hold", holdExpiresAt: expiresAt });
     }
-    const patch = { approvedReturnTime: returnTime, status: "approved" as const, approvedAt: Date.now(), approvalReason: reason.trim(), expiresAt };
+    const patch = { approvedReturnTime: returnTime, status: "approved" as const, approvedAt: Date.now(), approvalReason: reason.trim(), expiresAt, refundCreateTrackingVersion:1 };
     await ctx.db.patch(requestId, patch);
     await ctx.db.patch(b!._id, { activeExtensionId: requestId });
     return { ...r, ...patch };
@@ -806,14 +806,17 @@ async function release(ctx: any, r: any) {
 }
 
 export const close = internalMutation({
-  args: { requestId: v.id("booking_change_requests"), refundId: v.optional(v.string()), paymentIntentId: v.optional(v.string()), refundPending: v.optional(v.boolean()), withdrawn: v.optional(v.boolean()), expectedRefundId: v.optional(v.string()) },
-  handler: async (ctx, { requestId, refundId, paymentIntentId, refundPending, withdrawn, expectedRefundId }) => {
+  args: { requestId: v.id("booking_change_requests"), refundId: v.optional(v.string()), paymentIntentId: v.optional(v.string()), refundPending: v.optional(v.boolean()), withdrawn: v.optional(v.boolean()), expectedRefundId: v.optional(v.string()), expectedUnknownAttemptAt:v.optional(v.number()) },
+  handler: async (ctx, { requestId, refundId, paymentIntentId, refundPending, withdrawn, expectedRefundId, expectedUnknownAttemptAt }) => {
     const r = await ctx.db.get(requestId);
     if (!r || r.status === "applied" || r.status === "refunded") return;
     if (expectedRefundId && (r.status !== "refund_pending" || r.refundId !== expectedRefundId || r.paymentIntentId !== paymentIntentId)) throw Error("The extension refund changed. Refresh its status.");
+    if (expectedUnknownAttemptAt !== undefined && (r.status !== "awaiting_payment" || r.refundId || r.refundCreateAttemptAt !== expectedUnknownAttemptAt || r.refundCreatePaymentIntentId !== paymentIntentId || Date.now() < expectedUnknownAttemptAt + 23 * 3600000)) throw Error("The uncertain refund is not ready for recovery.");
     if (refundPending) {
       if (!refundId || !paymentIntentId || r.status === "refund_pending" && (r.refundId !== refundId || r.paymentIntentId !== paymentIntentId)) throw Error("The extension refund does not match the saved payment.");
       await ctx.db.patch(requestId, { status: "refund_pending", refundId, paymentIntentId });
+      const notice = await ctx.db.query("admin_notifications").withIndex("by_event", q => q.eq("eventKey", `extension-refund-create-attention:${requestId}`)).first();
+      if (notice && !notice.read) await ctx.db.patch(notice._id, { read:true });
       return; // Keep the operation lock until the provider attests its refund.
     }
     await releaseRentalCredit(ctx,"extension",String(r._id));
@@ -821,11 +824,41 @@ export const close = internalMutation({
     const previousRefundId = r.refundId;
     const status = refundId ? "refunded" : withdrawn ? "withdrawn" : "expired";
     await ctx.db.patch(requestId, { status, refundId, paymentIntentId, resolvedAt: Date.now() });
+    if (refundId) {
+      const notice = await ctx.db.query("admin_notifications").withIndex("by_event", q => q.eq("eventKey", `extension-refund-create-attention:${requestId}`)).first();
+      if (notice && !notice.read) await ctx.db.patch(notice._id, { read:true });
+    }
     if (refundId && previousRefundId) {
       const notice = await ctx.db.query("admin_notifications").withIndex("by_event", q => q.eq("eventKey", `extension-refund-attention:${requestId}:${previousRefundId}`)).first();
       if (notice && !notice.read) await ctx.db.patch(notice._id, { read:true });
     }
     if (r.status !== status) await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: refundId ? "The extension couldn't be applied. Its payment has been refunded; the original rental dates remain unchanged." : withdrawn ? "The team withdrew the unpaid extension approval. Your original return dates and charges remain unchanged." : "The extension approval expired without a completed payment. Your original return dates and charges remain unchanged." });
+  },
+});
+
+export const beginRefundCreation = internalMutation({
+  args: { requestId:v.id("booking_change_requests"), sessionId:v.string(), paymentIntentId:v.string() },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (!request || request.status !== "awaiting_payment" || request.stripePaymentLinkId !== args.sessionId || request.refundId || request.refundCreatePaymentIntentId && request.refundCreatePaymentIntentId !== args.paymentIntentId) throw Error("The extension refund changed. Refresh its status.");
+    const now = Date.now();
+    const startedAt = request.refundCreateAttemptAt ?? (request.refundCreateTrackingVersion === 1 ? now : request.approvedAt ?? 1);
+    if (now >= startedAt + 23 * 3600000) {
+      if (!request.refundCreateAttemptAt) await ctx.db.patch(request._id, { refundCreateAttemptAt:startedAt, refundCreatePaymentIntentId:args.paymentIntentId });
+      await queueOwnerNotification(ctx, { eventKey:`extension-refund-create-attention:${args.requestId}`, kind:"deposit_refund_failure", accountId:request.accountId, bookingId:request.bookingId, title:"Extension refund needs attention", body:"Stripe could not confirm the extension refund. Automatic attempts have stopped; review the original payment. The rental remains locked." });
+      return { allowed:false, startedAt };
+    }
+    if (!request.refundCreateAttemptAt) await ctx.db.patch(request._id, { refundCreateAttemptAt:startedAt, refundCreatePaymentIntentId:args.paymentIntentId });
+    return { allowed:true, startedAt };
+  },
+});
+
+export const refundCreationAttention = internalMutation({
+  args: { requestId:v.id("booking_change_requests"), sessionId:v.string() },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (!request || request.status !== "awaiting_payment" || request.stripePaymentLinkId !== args.sessionId) return;
+    await queueOwnerNotification(ctx, { eventKey:`extension-refund-create-attention:${args.requestId}`, kind:"deposit_refund_failure", accountId:request.accountId, bookingId:request.bookingId, title:"Extension refund needs attention", body:"Stripe could not confirm the extension refund. The rental remains locked. Check the original payment before taking any action in Stripe." });
   },
 });
 
@@ -868,6 +901,7 @@ export const applyPaid = internalMutation({
       }
       return { ok: true, bookingId: r.bookingId };
     }
+    if (r.refundCreateAttemptAt) return { ok:false, closed:true, bookingId:r.bookingId };
     const b = await ctx.db.get(r.bookingId);
     if (b) await assertSwapStockReconciled(ctx, b._id);
     const settlementReady = approvedZero ? r.status === "approved" : r.status === "awaiting_payment";

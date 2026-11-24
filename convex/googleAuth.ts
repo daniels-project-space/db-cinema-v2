@@ -2,6 +2,7 @@ import { ensureReferralCode } from "./lib/referrals";
 import { action, internalMutation } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
+import { enqueueVerifiedGuestClaims } from "./lib/guestRentalClaimQueue";
 import { _applyPendingCollectiveGrant } from "./accounts";
 import { ConvexError } from "convex/values";
 import { accountAuthError } from "../shared/accountAuth";
@@ -141,6 +142,7 @@ export const _upsertGoogle = internalMutation({
       await ensureReferralCode(ctx,id);
       await _applyPendingCollectiveGrant(ctx, id, a.email);
       await ctx.scheduler.runAfter(0,internal.verificationArchive.linkVerifiedAccount,{accountId:id,cursor:null});
+      await enqueueVerifiedGuestClaims(ctx,id);
       await ctx.db.insert("sessions", {
         token: a.token,
         accountId: id,
@@ -168,6 +170,7 @@ export const _upsertGoogle = internalMutation({
     if (!acct.googleAvatarRemoved && !acct.googleAvatarUrl && a.picture) patch.googleAvatarUrl = a.picture;
     if (Object.keys(patch).length) await ctx.db.patch(acct._id, patch);
     if(needsVerificationRecovery)await ctx.scheduler.runAfter(0,internal.verificationArchive.linkVerifiedAccount,{accountId:acct._id,cursor:null});
+    await enqueueVerifiedGuestClaims(ctx,acct._id);
     await ctx.db.insert("sessions", {
       token: a.token,
       accountId: acct._id,

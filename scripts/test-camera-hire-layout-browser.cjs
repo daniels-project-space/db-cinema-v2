@@ -19,10 +19,10 @@ const connect = new Function('require', helper.slice(0, helper.indexOf('const { 
     description: 'Compare cinema and mirrorless camera kits for hire in London.',
     tips: ['Choose the camera for your shoot.', 'Check the included accessories.'], guide: 'camera-hire',
     rows: [{slug: 'camera-one', title: 'A longer camera listing for a complete production kit'}],
-    offers: [{slug: 'camera-one', title: 'A longer camera listing for a complete production kit', daily: 47, minimumRentalDays: 1}]
+    offers: [{slug: 'camera-one', title: 'A longer camera listing for a complete production kit', image: '/arri-deconstruct-poster.jpg', daily: 47, minimumRentalDays: 1}]
   }));
   const css = fs.readFileSync(dir + '/page.css', 'utf8');
-  const server = http.createServer((req, res) => {res.setHeader('content-type', 'text/html; charset=utf-8');res.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*,*::before,*::after{box-sizing:border-box}body,h1,h2,h3,p,ol,ul{margin:0}ol,ul{padding:0;list-style:none}a{color:inherit;text-decoration:none}body{font-family:Arial,sans-serif}${css}</style></head><body>${markup}</body></html>`)});
+  const server = http.createServer((req, res) => {if(req.url==='/arri-deconstruct-poster.jpg'){res.setHeader('content-type','image/jpeg');res.end(fs.readFileSync(root+'/public/arri-deconstruct-poster.jpg'));return;}res.setHeader('content-type', 'text/html; charset=utf-8');res.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*,*::before,*::after{box-sizing:border-box}body,h1,h2,h3,p,ol,ul{margin:0}ol,ul{padding:0;list-style:none}a{color:inherit;text-decoration:none}body{font-family:Arial,sans-serif}${css}</style></head><body>${markup}</body></html>`)});
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   let browser;
   try {
@@ -35,6 +35,7 @@ const connect = new Function('require', helper.slice(0, helper.indexOf('const { 
       assert(await browser.evaluate('document.documentElement.scrollWidth <= innerWidth'));
       assert(await browser.evaluate(`document.querySelector('a[href="/gear?cat=Cameras"]') !== null`));
       assert(await browser.evaluate(`document.querySelector('a[href="/gear/camera-one"]') !== null`));
+      assert(await browser.evaluate(`(() => {const image=document.querySelector('a[href="/gear/camera-one"] img');return image && image.getAttribute('src')==='/arri-deconstruct-poster.jpg' && image.complete && image.naturalWidth>0})()`), 'the listing card displays its own catalogue image');
       await browser.evaluate(`document.querySelector('nav[aria-label="Breadcrumb"] a[href="/gear"]').focus()`);
       await browser.cmd('Input.dispatchKeyEvent', {type:'keyDown', key:'Tab', code:'Tab', windowsVirtualKeyCode:9});
       await browser.cmd('Input.dispatchKeyEvent', {type:'keyUp', key:'Tab', code:'Tab', windowsVirtualKeyCode:9});

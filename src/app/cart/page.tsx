@@ -18,6 +18,7 @@ import { Recommendations } from "@/components/Recommendations";
 import { formatGbp } from "@/lib/pricing";
 import { CheckoutMembership } from "@/components/CheckoutMembership";
 import { useBasketPrice } from "@/components/cart/useBasketPrice";
+import { stockDisplayState } from "@/lib/stockDisplayState";
 import { CartItemDates } from "@/components/cart/CartItemDates";
 import { CartThirdDayOffer } from "@/components/cart/CartThirdDayOffer";
 import { IconX, IconArrowRight, IconLock } from "@/components/icons";
@@ -117,8 +118,9 @@ export default function CartPage() {
               <div className="flex min-w-0 flex-col gap-3">
                 {items.map((it, idx) => {
                   const a = avail?.[it.listingId];
-                  const unavailable = a && a.available === 0;
-                  const over = a && !a.ok && a.available > 0;
+                  const state = stockDisplayState(a);
+                  const unavailable = state === "unavailable";
+                  const over = state === "kit-limit";
                   const dim = unavailable || over;
                   return (
                     <Fragment key={`${it.listingId}|${it.start}|${idx}`}>
@@ -150,8 +152,8 @@ export default function CartPage() {
                           </div>
                         ) : over ? (
                           <div className="mt-1.5 text-xs text-red-300">
-                            Only {a.available} available for these dates (you
-                            have {a.demanded})
+                            Only {a?.available} available for these dates (you
+                            have {a?.demanded})
                           </div>
                         ) : null}
                       </div>

@@ -10,7 +10,7 @@ class Stripe {
 }
 setMock('stripe',{default:Stripe});process.env.STRIPE_SECRET_KEY='sk_test_fixture';process.env.CUSTOMER_BOOKING_ACTIONS='true';process.env.ADMIN_TOKEN='owner-fixture';
 const bookingFns=load('convex/bookings.ts'),offers=load('convex/rentalCreditOffers.ts'),checkout=load('convex/checkout.ts'),accounts=load('convex/accounts.ts'),cancellationRecovery=load('convex/cancellationRecovery.ts');
-const account=put('accounts',{email:'credit@rental-test.invalid'}),foreign=put('accounts',{email:'foreign@rental-test.invalid'});
+const account=put('accounts',{email:'credit@rental-test.invalid',emailVerifiedAt:fixtureNow}),foreign=put('accounts',{email:'foreign@rental-test.invalid'});
 put('sessions',{token:'owned',accountId:account._id,expiresAt:Date.now()+600000});put('sessions',{token:'foreign',accountId:foreign._id,expiresAt:Date.now()+600000});
 const b=put('bookings',{guestEmail:account.email,status:'confirmed',total:120,depositAmount:20,creditApplied:30,currency:'GBP',stripePaymentIntentId:'paid',stripeDepositIntentId:'hold',lineItems:[{listingId:'camera',title:'Camera',qty:1,lineTotal:100,start:Date.now()+5*86400000,end:Date.now()+6*86400000}]});
 put('reservations',{bookingId:b._id,source:'site',status:'confirmed'});

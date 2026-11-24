@@ -15,7 +15,7 @@ const {checkoutStartDestination}=load('src/lib/checkoutStartResult.ts');
   assert.deepEqual(expired,{state:'expired_unpaid',session:{...open,status:'expired'},bookingExpired:true});
   assert.deepEqual(expiredCalls,['cs-open']);assert.deepEqual(bookingCalls,['cs-open']);
 
-  const paidRace={id:'cs-race',status:'complete',payment_status:'paid',amount_total:12000,currency:'gbp'};
+  const paidRace={id:'cs-open',status:'complete',payment_status:'paid',amount_total:12000,currency:'gbp'};
   const raced=await expireUnpaidCheckoutSession({session:open,
     expireStripe:async()=>paidRace,
     retrieveStripe:async()=>{throw Error('provider read is not needed after expiry succeeds');},
@@ -43,5 +43,13 @@ const {checkoutStartDestination}=load('src/lib/checkoutStartResult.ts');
     expireBooking:async()=>{preserved=true;return true;},
   });
   assert.equal(processing.state,'indeterminate');assert.equal(preserved,false);
+  for(const response of [{id:'cs-other',status:'expired',payment_status:'unpaid'},{id:'cs-other',status:'complete',payment_status:'paid'}]){
+    let touched=false;
+    await assert.rejects(expireUnpaidCheckoutSession({session:open,expireStripe:async()=>response,retrieveStripe:async()=>{throw Error('unexpected');},expireBooking:async()=>{touched=true;return true;}}),/identity changed/);
+    assert.equal(touched,false,'A mismatched provider session never changes the original booking');
+  }
+  let touched=false;
+  await assert.rejects(expireUnpaidCheckoutSession({session:open,expireStripe:async()=>{throw Error('expiry race');},retrieveStripe:async()=>({id:'cs-other',status:'complete',payment_status:'paid'}),expireBooking:async()=>{touched=true;return true;}}),/identity changed/);
+  assert.equal(touched,false,'A mismatched re-fetch never changes the original booking');
   console.log('PASS checkout retry recovery: open unpaid expires, expiry race preserves completed payment, terminal unpaid releases only after provider state, processing remains untouched.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

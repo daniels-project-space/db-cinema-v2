@@ -352,7 +352,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(`document.querySelector('[data-testid="membership-upsell"]').dataset.membershipSelected==='true'`);
   assert.equal(await c.evaluate(`document.querySelectorAll('[data-testid="membership-celebration"] .membership-confetti').length`),36,'Whole headline click starts one real confetti burst');
   assert.equal(await c.evaluate(`document.querySelector('.membership-confetti').getAnimations().some(a=>a.playState==='running')`),true,'Confetti is animated, not a static decoration');
-  assert.equal(await c.evaluate(`(()=>{const card=document.querySelector('[data-testid="membership-upsell"]');return card.dataset.membershipCompact==='true'&&card.getBoundingClientRect().height<300&&card.querySelector('input[type="checkbox"]').checked;})()`),true,'The smaller tile stays compact after selection and confirms recurring consent');
+  assert.equal(await c.evaluate(`(()=>{const card=document.querySelector('[data-testid="membership-upsell"]'),benefits=card.querySelector('[data-testid="membership-pitch-benefits"]'),consent=card.querySelector('input[type="checkbox"]');return card.dataset.membershipCompact==='true'&&card.getBoundingClientRect().height<420&&consent.checked&&parseFloat(getComputedStyle(benefits).fontSize)>=12&&parseFloat(getComputedStyle(consent.closest('label')).fontSize)>=12;})()`),true,'The compact tile keeps recurring consent checked and its benefits and terms readable');
   await wait(350);
   assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"] h3')?.innerText`),`Subscribe to save £${potential.toFixed(2)}`,'The exact hook stays unchanged throughout the selection burst');
   await shot('selection-confetti-mobile');

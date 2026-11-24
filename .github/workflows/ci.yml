@@ -40,6 +40,8 @@ jobs:
         run: node scripts/test-checkout-release-readiness.cjs
       - name: Verify saved checkout prices use exact rental duration
         run: node scripts/test-checkout-recovery-pricing.cjs
+      - name: Verify private admin Gaffer authorization and request facts
+        run: node scripts/test-admin-gaffer-read.cjs
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -65,6 +67,9 @@ jobs:
         run: |
           node -e 'if (!require("./package.json").scripts?.[process.env.TEST_PHASE]) process.exit(1)'
           npm --ignore-scripts run "$TEST_PHASE"
+      - name: Verify case identity matching
+        if: matrix.phase == 'pretest'
+        run: node scripts/test-case-identity-matching.cjs
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -111,7 +116,11 @@ jobs:
           node scripts/test-verification-claim-browser.cjs
           node scripts/test-verification-signin-browser.cjs
           node scripts/test-verification-unavailable-browser.cjs
+          node scripts/test-verification-refresh-scope-browser.cjs
+          node scripts/test-cart-mobile-visual-browser.cjs
           node scripts/test-verification-admin-delivery-browser.cjs
           node scripts/test-account-verification-badge-browser.cjs
           DBC_CHECKOUT_ROOT=http://127.0.0.1:41795 node scripts/test-checkout-boundary-browser.cjs
           DBC_CHECKOUT_SCREENSHOTS="$RUNNER_TEMP/dbc-checkout-draft-review" node scripts/test-checkout-draft-browser.cjs
+      - name: Customer workspace browser regression
+        run: node scripts/test-customer-workspace-browser.cjs

@@ -1,11 +1,13 @@
 import { internal } from "../_generated/api";
 import { internalMutation } from "../_generated/server";
 import { accountForRental } from "./rentalAccount";
+import { linkCaseIdentity } from "./caseIdentity";
 
 /** Preserve the booking conversation as case evidence and mark the live thread. */
 export async function archiveCaseConversation(ctx: any, caseRecord: any) {
   const booking = await ctx.db.get(caseRecord.bookingId);
   if (!booking) throw Error("The case rental is unavailable for chat archiving.");
+  await linkCaseIdentity(ctx, caseRecord, booking);
   const account = (caseRecord.accountId ? await ctx.db.get(caseRecord.accountId) : null) ?? await accountForRental(ctx, booking);
   const accountId = account?._id;
   const thread = accountId

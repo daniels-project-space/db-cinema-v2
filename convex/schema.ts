@@ -19,6 +19,7 @@ import { replacementCatalogItems, replacementStockSelection, replacementCustomer
  * Trigger sync job through an httpAction bridge. `rmv2_sync_state` tracks it.
  */
 export default defineSchema({
+  guest_rental_claim_jobs: defineTable({accountId:v.id("accounts"),expectedEmail:v.string(),state:v.union(v.literal("pending"),v.literal("done"),v.literal("review")),cursor:v.union(v.string(),v.null()),attempts:v.number(),generation:v.number(),nextAttemptAt:v.number(),conflicts:v.number(),updatedAt:v.number()}).index("by_account",["accountId"]).index("by_state_due",["state","nextAttemptAt"]),
   rental_chat_reminders: defineTable({bookingId:v.id("bookings"),key:v.string(),kind:v.union(v.literal("pickup"),v.literal("halfway"),v.literal("return")),dueAt:v.number(),createdAt:v.number(),state:v.union(v.literal("scheduled"),v.literal("sent"),v.literal("suppressed"),v.literal("failed")),recoverAt:v.optional(v.number()),attempts:v.optional(v.number()),finishedAt:v.optional(v.number()),messageId:v.optional(v.id("messages"))}).index("by_booking_key",["bookingId","key"]).index("by_booking_kind_state",["bookingId","kind","state"]).index("by_state_due",["state","dueAt"]).index("by_state_recover",["state","recoverAt"]).index("by_state_finished",["state","finishedAt"]),
   rental_chat_reminder_migrations: defineTable({key:v.string(),status:v.union(v.literal("confirmed"),v.literal("active"),v.literal("complete")),cursor:v.union(v.string(),v.null())}).index("by_key",["key"]),
   rental_chat_reminder_plans: defineTable({bookingId:v.id("bookings"),state:v.union(v.literal("pending"),v.literal("done"),v.literal("failed")),recoverAt:v.number(),attempts:v.number(),finishedAt:v.optional(v.number())}).index("by_booking",["bookingId"]).index("by_state_recover",["state","recoverAt"]).index("by_state_finished",["state","finishedAt"]),
@@ -69,6 +70,11 @@ export default defineSchema({
     openedAt: v.number(), closedAt: v.optional(v.number()), resolution: v.optional(v.string()), requestId: v.optional(v.string()), lifecycleVersion:v.optional(v.number()),
     claimAmountPence:v.optional(v.number()), claimReason:v.optional(v.string()), claimBasis:v.optional(v.union(v.literal("loss"),v.literal("severe_cosmetic_damage"))), claimEvidenceIds:v.optional(v.array(v.id("chat_attachment_attempts"))),
   }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]).index("by_booking_request", ["bookingId", "requestId"]).index("by_booking_item", ["bookingId", "itemKey"]).index("by_opened", ["openedAt"]),
+  rental_case_identity_links: defineTable({ caseId:v.id("rental_damage_cases"), bookingId:v.id("bookings"), personKey:v.string(), verifiedAt:v.number(), source:v.union(v.literal("didit"),v.literal("reused_didit")), revokedAt:v.optional(v.number()), createdAt:v.number() }).index("by_case", ["caseId"]).index("by_person", ["personKey"]),
+  rental_case_identity_jobs: defineTable({ bookingId:v.id("bookings"), state:v.union(v.literal("pending"),v.literal("complete"),v.literal("attention")), generation:v.number(), attempts:v.number(), dueAt:v.number(), cursor:v.optional(v.string()), createdAt:v.number(), updatedAt:v.number() }).index("by_booking", ["bookingId"]).index("by_state_due", ["state", "dueAt"]),
+  rental_case_identity_rechecks: defineTable({ linkId:v.id("rental_case_identity_links"), personKey:v.string(), state:v.union(v.literal("pending"),v.literal("complete"),v.literal("attention")), generation:v.number(), attempts:v.number(), dueAt:v.number(), stage:v.number(), cursor:v.optional(v.string()), createdAt:v.number(), updatedAt:v.number() }).index("by_link", ["linkId"]).index("by_state_due", ["state", "dueAt"]),
+  rental_case_identity_scans: defineTable({ bookingId:v.id("bookings"), personKey:v.string(), state:v.union(v.literal("pending"),v.literal("complete"),v.literal("attention")), generation:v.number(), attempts:v.number(), dueAt:v.number(), cursor:v.optional(v.string()), found:v.boolean(), hadMatch:v.optional(v.boolean()), alertEventKey:v.optional(v.string()), round:v.optional(v.number()), createdAt:v.number(), updatedAt:v.number() }).index("by_booking", ["bookingId"]).index("by_state_due", ["state", "dueAt"]),
+  rental_case_identity_backfill: defineTable({ key:v.string(), cursor:v.optional(v.string()), completedAt:v.optional(v.number()), generation:v.optional(v.number()), attempts:v.optional(v.number()), attentionAt:v.optional(v.number()), updatedAt:v.number() }).index("by_key", ["key"]),
   chat_case_archives: defineTable({caseId:v.id("rental_damage_cases"),bookingId:v.id("bookings"),accountId:v.optional(v.id("accounts")),threadId:v.optional(v.id("chat_threads")),archivedAt:v.number()}).index("by_case",["caseId"]).index("by_booking",["bookingId"]).index("by_account",["accountId"]),
   chat_case_archive_backfill: defineTable({key:v.string(),cursor:v.optional(v.string()),completedAt:v.optional(v.number()),updatedAt:v.number()}).index("by_key",["key"]),
   rental_case_updates: defineTable({caseId:v.id("rental_damage_cases"),bookingId:v.id("bookings"),details:v.string(),fingerprint:v.string(),requestId:v.optional(v.string()),addedAt:v.number()}).index("by_case",["caseId"]).index("by_case_fingerprint",["caseId","fingerprint"]).index("by_case_request",["caseId","requestId"]),
@@ -429,7 +435,7 @@ export default defineSchema({
     verificationLateBlockedEventId: v.optional(v.string()),
     verificationLateBlockedProviderStatus: v.optional(v.string()),
     idVerifyStatus: v.optional(v.string()),
-    verificationConfirmationIssue: v.optional(v.union(v.literal("inventory_unavailable"),v.literal("manager_capacity_conflict"),v.literal("provider_confirmation_failed"))),
+    verificationConfirmationIssue: v.optional(v.union(v.literal("inventory_unavailable"),v.literal("manager_capacity_conflict"),v.literal("provider_confirmation_failed"),v.literal("credit_reconciliation"))),
     droneLicenceStorageId: v.optional(v.id("_storage")),
     droneLicenceDocumentId: v.optional(v.id("verification_documents")),
     droneLicenceStatus: v.optional(v.union(v.literal("review"), v.literal("approved"), v.literal("requires_input"))),
@@ -1189,6 +1195,9 @@ export default defineSchema({
     expiresAt:v.optional(v.number()),
     paymentIntentId:v.optional(v.string()),
     refundId:v.optional(v.string()),
+    refundCreateAttemptAt:v.optional(v.number()),
+    refundCreatePaymentIntentId:v.optional(v.string()),
+    refundCreateTrackingVersion:v.optional(v.number()),
     priceDelta: v.optional(v.number()),
     stripePaymentLinkId: v.optional(v.string()),
     paymentLinkUrl: v.optional(v.string()),

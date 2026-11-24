@@ -1,5 +1,6 @@
 import { queueOwnerNotification } from "./adminPush";
 import { verificationValidUntil } from "../../shared/verificationProgress";
+import { queueCaseIdentityScan } from "./caseIdentity";
 
 export async function approvedRestrictedIdentitySource(ctx:any, booking:any, sessionId?:string) {
   if (!booking || booking.idVerifyStatus !== "verified" || !booking.renterPersonKey || !["identity","selfie","address"].every(key=>booking.verificationChecks?.[key] === "approved")) return false;
@@ -89,6 +90,7 @@ async function resolveObsoleteIdentityNotice(ctx: any, booking: any) {
 
 export async function notifyRestrictedIdentityMatch(ctx: any, booking: any, personKey: string) {
   if (!/^[a-f0-9]{64}$/.test(personKey)) return false;
+  await queueCaseIdentityScan(ctx, booking._id, personKey);
   const result = await restrictedIdentityMatches(ctx, booking, personKey);
   if (!result.matches.length) {
     await resolveObsoleteIdentityNotice(ctx, booking);

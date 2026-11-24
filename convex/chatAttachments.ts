@@ -202,8 +202,9 @@ export const removePublished=mutation({args:{token:v.string(),id:v.id("chat_atta
   const reason=args.reason.trim();if(!args.confirmed||reason.length<10||reason.length>500)throw Error("Confirm and record a reason of 10–500 characters.");
   const attempt=await ctx.db.get(args.id);if(!attempt)throw Error("Attachment unavailable.");if(attempt.status==="removed")return;
   if(attempt.status!=="published"||!attempt.storageId||!attempt.messageId)throw Error("Attachment unavailable.");
-  if((await attachmentRetentionWindow(ctx,attempt)).caseArchived)throw Error("This file is part of the permanent rental case archive.");
-  if(attempt.retentionNeedsReview)throw Error("The file needs a retention review before removal.");
+  const window=await attachmentRetentionWindow(ctx,attempt);
+  if(window.caseArchived)throw Error("This file is part of the permanent rental case archive.");
+  if(attempt.retentionNeedsReview||window.needsReview)throw Error("The file needs a retention review before removal.");
   if(!Number.isSafeInteger(args.expectedRevision)||args.expectedRevision!==(attempt.retentionHoldRevision??0))throw Error("The retention hold changed. Review it and confirm again.");
   if(attempt.retentionHoldReason)throw Error("This attachment is protected by a retention hold.");
   if(!await removePublishedBytes(ctx,attempt,reason,"removed"))throw Error("The file needs a retention review before removal.");

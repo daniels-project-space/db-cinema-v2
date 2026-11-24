@@ -6,6 +6,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { sendRentalContextEmail } from "./lib/rentalContextEmail";
 import { isSavedCardRental } from "../shared/savedCardSecurity";
+import { belongsToRentalAccount } from "./lib/rentalAccount";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const gbp = (value: number) => `£${value.toFixed(2)}`;
@@ -23,7 +24,7 @@ async function ownedLateCharge(ctx: any, token: string, bookingId: any) {
   const account: any = await ctx.runQuery(internal.accounts._byToken, { token });
   const booking: any = await ctx.runQuery(internal.bookings.lateFeeContext, { bookingId });
   if (!account || !booking || booking.status !== "returned" ||
-      account.email.trim().toLowerCase() !== booking.guestEmail?.trim().toLowerCase())
+      !belongsToRentalAccount(booking,account))
     throw new Error("Booking access denied.");
   return booking;
 }

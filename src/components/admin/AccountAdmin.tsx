@@ -17,10 +17,12 @@ import { RentalVerificationSummary } from "@/components/rentals/RentalVerificati
 import { SavedCardCharges } from "@/components/rentals/SavedCardCharges";
 import { MembershipInvoiceRecovery } from "./MembershipInvoiceRecovery";
 import { PossibleRestrictedIdentityAccountMatches } from "./PossibleRestrictedIdentityMatch";
+import { AdminCaseMatches } from "./AdminCaseMatches";
 import { AdminCheckoutBasket } from "./AdminCheckoutBasket";
 import { accountControls, type AccountControl } from "./accountControlSearch";
 import { AccountControlSearch } from "./AdminControlFinder";
 import { AdminGaffer } from "./AdminGaffer";
+import { GuestRentalClaimRecovery } from "./GuestRentalClaimRecovery";
 
 const LEVELS = [
   ["automatic", "Automatic"],
@@ -902,6 +904,8 @@ export function AccountAdmin({
             </button>
           </div>
           {!panelClosed && <PossibleRestrictedIdentityAccountMatches key={selected.id} token={token} accountId={selected.id as any} onOpenAccount={id => selectAccount(id, true)}/>}
+          {!panelClosed && activeRental && <AdminCaseMatches key={`${selected.id}:${activeRental.id}`} token={token} bookingId={activeRental.id} />}
+          {!panelClosed && <GuestRentalClaimRecovery key={selected.id} token={token} accountId={selected.id}/>}
           <nav
             className={styles.profileTabs}
             data-testid="admin-account-profile-sections"

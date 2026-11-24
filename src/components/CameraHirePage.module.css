@@ -6,3 +6,6 @@
 .page .sectionHeading>a:focus-visible{outline:2px solid #f3d499;outline-offset:4px}
 @media(max-width:480px){.page .art{min-height:205px}.page .orbit{width:130px}.page .artTop,.page .artBottom{font-size:9px;letter-spacing:.12em}.page .heroFooter{font-size:10px;letter-spacing:.12em}}
 @media(prefers-reduced-motion:reduce){.page .primary:hover,.page .secondary:hover,.page .offerCard:hover{transform:none}}
+.cardImage{height:150px;margin:16px 0;overflow:hidden;border-radius:12px;background:#101112}.cardImage img{width:100%;height:100%;object-fit:contain;transition:transform .35s ease}.offerCard:hover .cardImage img{transform:scale(1.04)}
+@media(max-width:600px){.page .cardImage{grid-column:1/-1;grid-row:2;height:150px;margin:12px 0}.page .offerCard h3{grid-column:1/-1;grid-row:3}.page .cardBottom{grid-row:4;margin-top:12px}}
+@media(prefers-reduced-motion:reduce){.cardImage img{transition:none}.offerCard:hover .cardImage img{transform:none}}

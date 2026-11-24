@@ -29,6 +29,16 @@ function recoveryExpiry(lines:any[],now:number) {
   return Math.min(now + 8 * DAY_MS, Math.min(...lines.map((line:any)=>line.start)) + DAY_MS);
 }
 
+async function relatedRecoveryBookings(ctx:any, recovery:any, account:any) {
+  const bookings = await recoveryBookingsForAccount(ctx, account);
+  const related = bookings.filter((booking:any) => basketKey(booking.lineItems) === basketKey(recovery.lines));
+  if (recovery.bookingId) {
+    const linked = await ctx.db.get(recovery.bookingId);
+    if (linked && !related.some((booking:any) => booking._id === linked._id)) related.push(linked);
+  }
+  return related;
+}
+
 const line = v.object({
   listingId: v.id("listings"),
   qty: v.number(),
@@ -238,16 +248,7 @@ export const _claim = internalMutation({
       await ctx.db.patch(id,{state:"stopped",leaseUntil:undefined});return null;
     }
     // Recheck permanent ownership and payment state immediately before claiming.
-    const bookings = await recoveryBookingsForAccount(ctx,account);
-    const related = bookings.filter(
-      (b) =>
-        basketKey(b.lineItems) === basketKey(r.lines),
-    );
-    if (r.bookingId) {
-      const linked = await ctx.db.get(r.bookingId);
-      if (linked && !related.some((b) => b._id === linked._id))
-        related.push(linked);
-    }
+    const related = await relatedRecoveryBookings(ctx,r,account);
     if (related.some((b) => recoveryBookingState(b) === "stopped")) {
       await ctx.db.patch(id, { state: "stopped" });
       return null;
@@ -308,7 +309,8 @@ export const _finish = internalMutation({
 /** Fence a claimed email against basket activity, payment, account changes and pause controls. */
 export const _ready=internalQuery({args:{id:v.id("checkout_recoveries"),leaseUntil:v.number(),email:v.string(),stage:v.union(v.literal("day_one"),v.literal("week_one")),updatedAt:v.number(),emailFollowupConsentAt:v.number()},handler:async(ctx,a)=>{
  const r=await ctx.db.get(a.id),account=r?await ctx.db.get(r.accountId):null;
- return !!r&&r.state==="waiting"&&r.leaseUntil===a.leaseUntil&&r.followupStage===a.stage&&r.updatedAt===a.updatedAt&&r.emailFollowupConsentAt===a.emailFollowupConsentAt&&a.leaseUntil>Date.now()&&!!account&&account.email===a.email&&account.blockedAt==null&&!(account.emailVerificationRequired&&!account.emailVerifiedAt)&&process.env.CHECKOUT_RECOVERY_ENABLED==="true"&&process.env.RENTAL_CHECKOUT_ENABLED==="true"&&(await ctx.db.query("settings").first())?.acceptingOrders!==false;
+ if(!r||r.state!=="waiting"||r.leaseUntil!==a.leaseUntil||r.followupStage!==a.stage||r.updatedAt!==a.updatedAt||r.emailFollowupConsentAt!==a.emailFollowupConsentAt||a.leaseUntil<=Date.now()||!account||account.email!==a.email||account.blockedAt!=null||account.emailVerificationRequired&&!account.emailVerifiedAt||process.env.CHECKOUT_RECOVERY_ENABLED!=="true"||process.env.RENTAL_CHECKOUT_ENABLED!=="true"||(await ctx.db.query("settings").first())?.acceptingOrders===false)return false;
+ return (await relatedRecoveryBookings(ctx,r,account)).every((booking:any)=>recoveryBookingState(booking)==="recoverable");
 }});
 
 export const disableFollowups = mutation({

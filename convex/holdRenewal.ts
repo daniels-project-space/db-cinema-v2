@@ -190,7 +190,7 @@ export const renewDue = internalAction({
 });
 
 async function owned(ctx: any, token: string, bookingId: any) {
-  const account: any = await ctx.runQuery(api.accounts.me, { token });
+  const account: any = await ctx.runQuery(internal.accounts._byToken, { token });
   const b: any = await ctx.runQuery(internal.bookings.renewalContext, { bookingId });
   if (!account || !b || !["confirmed", "active"].includes(b.status) || b.cancellationPending || b.returnPending ||
     !belongsToRentalAccount(b, account))
@@ -300,7 +300,7 @@ export const authorizePickup = internalAction({args:{bookingId:v.id("bookings"),
 }});
 export const pickupsDue = internalAction({args:{},handler:async(ctx)=>{const rows:any[]=await ctx.runQuery(internal.pickupSecurity.due,{});for(const row of rows){const b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId:row.bookingId});if(b?.securityHoldPaymentMethodId)await ctx.runAction(internal.holdRenewal.authorizePickup,row);else await ctx.runAction(internal.checkout.preparePickupSecurity,{bookingId:row.bookingId});}}});
 
-async function ownPickup(ctx:any,token:string,bookingId:any){const account:any=await ctx.runQuery(api.accounts.me,{token}),b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId});if(!account||!b||!pickupHoldEligible(b)||(b.accountId?b.accountId!==account._id:account.email?.trim().toLowerCase()!==b.guestEmail?.trim().toLowerCase()))throw Error("Booking access denied");return b;}
+async function ownPickup(ctx:any,token:string,bookingId:any){const account:any=await ctx.runQuery(internal.accounts._byToken,{token}),b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId});if(!account||!b||!pickupHoldEligible(b)||!belongsToRentalAccount(b,account))throw Error("Booking access denied");return b;}
 export const resumePickup = action({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,a)=>{const b=await ownPickup(ctx,a.token,a.bookingId);if(b.depositHoldStatus!=="requires_action"||!b.stripeDepositIntentId)return {status:b.depositHoldStatus,clientSecret:null};const sb=stripe(),intent=await sb.paymentIntents.retrieve(b.stripeDepositIntentId);if(!await pickupRecoveryIntentMatches(ctx,b,intent,sb))throw Error("Rental card authorisation does not match. Please contact us.");return {status:intent.status,clientSecret:intent.status==="requires_action"?intent.client_secret:null};}});
 export const syncPickup = action({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,a):Promise<{status:string}>=>{const b=await ownPickup(ctx,a.token,a.bookingId);if(!b.stripeDepositIntentId)return {status:b.depositHoldStatus??"none"};const sb=stripe(),intent=await sb.paymentIntents.retrieve(b.stripeDepositIntentId,{expand:["latest_charge"]});return {status:await reconcilePickup(ctx,b,intent,sb)};}});
 function assertRecoveryRetirable(intent: Stripe.PaymentIntent) {

@@ -1,9 +1,10 @@
 import { assertVerificationArchive } from "./verificationArchive";
 import { retainVerificationArchiveLink } from "./lib/verificationArchiveLink";
 import { renterVerificationNote, verificationValidUntil } from "../shared/verificationProgress";
+import { enqueueVerifiedGuestClaims } from "./lib/guestRentalClaimQueue";
 import { renterHandoverDetailsReady } from "./lib/renterRentalActionGate";
 import { ensureReferralCode } from "./lib/referrals";
-import { belongsToRentalAccount, rentalsForAccount } from "./lib/rentalAccount";
+import { belongsToRentalAccount, hasVerifiedRentalEmail, rentalsForAccount } from "./lib/rentalAccount";
 import { checkoutBenefitAccount, membershipRentalBenefitAccount } from "./lib/rentalBenefitAccount";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
@@ -156,6 +157,7 @@ export const _session = internalMutation({
     const now = Date.now();
     await ctx.db.patch(accountId, { passwordSignInWindowStartedAt: undefined, passwordSignInAttemptCount: undefined });
     await ctx.db.insert("sessions", { token, accountId, createdAt: now, expiresAt: now + SESSION_TTL_MS });
+    if (account.emailVerifiedAt && !account.emailVerificationRequired) await enqueueVerifiedGuestClaims(ctx,accountId);
   },
 });
 
@@ -790,7 +792,7 @@ export const myBookingsPage=query({args:{token:v.string(),paginationOpts:paginat
  const a:any=await resolve(ctx,token);if(!a)return {page:[],isDone:true,continueCursor:""};
  const linked = stream(ctx.db, schema).query("bookings").withIndex("by_account", q => q.eq("accountId", a._id)).order("desc");
  const legacy = stream(ctx.db, schema).query("bookings").withIndex("by_account_guestEmail", q => q.eq("accountId", undefined).eq("guestEmail", a.email)).order("desc");
- const page = await mergedStream([linked, legacy], ["_creationTime"]).paginate({...paginationOpts, numItems:Math.min(50,paginationOpts.numItems), maximumRowsRead:100});
+ const page = await mergedStream(hasVerifiedRentalEmail(a)?[linked, legacy]:[linked], ["_creationTime"]).paginate({...paginationOpts, numItems:Math.min(50,paginationOpts.numItems), maximumRowsRead:100});
  return {...page,page:await enrichBookings(ctx,page.page)};
 }});
 

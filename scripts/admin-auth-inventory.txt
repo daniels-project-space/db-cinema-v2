@@ -12,7 +12,6 @@ call convex/checkout.ts:settings.get
 call convex/delivery.ts:settings.get
 call convex/gaffer.ts:availability.forListing
 call convex/googleAuth.ts:settings.get
-call convex/holdRenewal.ts:accounts.me
 call convex/http.ts:privateVerificationPortrait.selected
 call convex/invoice.ts:bookings.invoiceData
 call convex/lib/rentalPrice.ts:availability.forCart
@@ -450,6 +449,7 @@ call src/components/rentals/RentalDeliveryQuoteApproval.tsx:rentalDelivery.decli
 call src/components/rentals/RentalDeliveryQuoteApproval.tsx:rentalDeliveryState.customerQuote
 call src/components/rentals/RentalExtensionPanel.tsx:cartReplacements.forCart
 call src/components/rentals/RentalExtensionPanel.tsx:rentalExtensionPayments.approve
+call src/components/rentals/RentalExtensionPanel.tsx:rentalExtensionPayments.confirmReplacementRefund
 call src/components/rentals/RentalExtensionPanel.tsx:rentalExtensionPayments.withdraw
 call src/components/rentals/RentalExtensionPanel.tsx:rentalExtensions.decline
 call src/components/rentals/RentalExtensionPanel.tsx:rentalExtensions.quote
@@ -653,6 +653,8 @@ export convex/adminAuth.ts:assertAdminInternal
 export convex/adminAuth.ts:checkAdminToken
 export convex/adminAuth.ts:verify
 export convex/adminGaffer.ts:answer
+export convex/adminGafferPayment.ts:checkoutEvidence
+export convex/adminGafferRequests.ts:selectedRentalRequests
 export convex/adminNotifications.ts:acknowledge
 export convex/adminNotifications.ts:acknowledgeConversationBatch
 export convex/adminNotifications.ts:claim
@@ -823,6 +825,19 @@ export convex/cancellationRecovery.ts:receipt
 export convex/cancellationRecovery.ts:renterStatus
 export convex/cartReplacements.ts:forCart
 export convex/cartReplacements.ts:sets
+export convex/caseIdentity.ts:backfill
+export convex/caseIdentity.ts:backfillFailure
+export convex/caseIdentity.ts:backfillGeneration
+export convex/caseIdentity.ts:backfillStatus
+export convex/caseIdentity.ts:dispatchDue
+export convex/caseIdentity.ts:due
+export convex/caseIdentity.ts:failure
+export convex/caseIdentity.ts:matchingCases
+export convex/caseIdentity.ts:processBooking
+export convex/caseIdentity.ts:processRecheck
+export convex/caseIdentity.ts:processScan
+export convex/caseIdentity.ts:retryBackfill
+export convex/caseIdentity.ts:runBackfill
 export convex/catalog.ts:adminListListings
 export convex/catalog.ts:allBasic
 export convex/catalog.ts:allSlugs
@@ -1116,6 +1131,10 @@ export convex/gaffer.ts:ownerDrafts
 export convex/gafferCatalogue.ts:lookup
 export convex/googleAuth.ts:_upsertGoogle
 export convex/googleAuth.ts:signInWithGoogle
+export convex/guestRentalClaims.ts:claimVerifiedPage
+export convex/guestRentalClaims.ts:dispatchDue
+export convex/guestRentalClaims.ts:retryReview
+export convex/guestRentalClaims.ts:reviewStatus
 export convex/holdRenewal.ts:authorizePickup
 export convex/holdRenewal.ts:pickupsDue
 export convex/holdRenewal.ts:reconcilePickupWebhook
@@ -1177,6 +1196,10 @@ export convex/lib/botModel.ts:BOT_MODEL_FALLBACK
 export convex/lib/botModel.ts:BOT_PROVIDER_ROUTING
 export convex/lib/botModel.ts:botLanes
 export convex/lib/cancellationFields.ts:cancellationReceipt
+export convex/lib/caseIdentity.ts:linkCaseIdentity
+export convex/lib/caseIdentity.ts:queueCaseIdentityBooking
+export convex/lib/caseIdentity.ts:queueCaseIdentityScan
+export convex/lib/caseIdentity.ts:verifiedCasePersonKey
 export convex/lib/catalogImages.ts:listingImages
 export convex/lib/catalogImages.ts:listingRentalImages
 export convex/lib/catalogPricing.ts:repriceRentalLines
@@ -1243,6 +1266,7 @@ export convex/lib/gafferDiscount.ts:gafferDiscount
 export convex/lib/gafferHumanIntent.ts:explicitlyRequestsHuman
 export convex/lib/gafferHumanIntent.ts:requiresUrgentHumanReview
 export convex/lib/gafferVerificationGuidance.ts:export { verificationRecovery } from "../../shared/gafferVerificationGuidance";
+export convex/lib/guestRentalClaimQueue.ts:enqueueVerifiedGuestClaims
 export convex/lib/initialInvoiceSnapshot.ts:initialInvoiceSnapshot
 export convex/lib/inventoryCapacity.ts:inventoryCapacity
 export convex/lib/itemPaymentLedger.ts:downgradedItemPaymentLedger
@@ -1309,6 +1333,7 @@ export convex/lib/referrals.ts:issueReferralReward
 export convex/lib/referrals.ts:referralEligibility
 export convex/lib/rentalAccount.ts:accountForRental
 export convex/lib/rentalAccount.ts:belongsToRentalAccount
+export convex/lib/rentalAccount.ts:hasVerifiedRentalEmail
 export convex/lib/rentalAccount.ts:rentalsForAccount
 export convex/lib/rentalAllocation.ts:assertRentalAllocation
 export convex/lib/rentalBenefitAccount.ts:checkoutBenefitAccount
@@ -1737,6 +1762,7 @@ export convex/rentalExtensions.ts:acceptAdminLateOffer
 export convex/rentalExtensions.ts:adminLatePreview
 export convex/rentalExtensions.ts:adminLateQuote
 export convex/rentalExtensions.ts:applyPaid
+export convex/rentalExtensions.ts:beginRefundCreation
 export convex/rentalExtensions.ts:bindPayment
 export convex/rentalExtensions.ts:close
 export convex/rentalExtensions.ts:context
@@ -1748,6 +1774,7 @@ export convex/rentalExtensions.ts:pendingPayments
 export convex/rentalExtensions.ts:prepare
 export convex/rentalExtensions.ts:quote
 export convex/rentalExtensions.ts:refundAttention
+export convex/rentalExtensions.ts:refundCreationAttention
 export convex/rentalExtensions.ts:request
 export convex/rentalExtensions.ts:state
 export convex/rentalOperations.ts:alertRefundContactChange

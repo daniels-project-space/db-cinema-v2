@@ -1,5 +1,6 @@
 import { loyaltyProgress } from "./loyalty";
 import { firstCleanRentalCompletionAt } from "./membershipTrialActivation";
+import { hasVerifiedRentalEmail } from "./rentalAccount";
 
 const validTimestamp = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
 
@@ -10,8 +11,8 @@ export async function firstEligibleRentalConfirmationAt(ctx: any, account: any) 
   const statuses = ["confirmed", "active", "returned", "cancelled"];
   const feeds = await Promise.all(statuses.flatMap(status => [
     ctx.db.query("bookings").withIndex("by_account_status", (q: any) => q.eq("accountId", account._id).eq("status", status)).order("asc").take(1),
-    ctx.db.query("bookings").withIndex("by_guestEmail_status", (q: any) => q.eq("guestEmail", account.email.trim().toLowerCase()).eq("status", status))
-      .filter((q: any) => q.eq(q.field("accountId"), undefined)).order("asc").take(1),
+    hasVerifiedRentalEmail(account) ? ctx.db.query("bookings").withIndex("by_guestEmail_status", (q: any) => q.eq("guestEmail", account.email.trim().toLowerCase()).eq("status", status))
+      .filter((q: any) => q.eq(q.field("accountId"), undefined)).order("asc").take(1) : Promise.resolve([]),
   ]));
   const rentals = feeds.flat();
   let firstConfirmedAt: number | undefined;

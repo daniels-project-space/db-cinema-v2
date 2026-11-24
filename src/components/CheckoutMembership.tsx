@@ -276,16 +276,16 @@ export function CheckoutMembership({
           />
         ) : null}
         <div className={`${compact ? "mt-1" : "mt-2"} flex items-center justify-between gap-2`}>
-          <p className="font-mono text-[9px] uppercase tracking-[.15em] text-white/50">
+          <p className="font-mono text-xs uppercase tracking-[.08em] text-white/60">
             {displayTier.name} subscription · £{displayTier.monthlyGbp}/month
           </p>
-          {compact && selected && <button type="button" data-testid="remove-membership" onClick={removeSelection} className="shrink-0 text-[10px] text-white/45 underline">Remove membership</button>}
+          {compact && selected && <button type="button" data-testid="remove-membership" onClick={removeSelection} className="shrink-0 text-xs text-white/60 underline">Remove membership</button>}
         </div>
-        {!me && <p className="mt-2 text-[10px] leading-4 text-white/55">Membership creates an account after payment. We’ll email you a secure sign-in link.</p>}
+        {!me && <p className="mt-2 text-xs leading-4 text-white/70">After payment, we’ll email your secure account sign-in link.</p>}
         {!current && !pending && <ul
           data-testid="membership-pitch-benefits"
           aria-label="Four subscription benefits"
-          className={`mt-2 grid ${compact ? "grid-cols-2 gap-x-2 gap-y-1 text-[9px] leading-[13px]" : "gap-1.5 text-[11px]"} text-white/70`}
+          className={`mt-2 grid ${compact ? "grid-cols-2 gap-x-2 gap-y-1 text-xs leading-4" : "gap-1.5 text-[11px]"} text-white/70`}
         >
           {benefits.map((benefit, index) => (
             <li key={benefit} className="flex min-w-0 items-start gap-1.5">
@@ -296,7 +296,7 @@ export function CheckoutMembership({
         </ul>}
         {compact ? (
           <>
-            {!current && <label className="mt-1 flex cursor-pointer items-start gap-2 text-[9px] leading-[14px] text-white/55">
+            {!current && <label className="mt-1 flex cursor-pointer items-start gap-2 text-xs leading-4 text-white/70">
               <input
                 type="checkbox"
                 className="mt-0.5 h-4 w-4 shrink-0 accent-[#acd17c]"
@@ -384,9 +384,9 @@ export function CheckoutMembership({
           </>
         )}
         {!current && (
-          <p className={compact ? "mt-1 text-[9px] leading-3 text-white/45" : "mt-2 text-[10px] leading-4 text-white/45"}>
+          <p className={compact ? "mt-1 text-xs leading-4 text-white/65" : "mt-2 text-[10px] leading-4 text-white/45"}>
             {compact
-              ? "First rental: verification & saved-card setup. Other perks start next booking."
+              ? "First rental: verify & save a card. Perks start next booking."
               : "This first rental still requires verification and saved-card setup. Other perks start on future bookings."}
           </p>
         )}
@@ -394,7 +394,7 @@ export function CheckoutMembership({
           type="button"
           data-testid="membership-benefits"
           onClick={() => setOpen(true)}
-          className="mt-2 text-[10px] text-white/55 underline underline-offset-4"
+          className="mt-2 text-xs text-white/65 underline underline-offset-4"
         >
           See the subscription benefits
         </button>}

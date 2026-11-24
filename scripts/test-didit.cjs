@@ -642,9 +642,11 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
       return new Response(JSON.stringify({session_id:'new-session', workflow_id:'workflow-1',url:'https://verify.didit.me/session/new-session'}),{status:200});
     };
     const createCtx = {runAction:async()=>{},runQuery:async ref=>ref==='accounts:_byToken'
-      ? {email:'renter@example.invalid'} : {status:'confirmed',accountAccessRequired:false,verificationProvider:'didit',idVerifyStatus:'required',guestEmail:'renter@example.invalid',renterName:'Test Rental Customer',billingAddress:'25 Whitcomb Street, London WC2H 7ER',lineItems:[{start:Date.UTC(2026,11,6),end:Date.UTC(2026,11,7),pickupTime:'16:00'}],pickupTime:'16:00'},
+      ? {email:'renter@example.invalid',emailVerifiedAt:1} : {status:'confirmed',accountAccessRequired:false,verificationProvider:'didit',idVerifyStatus:'required',guestEmail:'renter@example.invalid',renterName:'Test Rental Customer',billingAddress:'25 Whitcomb Street, London WC2H 7ER',lineItems:[{start:Date.UTC(2026,11,6),end:Date.UTC(2026,11,7),pickupTime:'16:00'}],pickupTime:'16:00'},
       runMutation:async ref=>String(ref)==='bookings:claimDiditSessionSlot'?{kind:'owner'}:true};
     let pendingProviderCall=false,pendingMutation=false;
+    const unverifiedCtx={...createCtx,runQuery:async ref=>ref==='accounts:_byToken'?{email:'renter@example.invalid'}:createCtx.runQuery(ref)};
+    await assert.rejects(bookingSession.handler(unverifiedCtx,{bookingId:'booking-1',accountToken:'account-token'}),/sign in/i,'an unverified email cannot claim a guest rental');
     const pendingCtx={...createCtx,runAction:async()=>{pendingProviderCall=true;},runMutation:async()=>{pendingMutation=true;},runQuery:async ref=>
       ref==='bookings:reuseVerificationPotential'?true:ref==='bookings:reuseVerificationCandidate'?null:createCtx.runQuery(ref)};
     await assert.rejects(bookingSession.handler(pendingCtx,{bookingId:'booking-1',accountToken:'account-token'}),/saved verification is being checked/);
@@ -661,7 +663,7 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
     try {
       delete process.env.DIDIT_API_KEY;
       const reuseCtx={...createCtx,runAction:async()=>{reused=true;},runQuery:async ref=>ref==='accounts:_byToken'
-        ? {email:'renter@example.invalid'} : ref==='bookings:reuseVerificationPotential'?true:ref==='bookings:reuseVerificationCandidate'?{source:{}}:{status:'confirmed',accountAccessRequired:false,verificationProvider:'didit',idVerifyStatus:reused?'verified':'required',guestEmail:'renter@example.invalid',lineItems:[{start:Date.UTC(2026,11,6),end:Date.UTC(2026,11,7),pickupTime:'16:00'}],pickupTime:'16:00'}};
+        ? {email:'renter@example.invalid',emailVerifiedAt:1} : ref==='bookings:reuseVerificationPotential'?true:ref==='bookings:reuseVerificationCandidate'?{source:{}}:{status:'confirmed',accountAccessRequired:false,verificationProvider:'didit',idVerifyStatus:reused?'verified':'required',guestEmail:'renter@example.invalid',lineItems:[{start:Date.UTC(2026,11,6),end:Date.UTC(2026,11,7),pickupTime:'16:00'}],pickupTime:'16:00'}};
       assert.deepEqual(await bookingSession.handler(reuseCtx,{bookingId:'booking-1',accountToken:'account-token'}),{url:null,reused:true},'retained eligible verification does not require a live Didit API key');
     } finally { process.env.DIDIT_API_KEY=savedApiKey; }
     await bookingSession.handler(createCtx,{bookingId:'booking-1',accountToken:'account-token'});
@@ -670,7 +672,7 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
     const priorSessionFetch=global.fetch;let waitingProviderCalls=0;
     global.fetch=async()=>{waitingProviderCalls++;throw new Error('A linked rental must not create another Didit session');};
     const waitingBooking={status:'pending_verification',accountAccessRequired:false,verificationProvider:'didit',idVerifyStatus:'required',guestEmail:'renter@example.invalid',checkoutPaidAt:Date.now(),depositHoldAmount:0,lineItems:[{start:Date.UTC(2026,11,6),end:Date.UTC(2026,11,7),pickupTime:'16:00'}],pickupTime:'16:00'};
-    const waitingCtx={...createCtx,runQuery:async ref=>ref==='accounts:_byToken'?{email:'renter@example.invalid'}:ref==='bookings:verificationAccess'?waitingBooking:ref==='bookings:reuseVerificationPotential'?false:ref==='bookings:reuseVerificationCandidate'?null:null,
+    const waitingCtx={...createCtx,runQuery:async ref=>ref==='accounts:_byToken'?{email:'renter@example.invalid',emailVerifiedAt:1}:ref==='bookings:verificationAccess'?waitingBooking:ref==='bookings:reuseVerificationPotential'?false:ref==='bookings:reuseVerificationCandidate'?null:null,
       runMutation:async ref=>String(ref)==='bookings:claimDiditSessionSlot'?{kind:'waiting',sourceBookingId:'source-booking'}:true};
     assert.deepEqual(await bookingSession.handler(waitingCtx,{bookingId:'booking-1',accountToken:'account-token'}),{url:null,waitingForBookingId:'source-booking'},'the renter is directed to the exact in-progress source rental');
     assert.equal(waitingProviderCalls,0,'a dependent paid booking never starts a parallel provider session');
@@ -693,7 +695,7 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
     await assert.rejects(bookingSession.handler({runQuery:async()=>({...reviewBooking,idVerifyStatus:'requires_input'})},
       {bookingId:'booking-1',accountToken:'account-token'}),/sign in/);
     assert.deepEqual(await bookingSession.handler({runQuery:async ref=>ref==='accounts:_byToken'
-      ? {email:'renter@example.invalid'} : {...reviewBooking,idVerifyStatus:'requires_input'}},
+      ? {email:'renter@example.invalid',emailVerifiedAt:1} : {...reviewBooking,idVerifyStatus:'requires_input'}},
       {bookingId:'booking-1',accountToken:'account-token'}),{url:sessionUrl},'resubmission resumes the same case URL');
     assert.equal(calls.some(x=>x.url==='https://verification.didit.me/v3/session/' && x.options?.method==='POST'),false);
     calls.length = 0;
@@ -707,7 +709,7 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
       return new Response(JSON.stringify(report),{status:200});
     };
     const reopenCtx = {
-      runQuery:async ref=>ref==='accounts:_byToken' ? {email:'renter@example.invalid'} : {...reviewBooking,idVerifyStatus:'processing'},
+      runQuery:async ref=>ref==='accounts:_byToken' ? {email:'renter@example.invalid',emailVerifiedAt:1} : {...reviewBooking,idVerifyStatus:'processing'},
       runMutation:async()=>{boundNewSession = true; return true;},
     };
     assert.deepEqual(await bookingSession.handler(reopenCtx,{bookingId:'booking-1',accountToken:'account-token'}),
@@ -719,7 +721,7 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
     report.poa_verifications[0].poa_parsed_address = {postal_code:'SW1A 1AA'};
     const recovered = [];
     const completedCtx = {
-      runQuery:async ref=>ref==='accounts:_byToken' ? {email:'renter@example.invalid'} : {...reviewBooking,idVerifyStatus:'processing'},
+      runQuery:async ref=>ref==='accounts:_byToken' ? {email:'renter@example.invalid',emailVerifiedAt:1} : {...reviewBooking,idVerifyStatus:'processing'},
       runMutation:async(ref,args)=>{recovered.push({ref,args});return true;},
     };
     await assert.rejects(bookingSession.handler({...completedCtx,runQuery:async ref=>ref==='accounts:_byToken'
@@ -737,7 +739,7 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
     let staleOpenSave;
     const staleOpenBooking={...reviewBooking,idVerifyStatus:'processing',diditEventId:'event-before-open',diditEventAt:now*1000};
     const staleOpenCtx={
-      runQuery:async ref=>ref==='accounts:_byToken'?{email:'renter@example.invalid'}:staleOpenBooking,
+      runQuery:async ref=>ref==='accounts:_byToken'?{email:'renter@example.invalid',emailVerifiedAt:1}:staleOpenBooking,
       runMutation:async(ref,args)=>{if(ref==='bookings:setDiditResult'){staleOpenSave=args;staleOpenBooking.diditEventId='newer-review-event';return false;}return true;},
     };
     await assert.rejects(bookingSession.handler(staleOpenCtx,{bookingId:'booking-1',accountToken:'account-token'}),/session changed/,
@@ -746,7 +748,7 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
     assert.equal(staleOpenBooking.diditEventId,'newer-review-event','a concurrently applied provider event remains authoritative');
     recovered.length = 0;
     await assert.rejects(bookingSession.handler({...completedCtx,runQuery:async ref=>ref==='accounts:_byToken'
-      ? {email:'renter@example.invalid'} : {...reviewBooking,idVerifyStatus:'requires_input',idVerificationSource:'manual'}},
+      ? {email:'renter@example.invalid',emailVerifiedAt:1} : {...reviewBooking,idVerifyStatus:'requires_input',idVerificationSource:'manual'}},
       {bookingId:'booking-1',accountToken:'account-token'}),/replacement request/);
     assert.equal(recovered.some(call=>call.ref==='bookings:setDiditResult'),false,'an outstanding manual resubmission cannot be overwritten by an old decision');
     assert.equal(recovered.some(call=>call.ref==='bookings:flagDiditOpeningFailure'),true,'a blocked replacement request alerts the team');
@@ -769,12 +771,12 @@ function signed(event, secret = process.env.DIDIT_WEBHOOK_SECRET) {
   // Expired approval renews only for the bound, paid renter. Old documents remain archived.
   const expiredBooking = {...reviewBooking,status:'pending_verification',checkoutPaidAt:Date.now(),idVerifyStatus:'verified',verificationExpiresAt:Date.now()-1};
   let renewPatch, posts=0;
-  const renewCtx = {runQuery:async ref=>ref==='accounts:_byToken'?{email:'renter@example.invalid'}:expiredBooking,
+  const renewCtx = {runQuery:async ref=>ref==='accounts:_byToken'?{email:'renter@example.invalid',emailVerifiedAt:1}:expiredBooking,
     runMutation:async(ref,args)=>{if(String(ref)==='bookings:claimDiditSessionSlot')return {kind:'owner'};renewPatch=args;return true;}};
   const beforeRenewFetch = global.fetch;
   try {
     global.fetch=async(url,options={})=>{if(options.method==='POST'){posts++;return new Response(JSON.stringify({session_id:'new-renew-session',workflow_id:'workflow-1',url:'https://verify.didit.me/session/new-renew-session'}));}return new Response(JSON.stringify({...report,status:'Approved'}));};
-    await assert.rejects(bookingSession.handler({...renewCtx,runQuery:async ref=>ref==='accounts:_byToken'?{email:'renter@example.invalid'}:{...expiredBooking,status:'confirmed'}},{bookingId:'booking-1',accountToken:'account-token'}),/not ready/);
+    await assert.rejects(bookingSession.handler({...renewCtx,runQuery:async ref=>ref==='accounts:_byToken'?{email:'renter@example.invalid',emailVerifiedAt:1}:{...expiredBooking,status:'confirmed'}},{bookingId:'booking-1',accountToken:'account-token'}),/not ready/);
     assert.equal(posts,0,'an expired account pass cannot reopen a rental that already passed verification and was confirmed');
     assert.equal((await bookingSession.handler(renewCtx,{bookingId:'booking-1',accountToken:'account-token'})).url,'https://verify.didit.me/session/new-renew-session');
     assert.equal(posts,1);assert.equal(renewPatch.previousSessionId,'session-1');

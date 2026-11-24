@@ -143,8 +143,10 @@ const facts={escalated:false,latestRenterId:'message',gafferGeneration:0,message
  assert.match(refundActionReply.args.text,/connecting you with the team.*nothing has been.*refunded/i,'the forced handoff corrects any model claim that money changed');
  for(const phrase of ['Please connect me with the team','I want a real person','human please','Can I talk to someone?'])assert(explicitlyRequestsHuman(phrase),phrase);
  for(const phrase of ['Please contact the team','I need to contact support','Could I speak with an agent?'])assert(explicitlyRequestsHuman(phrase),phrase);
+ for(const phrase of ['Can someone call me?','Please ask the team to call me','I do not need a human. Actually, I want a person'])assert(explicitlyRequestsHuman(phrase),phrase);
  for(const phrase of ['Try again or contact the team from your rental conversation.','Verification could not open. Try again or contact the team from your rental conversation.'])assert(!explicitlyRequestsHuman(phrase),phrase);
  for(const phrase of ["I don't want a human",'I do not need the team','I do not want to speak to a human',"I don't want to talk with a real person","I don't need help from the team",'The team confirmed this last week','Is there a person in this photo?'])assert(!explicitlyRequestsHuman(phrase),phrase);
+ for(const phrase of ["Don't have someone call me",'Could you not ask the team to call me'])assert(!explicitlyRequestsHuman(phrase),phrase);
  calls=[];facts.messages[0].text='What lenses are included?';modelResult={reply:'The kit includes a lens.',handoff:false,offerCredit:false,resolved:true,offerHuman:false};
  await gafferReply.handler(ctx,{accountId:'owner',bookingId:'booking',messageId:'message'});
  assert.equal(calls.find(call=>call.ref==='chat._postBot').args.answerComplete,true,'only an explicitly resolved answer starts the completion timer');

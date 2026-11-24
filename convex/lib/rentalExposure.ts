@@ -1,6 +1,7 @@
 import { londonStartOfDay } from "../../src/lib/cancellationPolicy";
 import { storedBookingAllocation, transactionComponentAllocation } from "./bookingComponentAllocation";
 import { peakRentalValue, RENTAL_VALUE_CAP_PENCE, type ValueInterval } from "../../shared/rentalExposure";
+import { queueCaseIdentityBooking } from "./caseIdentity";
 const statuses = ["pending_payment", "pending_verification", "confirmed", "active"];
 const BOUND = 200;
 const DAY = 86400000;
@@ -170,6 +171,12 @@ export async function attachRenterPerson(ctx: any, booking: any, personKey?: str
     throw Error("Verified identity changed. A team identity review is required before handover.");
   if (account) await ctx.db.patch(account._id, { renterPersonKey: personKey });
   await ctx.db.patch(booking._id, { renterPersonKey: personKey });
+  if (await ctx.db.query("rental_damage_cases").withIndex("by_booking", (query: any) => query.eq("bookingId", booking._id)).first())
+    await queueCaseIdentityBooking(ctx, booking._id);
   const currentEmail = (account?.email ?? email).trim().toLowerCase();
-  for (const row of rows) if (!row.renterPersonKey && (row.accountId ? !!account && row.accountId === account._id : row.guestEmail === currentEmail)) await ctx.db.patch(row._id, { renterPersonKey: personKey });
+  for (const row of rows) if (!row.renterPersonKey && (row.accountId ? !!account && row.accountId === account._id : row.guestEmail === currentEmail)) {
+    await ctx.db.patch(row._id, { renterPersonKey: personKey });
+    if (row._id !== booking._id && await ctx.db.query("rental_damage_cases").withIndex("by_booking", (query: any) => query.eq("bookingId", row._id)).first())
+      await queueCaseIdentityBooking(ctx, row._id);
+  }
 }

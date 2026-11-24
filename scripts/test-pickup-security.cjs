@@ -96,7 +96,7 @@ const ctx = {
   db,
   scheduler,
   runQuery: async (ref, a) =>
-    ref === "accounts.me"
+    ref === "accounts._byToken"
       ? { _id: "acct", email: "renter@example.invalid" }
       : { pickupSecurity: security, holdRenewal: holds, checkout }[
           ref.split(".")[0]

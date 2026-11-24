@@ -50,6 +50,41 @@ export async function creditPlan(ctx:any,accountId:any,refund:number,earned:numb
   return plan;
 }
 
+export async function checkoutCreditReadyForConfirmation(ctx:any,booking:any){
+  const total=booking.creditApplied??0,membership=booking.membershipCreditApplied??0;
+  if(!Number.isFinite(total)||!Number.isFinite(membership)||total<0||membership<0)return false;
+  const need=Math.round(total*100)-Math.round(membership*100);
+  if(!Number.isSafeInteger(need)||need<0)return false;
+  if(need===0)return true;
+  const email=typeof booking.guestEmail==="string"?booking.guestEmail.trim().toLowerCase():"";
+  if(!email)return false;
+  const account=await ctx.db.query("accounts").withIndex("by_email",(q:any)=>q.eq("email",email)).first();
+  if(!account||booking.accountId&&String(booking.accountId)!==String(account._id))return false;
+  if(Array.isArray(booking.creditAllocations)){
+    let sum=0;const ids=new Set<string>();
+    for(const allocation of booking.creditAllocations){
+      const amount=Math.round(allocation.amount*100),id=String(allocation.creditId);
+      if(!Number.isSafeInteger(amount)||amount<=0||ids.has(id))return false;
+      ids.add(id);sum+=amount;
+      const credit=await ctx.db.get(allocation.creditId);
+      if(!credit||String(credit.accountId)!==String(account._id)||!Number.isFinite(credit.remaining)||Math.round(credit.remaining*100)<amount)return false;
+    }
+    return Number.isSafeInteger(sum)&&sum===need;
+  }
+  const groups=await Promise.all([
+    ctx.db.query("bookings").withIndex("by_account_status",(q:any)=>q.eq("accountId",account._id).eq("status","pending_payment")).take(101),
+    ctx.db.query("bookings").withIndex("by_guestEmail_status",(q:any)=>q.eq("guestEmail",email).eq("status","pending_payment")).take(101),
+    ctx.db.query("bookings").withIndex("by_account_status",(q:any)=>q.eq("accountId",account._id).eq("status","pending_verification")).take(101),
+    ctx.db.query("bookings").withIndex("by_guestEmail_status",(q:any)=>q.eq("guestEmail",email).eq("status","pending_verification")).take(101),
+    ctx.db.query("rental_credit_reservations").withIndex("by_account_state",(q:any)=>q.eq("accountId",account._id).eq("state","reserved")).take(501),
+  ]);
+  if(groups.slice(0,4).some((rows:any[])=>rows.length>100)||groups[4].length)return false;
+  if(groups.slice(0,4).flat().some((other:any)=>String(other._id)!==String(booking._id)&&(!other.accountId||String(other.accountId)===String(account._id))&&(other.creditApplied??0)>(other.membershipCreditApplied??0)&&(other.status==="pending_payment"||other.checkoutCreditState!=="spent"&&!other.paidConfirmedAt)))return false;
+  const rows=await ctx.db.query("credits").withIndex("by_account_status",(q:any)=>q.eq("accountId",account._id).eq("status","active")).take(501);
+  if(rows.length>500)return false;
+  return rows.filter((credit:any)=>credit.createdAt<=booking._creationTime&&credit.expiresAt>booking._creationTime&&Number.isFinite(credit.remaining)&&credit.remaining>0).reduce((sum:number,credit:any)=>sum+Math.round(credit.remaining*100),0)>=need;
+}
+
 export async function reconcileReleasedCredit(ctx:any,booking:any){
   if(!booking.creditAllocations?.length)return;
   const account=booking.accountId?await ctx.db.get(booking.accountId):await ctx.db.query("accounts").withIndex("by_email",(q:any)=>q.eq("email",(booking.guestEmail??"").trim().toLowerCase())).first();
@@ -60,9 +95,11 @@ export async function reconcileReleasedCredit(ctx:any,booking:any){
     ctx.db.query("bookings").withIndex("by_account_status",(q:any)=>q.eq("accountId",account._id).eq("status","pending_verification")).take(101),
     ctx.db.query("bookings").withIndex("by_guestEmail_status",(q:any)=>q.eq("guestEmail",account.email.trim().toLowerCase()).eq("status","pending_verification")).take(101),
   ]);
-  if(groups.some(rows=>rows.length>100))return;
+  const operations=await ctx.db.query("rental_credit_reservations").withIndex("by_account_state",(q:any)=>q.eq("accountId",account._id).eq("state","reserved")).take(501);
+  if(groups.some(rows=>rows.length>100)||operations.length>500)return;
   const open=[...new Map([...groups[0],...groups[1].filter((b:any)=>b.accountId==null),...groups[2],...groups[3].filter((b:any)=>b.accountId==null)].filter((b:any)=>b.status==="pending_payment"||b.checkoutCreditState!=="spent"&&!b.paidConfirmedAt).map((b:any)=>[String(b._id),b])).values()] as any[];
   const reserved=new Map<string,number>();let legacy=0;
+  for(const operation of operations)for(const allocation of operation.allocations??[]){const amount=allocation.amountPence;if(!Number.isSafeInteger(amount)||amount<0)return;reserved.set(String(allocation.creditId),(reserved.get(String(allocation.creditId))??0)+amount);}
   for(const other of open){
     if(other.creditAllocations){for(const allocation of other.creditAllocations){const amount=Math.round(allocation.amount*100);if(!Number.isSafeInteger(amount)||amount<0)return;reserved.set(String(allocation.creditId),(reserved.get(String(allocation.creditId))??0)+amount);}}
     else {const amount=Math.round(((other.creditApplied??0)-(other.membershipCreditApplied??0))*100);if(!Number.isSafeInteger(amount)||amount<0)return;legacy+=amount;}

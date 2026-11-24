@@ -7,7 +7,7 @@ const ctx = {
     runAfter: async (_, ref, args) => scheduled.push({ ref, args }),
   },
 };
-const a = put("accounts", { _id: "account-a", email: "a@rental-test.invalid" }),
+const a = put("accounts", { _id: "account-a", email: "a@rental-test.invalid", emailVerifiedAt:Date.now() }),
   other = put("accounts", { _id: "account-b", email: "b@rental-test.invalid" });
 put("sessions", {
   token: "valid",

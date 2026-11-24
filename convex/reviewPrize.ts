@@ -10,6 +10,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { accountForToken, ownedBooking } from "./lib/rentalChat";
+import { belongsToRentalAccount } from "./lib/rentalAccount";
 import {
   customerReviewGate,
   reviewSettlementFingerprint,
@@ -100,10 +101,10 @@ export const mine = query({
       .collect();
     return {
       currentRoundKey: reviewPrizeRound().key,
-      entries: await Promise.all(entries.map((e) => entryView(ctx, e))),
+      entries: (await Promise.all(entries.map(async e => belongsToRentalAccount(await ctx.db.get(e.bookingId),a) ? entryView(ctx,e) : null))).filter(entry => entry !== null),
       bookings: await Promise.all(
         bookings
-          .filter((b) => b.status === "returned" && !customerReviewGate(b))
+          .filter((b) => belongsToRentalAccount(b,a) && b.status === "returned" && !customerReviewGate(b))
           .map(async (b) => ({
             _id: b._id,
             title: b.lineItems.map((l) => l.title).join(", "),

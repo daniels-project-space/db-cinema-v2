@@ -99,6 +99,8 @@ const mocks = {
           if(ref==='verificationArchive.accountDocuments')return window.__archives;
           if(ref==='verificationRetentionReview.candidates')return {candidates:[{bookingId:'booking-match',status:'returned',title:'Sony FX3 camera'}],more:false,cursor:null};
           if(ref==='accountAdmin.directoryAccess')return true;
+          if(ref==='caseIdentity.matchingCases'){window.__queryCalls.push({ref,args});return location.search.includes('case-match=1')?{page:[{caseId:'case-example',bookingId:'booking-legacy',title:'Sony lens',status:'closed',details:'Synthetic prior case details',resolution:'Reviewed and resolved',openedAt:Date.UTC(2029,0,1)}],isDone:true,continueCursor:''}:{page:[],isDone:true,continueCursor:''};}
+          if(ref==='caseIdentity.backfillStatus'){window.__queryCalls.push({ref,args});return {needsAttention:location.search.includes('case-match=1')};}
           if(ref==='rentalRequests.blockingActions'){
             if(location.search.includes('approved-requests=1')&&args.bookingId==='booking-camera')return {ready:true,any:true,dates:true,cancel:false,handover:false,other:false};
             if(location.search.includes('approved-requests=1')&&args.bookingId==='booking-legacy')return {ready:true,any:true,dates:false,cancel:true,handover:false,other:false};
@@ -235,6 +237,7 @@ const mocks = {
         };
         const mutate=ref=>async args=>{
           if(ref!=='chatAttachments.availability')window.__mutationCalls.push({ref,args});
+          if(ref==='caseIdentity.retryBackfill')return new Promise(resolve=>{window.__resolveCaseRetry=resolve});
           if(ref==='accountAdmin.setStarred'&&window.__deferStar)return new Promise((resolve,reject)=>{window.__rejectStar=reject});
           if(ref==='accountAdmin.setStarred'&&window.__failStar)throw Error('Simulated failure');
           if(ref==='didit.refreshProgress'&&window.__rejectDiditRefresh||ref==='accountCredits.grantAdmin'&&window.__creditFail)throw Error('Simulated uncertain response');
@@ -339,6 +342,32 @@ const mocks = {
         for(const kind of ['pickup','halfway','return']){await client.evaluate(`document.querySelector('[data-message-id="reminder-${kind}"]').scrollIntoView({block:'center'})`);await wait(80);fs.writeFileSync(`/tmp/dbc-chat-reminder-${kind}-${width}.png`,Buffer.from((await client.cmd('Page.captureScreenshot',{format:'png'})).data,'base64'));}
       }
       console.log('PASS renter reminder cards: actual conversation at 320px and desktop.');return;
+    }
+    if (process.env.DBC_CASE_MATCH_VISUAL === '1') {
+      await client.cmd('Emulation.setDeviceMetricsOverride',{width:390,height:900,deviceScaleFactor:1,mobile:true});
+      await client.cmd('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/?renter=1&case-match=1`});
+      await wait(300);
+      assert.equal(await client.evaluate(`window.__queryCalls.some(call=>call.ref==='caseIdentity.matchingCases')`),false,'Renter chat never requests admin case matches');
+      assert.equal(await client.evaluate(`window.__queryCalls.some(call=>call.ref==='caseIdentity.backfillStatus')||window.__mutationCalls.some(call=>call.ref==='caseIdentity.retryBackfill')`),false,'Renter never requests or retries case backfill');
+      for (const width of [1500,390]) {
+        await client.cmd('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<600});
+        await client.cmd('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/?visual=1&case-match=1`});
+        for (let attempt=0;attempt<100&&!await client.evaluate(`!!document.querySelector('[aria-label="Customer conversations"] button:nth-child(2)')`);attempt++) await wait(100);
+        if(width<600){await client.evaluate(`[...document.querySelectorAll('[data-testid="admin-mobile-workspace-nav"] button')].find(button=>button.textContent.includes('Chat')).click()`);await wait(100);}
+        await client.evaluate(`document.querySelector('[aria-label="Customer conversations"] button:nth-child(2)').click()`);
+        for (let attempt=0;attempt<100&&!await client.evaluate(`!!document.querySelector('[aria-label="Possible rental case matches"]')`);attempt++) await wait(100);
+        if(width<600){await client.evaluate(`[...document.querySelectorAll('[data-testid="admin-mobile-workspace-nav"] button')].find(button=>button.textContent.includes('Profile')).click()`);await wait(100);}
+        await client.evaluate(`document.querySelector('[aria-label="Possible rental case matches"] summary').click()`);
+        await client.evaluate(`(()=>{const button=[...document.querySelectorAll('[aria-label="Possible rental case matches"] button')].find(element=>element.textContent.includes('Retry case history'));button.click();button.click()})()`);await wait(50);
+        assert.equal(await client.evaluate(`window.__mutationCalls.filter(call=>call.ref==='caseIdentity.retryBackfill').length`),1,'Pending retry cannot be submitted twice');
+        assert.equal(await client.evaluate(`[...document.querySelectorAll('[aria-label="Possible rental case matches"] button')].find(element=>element.textContent.includes('Retrying')).disabled`),true);
+        await client.evaluate(`window.__resolveCaseRetry()`);await wait(50);
+        await client.evaluate(`document.querySelector('[aria-label="Possible rental case matches"]').scrollIntoView({block:'center'})`);await wait(100);
+        const visible=await client.evaluate(`(()=>{const panel=document.querySelector('[aria-label="Possible rental case matches"]'),link=panel.querySelector('a'),rect=panel.getBoundingClientRect();return {text:panel.innerText,href:link.getAttribute('href'),fits:rect.left>=0&&rect.right<=innerWidth&&document.documentElement.scrollWidth<=innerWidth+1}})()`);
+        assert(visible.text.includes('Synthetic prior case details')&&visible.href==='/admin?rental=booking-legacy'&&visible.fits,JSON.stringify(visible));
+        fs.writeFileSync(`/tmp/dbc-admin-case-match-${width}.png`,Buffer.from((await client.cmd('Page.captureScreenshot',{format:'png'})).data,'base64'));
+      }
+      console.log('PASS admin case match: desktop/mobile details and case link; renter chat makes no admin query.');return;
     }
     await client.cmd("Emulation.setDeviceMetricsOverride", { width: 1500, height: 900, deviceScaleFactor: 1, mobile: false });
     await client.cmd("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/?visual=1&automated-messages=1` });

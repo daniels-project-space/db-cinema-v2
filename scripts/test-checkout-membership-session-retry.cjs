@@ -9,8 +9,9 @@ async function runCase() {
   const bookingId = "bookings-membership-retry";
   const membershipId = "membership-checkouts-retry";
   const requestId = "membership-request-retry-000000000000";
-  const expirationRacesPaid = scenario === "params-no-stock-paid-race";
-  const providerPaid = scenario.includes("paid") && !expirationRacesPaid;
+  const expiryThrowsPaid = scenario.includes("terms-refetch-paid");
+  const expirationRacesPaid = scenario === "params-no-stock-paid-race" || scenario.includes("terms-race-paid");
+  const providerPaid = scenario.includes("paid") && !expirationRacesPaid && !expiryThrowsPaid;
   const paymentSession = {
     id: "cs-membership-retry",
     status: providerPaid ? "complete" : scenario.includes("expired") ? "expired" : scenario.includes("pending") ? "complete" : "open",
@@ -41,6 +42,7 @@ async function runCase() {
   let retrieveCount = 0;
   let bookingBindCount = 0;
   let failFirstBookingBind = scenario === "partial-bind";
+  let expiryThrew = false;
   if (scenario.startsWith("prior-attempt-")) bookingSessionId = paymentSession.id;
   const expectedSession = paymentSession;
 
@@ -56,7 +58,7 @@ async function runCase() {
             trace.push("stripe.retrieve");
             retrieveCount++;
             assert.equal(id, paymentSession.id);
-            return expectedSession;
+            return expiryThrew ? { ...paymentSession, status: "complete", payment_status: "paid", payment_intent: "pi-membership-retry" } : expectedSession;
           },
           create: async (params, options) => {
             trace.push("stripe.create");
@@ -68,6 +70,7 @@ async function runCase() {
           expire: async id => {
             trace.push("stripe.expire");
             assert.equal(id, paymentSession.id);
+            if(expiryThrowsPaid){expiryThrew=true;throw Error("Already completed");}
             return expirationRacesPaid
               ? { ...paymentSession, status: "complete", payment_status: "paid", payment_intent: "pi-membership-retry" }
               : { ...paymentSession, status: "expired" };
@@ -104,6 +107,8 @@ async function runCase() {
   });
 
   const checkout = harness.load("convex/checkout.ts");
+  const { AGREEMENTS } = harness.load("src/lib/legal.ts");
+  const { MEMBERSHIP_TERMS_VERSION } = harness.load("shared/membership.ts");
   const args = {
     items: [{ listingId: "listings-fixture", title: "Fixture camera", start: 1_900_000_000_000, end: 1_900_086_400_000, qty: 1, total: 100, deposit: 50 }],
     customer: { email: "renter@example.invalid", name: "Fixture Renter", billingAddress: "123 Fixture Street, London" },
@@ -113,9 +118,11 @@ async function runCase() {
     expectedSavedCardLimit: 100,
     pickupTime: "10:00",
     returnTime: "18:00",
-    agreement: { name: "Fixture Renter", requestId: "combined-rental-membership-retry-0001", securityHoldConsent: true, laterChargeConsent: true, documents: [] },
-    selectedMembership: { requestId, intro: "none", tier: "pro", termsVersion: "membership-v1" },
+    agreement: { name: "Fixture Renter", requestId: "combined-rental-membership-retry-0001", securityHoldConsent: true, laterChargeConsent: true, documents: AGREEMENTS.map(({kind,version})=>({kind,version})) },
+    selectedMembership: { requestId, intro: "none", tier: "pro", termsVersion: MEMBERSHIP_TERMS_VERSION },
   };
+  if(scenario.includes("stale-terms")||scenario.includes("terms-race-paid")||expiryThrowsPaid) args.agreement.documents[0].version="expired-version";
+  if(scenario.includes("stale-membership")) args.selectedMembership.termsVersion="expired-membership-version";
   const ctx = {
     runQuery: async ref => {
       trace.push(`query:${ref}`);
@@ -176,6 +183,19 @@ async function runCase() {
     assert.equal(bookingBindCount, 0);
     console.log("PASS unrelated standalone membership session is not returned from rental checkout.");
     return;
+  }
+
+  if (scenario.includes("stale-terms") || scenario.includes("stale-membership")) {
+    await assert.rejects(checkout.start.handler(ctx,args),error=>error?.data?.code==="CHECKOUT_TERMS_CHANGED"&&error?.data?.freshAcceptanceRequired===true);
+    assert(trace.includes("stripe.expire"));assert(trace.includes("mutation:bookings.expireUnpaidPending"));assert(!trace.includes("reservation.assert"));
+    console.log("PASS stale terms retire the unpaid session before requiring a new signature.");return;
+  }
+  if (scenario.includes("terms-race-paid") || expiryThrowsPaid) {
+    const result=await checkout.start.handler(ctx,args);
+    assert.deepEqual(result,{bookingId,alreadyPaid:true,sessionId:paymentSession.id});
+    assert(trace.includes("stripe.expire"));assert(trace.includes("mutation:bookings.recordPaidCheckoutReceipt"));
+    if(expiryThrowsPaid)assert(trace.lastIndexOf("stripe.retrieve")>trace.indexOf("stripe.expire"),"Stripe is re-read after the expiry error");
+    console.log("PASS a payment racing stale-terms expiry is reconciled under its signed terms.");return;
   }
 
   if (scenario.includes("stale-quote-session")) {
@@ -315,6 +335,17 @@ async function runSuite() {
     "params-stale-quote-session",
     "changed-quote-session",
     "params-changed-quote-session",
+    "prior-attempt-stale-terms",
+    "session-stale-terms",
+    "params-stale-terms",
+    "prior-attempt-terms-race-paid",
+    "session-terms-race-paid",
+    "params-terms-race-paid",
+    "prior-attempt-terms-refetch-paid",
+    "params-terms-refetch-paid",
+    "prior-attempt-stale-membership",
+    "session-stale-membership",
+    "params-stale-membership",
   ];
   for (const childCase of cases) {
     const result = spawnSync(process.execPath, [__filename], {

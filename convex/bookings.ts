@@ -17,7 +17,7 @@ import {assertRentalAllocation} from "./lib/rentalAllocation";
 import { bookingStockLines, rentalWindow } from "../shared/rentalWindow";
 import { stockTimePrecision, stockWindow } from "./lib/stockWindows";
 import { CHECKOUT_CARD_HOLD_POLICY, CHECKOUT_HOLD_POLICY, PICKUP_HOLD_RENEWAL_LEAD_MS, isCheckoutHoldPolicy, isPickupHoldPolicyVersion } from "../shared/pickupSecurity";
-import { availableCreditRows,creditPlan,creditKind,checkoutCreditSpentPence,checkoutMembershipCreditSpentPence,reconcileReleasedCredit } from "./lib/checkoutCredit";
+import { availableCreditRows,creditPlan,creditKind,checkoutCreditSpentPence,checkoutMembershipCreditSpentPence,reconcileReleasedCredit,checkoutCreditReadyForConfirmation } from "./lib/checkoutCredit";
 import { ensurePaidBookingAccount } from "./accountClaims";
 import { referralEligibility,availableReferralReward } from "./lib/referrals";
 import { CREDIT_FUNDING_VERSION, SINGLE_BENEFIT_VERSION } from "../shared/rentalBenefits";
@@ -930,6 +930,13 @@ export const confirm = internalMutation({
         await queueOwnerNotification(ctx,{eventKey:`verification-stock-review:${bookingId}`,kind:"verification_failure",...(account?{accountId:account._id}:{}),bookingId,title:"Paid booking needs stock review",body:"The selected equipment could not be confirmed as available. The paid rental remains unconfirmed until availability is resolved."});
         return {awaitingInventoryReview:true};
       }
+    }
+    if(!await checkoutCreditReadyForConfirmation(ctx,booking)){
+      await ctx.db.patch(bookingId,{status:"pending_verification",verificationConfirmationIssue:"credit_reconciliation",stripePaymentIntentId:paymentIntentId??booking.stripePaymentIntentId});
+      const account=await accountForRental(ctx,booking);
+      await queueOwnerNotification(ctx,{eventKey:`checkout-credit-review:${bookingId}`,kind:"checkout_failure",...(account?{accountId:account._id}:{}),bookingId,title:"Paid booking needs credit review",body:"The paid booking is held because its reserved account credit could not be fully matched. Review the credit before confirming; do not charge the renter again."});
+      await queueRmv2Sync(ctx,bookingId);
+      return {awaitingCreditReview:true};
     }
     // Email ownership must be proved before an automatically created account gains a session.
     if (booking.accountAccessRequired || !await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", booking.guestEmail ?? "")).first()) {
