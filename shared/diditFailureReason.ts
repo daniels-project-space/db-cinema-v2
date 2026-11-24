@@ -34,3 +34,14 @@ export function diditFailureReason(decision: any): string {
   return DIDIT_FAILURE_SUPPORT;
 }
 
+/** Permit self-service only for explicit, remediable document errors. A fraud,
+ * identity restriction, unknown error or missing reason needs human review. */
+export function diditCanRetryAutomatically(decision:any): boolean {
+  const safe = new Set(["PORTRAIT_IMAGE_NOT_DETECTED","DOCUMENT_EXPIRED","DOCUMENT_NOT_SUPPORTED_FOR_APPLICATION","COULD_NOT_RECOGNIZE_DOCUMENT","COULD_NOT_DETECT_DOCUMENT_TYPE","NAME_NOT_DETECTED","DATE_OF_BIRTH_NOT_DETECTED","DOCUMENT_NUMBER_NOT_DETECTED","MISSING_ADDRESS_INFORMATION","POA_DOCUMENT_EXPIRED","INVALID_DOCUMENT_TYPE","UNABLE_TO_VALIDATE_DOCUMENT_AGE"]);
+  const records = [decision,...["id_verifications","liveness_checks","face_matches","poa_verifications"].flatMap(field => Array.isArray(decision?.[field]) ? decision[field] : [])];
+  const warnings = records.flatMap(row => Array.isArray(row?.warnings) ? row.warnings : []);
+  if (warnings.some(w => typeof w?.risk !== "string" || /BLOCKLIST|MANIPULAT|FRAUD/i.test(w.risk))) return false;
+  if (warnings.some(w => ["error","warning"].includes(String(w?.log_type ?? "").toLowerCase()) && !safe.has(w.risk))) return false;
+  const errors = warnings.filter(w => String(w?.log_type ?? "").toLowerCase() === "error");
+  return errors.length > 0 && errors.every(w => safe.has(w.risk));
+}

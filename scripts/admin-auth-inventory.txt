@@ -136,6 +136,7 @@ call src/components/HireProfessionals.tsx:operators.requestQuote
 call src/components/HomeGearSearch.tsx:catalog.getListingBySlug
 call src/components/HomeGearSearch.tsx:catalog.searchHomeGear
 call src/components/IdVerify.tsx:didit.bookingSession
+call src/components/IdVerify.tsx:didit.retryRejected
 call src/components/MemberOffers.tsx:promo.memberOffers
 call src/components/Recommendations.tsx:catalog.getListingBySlug
 call src/components/Recommendations.tsx:recommendations.forContext
@@ -892,7 +893,10 @@ export convex/didit.ts:reconcileOpenSessions
 export convex/didit.ts:refreshForGaffer
 export convex/didit.ts:refreshProgress
 export convex/didit.ts:reuseVerification
+export convex/didit.ts:retryRejected
 export convex/didit.ts:webhook
+export convex/diditReviewClaims.ts:claimRenterRetry
+export convex/diditReviewClaims.ts:release
 export convex/diditSweep.ts:batch
 export convex/diditSweep.ts:configurationFailure
 export convex/diditSweep.ts:finish

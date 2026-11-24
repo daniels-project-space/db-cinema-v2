@@ -1,9 +1,9 @@
 "use node";
 
 import { verificationChecks, verificationCanStart, verificationBookingOpen, verificationExpired } from "../shared/verificationProgress";
-import { diditFailureReason } from "../shared/diditFailureReason";
+import { diditFailureReason, diditCanRetryAutomatically } from "../shared/diditFailureReason";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import Stripe from "stripe";
 import { action, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -32,6 +32,25 @@ async function retrieveSession(apiKey: string, sessionId: string, bookingId: str
       session.contact_details?.email?.trim().toLowerCase() !== email.trim().toLowerCase())
     throw new Error("Verification case does not match this rental.");
   return session;
+}
+
+/** Suppress our second retry email only when Didit records this exact request. */
+function providerRetryRequest(report:any, marker:any):string|undefined {
+  if (report?.status !== "Resubmitted" || !marker?.requestId || marker.sessionId !== report.session_id) return undefined;
+  // The session status can arrive before the review trail. Do not treat that
+  // gap, or a review from an earlier attempt, as proof of an external retry:
+  // doing so would queue a second email while Didit's own email is in flight.
+  const reviews = Array.isArray(report.reviews) ? report.reviews.filter((row:any) => row?.new_status === "Resubmitted") : [];
+  const recent = reviews.map((row:any) => ({row, at:Date.parse(row.created_at)}))
+    .filter(({at}:any) => Number.isFinite(at) && at >= marker.startedAt - 2000)
+    .sort((a:any,b:any) => b.at - a.at);
+  if (!Number.isFinite(marker.startedAt) || !recent.length || recent.length > 1 && recent[0].at === recent[1].at)
+    throw new Error("The provider's retry record is not available yet.");
+  if (recent[0].row.comment === `DB Cinema renter retry ${marker.requestId}`) return marker.requestId;
+  // A concurrent outside update may win while our request is still running.
+  // Let the claim settle before treating a different review as external.
+  if (Date.now() - marker.startedAt < 90_000) throw new Error("The provider's retry record is not available yet.");
+  return undefined;
 }
 
 function config() {
@@ -111,6 +130,7 @@ export const bookingSession = action({
           bookingId: a.bookingId, sessionId: booking.diditSessionId,
           eventId: `open-progress-${booking.diditSessionId}-${decisionReadAt}`, eventAt: decisionReadAt,
           providerStatus: existing.status, reconciliation: true, expectedEventId: booking.diditEventId ?? null,
+          providerRetryRequestId:providerRetryRequest(existing,booking.diditRetryNotice),
           expectedEventAt: booking.diditEventAt ?? null, expectedManualDecisionAt: booking.diditManualDecisionAt ?? null, ...mapped,
         });
         if (!saved) throw new Error("The verification session changed. Refresh this rental.");
@@ -177,6 +197,128 @@ export const bookingSession = action({
       }
       throw error;
     }
+  },
+});
+
+/** The renter explicitly requests a retry of an automatically declined case.
+ * Didit's preview receipt fences external console changes and binds the email,
+ * recipient and exact failed nodes to the update. No approval is granted here. */
+export const retryRejected = action({
+  args: { bookingId: v.id("bookings"), accountToken: v.optional(v.string()), checkoutSessionId: v.optional(v.string()) },
+  handler: async (ctx, a): Promise<{ url: string }> => {
+    const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId:a.bookingId });
+    if (!booking || booking.verificationProvider !== "didit" || !booking.diditSessionId || !Number.isSafeInteger(booking.checkoutPaidAt) || booking.checkoutPaidAt <= 0 ||
+        booking.idVerifyStatus !== "rejected" || !verificationCanStart(booking))
+      throw new Error("This verification cannot be retried yet. Refresh the page or contact the team.");
+    let authorized = false;
+    if (a.accountToken) {
+      const account: any = await ctx.runQuery(internal.accounts._byToken, { token:a.accountToken });
+      authorized = !!account && belongsToRentalAccount(booking, account);
+    }
+    if (!authorized && a.checkoutSessionId && booking.stripeCheckoutSessionId === a.checkoutSessionId) {
+      const key = process.env.STRIPE_SECRET_KEY;
+      if (!key) throw new Error("Payment service unavailable.");
+      const paid = await new Stripe(key).checkout.sessions.retrieve(a.checkoutSessionId);
+      authorized = paid.status === "complete" && ["paid", "no_payment_required"].includes(paid.payment_status) && paid.metadata?.bookingId === a.bookingId;
+    }
+    if (!authorized) throw new Error("Sign in to retry this rental's verification.");
+    const cfg = config();
+    // A provider update may have succeeded even if its HTTP response was lost.
+    // Recover the already-started attempt before writing a new claim, so its
+    // correlation marker and the provider's single email are not replaced.
+    if (booking.diditRetryNotice?.sessionId === booking.diditSessionId) {
+      const existing = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.guestEmail);
+      if (existing.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
+      if (existing.status === "Resubmitted") {
+        const requestId = providerRetryRequest(existing, booking.diditRetryNotice);
+        const mapped = mapDecision(existing.status, existing);
+        if (!requestId || !mapped || typeof existing.session_url !== "string" || !hostedSessionUrl.test(existing.session_url))
+          throw new Error("The retry is being prepared. Refresh this page in a moment.");
+        const saved = await ctx.runMutation(internal.bookings.setDiditResult, {bookingId:a.bookingId, sessionId:booking.diditSessionId,
+          eventId:`renter-retry-recovery-${requestId}`,eventAt:Date.now(),providerStatus:existing.status,...mapped,reconciliation:true,requireApplied:true,renterRetryRecovery:true,
+          recoveryExpectedAccountId:booking.accountId ?? null,recoveryExpectedEmail:booking.guestEmail,
+          providerRetryRequestId:requestId,expectedEventId:booking.diditEventId ?? null,expectedEventAt:booking.diditEventAt ?? null,
+          expectedManualDecisionAt:booking.diditManualDecisionAt ?? null});
+        const current: any = await ctx.runQuery(internal.bookings.verificationAccess, {bookingId:a.bookingId});
+        if (!saved || !current || current.diditSessionId !== booking.diditSessionId || !verificationCanStart(current) || current.idVerifyStatus !== "requires_input")
+          throw new Error("This rental changed. Refresh its verification progress.");
+        return {url:existing.session_url};
+      }
+      if (existing.status !== "Declined") throw new Error("This verification changed. Refresh this page before trying again.");
+    }
+    const sessionId = booking.diditSessionId, requestId = randomUUID(), startedAt = Date.now();
+    await ctx.runMutation(internal.diditReviewClaims.claimRenterRetry, {bookingId:a.bookingId, sessionId, requestId,
+      expectedEventId:booking.diditEventId ?? null, expectedEventAt:booking.diditEventAt ?? null,
+      expectedAccountId:booking.accountId ?? null, expectedEmail:booking.guestEmail});
+    try {
+      let report = await retrieveSession(cfg.apiKey, sessionId, String(a.bookingId), booking.guestEmail);
+      if (report.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
+      if (report.status !== "Declined" || report.decision_trace?.decided_by !== "automatic" || !diditCanRetryAutomatically(report))
+        throw new Error("This verification needs the team's review before another attempt.");
+      const workflowResponse = await fetch(`https://verification.didit.me/v3/workflows/${cfg.workflowId}/`, {
+        headers:{"x-api-key":cfg.apiKey}, signal:AbortSignal.timeout(20_000),
+      });
+      if (!workflowResponse.ok) throw new Error("The retry could not be prepared. Please try again or contact the team.");
+      const workflow: any = await workflowResponse.json();
+      // The decision endpoint does not expose the session's pinned workflow
+      // version. All sessions on the current live workflow use version 1; if a
+      // new version is published, do not infer old sessions' missing nodes from
+      // its newer graph. Re-enable after version-bound graph lookup is added.
+      if (workflow.version !== 1 || workflow.workflow_id !== cfg.workflowId)
+        throw new Error("The requested steps need a team review before another attempt.");
+      const graph = workflow.workflow_graph?.nodes;
+      const featureFields:Record<string,string> = {OCR:"id_verifications",LIVENESS:"liveness_checks",FACE_MATCH:"face_matches",PROOF_OF_ADDRESS:"poa_verifications"};
+      if (!graph || typeof graph !== "object" || Array.isArray(graph)) throw new Error("The requested steps need a team review before another attempt.");
+      const entries = Object.entries(graph).filter(([,node]:any) => node?.node_type === "feature");
+      if (entries.length !== 4 || Object.keys(featureFields).some(feature => entries.filter(([,node]:any) => node.feature === feature).length !== 1))
+        throw new Error("The requested steps need a team review before another attempt.");
+      const requestNodes: Array<{node_id:string;feature:string}> = [];
+      for (const [nodeId, node] of entries as Array<[string,any]>) {
+        const field = featureFields[node.feature];
+        const rows = Array.isArray(report[field]) ? report[field] : [];
+        if (rows.some((row:any) => row?.node_id !== nodeId)) throw new Error("The requested steps need a team review before another attempt.");
+        if (rows.length && rows.every((row:any) => row.status === "Approved")) continue;
+        if (rows.length && !rows.every((row:any) => ["Declined","In Review","Not Finished","Expired"].includes(row.status)))
+          throw new Error("The requested steps need a team review before another attempt.");
+        requestNodes.push({node_id:nodeId,feature:node.feature === "PROOF_OF_ADDRESS" ? "POA" : node.feature});
+      }
+      if (!requestNodes.length) throw new Error("The requested steps need a team review before another attempt.");
+      const previewResponse = await fetch(`${sessionApi}${sessionId}/resubmission-preview/`, {
+        method:"POST", headers:{"x-api-key":cfg.apiKey,"content-type":"application/json"},
+        body:JSON.stringify({new_status:"Resubmitted",nodes_to_resubmit:requestNodes,email_language:"en"}), signal:AbortSignal.timeout(20_000),
+      });
+      if (!previewResponse.ok) throw new Error("The retry could not be prepared. Please try again or contact the team.");
+      const preview: any = await previewResponse.json();
+      const nodes = preview.nodes_to_resubmit;
+      const normalized = (nodes:any[]) => nodes.map(node => `${node?.node_id}:${node?.feature === "PROOF_OF_ADDRESS" ? "POA" : node?.feature}`).sort().join("|");
+      if (!preview.preview_token || preview.will_be_sent !== true ||
+          typeof preview.subject !== "string" || !/db\s*cinema/i.test(preview.subject) ||
+          typeof preview.recipient !== "string" || preview.recipient.trim().toLowerCase() !== booking.guestEmail.trim().toLowerCase() ||
+          !Array.isArray(nodes) || nodes.length !== requestNodes.length || normalized(nodes) !== normalized(requestNodes))
+        throw new Error("The requested steps need a team review before another attempt.");
+      const response = await fetch(`${sessionApi}${sessionId}/update-status/`, {
+        method:"PATCH", headers:{"x-api-key":cfg.apiKey,"content-type":"application/json","Idempotency-Key":`renter-retry-${requestId}`},
+        body:JSON.stringify({new_status:"Resubmitted",comment:`DB Cinema renter retry ${requestId}`,nodes_to_resubmit:requestNodes,
+          send_email:true,email_address:preview.recipient,email_language:preview.language || "en",email_preview_token:preview.preview_token}),
+        signal:AbortSignal.timeout(20_000),
+      });
+      if (!response.ok || (await response.json())?.session_id !== sessionId)
+        throw new Error("The verification changed or could not be reopened. Refresh the page or contact the team.");
+      report = await retrieveSession(cfg.apiKey, sessionId, String(a.bookingId), booking.guestEmail);
+      if (report.workflow_id !== cfg.workflowId || report.status !== "Resubmitted" || typeof report.session_url !== "string" || !hostedSessionUrl.test(report.session_url))
+        throw new Error("The retry is being prepared. Refresh this page in a moment.");
+      const mapped = mapDecision(report.status, report);
+      if (!mapped) throw new Error("The retry is being prepared. Refresh this page in a moment.");
+      await ctx.runMutation(internal.bookings.setDiditResult, {bookingId:a.bookingId,sessionId,
+        eventId:`renter-retry-${requestId}`,eventAt:Date.now(),providerStatus:report.status,...mapped,reconciliation:true,
+        providerRetryRequestId:providerRetryRequest(report,{requestId,sessionId,startedAt}),
+        expectedEventId:booking.diditEventId ?? null,expectedEventAt:booking.diditEventAt ?? null,
+        expectedManualDecisionAt:booking.diditManualDecisionAt ?? null});
+      const current: any = await ctx.runQuery(internal.bookings.verificationAccess, {bookingId:a.bookingId});
+      if (!current || current.diditSessionId !== sessionId || !verificationCanStart(current) || current.idVerifyStatus !== "requires_input")
+        throw new Error("This rental changed. Refresh its verification progress.");
+      return {url:report.session_url};
+    } finally { await ctx.runMutation(internal.diditReviewClaims.release,{bookingId:a.bookingId,sessionId,requestId}); }
   },
 });
 
@@ -251,6 +393,7 @@ export const adminReview = action({
       const saved: boolean = await ctx.runMutation(internal.bookings.setDiditResult, {
         bookingId, sessionId:booking.diditSessionId, eventId:`manual-reconcile-${booking.diditSessionId}-${readStartedAt}`,
         eventAt:readStartedAt, providerStatus:session.status, ...mapped, reconciliation:true, requireApplied:true,
+        providerRetryRequestId:providerRetryRequest(session,booking.diditRetryNotice),
         expectedEventId:booking.diditEventId ?? null, expectedEventAt:booking.diditEventAt ?? null, expectedManualDecisionAt:booking.diditManualDecisionAt ?? null,
         ...(scopedReview ? { adminReviewSessionToken: token } : {}),
       });
@@ -329,6 +472,7 @@ async function refreshBoundProgress(ctx: any, bookingId: any, booking: any): Pro
     const saved = await ctx.runMutation(internal.bookings.setDiditResult, {
       bookingId, sessionId: booking.diditSessionId,
       eventId: `progress-${booking.diditSessionId}-${readStartedAt}`, eventAt: readStartedAt, providerStatus: report.status,
+      providerRetryRequestId:providerRetryRequest(report,booking.diditRetryNotice),
       expectedEventId: booking.diditEventId ?? null, expectedEventAt: booking.diditEventAt ?? null,
       expectedManualDecisionAt: booking.diditManualDecisionAt ?? null, ...mapped,
     });
@@ -381,6 +525,7 @@ export const reconcileOpenSessions = internalAction({
             eventId: `reconcile-${candidate.sessionId}-${Date.now()}`,
             eventAt: readStartedAt,
             providerStatus: report.status,
+            providerRetryRequestId:providerRetryRequest(report,candidate.diditRetryNotice),
             reconciliation: true,
             sweepGeneration: generation,
             expectedEventId: candidate.expectedEventId,
@@ -468,8 +613,7 @@ function mapDecision(rawStatus: unknown, decision: any): {
 }
 
 /** Didit v3 webhooks sign the complete canonical JSON with X-Signature-V2.
- * Didit's final Approved session status is authoritative even when feature
- * details are absent; In Review is the provider's explicit manual-review state. */
+ * Overall approval still requires evidence of each required check. */
 export const webhook = internalAction({
   args: {
     body: v.string(),
@@ -510,13 +654,15 @@ export const webhook = internalAction({
     const bookingId = event.vendor_data.slice("dbc-booking-".length);
     try {
       let decision = event.decision;
-      if (event.status === "Declined" || event.status === "Approved" && !["id_verifications", "liveness_checks", "face_matches", "poa_verifications"].every(field => Array.isArray(decision?.[field]) && decision[field].length)) {
+      let retryRequestId:string|undefined;
+      if (event.status === "Declined" || event.status === "Resubmitted" || event.status === "Approved" && !["id_verifications", "liveness_checks", "face_matches", "poa_verifications"].every(field => Array.isArray(decision?.[field]) && decision[field].length)) {
         const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, {bookingId: bookingId as any});
         if (!booking || booking.diditSessionId !== event.session_id || !booking.guestEmail) throw Error("Verification case does not match this rental.");
         const report = await retrieveSession(cfg.apiKey, event.session_id, bookingId, booking.guestEmail);
         if (report.workflow_id !== cfg.workflowId) throw Error("Verification workflow does not match this rental.");
-        if (report.status !== event.status) return true;
+        if (report.status !== event.status) return true; // a newer provider decision superseded this event
         decision = report;
+        retryRequestId = providerRetryRequest(report,booking.diditRetryNotice);
       }
       const mapped = mapDecision(event.status, decision);
       if (!mapped) throw Error("Unsupported verification status");
@@ -526,6 +672,7 @@ export const webhook = internalAction({
         eventId: event.event_id,
         eventAt: event.created_at * 1000,
         providerStatus: event.status,
+        providerRetryRequestId:retryRequestId,
         ...mapped,
       });
     } catch {
