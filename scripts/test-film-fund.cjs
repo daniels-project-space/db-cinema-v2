@@ -80,7 +80,7 @@ const f=load('convex/filmFund.ts'),shared=load('shared/filmFund.ts'),{mp4Duratio
  activeSignup.active=true;await announcements.enqueue.handler(ctx,{roundSlug:dates.slug,cursor:null});assert.equal(later.state,'pending');
  await f.setRoundState.handler(ctx,{token:dates.token,slug:dates.slug,state:'closed',notifySignups:false});assert.equal(await announcements.claim.handler(ctx,{id:later._id}),null,'closed round cannot announce open');
  await f.setRoundState.handler(ctx,{token:dates.token,slug:dates.slug,state:'open',notifySignups:true});await announcements.enqueue.handler(ctx,{roundSlug:dates.slug,cursor:null});
- let mailOk=false;const deliveries=[];setMock('./lib/mailer',{sendMail:async message=>{deliveries.push(message);return mailOk;}});
+ let mailOk=false;const deliveries=[];setMock('./lib/mailer',{sendMail:async(_ctx,message)=>{deliveries.push(message);return mailOk;}});
  process.env.FILM_FUND_EMAIL_SECRET='film-fund-test-secret';
  const notifications=load('convex/filmFundNotifications.ts');
  const mailCtx={...ctx,runQuery:async(ref,args)=>ref==='filmFundAnnouncements.due'?announcements.due.handler(ctx,args):ref==='filmFund.notificationActive'?f.notificationActive.handler(ctx,args):f.notificationSchedule.handler(ctx,args),runMutation:async(ref,args)=>announcements[ref.split('.')[1]].handler(ctx,args)};

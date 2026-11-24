@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict');
 const {load,db,put,tables,setMock}=require('./lib/rentalTestHarness.cjs');
-const outbox=[];setMock('./lib/mailer',{sendMail:async m=>{outbox.push(m);return true;}});
+const outbox=[];setMock('./lib/mailer',{sendMail:async(_ctx,m)=>{outbox.push(m);return true;}});
 const claims=load('convex/accountCodeClaims.ts'),cartData=load('convex/checkoutCartData.ts'),codes=load('convex/accountCodes.ts'),carts=load('convex/checkoutCarts.ts'),accounts=load('convex/accounts.ts');
 const scheduled=[];const ctx={db,scheduler:{runAfter:async(...args)=>scheduled.push(args)},runMutation:async(ref,a)=>(ref.startsWith('accountCodeClaims.')?claims:ref.startsWith('checkoutCartData.')?cartData:accounts)[ref.split('.')[1]].handler(ctx,a),runQuery:async(ref,a)=>accounts[ref.split('.')[1]].handler(ctx,a)};
 const codeFromMail=()=>outbox.at(-1).html.match(/<strong>(\d{6})<\/strong>/)[1];

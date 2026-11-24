@@ -1,16 +1,97 @@
-/** Actual transport inputs under controlled SMTP/HTTP; no network deliveries. */
-const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
-const configurations=[],envelopes=[],requests=[];let accepted=[];
-h.setMock('nodemailer',{default:{createTransport:config=>{configurations.push(config);return {sendMail:async m=>{envelopes.push(m);return {accepted}}}}}});
-const {sendMail,supportEmailFrom}=h.load('convex/lib/mailer.ts');const original=global.fetch;
-Object.assign(process.env,{GMAIL_USER:'qa@example.invalid',GMAIL_APP_PASSWORD:'qa-unused',RESEND_API_KEY:'qa-unused'});
-delete process.env.SUPPORT_EMAIL_FROM;
-global.fetch=async(url,options)=>{requests.push({url,options});return new Response('{}',{status:200})};
-(async()=>{try{
- const supportFrom=supportEmailFrom();assert.equal(supportFrom,'Bookings <bookings@dbcinemarentals.com>');
- const m={from:supportFrom,to:'customer@example.invalid',cc:['info@dbcinemarentals.com'],subject:'Runtime QA',html:'<p>QA</p>',deliveryKey:'bookings-qa:payment:1'};
- assert.equal(await sendMail(m),true);assert.equal(requests.length,1,'SMTP accepting no recipient must fall back rather than claim success');assert.equal(requests[0].options.headers['Idempotency-Key'],m.deliveryKey);assert(requests[0].options.signal);const resendPayload=JSON.parse(requests[0].options.body);assert.equal(resendPayload.from,supportFrom);assert.deepEqual(resendPayload.cc,m.cc);
- const messageId=envelopes[0].messageId;accepted=[m.to];assert.equal(await sendMail(m),true);assert.equal(requests.length,1);assert.equal(envelopes[1].messageId,messageId,'SMTP retry uses stable Message-ID');assert.equal(envelopes[1].from,supportFrom);assert.deepEqual(envelopes[1].cc,m.cc);assert(configurations.every(c=>c.connectionTimeout===20000&&c.greetingTimeout===20000&&c.socketTimeout===60000));
- accepted=[];delete process.env.RESEND_API_KEY;assert.equal(await sendMail(m),false,'No accepted recipient and no fallback must remain a failure');
- console.log('PASS actual mail transport: support sender and CC are preserved across SMTP and Resend fallback, with bounded timeouts, stable Message-ID and Resend idempotency key. No network or customer sends.');
-}finally{global.fetch=original;delete process.env.GMAIL_USER;delete process.env.GMAIL_APP_PASSWORD;delete process.env.RESEND_API_KEY;delete process.env.SUPPORT_EMAIL_FROM}})().catch(e=>{console.error(e);process.exitCode=1});
+/** Exercise the real MIME and Gmail API transport with network calls mocked. */
+const assert = require("node:assert/strict");
+const h = require("./lib/rentalTestHarness.cjs");
+
+const originalFetch = global.fetch;
+const envKeys = ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GMAIL_TOKEN_ENCRYPTION_KEY"];
+const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+const encryptionKey = Buffer.alloc(32, 7).toString("base64");
+Object.assign(process.env, {
+  GOOGLE_OAUTH_CLIENT_ID: "fixture-client-id",
+  GOOGLE_OAUTH_CLIENT_SECRET: "fixture-client-secret",
+  GMAIL_TOKEN_ENCRYPTION_KEY: encryptionKey,
+});
+
+const oauth = h.load("shared/gmailOAuth.ts");
+const action = h.load("convex/gmailTransport.ts").send;
+const connection = {
+  encryptedRefreshToken: oauth.encryptGmailRefreshToken("fixture-refresh-token", encryptionKey),
+};
+const requests = [];
+let sentMessageId;
+let searchCount = 0;
+
+global.fetch = async (url, options = {}) => {
+  const request = { url: String(url), options };
+  requests.push(request);
+
+  if (request.url === "https://oauth2.googleapis.com/token") {
+    const body = new URLSearchParams(request.options.body);
+    assert.equal(body.get("refresh_token"), "fixture-refresh-token");
+    return Response.json({ access_token: "fixture-access-token", token_type: "Bearer" });
+  }
+  if (request.url.includes("/messages?") && request.options.method !== "POST") {
+    assert.equal(new Headers(request.options.headers).get("authorization"), "Bearer fixture-access-token");
+    searchCount += 1;
+    return Response.json(searchCount === 1 ? {} : { messages: [{ id: sentMessageId }] });
+  }
+  if (request.url.endsWith("/messages/send")) {
+    assert.equal(new Headers(request.options.headers).get("authorization"), "Bearer fixture-access-token");
+    const payload = JSON.parse(request.options.body);
+    const mime = Buffer.from(payload.raw, "base64url").toString("utf8");
+    assert.match(mime, /To: customer@example\.invalid/i);
+    assert.match(mime, /Cc: info@dbcinemarentals\.com/i);
+    assert.match(mime, /Subject: Runtime QA/i);
+    assert.match(mime, /Reply-To: replies@example\.invalid, owner@example\.invalid/i);
+    assert.match(mime, /In-Reply-To: <incoming@example\.invalid>/i);
+    assert.match(mime, /References: <incoming@example\.invalid>/i);
+    assert.match(mime, /Message-ID: <rental-[a-f0-9]+@dbcinemarentals\.com>/i);
+    assert.match(mime, /DB Cinema Rentals Team/);
+    assert.equal(payload.threadId, "gmail-thread-fixture");
+    sentMessageId = "gmail-message-fixture";
+    return Response.json({ id: sentMessageId });
+  }
+  throw new Error(`Unexpected test fetch: ${request.url}`);
+};
+
+const mail = {
+  deliveryKey: "bookings-qa:payment:1",
+  to: "customer@example.invalid",
+  cc: ["info@dbcinemarentals.com"],
+  subject: "Runtime QA",
+  html: "<p>QA</p>",
+  replyTo: ["replies@example.invalid", "owner@example.invalid"],
+  inReplyTo: "<incoming@example.invalid>",
+  references: ["<incoming@example.invalid>"],
+  providerThreadId: "gmail-thread-fixture",
+};
+
+(async () => {
+  try {
+    const ctx = {
+      runQuery: async () => connection,
+    };
+    const first = await action.handler(ctx, { mail });
+    assert.equal(first.sent, true);
+    assert.equal(first.providerId, "gmail-message-fixture");
+    assert.equal(requests.filter(({ url }) => url.endsWith("/messages/send")).length, 1);
+    const lookup = requests.find(({ url }) => url.includes("/messages?"));
+    assert.match(lookup.url, /rfc822msgid/);
+
+    const retry = await action.handler(ctx, { mail });
+    assert.equal(retry.sent, true);
+    assert.equal(retry.providerId, "gmail-message-fixture");
+    assert.equal(requests.filter(({ url }) => url.endsWith("/messages/send")).length, 1,
+      "a retry that finds the sent Message-ID must not send a duplicate");
+    console.log("PASS Gmail transport renders branded MIME, preserves email headers and thread, and reuses Sent matches on retry. No network deliveries.");
+  } finally {
+    global.fetch = originalFetch;
+    for (const key of envKeys) {
+      if (previousEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = previousEnv[key];
+    }
+  }
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

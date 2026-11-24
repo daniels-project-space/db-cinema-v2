@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { load, db, put, setMock } = require('./lib/rentalTestHarness.cjs');
 const deliveries = [];
 let deliver = false, rejectPdf = false, fetches = 0;
-setMock('./lib/mailer', { sendMail: async mail => { deliveries.push(mail); return deliver; } });
+setMock('./lib/mailer', { sendMail: async (_ctx, mail) => { deliveries.push(mail); return deliver; } });
 const bookings = load('convex/bookings.ts'), invoice = load('convex/invoice.ts');
 process.env.INVOICE_SECRET = 'fixture-private-invoice-key';
 process.env.APP_URL = 'https://completion.example.invalid';

@@ -2,7 +2,7 @@
 const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs'),sdk=require('convex/server');
 const server=Object.fromEntries(['query','mutation','internalQuery','internalMutation','action','internalAction'].map(k=>[k,sdk[k+'Generic']]));h.setMock('./_generated/server',server);
 function refs(prefix){return new Proxy({},{get:(_,m)=>new Proxy({},{get:(_,f)=>prefix+'.'+m+'.'+f})})}h.setMock('./_generated/api',{api:refs('api'),internal:refs('internal')});
-const mails=[];h.setMock('./lib/mailer',{sendMail:async m=>{mails.push(m);return true},OWNER_EMAIL:()=> 'owner@example.invalid'});delete process.env.TELEGRAM_BOT_TOKEN;delete process.env.TELEGRAM_CHAT_ID;
+const mails=[];h.setMock('./lib/mailer',{sendMail:async(_ctx,m)=>{mails.push(m);return true},OWNER_EMAIL:()=> 'owner@example.invalid'});delete process.env.TELEGRAM_BOT_TOKEN;delete process.env.TELEGRAM_CHAT_ID;
 const bookings=h.load('convex/bookings.ts'),notify=h.load('convex/notify.ts');
 const pickupMap=h.load('shared/pickupLocation.ts');
 const b=h.put('bookings',{guestEmail:'renter@example.invalid',status:'confirmed',fulfilment:'pickup',total:70,depositAmount:50,depositHoldAmount:100,lineItems:[{title:'Cinema camera',start:Date.UTC(2030,0,1),end:Date.UTC(2030,0,2),lineTotal:20}],idVerifyStatus:'required'});

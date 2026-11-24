@@ -2,7 +2,7 @@
 const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
 let now=Date.UTC(2030,0,1),mailResult=true,mailThrows=false;Date.now=()=>now;
 let pdfOk=true;process.env.INVOICE_SECRET='fixture-only';global.fetch=async()=>new Response(pdfOk?Buffer.from('%PDF-test receipt'):null,{status:pdfOk?200:503,headers:{'content-type':'application/pdf'}});
-const mails=[];h.setMock('./lib/mailer',{sendMail:async m=>{mails.push(m);if(mailThrows)throw Error('SMTP down');return mailResult},OWNER_EMAIL:()=> 'owner@example.invalid'});
+const mails=[];h.setMock('./lib/mailer',{sendMail:async(_ctx,m)=>{mails.push(m);if(mailThrows)throw Error('Gmail send failed');return mailResult},OWNER_EMAIL:()=> 'owner@example.invalid'});
 const queue=h.load('convex/lib/rentalEmailQueue.ts'),delivery=h.load('convex/rentalEmailDelivery.ts'),worker=h.load('convex/rentalEmailMail.ts'),notify=h.load('convex/notify.ts'),invoice=h.load('convex/invoice.ts'),bookings=h.load('convex/bookings.ts');
 const stored=new Map();let storageSerial=0;const scheduled=[],ctx={db:h.db,storage:{store:async blob=>{const id="_storage-"+(++storageSerial);stored.set(id,blob);return id},get:async id=>stored.get(id)??null,delete:async id=>stored.delete(id)},scheduler:{runAfter:async(ms,ref,args)=>{scheduled.push({ms,ref,args})}},runQuery:async(ref,a)=>{
  if(ref==='rentalEmailDelivery.ready')return delivery.ready.handler(ctx,a);

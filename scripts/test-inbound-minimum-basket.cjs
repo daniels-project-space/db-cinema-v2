@@ -34,7 +34,11 @@ setMock("@/lib/inboundEmail", load("src/lib/inboundEmail.ts"));
 const route = load("src/app/api/email/inbound/route.ts");
 async function deliver(id) {
   const body = JSON.stringify({ source: "contact-form", contactId: id, name: "Alex", email: "alex@example.invalid", message: "Four wireless microphone kits on 20 November 2030, pickup 10am and return 6pm." });
-  return route.POST({ headers: new Headers({ authorization: "Bearer fixture-inbound-secret" }), text: async () => body });
+  return route.POST({
+    headers: new Headers({ authorization: "Bearer fixture-inbound-secret", "content-type": "application/json" }),
+    nextUrl: new URL("https://dbcinemarentals.com/api/email/inbound"),
+    text: async () => body,
+  });
 }
 
 (async () => {

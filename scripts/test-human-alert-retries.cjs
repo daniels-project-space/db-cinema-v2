@@ -5,7 +5,7 @@ const sent = [];
 const results = [];
 setMock("./lib/mailer", {
   OWNER_EMAIL: "info@dbcinemarentals.com",
-  sendMail: async (message) => {
+  sendMail: async (_ctx, message) => {
     sent.push(message);
     return results.shift() ?? false;
   },
