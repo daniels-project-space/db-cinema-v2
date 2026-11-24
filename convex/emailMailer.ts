@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { deliveryMessageId, sendMail, supportEmailFrom } from "./lib/mailer";
 
-/** Keep Node-only SMTP and crypto dependencies behind a dedicated Node action. */
+/** Keep Node-only Gmail OAuth and crypto dependencies behind a dedicated Node action. */
 export const sendBusinessReply = internalAction({
   args: {
     deliveryKey: v.string(),
