@@ -159,8 +159,11 @@ assert.equal(verificationSessionCanOpen(firstRental,now),true,'a first-time acco
  assert.equal(await bookings.reuseVerificationPotential.handler(ctx,{bookingId:firstRental._id}),false,'The actual target rejection cannot be replaced by the earlier pass');
  const livePassAccount=put('accounts',{email:'no-signal-pass@example.invalid',name:'No Signal Pass',address:'11 Example Road SW1A 1AA',emailVerifiedAt:now-1000});
  const livePass=put('bookings',{accountId:livePassAccount._id,accountAccessRequired:false,guestEmail:livePassAccount.email,status:'confirmed',verificationProvider:'didit',idVerifyStatus:'processing',diditSessionId:'no-signal-pass-session',agreementName:livePassAccount.name,billingAddress:livePassAccount.address,pickupTime:'09:00',lineItems:[{listingId:item._id,qty:1,start:now+86400000,end:now+2*86400000}]});
- await bookings.setDiditResult.handler(ctx,{bookingId:livePass._id,sessionId:livePass.diditSessionId,eventId:'approved-no-signal',eventAt:now,status:'verified',providerStatus:'Approved',poaPostcodes:[]});
- assert.deepEqual(livePass.verificationChecks,approved,'a final provider approval normalizes omitted feature detail at the shared state boundary');
+ assert.equal(await bookings.setDiditResult.handler(ctx,{bookingId:livePass._id,sessionId:livePass.diditSessionId,eventId:'approval-without-checks',eventAt:now,status:'verified',providerStatus:'Approved',poaPostcodes:[]}),false,'a top-level approval without required checks cannot approve a first verification');
+ assert.equal(livePassAccount.rentalVerification,undefined,'missing provider checks cannot create the reusable 90-day badge');
+ assert.equal(await load('convex/lib/accountVerificationReady.ts').accountVerificationReady(ctx,livePassAccount),null);
+ await bookings.setDiditResult.handler(ctx,{bookingId:livePass._id,sessionId:livePass.diditSessionId,eventId:'approved-no-signal',eventAt:now,status:'verified',providerStatus:'Approved',poaPostcodes:[],checks:approved});
+ assert.deepEqual(livePass.verificationChecks,approved,'a final provider approval persists the required passed checks');
  assert.equal(livePassAccount.rentalVerification?.sourceBookingId,livePass._id,'A fresh Didit approval saves its 90-day record even if matching is unavailable');
  assert.equal(livePassAccount.rentalVerification.expiresAt,livePass.idVerifiedAt+90*86400000,'the account pass starts exactly at the first complete Didit approval');
  assert.match(livePass.identityRiskNotice,/matching is unavailable/,'The matching issue remains visible to the team');
