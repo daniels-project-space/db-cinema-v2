@@ -13,7 +13,9 @@ const account=put('accounts',{email:'renter@example.invalid'}),other=put('accoun
 put('sessions',{token:'owner',accountId:account._id,expiresAt:Date.now()+60000});
 put('sessions',{token:'other',accountId:other._id,expiresAt:Date.now()+60000});
 put('sessions',{token:'expired',accountId:account._id,expiresAt:Date.now()-1});
-const booking=put('bookings',{accountId:account._id,status:'confirmed',depositHoldAmount:100,depositHoldStatus:'waiting',securityHoldPolicyVersion:PICKUP_HOLD_POLICY,lineItems:[{listingId:drone._id}],stripeCheckoutSessionId:'cs_fixture'});
+const {dateLabel}=load('shared/rentalWindow.ts');
+const pickupDay=dateLabel(Date.now()+3*86400000);
+const booking=put('bookings',{accountId:account._id,status:'confirmed',depositHoldAmount:100,depositHoldStatus:'waiting',securityHoldPolicyVersion:PICKUP_HOLD_POLICY,pickupTime:'10:00',lineItems:[{listingId:drone._id,start:pickupDay}],stripeCheckoutSessionId:'cs_fixture'});
 const files=new Map([['valid-file',{size:512,contentType:'application/pdf',sha256:'a'.repeat(64)}],['replacement',{size:512,contentType:'application/pdf',sha256:'a'.repeat(64)}],['legacy-file',{size:512,contentType:'application/pdf',sha256:'a'.repeat(64)}]]),scheduled=[];
 db.system={get:async id=>files.get(id)??null};
 const ctx={db,scheduler:{runAfter:async(ms,fn,args)=>scheduled.push({ms,fn,args})},storage:{delete:async id=>files.delete(id)}};
@@ -26,6 +28,8 @@ const upload=storageId=>({bookingId:booking._id,token:'owner',storageId,sha256:'
  await assert.rejects(()=>licences.uploadAccess.handler(ctx,{bookingId:booking._id,token:'other'}),/account/);
  await assert.rejects(()=>licences.uploadAccess.handler(ctx,{bookingId:booking._id,token:'expired',checkoutSessionId:'cs_fixture'}),/Sign in again/);
  await assert.rejects(()=>licences.uploadAccess.handler(ctx,{bookingId:booking._id}),/Sign in/);
+ booking.pickupTime=undefined;await assert.rejects(()=>licences.uploadAccess.handler(ctx,{bookingId:booking._id,token:'owner'}),/after payment/,'Missing pickup timing must not bypass the verification window');booking.pickupTime='10:00';
+ booking.lineItems[0].start=dateLabel(Date.now()-3*86400000);await assert.rejects(()=>licences.uploadAccess.handler(ctx,{bookingId:booking._id,token:'owner'}),/after payment/,'An expired verification window remains closed');booking.lineItems[0].start=pickupDay;
  await licences.uploadAccess.handler(ctx,{bookingId:booking._id,token:'owner'});
  await licences.uploadAccess.handler(ctx,{bookingId:booking._id,checkoutSessionId:'cs_fixture'});
  booking.securityHoldPolicyVersion=undefined;await assert.rejects(()=>licences.uploadAccess.handler(ctx,{bookingId:booking._id,token:'owner'}),/after payment/);booking.securityHoldPolicyVersion=PICKUP_HOLD_POLICY;
