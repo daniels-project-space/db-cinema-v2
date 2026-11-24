@@ -51,6 +51,8 @@ call src/app/admin/page.tsx:settings.adminGet
 call src/app/admin/page.tsx:settings.adminUpdate
 call src/app/api/admin/gaffer-calls/route.ts:adminAuth.verify
 call src/app/api/admin/gaffer-calls/route.ts:analytics.gafferCallTelemetryForAdmin
+call src/app/api/admin/gmail/callback/route.ts:gmailConnection.completeOAuth
+call src/app/api/admin/gmail/connect/route.ts:adminAuth.verify
 call src/app/api/admin/search-console/route.ts:adminAuth.verify
 call src/app/api/admin/session-attestation/route.ts:adminAccountSessionV2.gatewayIdentityDigest
 call src/app/api/assemble/route.ts:availability.forListing
@@ -71,6 +73,7 @@ call src/app/api/email/inbound/route.ts:emailInbox.resolveReplyKey
 call src/app/api/email/inbound/route.ts:emailInbox.sendAssistantReply
 call src/app/api/email/inbound/route.ts:followUp.resolveInbound
 call src/app/api/voice/route.ts:catalog.getListingBySlug
+call src/app/api/voice/route.ts:gmailTransport.sendFromSite
 call src/app/api/voice/route.ts:settings.get
 call src/app/api/voice/route.ts:voice.lead
 call src/app/api/voice/route.ts:voiceCatalog.browse
@@ -252,6 +255,8 @@ call src/components/admin/RentalInbox.tsx:emailInbox.adminInbox
 call src/components/admin/RentalInbox.tsx:emailInbox.adminThread
 call src/components/admin/RentalInbox.tsx:emailInbox.markRead
 call src/components/admin/RentalInbox.tsx:emailInbox.sendOwnerReply
+call src/components/admin/RentalInbox.tsx:gmailConnection.disconnect
+call src/components/admin/RentalInbox.tsx:gmailConnection.status
 call src/components/admin/RentalInbox.tsx:rentalChat.adminPage
 call src/components/admin/RentalInbox.tsx:rentalChat.generalOwnerPage
 call src/components/admin/RentalInbox.tsx:rentalChat.getConversation
@@ -978,6 +983,21 @@ export convex/followUp.ts:send
 export convex/gaffer.ts:gafferReply
 export convex/gaffer.ts:ownerDrafts
 export convex/gafferCatalogue.ts:lookup
+export convex/gmailConnection.ts:acknowledgeSyncMessage
+export convex/gmailConnection.ts:claimSync
+export convex/gmailConnection.ts:completeOAuth
+export convex/gmailConnection.ts:disconnect
+export convex/gmailConnection.ts:finishSync
+export convex/gmailConnection.ts:getForWorker
+export convex/gmailConnection.ts:hasConnectedMailbox
+export convex/gmailConnection.ts:removeConnection
+export convex/gmailConnection.ts:saveSyncBatch
+export convex/gmailConnection.ts:status
+export convex/gmailSync.ts:sync
+export convex/gmailTransport.ts:revoke
+export convex/gmailTransport.ts:send
+export convex/gmailTransport.ts:sendFromSite
+export convex/gmailTransport.ts:status
 export convex/googleAuth.ts:_upsertGoogle
 export convex/googleAuth.ts:signInWithGoogle
 export convex/holdRenewal.ts:authorizePickup
@@ -1099,7 +1119,6 @@ export convex/lib/mailer.ts:MailAttachment
 export convex/lib/mailer.ts:MailInput
 export convex/lib/mailer.ts:OWNER_EMAIL
 export convex/lib/mailer.ts:deliveryMessageId
-export convex/lib/mailer.ts:sendBusinessMail
 export convex/lib/mailer.ts:sendMail
 export convex/lib/mailer.ts:supportEmailFrom
 export convex/lib/marketingInventory.ts:automaticMarketingFields
@@ -1131,6 +1150,7 @@ export convex/lib/pricing.ts:Tier
 export convex/lib/pricing.ts:buildTiers
 export convex/lib/pricing.ts:export { depositFor, depositChargeFor, smallDamageHold, type Protection } from "../../shared/rentalSecurity";
 export convex/lib/pricing.ts:quote
+export convex/lib/pricing.ts:toPence
 export convex/lib/privateStorage.ts:deletePrivateFile
 export convex/lib/publicListingCopy.ts:createPublicListingCopy
 export convex/lib/quickReplyReplacement.ts:assertReplacementSnapshot
@@ -1261,6 +1281,12 @@ export convex/lib/verificationReuse.ts:verificationDetail
 export convex/lib/verificationReuse.ts:verificationReuseIdentityDigest
 export convex/lib/verificationReuse.ts:verificationReuseOwnerMatches
 export convex/lib/verificationReuse.ts:verificationUpdateMessage
+export convex/lib/websitePricing.ts:WEBSITE_PRICE_INCREASE
+export convex/lib/websitePricing.ts:WEBSITE_PRICE_KEYS
+export convex/lib/websitePricing.ts:WebsitePriceFactors
+export convex/lib/websitePricing.ts:WebsitePriceLadder
+export convex/lib/websitePricing.ts:applyWebsitePriceFactors
+export convex/lib/websitePricing.ts:websitePriceFactors
 export convex/liveRecommendations.ts:options
 export convex/managerCheckoutStock.ts:record
 export convex/managerCheckoutStock.ts:snapshot
@@ -1808,6 +1834,12 @@ export convex/waitlist.ts:mine
 export src/app/api/admin/gaffer-calls/route.ts:POST
 export src/app/api/admin/gaffer-calls/route.ts:dynamic
 export src/app/api/admin/gaffer-calls/route.ts:runtime
+export src/app/api/admin/gmail/callback/route.ts:GET
+export src/app/api/admin/gmail/callback/route.ts:dynamic
+export src/app/api/admin/gmail/callback/route.ts:runtime
+export src/app/api/admin/gmail/connect/route.ts:POST
+export src/app/api/admin/gmail/connect/route.ts:dynamic
+export src/app/api/admin/gmail/connect/route.ts:runtime
 export src/app/api/admin/search-console/route.ts:POST
 export src/app/api/admin/search-console/route.ts:dynamic
 export src/app/api/admin/search-console/route.ts:runtime
@@ -1841,6 +1873,8 @@ export src/app/api/voice/route.ts:POST
 export src/app/api/voice/route.ts:maxDuration
 export src/app/api/voice/route.ts:runtime
 route src/app/api/admin/gaffer-calls/route.ts
+route src/app/api/admin/gmail/callback/route.ts
+route src/app/api/admin/gmail/connect/route.ts
 route src/app/api/admin/search-console/route.ts
 route src/app/api/admin/session-attestation/route.ts
 route src/app/api/assemble/route.ts
@@ -1852,10 +1886,3 @@ route src/app/api/email/inbound/route.ts
 route src/app/api/invoice/[id]/route.ts
 route src/app/api/swml/inbound/route.ts
 route src/app/api/voice/route.ts
-export convex/lib/pricing.ts:toPence
-export convex/lib/websitePricing.ts:WEBSITE_PRICE_INCREASE
-export convex/lib/websitePricing.ts:WEBSITE_PRICE_KEYS
-export convex/lib/websitePricing.ts:WebsitePriceFactors
-export convex/lib/websitePricing.ts:WebsitePriceLadder
-export convex/lib/websitePricing.ts:applyWebsitePriceFactors
-export convex/lib/websitePricing.ts:websitePriceFactors
