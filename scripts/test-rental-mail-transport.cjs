@@ -46,7 +46,8 @@ global.fetch = async (url, options = {}) => {
     assert.match(mime, /Reply-To: replies@example\.invalid, owner@example\.invalid/i);
     assert.match(mime, /In-Reply-To: <incoming@example\.invalid>/i);
     assert.match(mime, /References: <incoming@example\.invalid>/i);
-    assert.match(mime, /Message-ID: <rental-[a-f0-9]+@dbcinemarentals\.com>/i);
+    const unfoldedMime = mime.replace(/\r?\n[ \t]+/g, " ");
+    assert.match(unfoldedMime, /Message-ID: <rental-[a-f0-9]+@dbcinemarentals\.com>/i);
     assert.match(mime, /DB Cinema Rentals Team/);
     assert.equal(payload.threadId, "gmail-thread-fixture");
     sentMessageId = "gmail-message-fixture";
