@@ -11,7 +11,7 @@ export const request=action({args:{token:v.string(),bookingId:v.id("bookings")},
   const claim=await ctx.runMutation(internal.verificationReuseClaimState.prepare,{...args,secretHash:hash(secret)});
   const origin=new URL(process.env.APP_URL??"https://dbcinemarentals.com").origin;
   let sent=false;
-  try {sent=await sendMail({to:claim.recipientEmail,subject:"Confirm reuse of your verification",html:`<h2>Confirm verification reuse</h2><p>You requested to link an approved rental verification to your account. Sign in to the same account, then open this one-time link within one hour.</p><p><a href="${origin}/account/verification-claim#${encodeURIComponent(secret)}">Confirm verification reuse</a></p><p>If you did not request this, ignore this email.</p>`});}
+  try {sent=await sendMail(ctx, {to:claim.recipientEmail,subject:"Confirm reuse of your verification",html:`<h2>Confirm verification reuse</h2><p>You requested to link an approved rental verification to your account. Sign in to the same account, then open this one-time link within one hour.</p><p><a href="${origin}/account/verification-claim#${encodeURIComponent(secret)}">Confirm verification reuse</a></p><p>If you did not request this, ignore this email.</p>`});}
   finally {await ctx.runMutation(internal.verificationReuseClaimState.markDelivery,{claimId:claim.claimId,sent});}
   if(!sent)throw Error("The confirmation could not be sent. Please try again later.");
   return {ok:true};

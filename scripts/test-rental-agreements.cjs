@@ -78,7 +78,7 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  const historic=await bookings.invoiceData.handler(ctx,{bookingId:old._id,token:'agreement-renter'});
  assert.equal(historic.agreementSnapshot,null);assert.equal(historic.acceptedAgreementEvidence.documents[0].version,'2026-10-v8');assert.equal(old.agreementSnapshot,undefined);
  // PDF failure must not cause a raw agreement/code attachment; accepted evidence stays in the private account.
- let mail;setMock('./lib/mailer',{sendMail:async(m)=>{mail=m;return true;}});
+ let mail;setMock('./lib/mailer',{sendMail:async(_ctx,m)=>{mail=m;return true;}});
  const invoiceModule=load('convex/invoice.ts'),originalFetch=global.fetch;global.fetch=async()=>({ok:false});process.env.INVOICE_SECRET='fixture-only';
  try{await invoiceModule.invoiceEmail.handler({runQuery:async()=>b},{bookingId:b._id});}finally{global.fetch=originalFetch;}
  assert.equal(mail.attachments.length,0);assert(!mail.html.includes('JSON agreement'));assert(!mail.html.includes('insurance excess'));assert.equal(b.agreementSnapshot,saved,'Accepted evidence is retained privately');

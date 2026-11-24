@@ -1,28 +1,13 @@
 "use node";
 
 import { createHash } from "node:crypto";
-import nodemailer from "nodemailer";
-import { brandedEmailHtml } from "../../shared/emailBrand";
+import { internal } from "../_generated/api";
 
 /**
  * The one place email leaves this app.
  *
- * Two transports, because the "From" address decides which one can be used:
- *
- *  - GMAIL — sends through Google's own SMTP as dbcinemarentals@gmail.com, so
- *    that address is genuinely the sender rather than a reply-to bolted onto
- *    someone else's domain. Needs GMAIL_USER + GMAIL_APP_PASSWORD (a Google
- *    App Password, not the account password — Google rejects the real one for
- *    SMTP). Preferred whenever both are set.
- *  - RESEND — the previous transport, kept as the fallback. It can only send
- *    from a domain verified in the Resend dashboard; asking it for a gmail.com
- *    sender returns a hard 403 ("The gmail.com domain is not verified"), which
- *    is exactly why the Gmail path above exists.
- *
- * Both callers previously swallowed every failure in a bare catch, so a
- * rejected send was indistinguishable from a delivered one — the contact form
- * looked fine while nothing arrived. Failures now log loudly and the caller
- * gets a boolean, while still never throwing into a booking flow.
+ * All site mail uses the connected business Gmail account. The credentials and
+ * Google API calls live behind gmailTransport; callers never receive a token.
  */
 
 export type MailAttachment = {
@@ -47,6 +32,8 @@ export type MailInput = {
   inReplyTo?: string;
   references?: string[];
   attachments?: MailAttachment[];
+  /** Gmail's thread handle, required for replies to appear in the same Gmail conversation. */
+  providerThreadId?: string;
 };
 
 /** Shared customer-support sender for Gaffer email replies. */
@@ -57,104 +44,23 @@ export function deliveryMessageId(deliveryKey: string): string {
   return `<rental-${createHash("sha256").update(deliveryKey).digest("hex")}@dbcinemarentals.com>`;
 }
 
-export const OWNER_EMAIL = () => process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com";
-const FROM_NAME = "Db Cinema Rentals";
+export const OWNER_EMAIL = () => process.env.OWNER_EMAIL ?? "info@dbcinemarentals.com";
 
-/** Gmail SMTP. Created per send — Convex actions are short-lived, so a pooled
- * transport would be torn down before it paid for itself. */
-async function viaGmail(m: MailInput, user: string, pass: string): Promise<boolean> {
+export async function sendMail(
+  ctx: any,
+  m: MailInput,
+  onReceipt?: (id: string) => void,
+  onTransport?: (provider: "gmail") => void,
+): Promise<boolean> {
   try {
-    const transport = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 465,
-      secure: true,
-      connectionTimeout: 20_000, greetingTimeout: 20_000, socketTimeout: 60_000,
-      auth: { user, pass },
-    });
-    const result = await transport.sendMail({
-      ...(m.deliveryKey ? { messageId: deliveryMessageId(m.deliveryKey) } : {}),
-      from: m.from?.trim() || `${FROM_NAME} <${user}>`,
-      to: m.to,
-      ...(m.cc?.length ? { cc: m.cc } : {}),
-      subject: m.subject,
-      html: brandedEmailHtml(m.html),
-      replyTo: m.replyTo ?? OWNER_EMAIL(),
-      ...(m.inReplyTo ? { inReplyTo: m.inReplyTo } : {}),
-      ...(m.references?.length ? { references: m.references } : {}),
-      attachments: (m.attachments ?? []).map((a) =>
-        a.content
-          ? { filename: a.filename, content: a.content, encoding: "base64" as const }
-          : { filename: a.filename, path: a.path },
-      ),
-    });
-    return result.accepted.length > 0;
-  } catch (e) {
-    console.error("[mail] gmail smtp send failed:", String((e as any)?.message ?? e));
-    return false;
-  }
-}
-
-async function viaResend(m: MailInput, key: string, onReceipt?: (id:string)=>void, onTransport?: (provider:"gmail"|"resend")=>void): Promise<boolean> {
-  const from = m.from?.trim() || process.env.RESEND_FROM || `${FROM_NAME} <onboarding@resend.dev>`;
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { authorization: `Bearer ${key}`, "content-type": "application/json", ...(m.deliveryKey ? {"Idempotency-Key":m.deliveryKey} : {}) },
-      signal: AbortSignal.timeout(60_000),
-      body: JSON.stringify({
-        from,
-        to: m.to,
-        ...(m.cc?.length ? { cc: m.cc } : {}),
-        subject: m.subject,
-        html: brandedEmailHtml(m.html),
-        reply_to: m.replyTo ?? OWNER_EMAIL(),
-        ...(m.inReplyTo || m.references?.length ? { headers: {
-          ...(m.inReplyTo ? { "In-Reply-To": m.inReplyTo } : {}),
-          ...(m.references?.length ? { References: m.references.join(" ") } : {}),
-        } } : {}),
-        ...(m.attachments?.length ? { attachments: m.attachments } : {}),
-      }),
-    });
-    if (!res.ok) {
-      console.error(`[mail] resend rejected ${res.status}:`, (await res.text()).slice(0, 300));
-      return false;
-    }
-    onTransport?.("resend");
-    if(onReceipt){
-      try { const body=await res.json() as {id?:unknown}; if(typeof body.id==="string" && /^[a-zA-Z0-9_-]{1,128}$/.test(body.id)) onReceipt(body.id); }
-      catch { /* Acceptance is still valid; the provider receipt is unavailable. */ }
-    }
+    const mail = JSON.parse(JSON.stringify(m)) as MailInput;
+    const result = await ctx.runAction(internal.gmailTransport.send, { mail });
+    if (!result?.sent) return false;
+    if (typeof result.providerId === "string") onReceipt?.(`gmail:${result.providerId}`);
+    onTransport?.("gmail");
     return true;
-  } catch (e) {
-    console.error("[mail] resend send failed:", String((e as any)?.message ?? e));
+  } catch (error) {
+    console.error("[mail] Gmail delivery action failed:", String((error as any)?.message ?? error));
     return false;
   }
-}
-
-export async function sendMail(m: MailInput, onResendReceipt?: (id:string)=>void, onTransport?: (provider:"gmail"|"resend")=>void): Promise<boolean> {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
-  if (user && pass) {
-    if (await viaGmail(m, user, pass)) { onTransport?.("gmail"); return true; }
-    // Gmail is the intended sender, but a bounced credential must not silently
-    // eat a booking confirmation — fall through to Resend if it is configured.
-    console.error("[mail] falling back to resend after a gmail failure");
-  }
-  const key = process.env.RESEND_API_KEY;
-  if (!key) {
-    console.error("[mail] no transport configured — set GMAIL_APP_PASSWORD or RESEND_API_KEY");
-    return false;
-  }
-  return viaResend(m, key, onResendReceipt, onTransport);
-}
-
-/** Mail used for customer replies must originate from the business Gmail mailbox. */
-export async function sendBusinessMail(m: MailInput): Promise<boolean> {
-  const user = process.env.GMAIL_USER?.trim().toLowerCase();
-  const pass = process.env.GMAIL_APP_PASSWORD;
-  if (user !== "dbcinemarentals@gmail.com" || !pass) {
-    console.error("[mail] business Gmail sender is not configured");
-    return false;
-  }
-  return viaGmail(m, user, pass);
 }

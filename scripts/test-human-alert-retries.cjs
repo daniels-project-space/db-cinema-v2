@@ -4,8 +4,8 @@ const { db, docs, load, put, setMock } = require("./lib/rentalTestHarness.cjs");
 const sent = [];
 const results = [];
 setMock("./lib/mailer", {
-  OWNER_EMAIL: "dbcinemarentals@gmail.com",
-  sendMail: async (message) => {
+  OWNER_EMAIL: "info@dbcinemarentals.com",
+  sendMail: async (_ctx, message) => {
     sent.push(message);
     return results.shift() ?? false;
   },
@@ -43,8 +43,8 @@ const base = {
   assert.equal(scheduled[0][1], "notify.emailHumanRequestAlert");
   assert.equal(scheduled[0][2].attempt, 2);
   await emailHumanRequestAlert.handler(ctx, scheduled[0][2]);
-  assert.equal(sent[0].to, "dbcinemarentals@gmail.com");
-  assert.equal(sent[1].to, "dbcinemarentals@gmail.com");
+  assert.equal(sent[0].to, "info@dbcinemarentals.com");
+  assert.equal(sent[1].to, "info@dbcinemarentals.com");
   assert.equal(sent[0].deliveryKey, sent[1].deliveryKey, "retries retain one delivery identity");
   assert.equal(scheduled.length, 1, "successful delivery must stop retries");
 

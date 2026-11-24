@@ -235,9 +235,10 @@ export const start = action({
     if ((/^(sk|rk|rkcs)_live_/.test(process.env.STRIPE_SECRET_KEY??"") && process.env.DIDIT_ENVIRONMENT !== "live") ||
         (/^(sk|rk|rkcs)_test_/.test(process.env.STRIPE_SECRET_KEY??"") && process.env.DIDIT_ENVIRONMENT !== "sandbox"))
       throw new Error("Payment and identity verification environments do not match.");
+    const hasGmailConnection = await ctx.runQuery(internal.gmailConnection.hasConnectedMailbox, {});
     if (!process.env.STRIPE_WEBHOOK_SECRET || !process.env.INVOICE_SECRET || !process.env.APP_URL ||
         !process.env.BUSINESS_LEGAL_NAME || !process.env.BUSINESS_INVOICE_ADDRESS ||
-        !((process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) || process.env.RESEND_API_KEY))
+        !hasGmailConnection)
       throw new Error("Rental receipts and payment notifications are being configured. Please contact us before paying.");
     const cfg: any = await ctx.runQuery(api.settings.get, {});
     if (!cfg.acceptingOrders)
@@ -1339,7 +1340,7 @@ export const markReturned = action({
     await releaseUnclaimedReturnHolds(ctx,bookingId,b,hasSecurityClaim);
     if (kept > 0 && !b.depositRefunded && !b.damageNoticeSentAt) {
       const detail = (damageNote ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-      const sent = await sendMail({
+      const sent = await sendMail(ctx, {
         to: b.guestEmail,
         subject: `Db Cinema rental: itemised £${kept} damage or loss deduction`,
         html: `<h2>Rental return and security deduction</h2><p>We recorded a £${kept} deduction for the following documented reason:</p><p>${detail}</p><p>We will apply the available authorised hold first and use the refundable security payment only for any remaining amount. Reply to this email if the evidence or amount is wrong. We will not collect the same amount twice.</p>`,

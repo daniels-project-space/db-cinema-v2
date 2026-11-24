@@ -7,7 +7,7 @@ import { api } from "@cvx/_generated/api";
 import { handleChat, quoteRentalEnquiry } from "@/lib/gaffer";
 import { formatGafferEmailReply } from "@/lib/inboundEmail";
 import { rentalEmail } from "../../../../shared/rentalEmail";
-import { sendMail, supportEmailFrom } from "../../../../convex/lib/mailer";
+import { supportEmailFrom } from "../../../../convex/lib/mailer";
 import { createHash } from "node:crypto";
 import { deriveItemType } from "../../../../convex/lib/taxonomy";
 import { equipmentOfferLabel, equipmentRequest, normalizeEquipmentName } from "../../../../shared/equipmentIdentity";
@@ -523,14 +523,20 @@ export async function POST(req: NextRequest) {
             const heading = kind === "booking" ? "Your rental booking enquiry" : "Following up on your enquiry";
             const dayKey = londonToday();
             const deliveryKey = `voice-followup:${createHash("sha256").update(`${email.toLowerCase()}|${kind}|${parts}|${dayKey}`).digest("hex")}`;
-            const sent = await sendMail({
-              deliveryKey,
-              from: supportEmailFrom(),
-              to: email,
-              replyTo: supportEmailFrom(),
-              subject: heading,
-              html: voiceFollowUpEmailBody(reply, heading),
+            const workerSecret = process.env.INBOUND_EMAIL_SECRET;
+            if (!workerSecret) throw new Error("Business Gmail worker is not configured.");
+            const delivery = await c.action(api.gmailTransport.sendFromSite, {
+              secret: workerSecret,
+              mail: {
+                deliveryKey,
+                from: supportEmailFrom(),
+                to: email,
+                replyTo: supportEmailFrom(),
+                subject: heading,
+                html: voiceFollowUpEmailBody(reply, heading),
+              },
             });
+            const sent = delivery.sent === true;
             if (sent) {
               return say(`Thanks ${nm}, I've saved your details and sent you a tailored email with the answer and any useful booking options. You can reply to that email if you'd like me to help further.`, { lead_saved: true, customer_email_sent: true });
             }

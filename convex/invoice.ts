@@ -67,7 +67,7 @@ export const invoiceEmail = internalAction({
       html:rentalEmail({title:"Your paid rental invoice",preview:`Payment received: ${amount(invoice.total)}. Your rental invoice is ready.`,url,button:"View rental and invoice",body:`<p>Your invoice${attachment?" is attached as a PDF":" is below. You can also download it from your account"}.</p>${emailRows(rows)}${invoice.membershipCreditApplied?`<p>Account credit above includes ${amount(invoice.membershipCreditApplied)} from your first subscription month. Subscription charges are itemised separately by Stripe.</p>`:""}${rentalSecurityEmailNote(invoice)?`<p>${rentalSecurityEmailNote(invoice)}</p>`:""}<p style="font-size:12px">DB Cinema Rentals Ltd is not VAT registered. No VAT is charged.</p>`}),
       attachments:attachment?[attachment]:[],
     };
-    return prepareOnly?payload:sendMail(payload);
+    return prepareOnly?payload:sendMail(ctx, payload);
   },
 });
 
@@ -89,7 +89,7 @@ export const returnSettlementEmail = internalAction({
     try {
       const pdf=await fetchInvoicePdf(`${app}/api/invoice/${bookingId}?phase=return`,secret);
       const content = returnStatementEmail(s,false,`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`);
-      sent = await sendMail({
+      sent = await sendMail(ctx, {
         ...content,
         attachments: [{ filename: `DbCinema-return-${String(bookingId).slice(-8)}.pdf`, content: pdf.toString("base64") }],
       });
@@ -111,7 +111,7 @@ export const swapAdjustmentEmail=internalAction({args:{receiptId:v.id("rental_sw
   if(!settlements.length)settlements.push("<p>No additional card payment or refund was needed.</p>");
   const app=process.env.APP_URL??"https://dbcinemarentals.com";
   const url=`${app}/account?rental=${encodeURIComponent(String(receipt.bookingId))}#chat`;
-  const result=await sendMail({
+  const result=await sendMail(ctx, {
     deliveryKey:`swap-adjustment-${receipt._id}`,
     to:receipt.recipientEmail,
     subject:`Equipment change adjustment · ${receipt.originalInvoiceNumber}`,

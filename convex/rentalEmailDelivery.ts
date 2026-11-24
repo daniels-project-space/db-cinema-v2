@@ -71,7 +71,7 @@ export const ready=internalQuery({args:{deliveryId:v.id("rental_email_deliveries
   const row=await ctx.db.get(a.deliveryId);
   return row && row.state === "sending" && row.generation===a.generation && row.dueAt>Date.now() && await current(ctx,row) ? row : null;
 }});
-export const finish=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number(),result:v.union(v.literal("sent"),v.literal("retry"),v.literal("skipped")),providerMessageId:v.optional(v.string()),noticeSubject:v.optional(v.string()),noticeMessageId:v.optional(v.string()),noticeTransport:v.optional(v.union(v.literal("gmail"),v.literal("resend")))},handler:async(ctx,a)=>{
+export const finish=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number(),result:v.union(v.literal("sent"),v.literal("retry"),v.literal("skipped")),providerMessageId:v.optional(v.string()),noticeSubject:v.optional(v.string()),noticeMessageId:v.optional(v.string()),noticeTransport:v.optional(v.literal("gmail"))},handler:async(ctx,a)=>{
   const row=await ctx.db.get(a.deliveryId);
   if(!row || row.state!=="sending" || row.generation!==a.generation || row.dueAt<=Date.now())return false;
   const now=Date.now(),failed=a.result==="retry" && row.attempts>=MAX_ATTEMPTS;
@@ -112,10 +112,11 @@ export const recordProviderStatus=internalMutation({args:{deliveryId:v.id("renta
  const row=await ctx.db.get(a.deliveryId),now=Date.now();
  if(!row||row.state!=="sent"||row.providerCheckGeneration!==a.generation||!row.providerMessageId||row.providerCheckDueAt===undefined)return false;
  const failed=["bounced","suppressed","failed","complained"].includes(a.status);
+ const gmailAccepted=a.status==="sent";
  const delivered=["delivered","opened","clicked"].includes(a.status)||row.providerDeliveryStatus==="delivered";
  const expired=now-(row.sentAt??now)>=24*60*60_000;
- const done=failed||expired,notify=failed||(!delivered&&expired)||(delivered&&row.providerDeliveryStatus!=="delivered");
- await ctx.db.patch(row._id,{providerDeliveryStatus:failed?a.status:delivered?"delivered":expired?"unconfirmed":"accepted",providerCheckDueAt:done?undefined:now+(delivered?60:15)*60_000,...(a.messageId?{providerRfcMessageId:a.messageId}:{}),updatedAt:now});
+ const done=failed||expired||gmailAccepted,notify=failed||(!gmailAccepted&&!delivered&&expired)||(delivered&&row.providerDeliveryStatus!=="delivered");
+ await ctx.db.patch(row._id,{providerDeliveryStatus:failed?a.status:gmailAccepted?"sent":delivered?"delivered":expired?"unconfirmed":"accepted",providerCheckDueAt:done?undefined:now+(delivered?60:15)*60_000,...(a.messageId?{providerRfcMessageId:a.messageId}:{}),updatedAt:now});
  if(a.messageId&&["paid_verification","verification_reminder"].includes(row.kind)){
   const mirrored=await ctx.db.query("email_messages").withIndex("by_provider",q=>q.eq("providerId",`rental-notice:${row._id}`)).first();
   if(mirrored&&!mirrored.messageId)await ctx.db.patch(mirrored._id,{messageId:a.messageId});

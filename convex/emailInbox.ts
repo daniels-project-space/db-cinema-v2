@@ -6,7 +6,7 @@ import { internal } from "./_generated/api";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { postRentalMessage, accountForToken, rentalThread } from "./lib/rentalChat";
 
-const OWNER_EMAIL = "dbcinemarentals@gmail.com";
+const OWNER_EMAIL = "info@dbcinemarentals.com";
 const LEASE_MS = 2 * 60_000;
 const HUMAN_ALERT_RETRY_DELAYS_MS = [15_000, 60_000] as const;
 
@@ -57,7 +57,7 @@ async function threadMessages(ctx: any, threadId: any, count = 40) {
 }
 
 /** Mirror the accepted verification notice without storing its private sign-in link. */
-export const recordVerificationNotice=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),subject:v.string(),messageId:v.optional(v.string()),transport:v.optional(v.union(v.literal("gmail"),v.literal("resend")))},handler:async(ctx,a)=>{
+export const recordVerificationNotice=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),subject:v.string(),messageId:v.optional(v.string()),transport:v.optional(v.literal("gmail"))},handler:async(ctx,a)=>{
  const delivery=await ctx.db.get(a.deliveryId);
  if(!delivery||delivery.state!=="sent"||!["paid_verification","verification_reminder"].includes(delivery.kind)||!delivery.recipientEmail)return false;
  const providerId=`rental-notice:${delivery._id}`;
@@ -75,7 +75,7 @@ export const recordVerificationNotice=internalMutation({args:{deliveryId:v.id("r
   const id=await ctx.db.insert("email_threads",{email,bookingId:delivery.bookingId,subject,replyKey:makeReplyKey(),...(verifiedAccount?{accountId:verifiedAccount._id,verifiedRenterEmail:email}:{}),status:"open",createdAt:now,updatedAt:now,lastAt:sentAt,lastDirection:"out",lastText:text,unreadOwner:0});
   thread=(await ctx.db.get(id))!;
  }else if(sentAt>thread.lastAt)await ctx.db.patch(thread._id,{updatedAt:now,lastAt:sentAt,lastDirection:"out",lastText:text});
- const from=a.transport==="gmail"?(process.env.GMAIL_USER??OWNER_EMAIL):a.transport==="resend"?(process.env.RESEND_FROM?.match(/<([^>]+)>/)?.[1]??"bookings@dbcinemarentals.com"):"DB Cinema Rentals";
+ const from=OWNER_EMAIL;
  const messageId=delivery.providerRfcMessageId??a.messageId;
  await ctx.db.insert("email_messages",{threadId:thread._id,direction:"out",sender:from,recipient:email,subject,text,at:sentAt,providerId,...(messageId?{messageId}:{}),state:"sent",humanRequested:false});
  if(verifiedAccount&&(!thread.accountId||thread.accountId===verifiedAccount._id)){
@@ -89,6 +89,7 @@ export const ingest = mutation({
   args: {
     secret: v.string(),
     providerId: v.string(),
+    providerThreadId: v.optional(v.string()),
     messageId: v.optional(v.string()),
     inReplyTo: v.optional(v.string()),
     references: v.array(v.string()),
@@ -235,6 +236,7 @@ export const ingest = mutation({
       text: body,
       at: now,
       providerId,
+      providerThreadId: args.providerThreadId?.trim() || undefined,
       messageId: args.messageId?.trim() || undefined,
       inReplyTo: args.inReplyTo?.trim() || undefined,
       references: args.references.slice(-20),
@@ -510,9 +512,10 @@ export const sendAssistantReply = action({
       deliveryKey,
       inReplyTo: inbound.messageId,
       references,
+      providerThreadId: inbound.providerThreadId,
     });
     if (!delivery.sent) {
-      await ctx.runMutation(internal.emailInbox.markSendFailed, { outboundId, inboundId: args.inboundId, error: "business Gmail SMTP rejected the reply" });
+      await ctx.runMutation(internal.emailInbox.markSendFailed, { outboundId, inboundId: args.inboundId, error: "business Gmail rejected the reply" });
       throw new Error("business email reply could not be sent");
     }
     await ctx.runMutation(internal.emailInbox.finishAutomaticReply, {
@@ -542,7 +545,8 @@ export const adminThread = query({
   handler: async (ctx, { token, threadId }) => {
     if (!checkAdminToken(token)) return { authorized: false as const, thread: null, messages: [] };
     const thread = await ctx.db.get(threadId);
-    const replyConfigured = Boolean(gafferReplyAddress("a".repeat(24)) && (process.env.RESEND_API_KEY || (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD)));
+    const connection = await ctx.db.query("gmail_connections").first();
+    const replyConfigured = Boolean(gafferReplyAddress("a".repeat(24)) && connection && process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET && process.env.GMAIL_TOKEN_ENCRYPTION_KEY);
     if (!thread) return { authorized: true as const, thread: null, messages: [], replyConfigured };
     const messages = (await threadMessages(ctx, threadId, 40)).reverse();
     return { authorized: true as const, thread, messages, replyConfigured };
@@ -614,7 +618,7 @@ export const sendOwnerReply = action({
     if (!text) throw new Error("Write a reply first.");
     const data = await ctx.runQuery(internal.emailInbox.replyContext, { threadId: args.threadId });
     if (!data?.thread) throw new Error("email thread not found");
-    const latest = data.recent[0];
+    const latest = data.recent.find((message: any) => message.direction === "in") ?? data.recent[0];
     const inReplyTo = latest?.messageId;
     const references = [...new Set([...(latest?.references ?? []), inReplyTo].filter((value): value is string => typeof value === "string" && value.length > 0))].slice(-20);
     const deliveryKey = `email-owner:${args.threadId}:${Date.now()}`;
@@ -629,9 +633,10 @@ export const sendOwnerReply = action({
       deliveryKey,
       inReplyTo,
       references,
+      providerThreadId: latest?.providerThreadId,
     });
     if (!delivery.sent) {
-      await ctx.runMutation(internal.emailInbox.markSendFailed, { outboundId: claim.outboundId, error: "business Gmail SMTP rejected the reply" });
+      await ctx.runMutation(internal.emailInbox.markSendFailed, { outboundId: claim.outboundId, error: "business Gmail rejected the reply" });
       throw new Error("business email reply could not be sent");
     }
     await ctx.runMutation(internal.emailInbox.finishOwnerReply, { threadId: args.threadId, outboundId: claim.outboundId, text, ...(delivery.messageId?{messageId:delivery.messageId}:{}), inReplyTo, references });

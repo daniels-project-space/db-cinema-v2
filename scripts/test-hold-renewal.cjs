@@ -9,7 +9,7 @@ class StripeFixture {
   cancel:async id=>{events.push(['cancel',id]);if(failRelease&&id.startsWith('old'))throw Error('Isolated old-hold release failure');return {id,status:'canceled'};}
  };
 }
-setMock('stripe',{default:StripeFixture});setMock('./lib/mailer',{sendMail:async mail=>{mails.push(mail);return true;}});process.env.STRIPE_SECRET_KEY='sk_test_fixture';process.env.APP_URL='https://example.invalid';
+setMock('stripe',{default:StripeFixture});setMock('./lib/mailer',{sendMail:async(_ctx,mail)=>{mails.push(mail);return true;}});process.env.STRIPE_SECRET_KEY='sk_test_fixture';process.env.APP_URL='https://example.invalid';
 const renew=load('convex/holdRenewal.ts'),bookings=load('convex/bookings.ts');
 const mutationCtx={db,scheduler:{runAfter:async(delay,ref,args)=>events.push(['scheduled',ref,args])}};
 const ctx={db,runQuery:(ref,args)=>bookings[ref.split('.')[1]].handler({db},args),runMutation:async(ref,args)=>{events.push([ref,args]);return bookings[ref.split('.')[1]].handler(mutationCtx,args);},runAction:async(ref,args)=>renew[ref.split('.')[1]].handler(ctx,args)};

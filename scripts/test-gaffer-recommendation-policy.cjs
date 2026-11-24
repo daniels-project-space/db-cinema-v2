@@ -41,7 +41,7 @@ async function chat(next,message,cart,channel){
  return handleChat({messages:[{role:'user',content:message}],cart,channel});
 }
 (async()=>{
- const window={start:'2026-11-20',end:'2026-11-21'};
+ const window={start:'2030-11-20',end:'2030-11-21'};
  let result=await chat({intent:'build_kit',itemTypes:['lens','camera'],...window},'Build a camera and lens kit for 20–21 November');
  assert.deepEqual(result.cards.map(c=>c.item.listingId),['fx3','wide'],'actual planner reasons progressively about included glass, despite lens-first model output');
  assert(result.cards.every(c=>c.item.needsTimes&&c.item.available===null));
@@ -55,7 +55,7 @@ async function chat(next,message,cart,channel){
 	assert(narration.includes('10:00 pickup and 17:00 return'));
 	assert.equal(checks.length,2);
 	modelSuggestions=['Book the FX3','Add XLR handle unit','Try a compatible lens'];
-	result=await chat({intent:'price',subject:'Sony FX3',itemTypes:['camera'],start:'2026-11-03',end:'2026-11-03',pickupTime:'10:00',returnTime:'18:00'},'I need an FX3 camera body only for 3 November, pickup 10:00 and return 18:00.');
+	result=await chat({intent:'price',subject:'Sony FX3',itemTypes:['camera'],start:'2030-11-03',end:'2030-11-03',pickupTime:'10:00',returnTime:'18:00'},'I need an FX3 camera body only for 3 November 2030, pickup 10:00 and return 18:00.');
 	assert.equal(result.enquiry.complete,true,'the requested FX3 body remains the quoted item');
 	assert.deepEqual(result.suggestions,['Book the FX3'],'camera-only chat must suppress unrelated handles and lens upsells');
 	modelSuggestions=[];

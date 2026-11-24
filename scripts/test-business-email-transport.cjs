@@ -1,12 +1,55 @@
-const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
-let gmailWorks=true;h.setMock('nodemailer',{default:{createTransport:()=>({sendMail:async()=>{if(!gmailWorks)throw Error('fixture failure');return {accepted:['renter@example.invalid']}}})}});
-delete process.env.GMAIL_USER;delete process.env.GMAIL_APP_PASSWORD;process.env.RESEND_API_KEY='fixture';
-const action=h.load('convex/emailMailer.ts').sendBusinessReply;let lookupOk=true,posted;
-global.fetch=async(url,options)=>{if(url==='https://api.resend.com/emails'){posted=JSON.parse(options.body);return new Response(JSON.stringify({id:'provider-id'}),{status:200})}assert.equal(url,'https://api.resend.com/emails/provider-id');return new Response(JSON.stringify(lookupOk?{message_id:'<actual@example.invalid>'}:{}),{status:lookupOk?200:503})};
-(async()=>{const args={deliveryKey:'fixture-key',to:'renter@example.invalid',subject:'Re: rental',html:'Hello',replyTo:['replies@example.invalid','owner@example.invalid'],inReplyTo:'<incoming@example.invalid>',references:['<incoming@example.invalid>']};
- const result=await action.handler({},args);assert.deepEqual(posted.reply_to,args.replyTo);assert.equal(posted.headers['In-Reply-To'],args.inReplyTo);assert.deepEqual(result,{sent:true,messageId:'<actual@example.invalid>'});
- lookupOk=false;const unavailable=await action.handler({},args);assert.deepEqual(unavailable,{sent:true},'An unavailable provider lookup never invents a Message-ID or resends a successful message');
- process.env.GMAIL_USER='dbcinemarentals@gmail.com';process.env.GMAIL_APP_PASSWORD='fixture-password';
- const gmail=await action.handler({},args);assert.equal(gmail.sent,true);assert.match(gmail.messageId,/^<rental-/,'Gmail uses its recorded deterministic Message-ID');
- gmailWorks=false;lookupOk=true;const fallback=await action.handler({},args);assert.deepEqual(fallback,{sent:true,messageId:'<actual@example.invalid>'},'A Gmail failure uses the real Resend Message-ID');
- console.log('PASS dual reply routing and truthful provider Message-ID; synthetic transport only.');})().catch(e=>{console.error(e);process.exitCode=1});
+const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
+const h = require('./lib/rentalTestHarness.cjs');
+
+delete process.env.SUPPORT_EMAIL_FROM;
+
+const action = h.load('convex/emailMailer.ts').sendBusinessReply;
+const args = {
+  deliveryKey: 'fixture-key',
+  to: 'renter@example.invalid',
+  subject: 'Re: rental',
+  html: 'Hello',
+  replyTo: ['replies@example.invalid', 'owner@example.invalid'],
+  inReplyTo: '<incoming@example.invalid>',
+  references: ['<incoming@example.invalid>'],
+};
+
+(async () => {
+  let dispatched;
+  const ctx = {
+    runAction: async (reference, payload) => {
+      dispatched = { reference, payload };
+      return { sent: true, providerId: 'gmail-provider-id' };
+    },
+  };
+
+  const result = await action.handler(ctx, args);
+  assert.ok(dispatched.reference, 'the mailer dispatches through the internal Gmail action');
+  assert.deepEqual(dispatched.payload.mail, {
+    deliveryKey: args.deliveryKey,
+    from: 'Bookings <bookings@dbcinemarentals.com>',
+    to: args.to,
+    subject: args.subject,
+    html: args.html,
+    replyTo: args.replyTo,
+    inReplyTo: args.inReplyTo,
+    references: args.references,
+  });
+
+  const digest = createHash('sha256').update(args.deliveryKey).digest('hex');
+  assert.deepEqual(result, {
+    sent: true,
+    messageId: '<rental-' + digest + '@dbcinemarentals.com>',
+  });
+
+  const unavailable = await action.handler({
+    runAction: async () => ({ sent: false }),
+  }, args);
+  assert.deepEqual(unavailable, { sent: false });
+
+  console.log('[business email] Gmail action dispatches support replies and honors delivery failures');
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

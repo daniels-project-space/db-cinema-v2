@@ -31,7 +31,7 @@ export const processDue = internalAction({
           process.env.APP_URL ?? "https://dbcinemarentals.com",
         ).origin;
         const winner = c.stage === "winner_notice";
-        ok = await sendMail({
+        ok = await sendMail(ctx, {
           to: winner ? c.email : OWNER_EMAIL(),
           subject: winner
             ? `Your set story won £${REVIEW_PRIZE_GBP} · DB Cinema`

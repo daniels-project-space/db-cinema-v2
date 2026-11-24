@@ -357,7 +357,7 @@ const start = londonDay() + 30 * DAY,
   let accepted = false;
   const sentMail = [];
   setMock("./lib/mailer", {
-    sendMail: async (mail) => {
+    sendMail: async (_ctx, mail) => {
       sentMail.push(mail);
       return accepted;
     },

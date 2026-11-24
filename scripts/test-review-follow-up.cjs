@@ -3,7 +3,7 @@ const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cj
 let now=Date.UTC(2030,0,1),refunds=[],hold={status:'canceled',amount_received:0},providerFails=false,mailOk=true;
 Date.now=()=>now;const mails=[];
 class Stripe {constructor(){this.refunds={list:()=>({async *[Symbol.asyncIterator](){if(providerFails)throw Error('offline');for(const r of refunds)yield r}})};this.paymentIntents={retrieve:async()=>hold};}}
-h.setMock('stripe',{default:Stripe});h.setMock('./referralMail',{unsubscribeToken:()=> 'signed-opt-out'});h.setMock('./lib/mailer',{sendMail:async m=>{mails.push(m);return mailOk}});
+h.setMock('stripe',{default:Stripe});h.setMock('./referralMail',{unsubscribeToken:()=> 'signed-opt-out'});h.setMock('./lib/mailer',{sendMail:async(_ctx,m)=>{mails.push(m);return mailOk}});
 const rules=h.load('convex/lib/reviewEligibility.ts'),state=h.load('convex/reviewFollowUpState.ts'),actions=h.load('convex/reviewFollowUp.ts'),invitations=h.load('convex/reviewInvitations.ts'),delivery=h.load('convex/rentalEmailDelivery.ts'),worker=h.load('convex/rentalEmailMail.ts');
 const account=h.put('accounts',{email:'current@example.invalid',marketingEmails:false});
 process.env.STRIPE_SECRET_KEY='fixture';

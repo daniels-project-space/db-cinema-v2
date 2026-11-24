@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { deliveryMessageId, sendMail, supportEmailFrom } from "./lib/mailer";
 
-/** Keep Node-only SMTP and crypto dependencies behind a dedicated Node action. */
+/** Keep Node-only Gmail OAuth and crypto dependencies behind a dedicated Node action. */
 export const sendBusinessReply = internalAction({
   args: {
     deliveryKey: v.string(),
@@ -15,10 +15,10 @@ export const sendBusinessReply = internalAction({
     cc: v.optional(v.array(v.string())),
     inReplyTo: v.optional(v.string()),
     references: v.array(v.string()),
+    providerThreadId: v.optional(v.string()),
   },
-  handler: async (_ctx, args) => {
-    let providerId:string|undefined,transport:"gmail"|"resend"|undefined;
-    const sent = await sendMail({
+  handler: async (ctx, args) => {
+    const sent = await sendMail(ctx, {
       deliveryKey: args.deliveryKey,
       from: supportEmailFrom(),
       to: args.to,
@@ -28,12 +28,9 @@ export const sendBusinessReply = internalAction({
       replyTo: args.replyTo,
       inReplyTo: args.inReplyTo,
       references: args.references,
-    },id=>{providerId=id},provider=>{transport=provider});
-    let messageId:string|undefined=transport==="gmail"?deliveryMessageId(args.deliveryKey):undefined;
-    if(sent&&transport==="resend"&&providerId&&process.env.RESEND_API_KEY)try{
-      const response=await fetch(`https://api.resend.com/emails/${encodeURIComponent(providerId)}`,{headers:{authorization:`Bearer ${process.env.RESEND_API_KEY}`},signal:AbortSignal.timeout(15_000)});
-      if(response.ok){const value=await response.json() as {message_id?:unknown};if(typeof value.message_id==="string"&&value.message_id.length<=512&&!/[\r\n]/.test(value.message_id))messageId=value.message_id;}
-    }catch{/* Sending succeeded; a missing Message-ID falls back to sender and subject matching. */}
+      providerThreadId: args.providerThreadId,
+    });
+    const messageId = sent ? deliveryMessageId(args.deliveryKey) : undefined;
     return { sent, ...(messageId?{messageId}:{}) };
   },
 });

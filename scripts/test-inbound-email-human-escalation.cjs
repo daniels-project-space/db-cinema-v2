@@ -43,7 +43,8 @@ const automaticReply = emailInbox.split("export const sendAssistantReply = actio
 assert.match(automaticReply, /gafferReplyAddress\(thread\.replyKey\)/);
 assert.match(automaticReply, /thread\.email !== OWNER_EMAIL[\s\S]{0,80}cc: \[OWNER_EMAIL\]/, "Gaffer replies CC the business inbox");
 assert.match(emailMailer, /sendMail, supportEmailFrom/);
-assert.match(emailMailer, /sendMail\(\{[\s\S]{0,120}from: supportEmailFrom\(\)/, "Gaffer email uses the shared booking mail transport and support sender");
+assert.match(emailMailer, /sendMail\(ctx,\s*\{[\s\S]{0,150}from: supportEmailFrom\(\)/, "Gaffer email uses the Gmail transport with the configured support sender");
+assert.match(emailMailer, /providerThreadId: args\.providerThreadId/, "Gaffer replies preserve the Gmail conversation thread");
 assert.doesNotMatch(automaticReply, /replyTo:\s*OWNER_EMAIL/);
 assert.match(inboundRoute, /assistant\.humanRequested\s*===\s*true/);
 assert.match(inboundRoute, /api\.emailInbox\.markHumanRequested/);

@@ -31,10 +31,11 @@ async function telegram(text: string) {
   }
 }
 
-/** Thin shim over the shared transport (convex/lib/mailer.ts), which picks
- * Gmail SMTP or Resend and logs its own failures. Signature kept so the
+/** Thin shim over the shared transport (convex/lib/mailer.ts), which sends
+ * through the connected business Gmail account. Signature kept so the
  * thirteen call sites below read exactly as they did. */
 async function email(
+  ctx: any,
   to: string,
   subject: string,
   html: string,
@@ -45,7 +46,7 @@ async function email(
   prepareOnly=false,
 ) {
   const payload={to,subject,html,attachments,replyTo:replyToOverride,deliveryKey};
-  return prepareOnly ? payload : sendMail(payload);
+  return prepareOnly ? payload : sendMail(ctx, payload);
 }
 
 export const bookingOwnerAlert = internalAction({
@@ -80,7 +81,7 @@ export const paidVerificationEmail = internalAction({
     const replyAddress=process.env.INBOUND_REPLY_ADDRESS?.trim();
     const replyTo=replyAddress&&/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(replyAddress)&&process.env.INBOUND_EMAIL_SECRET?[...new Set([replyAddress,OWNER_EMAIL()])]:undefined;
     const subject=`${title} · DBC-${String(bookingId).slice(-8).toUpperCase()}`;
-    return email(claim.email,subject,rentalEmail({title,preview:"Your rental still needs verification and approval.",url,button:reviewPending?"Check verification progress":"Complete verification",body:`<p>We have received your payment. Your rental still needs identity verification and approval before handover.</p>${emailRows(rows)}${reviewPending?"<p>Your verification is being processed or reviewed; open your rental for its latest status.</p>":""}<p>This private link works once and expires in 24 hours. Please do not forward it. Need help? Reply to this email; ask for a person if you would prefer the team to respond.</p>`}),undefined,replyTo,deliveryKey,prepareOnly);
+    return email(ctx, claim.email,subject,rentalEmail({title,preview:"Your rental still needs verification and approval.",url,button:reviewPending?"Check verification progress":"Complete verification",body:`<p>We have received your payment. Your rental still needs identity verification and approval before handover.</p>${emailRows(rows)}${reviewPending?"<p>Your verification is being processed or reviewed; open your rental for its latest status.</p>":""}<p>This private link works once and expires in 24 hours. Please do not forward it. Need help? Reply to this email; ask for a person if you would prefer the team to respond.</p>`}),undefined,replyTo,deliveryKey,prepareOnly);
   },
 });
 
@@ -93,7 +94,7 @@ export const bookingAlert = internalAction({
     const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
     const rows:Array<[string,string]>=b.lineItems.map((li:any)=>[`${li.title} · ${day(li.start)} to ${day(li.end)}`,emailMoney(li.lineTotal)]);
     rows.push(["Payment received",emailMoney(b.total)],...rentalSecurityEmailRows(b));
-    return email(b.guestEmail,"Payment received — complete your rental checks",rentalEmail({title:"Payment received",preview:"Your rental request is awaiting verification and approval.",url,button:"Complete verification",body:`<p>Thanks for renting with DB Cinema. Your rental request is awaiting verification and approval.</p>${emailRows(rows)}${rentalSecurityEmailNote(b)?`<p>${rentalSecurityEmailNote(b)}</p>`:""}<p>Open your rental to complete the required checks and follow their progress. Equipment handover requires completed checks and approval.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
+    return email(ctx, b.guestEmail,"Payment received — complete your rental checks",rentalEmail({title:"Payment received",preview:"Your rental request is awaiting verification and approval.",url,button:"Complete verification",body:`<p>Thanks for renting with DB Cinema. Your rental request is awaiting verification and approval.</p>${emailRows(rows)}${rentalSecurityEmailNote(b)?`<p>${rentalSecurityEmailNote(b)}</p>`:""}<p>Open your rental to complete the required checks and follow their progress. Equipment handover requires completed checks and approval.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
   },
 });
 
@@ -104,7 +105,7 @@ export const waitlistEmail = internalAction({
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const esc = (s:string) => s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]!));
     const url=`${app}/gear/${encodeURIComponent(a.slug)}?start=${day(a.start)}&end=${day(a.end)}`;
-    return sendMail({to:a.email,subject:`${a.title} is available for your dates`,html:`<h2>Your availability alert</h2><p><b>${esc(a.title)}</b> is available for ${day(a.start)} – ${day(a.end)}. This alert does not reserve the item; prices and stock are checked again at checkout.</p><p><a href="${url}">Review and book</a></p><p><a href="${app}/account#plans">Manage alerts</a></p>`});
+    return sendMail(ctx, {to:a.email,subject:`${a.title} is available for your dates`,html:`<h2>Your availability alert</h2><p><b>${esc(a.title)}</b> is available for ${day(a.start)} – ${day(a.end)}. This alert does not reserve the item; prices and stock are checked again at checkout.</p><p><a href="${url}">Review and book</a></p><p><a href="${app}/account#plans">Manage alerts</a></p>`});
   },
 });
 
@@ -140,7 +141,7 @@ export const verificationEmail = internalAction({
     }
     const conversation=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
     const payload={to:b.guestEmail,subject:message.title,html:rentalEmail({title:message.title,preview:message.body,url:status==="verified"?conversation:url,button:message.button,body:`<p>${emailEscape(message.body)}</p>${detail}`,helpText:"Need help? Open your rental conversation to message our team."}),attachments,deliveryKey};
-    return prepareOnly?payload:sendMail(payload);
+    return prepareOnly?payload:sendMail(ctx, payload);
   },
 });
 
@@ -149,7 +150,7 @@ export const verificationReviewAlert = internalAction({
   handler: async (ctx, { bookingId }) => {
     const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
     if (!b) return;
-    await sendMail({ to: OWNER_EMAIL(), subject: "Db Cinema verification needs human review",
+    await sendMail(ctx, { to: OWNER_EMAIL(), subject: "Db Cinema verification needs human review",
       html: `<p>Booking ${bookingId} for ${String(b.guestEmail ?? "unknown").replace(/[&<>]/g, "")} is awaiting a human verification review.</p><p>${emailEscape(b.verificationNote ?? "Didit referred this verification for review.")}</p><p>Open the admin bookings panel to review it; do not hand over equipment until approved.</p>` });
   },
 });
@@ -165,7 +166,7 @@ export const cancellationEmail = internalAction({
     if(refundAmount>0)rows.push([mode==="no_refund"?"Separately refundable security to original payment method":"Refund to original payment method",emailMoney(refundAmount)]);
     if(creditAmount>0)rows.push([mode==="credit"?"Account credit added":"Account credit restored",emailMoney(creditAmount)]);
     const detail=mode==="credit"?`<p>Account credit is available for future rentals for ${CANCELLATION_CREDIT_DAYS} days. It is separate from any cash refund shown above; no cash refund is issued for the amount converted to credit.</p>`:mode==="refund"?(refundAmount>0?"<p>Your refund is returned to the original payment method. Bank processing times vary.</p>":"<p>No cash refund is due under this cancellation.</p>"):mode==="no_refund"?`<p>No rental refund or account credit is due under the accepted terms. Any separately refundable security shown above is returned to the original payment method; bank processing times vary.</p>`:"<p>No payment was taken, so there is no payment to refund.</p>";
-    return email(b.guestEmail,"Your DB Cinema booking is cancelled",rentalEmail({title:"Booking cancelled",preview:"Your cancellation and settlement summary.",url,button:"View cancellation",body:`<p>Your rental request has been cancelled.</p>${emailRows(rows)}${detail}<p>Any uncaptured card authorisation is released separately.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
+    return email(ctx, b.guestEmail,"Your DB Cinema booking is cancelled",rentalEmail({title:"Booking cancelled",preview:"Your cancellation and settlement summary.",url,button:"View cancellation",body:`<p>Your rental request has been cancelled.</p>${emailRows(rows)}${detail}<p>Any uncaptured card authorisation is released separately.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
   },
 });
 
@@ -181,7 +182,7 @@ export const changeEmail = internalAction({
     const escape = (text: string) => text.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const subj = kind === "rescheduled" ? "Your Db Cinema rental has been rescheduled" : "Your Db Cinema rental was updated";
-    await email(
+    await email(ctx,
       recipient.email,
       subj,
       `<h2>Rental updated</h2><p>Your rental has been <b>${escape(kind)}</b>${detail ? ` — ${escape(detail)}` : ""}.</p><p>See it any time in <a href="${app}/account?rental=${encodeURIComponent(bookingId)}#chat">your account</a>.</p>`,
@@ -196,7 +197,7 @@ export const timeChangeEmail = internalAction({
     if(!recipient)return null;
     const app=process.env.APP_URL??"https://dbcinemarentals.com",url=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
     const label=changeKind==="return"?"return":"pickup";
-    return email(recipient.email,`Your DB Cinema ${label} time changed`,rentalEmail({title:`${label==="return"?"Return":"Pickup"} time updated`,preview:`Please review your updated ${label} details.`,url,button:"View rental conversation",body:`<p>${emailEscape(detail)}</p><p>All times are London local time. Your agreed charges remain unchanged.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
+    return email(ctx, recipient.email,`Your DB Cinema ${label} time changed`,rentalEmail({title:`${label==="return"?"Return":"Pickup"} time updated`,preview:`Please review your updated ${label} details.`,url,button:"View rental conversation",body:`<p>${emailEscape(detail)}</p><p>All times are London local time. Your agreed charges remain unchanged.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
   },
 });
 
@@ -211,9 +212,9 @@ export const timeChangeEmail = internalAction({
 export const contactAlert = internalAction({
   args: { name: v.string(), email: v.string(), message: v.string() },
   handler: async (ctx, a) => {
-    const owner = process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com";
+    const owner = process.env.OWNER_EMAIL ?? "info@dbcinemarentals.com";
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
-    await email(
+    await email(ctx,
       owner,
       `✉️ Contact form — ${a.name}`,
       `<h2>New message from the contact form</h2>
@@ -254,7 +255,7 @@ export const contactAutoReply = internalAction({
       return { ok: false, retrying: true };
     }
     await telegram(`🚨 <b>Contact enquiry needs attention</b>\nGaffer could not deliver an answer after ${attempt + 1} attempt(s). Contact ID: ${a.contactId}`);
-    await email(process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com", "URGENT: Gaffer contact reply failed", `<p>Gaffer could not answer a contact enquiry. Review the admin contact inbox.</p><p>Contact ID: ${esc(a.contactId)}</p>`, undefined, undefined, `contact-failed:${a.contactId}`);
+    await email(ctx, process.env.OWNER_EMAIL ?? "info@dbcinemarentals.com", "URGENT: Gaffer contact reply failed", `<p>Gaffer could not answer a contact enquiry. Review the admin contact inbox.</p><p>Contact ID: ${esc(a.contactId)}</p>`, undefined, undefined, `contact-failed:${a.contactId}`);
     return { ok: false, escalated: true };
   },
 });
@@ -287,7 +288,7 @@ export const followUpEmail = internalAction({
     const hello = a.name ? `Hi ${esc(a.name)},` : "Hi,";
     const body = esc(a.summary).replace(/\n/g, "<br/>");
 
-    const sent = await email(
+    const sent = await email(ctx,
       a.to,
       a.subject,
       `<div style="font-family:system-ui,sans-serif;line-height:1.55;color:#111">
@@ -326,7 +327,7 @@ export const emailHumanRequestAlert = internalAction({
     const html = `<p><b>A customer requested a human reply.</b></p><p>From: ${esc(a.email)}<br/>Subject: ${esc(a.subject)}</p><blockquote>${esc(a.body).replace(/\n/g, "<br/>")}</blockquote>`;
     let delivered = false;
     try {
-      delivered = await email("dbcinemarentals@gmail.com", subject, html, undefined, undefined, `human-request:${a.inboundId}`) === true;
+      delivered = await email(ctx, "info@dbcinemarentals.com", subject, html, undefined, undefined, `human-request:${a.inboundId}`) === true;
     } catch (error) {
       console.error("[email/human-alert] delivery attempt failed", String((error as any)?.message ?? error));
     }
@@ -362,10 +363,10 @@ export const ownerLead = internalAction({
     email: v.optional(v.string()),
     message: v.string(),
   },
-  handler: async (_ctx, a) => {
-    const owner = process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com";
+  handler: async (ctx, a) => {
+    const owner = process.env.OWNER_EMAIL ?? "info@dbcinemarentals.com";
     const who = `${a.name}${a.phone ? ` · ${a.phone}` : ""}${a.email ? ` · ${a.email}` : ""}`;
-    await email(
+    await email(ctx,
       owner,
       `📞 Gaffer voice — ${a.kind}: ${a.name}`,
       `<h2>New ${a.kind} from the Gaffer phone line 🎬</h2>
@@ -392,7 +393,7 @@ export const sendReminders = internalAction({
       if (startDay === tomorrow && !b.remindedPickup) {
         const current: any = await ctx.runQuery(internal.bookings.get, {bookingId:b._id});
         if (!current || !["confirmed","active"].includes(current.status) || current.idVerifyStatus !== "verified" || verificationExpired(current) || current.guestEmail?.trim().toLowerCase() !== b.guestEmail?.trim().toLowerCase()) continue;
-        await email(
+        await email(ctx,
           b.guestEmail,
           "Your Db Cinema pickup is tomorrow 🎬",
           `<p>Quick reminder — your rental ${b.fulfilment === "delivery" ? "delivery" : "pickup"} is <b>tomorrow</b>${b.pickupTime ? " at " + b.pickupTime : ""}.</p><p>${b.summary}</p><p>Windows: 09:00–22:00.</p>`,
@@ -402,7 +403,7 @@ export const sendReminders = internalAction({
         sent++;
       }
       if (endDay === today && !b.remindedReturn) {
-        await email(
+        await email(ctx,
           b.guestEmail,
           "Your Db Cinema return is due today",
           `<p>Reminder — your rental return is <b>due today</b>${b.returnTime ? " at " + b.returnTime : ""}. Late returns are charged per extra day.</p><p>${b.summary}</p>`,

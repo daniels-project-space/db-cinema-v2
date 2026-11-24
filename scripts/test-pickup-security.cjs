@@ -69,7 +69,7 @@ class StripeFixture {
 }
 setMock("stripe", { default: StripeFixture });
 setMock("./lib/mailer", {
-  sendMail: async (a) => {
+  sendMail: async (_ctx, a) => {
     events.push(["email", a]);
     return true;
   },

@@ -169,7 +169,7 @@ async function passDidit(fixture) {
  await bookings.confirm.handler(ctx,{bookingId:f.booking._id,paymentIntentId:'pi-fixture'});
  await bookings.confirm.handler(ctx,{bookingId:f.booking._id,paymentIntentId:'pi-fixture'});
  assert.equal(receipt.credit.remaining,0,'confirm does not spend first-month credit twice');assert.equal(account.membershipPerksPendingBookingId,undefined);assert.equal(load('shared/membership.ts').paidDepositExempt(account),true);
- const mail=[];setMock('./lib/mailer',{sendMail:async m=>{mail.push(m);return true}});
+ const mail=[];setMock('./lib/mailer',{sendMail:async(_ctx,m)=>{mail.push(m);return true}});
  await load('convex/invoice.ts').invoiceEmail.handler({runQuery:async(ref,args)=>{assert.equal(ref,'bookings.receiptContext');return bookings.receiptContext.handler(ctx,args)}},{bookingId:f.booking._id});
  assert(mail[0].html.includes('Account credit above includes £20.90 from your first subscription month'),'receipt email reads the real internal credit breakdown');
  await billing.grantPaidInvoice.handler(ctx,{...receipt.args,checkoutId:undefined,invoiceId:'renewal-'+account._id});

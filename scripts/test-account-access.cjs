@@ -70,7 +70,7 @@ const claims=load('convex/accountClaims.ts');
  process.env.INBOUND_EMAIL_SECRET='fixture-inbound-secret';
  assert.equal((await followUp.resolveInbound.handler(ctx,{secret:process.env.INBOUND_EMAIL_SECRET,replyKey:ownMail.replyKey,email:foreignMail.email})).ok,false,'A reply address cannot be claimed by a different sender');
  delete process.env.INBOUND_EMAIL_SECRET;
- let allowMail=false;const outbox=[];setMock('./lib/mailer',{sendMail:async message=>{outbox.push(message);return allowMail;}});
+ let allowMail=false;const outbox=[];setMock('./lib/mailer',{sendMail:async(_ctx,message)=>{outbox.push(message);return allowMail;}});
  const access=load('convex/accountAccess.ts'),scheduledMail=[],actionCtx={...ctx,runMutation:async(ref,args)=>claims[ref.split('.')[1]].handler(ctx,args),runQuery:async(ref,args)=>claims[ref.split('.')[1]].handler(ctx,args),scheduler:{runAfter:async(delay,ref,args)=>scheduledMail.push({delay,ref,args})}};
  await assert.rejects(access.sendForRental.handler(actionCtx,{bookingId:paidCaller._id}),/queued for retry/);
  assert.equal(paidCaller.accountAccessEmailSentAt,undefined);assert.equal(paidCaller.accountAccessEmailLeaseUntil,undefined);assert(paidCaller.accountAccessEmailRetryAt>Date.now());

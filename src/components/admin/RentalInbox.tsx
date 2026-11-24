@@ -124,7 +124,7 @@ function EmailConversationPanel({
         <label htmlFor="email-owner-reply" className="mb-2 block text-xs font-medium text-white/65">Reply by email</label>
         <textarea id="email-owner-reply" value={draft} onChange={(event) => setDraft(event.target.value)} rows={4} maxLength={12000} disabled={!replyConfigured} placeholder={replyConfigured ? "Write an email reply…" : "Email replies are temporarily unavailable"} className="w-full resize-y rounded-2xl border border-white/10 bg-black/20 p-3 text-sm leading-6 text-white outline-none placeholder:text-white/25 focus:border-sky-300/35 disabled:cursor-not-allowed disabled:opacity-45" />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[11px] text-white/40">{replyConfigured ? "Replies send from dbcinemarentals@gmail.com." : "Replies are paused because the business Gmail sender is not configured."}</p>
+          <p className="text-[11px] text-white/40">{replyConfigured ? "Replies send from info@dbcinemarentals.com." : "Replies are paused because the business Gmail sender is not configured."}</p>
           <button type="submit" disabled={!replyConfigured || sending || !draft.trim()} className="rounded-full bg-sky-200 px-4 py-2 text-xs font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">{sending ? "Sending…" : "Send email reply"}</button>
         </div>
         {error && <p role="alert" className="mt-3 text-xs leading-5 text-rose-200">{error}</p>}
@@ -152,6 +152,54 @@ export function RentalInbox({
   const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
   const isEmailStage = stage === "emails";
   const emailInbox = useQuery(api.emailInbox.adminInbox, { token, limit: 100 });
+  const gmailConnection = useQuery(api.gmailConnection.status, { token });
+  const disconnectGmail = useAction(api.gmailConnection.disconnect);
+  const [gmailBusy, setGmailBusy] = useState(false);
+  const [gmailNotice, setGmailNotice] = useState("");
+  const [gmailError, setGmailError] = useState("");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get("gmail");
+    if (!result) return;
+    const messages: Record<string, string> = {
+      connected: "Business Gmail connected. New inbox messages will sync automatically.",
+      "wrong-account": "Connect info@dbcinemarentals.com to continue.",
+      "consent-denied": "Google access was cancelled; Gmail was not connected.",
+      "state-error": "The Google connection expired. Start the connection again.",
+      "setup-error": "Gmail OAuth is not fully configured on the server.",
+      "refresh-token-missing": "Google did not return an offline access grant. Reconnect and accept the requested access.",
+      "token-error": "Google could not complete the authorization. Try connecting again.",
+      "identity-error": "Google could not verify the account identity.",
+      "gmail-profile-error": "Google authorized the account, but Gmail access could not be confirmed.",
+      "connection-error": "The Gmail connection could not be saved. Try again or contact support.",
+    };
+    if (result === "connected") { setGmailError(""); setGmailNotice(messages[result]); }
+    else { setGmailNotice(""); setGmailError(messages[result] ?? "Gmail connection failed."); }
+    params.delete("gmail");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+  }, []);
+  async function connectBusinessGmail() {
+    setGmailBusy(true); setGmailError(""); setGmailNotice("");
+    try {
+      const response = await fetch("/api/admin/gmail/connect", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
+      const result = await response.json() as { authorizationUrl?: string; error?: string };
+      if (!response.ok || !result.authorizationUrl) throw new Error(result.error || "Google connection could not be started.");
+      window.location.assign(result.authorizationUrl);
+    } catch (cause) {
+      setGmailError(cause instanceof Error ? cause.message : "Google connection could not be started.");
+      setGmailBusy(false);
+    }
+  }
+  async function disconnectBusinessGmail() {
+    setGmailBusy(true); setGmailError(""); setGmailNotice("");
+    try {
+      const result = await disconnectGmail({ token });
+      setGmailNotice(result.revoked ? "Business Gmail disconnected." : "Business Gmail was removed from DB Cinema. Google revocation did not confirm; remove DB Cinema in your Google account security settings as well.");
+    } catch (cause) {
+      setGmailError(cause instanceof Error ? cause.message : "Gmail could not be disconnected.");
+    } finally { setGmailBusy(false); }
+  }
   const emailItems = emailInbox?.authorized ? emailInbox.items : [];
   const emailUnread = emailItems.reduce((count, thread) => count + (thread.unreadOwner ?? 0), 0);
   const rentals = usePaginatedQuery(
@@ -383,6 +431,23 @@ export function RentalInbox({
           </button>
         ))}
       </div>
+
+          {isEmailStage && <section aria-label="Business Gmail connection" className="mb-3 rounded-2xl border border-sky-300/15 bg-sky-300/[0.04] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-white/85">Business Gmail</p>
+                <p className="mt-1 text-[11px] text-white/45">{gmailConnection?.connected ? `${gmailConnection.email} · ${gmailConnection.lastSyncError ? "sync needs attention" : "connected"}` : "Connect the mailbox used for site email and Gaffer replies."}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" disabled={gmailBusy || !gmailConnection?.oauthConfigured} onClick={() => void connectBusinessGmail()} className="rounded-full bg-sky-200 px-3 py-2 text-[11px] font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">{gmailBusy ? "Working…" : gmailConnection?.connected ? "Reconnect Gmail" : "Connect Gmail"}</button>
+                {gmailConnection?.connected && <button type="button" disabled={gmailBusy} onClick={() => void disconnectBusinessGmail()} className="rounded-full border border-white/10 px-3 py-2 text-[11px] text-white/55 disabled:opacity-40">Disconnect</button>}
+              </div>
+            </div>
+            {gmailConnection && !gmailConnection.oauthConfigured && <p className="mt-2 text-[11px] text-amber-100/70">Google OAuth client and encryption secrets still need server configuration.</p>}
+            {gmailConnection?.lastSyncError && <p role="alert" className="mt-2 text-[11px] leading-5 text-rose-200">Gmail sync stopped: {gmailConnection.lastSyncError}</p>}
+            {gmailNotice && <p role="status" className="mt-2 text-[11px] leading-5 text-emerald-100/80">{gmailNotice}</p>}
+            {gmailError && <p role="alert" className="mt-2 text-[11px] leading-5 text-rose-200">{gmailError}</p>}
+          </section>}
 
           <input
             aria-label={isEmailStage ? "Search email conversations" : "Search rental conversations"}

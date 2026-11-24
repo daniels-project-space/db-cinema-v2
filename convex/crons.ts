@@ -102,4 +102,7 @@ crons.interval("sweep-chat-attachment-uploads", { minutes: 5 }, internal.chatAtt
 crons.interval("rental-email-recovery", { minutes: 1 }, internal.rentalEmailDelivery.dispatchDue, {});
 crons.interval("rental-email-provider-status", { minutes: 5 }, internal.rentalEmailDelivery.checkProviderDue, {});
 crons.interval("account-restriction-notices", { minutes: 1 }, internal.accountRestrictionNotice.dispatchDue, {});
+// Pull Gmail history from one persistent cursor; Gaffer processing remains on
+// the site API so incoming email uses the same claims, retries and handoff path.
+crons.interval("sync-business-gmail", { minutes: 1 }, internal.gmailSync.sync, {});
 export default crons;

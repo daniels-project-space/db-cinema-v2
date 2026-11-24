@@ -2,17 +2,14 @@
 const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
 let now=Date.UTC(2030,0,1);Date.now=()=>now;process.env.RESEND_API_KEY='fixture';
 const delivery=h.load('convex/rentalEmailDelivery.ts'),worker=h.load('convex/rentalEmailMail.ts');
-const mailer=h.load('convex/lib/mailer.ts');
 const scheduled=[];const ctx={db:h.db,scheduler:{runAfter:async(ms,ref,args)=>scheduled.push({ms,ref,args})},
  runQuery:async(ref,a)=>{assert.equal(ref,'rentalEmailDelivery.providerCheckContext');return delivery.providerCheckContext.handler(ctx,a)},
  runMutation:async(ref,a)=>{assert.equal(ref,'rentalEmailDelivery.recordProviderStatus');return delivery.recordProviderStatus.handler(ctx,a)}};
 const booking=h.put('bookings',{guestEmail:'fixture@example.invalid',status:'pending_verification'});
 const row=h.put('rental_email_deliveries',{bookingId:booking._id,kind:'paid_verification',key:'fixture',sequence:1,state:'sending',generation:1,attempts:1,dueAt:now+60000,createdAt:now,updatedAt:now});
-let provider='sent';global.fetch=async(url,options)=>{assert.match(url,/^https:\/\/api\.resend\.com\/emails\/fixture-id$/);assert.equal(options.headers.authorization,'Bearer fixture');if(provider==='offline')throw Error('offline');return new Response(JSON.stringify({last_event:provider,message_id:'<rental@example.invalid>'}),{status:200,headers:{'content-type':'application/json'}})};
+let provider='accepted';global.fetch=async(url,options)=>{assert.match(url,/^https:\/\/api\.resend\.com\/emails\/fixture-id$/);assert.equal(options.headers.authorization,'Bearer fixture');if(provider==='offline')throw Error('offline');return new Response(JSON.stringify({last_event:provider,message_id:'<rental@example.invalid>'}),{status:200,headers:{'content-type':'application/json'}})};
 (async()=>{
- delete process.env.GMAIL_USER;delete process.env.GMAIL_APP_PASSWORD;
- const checkFetch=global.fetch;let receipt;global.fetch=async(url,options)=>{assert.equal(url,'https://api.resend.com/emails');assert.equal(options.headers['Idempotency-Key'],'fixture-key');return new Response(JSON.stringify({id:'fixture-id'}),{status:200})};
- assert.equal(await mailer.sendMail({to:'fixture@example.invalid',subject:'Test',html:'Test',deliveryKey:'fixture-key'},id=>receipt=id),true);assert.equal(receipt,'fixture-id');global.fetch=checkFetch;
+ // Keep this legacy receipt record representative of a Resend delivery made before Gmail OAuth.
  assert.equal(await delivery.finish.handler(ctx,{deliveryId:row._id,generation:1,result:'sent',providerMessageId:'fixture-id'}),true);
  const mirrored=h.put('email_messages',{providerId:`rental-notice:${row._id}`});
  assert.equal(row.providerDeliveryStatus,'accepted');assert.equal(row.providerCheckDueAt,now+120000);

@@ -6,7 +6,7 @@ const owner=h.put('accounts',{email:'owner@example.invalid'}),foreign=h.put('acc
 h.put('sessions',{token:'owner',accountId:owner._id,expiresAt:now+10*86400000});
 const listing=h.put('listings',{title:'Marketing cinema kit',active:true,marketingOnly:true,displayOnly:true,components:[],pricing:{daily:50}});
 const lines=[{listingId:listing._id,qty:1,start:Date.parse('2026-11-01T00:00Z'),end:Date.parse('2026-11-02T00:00Z'),pickupTime:'18:00',returnTime:'09:00'}],ctx={db:h.db};
-let deliveries=0;const delivered=[];h.setMock('./lib/mailer',{sendMail:async m=>{deliveries++;delivered.push(m);return true}});const mail=h.load('convex/checkoutRecoveryMail.ts');
+let deliveries=0;const delivered=[];h.setMock('./lib/mailer',{sendMail:async(_ctx,m)=>{deliveries++;delivered.push(m);return true}});const mail=h.load('convex/checkoutRecoveryMail.ts');
 const worker={runQuery:(ref,args)=>recovery[ref.split('.').at(-1)].handler(ctx,args),runMutation:(ref,args)=>recovery[ref.split('.').at(-1)].handler(ctx,args)};
 (async()=>{
  process.env.CHECKOUT_RECOVERY_ENABLED='true';process.env.RENTAL_CHECKOUT_ENABLED='true';

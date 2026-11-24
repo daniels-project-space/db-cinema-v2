@@ -73,7 +73,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
  const statement={number:'RETURN-FIXTURE',issuedAt:Date.now(),actualReturnedAt:Date.now(),supplierName:'DB Cinema fixture',customerEmail:account.email,
   lineItems:[{title:'Camera kit',start,end,qty:1,lineTotal:100}],subtotal:100,discount:0,deliveryFee:0,creditApplied:0,checkoutPaid:140.5,securityPaid:40.5,securityRefunded:40.5,damageTotal:0,damageFromHold:0,lateAssessed:0,lateWaived:0,lateBreakdown:[],
   inspection:b.returnDecision.inspection,damageNote:'Photograph <evidence> retained; no charge while reviewed'};
- let mail;setMock('./lib/mailer',{sendMail:async value=>{mail=value;return true}});
+ let mail;setMock('./lib/mailer',{sendMail:async(_ctx,value)=>{mail=value;return true}});
  const worker=load('convex/invoice.ts'),originalFetch=global.fetch;
  process.env.INVOICE_SECRET='isolated-invoice-test';global.fetch=async()=>new Response('%PDF-isolated-worker-fixture',{headers:{'content-type':'application/pdf'}});
  try{await worker.returnSettlementEmail.handler({runMutation:async()=>true,runQuery:async()=>({statement})},{bookingId:b._id})}finally{global.fetch=originalFetch}
