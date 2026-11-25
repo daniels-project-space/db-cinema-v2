@@ -682,7 +682,12 @@ async function bestForType(
   const cam = ctx.camMounts;
   const cands = (r || [])
     .filter(x => rentableCandidate(x) && !alreadySupplied(x, ctx.cartEvidence ?? []))
-    .filter(x => !options.requireInterchangeableLens || !itemTypeMatchesListing("camera", x) || parseMounts(x.specs?.mount).some(m => m !== "any" && m !== "fixed"))
+    .filter(x => {
+      if (!options.requireInterchangeableLens || !itemTypeMatchesListing("camera", x)) return true;
+      const title = String(x.title ?? "");
+      const bundledGear = /\b(?:lenses?|gimbals?|stabilizers?|rigs?|monitors?|microphones?|mics?|lights?)\b|\b\d{2,3}\s*[-–]\s*\d{2,3}\s*mm\b/i.test(title);
+      return !isCameraSet(title) && !bundledGear && parseMounts(x.specs?.mount).some(m => m !== "any" && m !== "fixed");
+    })
     .filter(x => !["battery", "nd-filter", "gimbal"].includes(x.itemType ?? "") || automaticRecommendation(x, ctx.cartEvidence ?? [], ctx.compatibilityKits))
     .filter(x => x.itemType !== "lens" || !ctx.cartEvidence?.some(i => i.itemType === "camera-body") || automaticLens(x, ctx.cartEvidence))
     .filter((x) => !seen.has(String(x._id)) && !ctx.cartIds.includes(String(x._id)) && itemTypeMatchesListing(itemType, x))
@@ -2007,10 +2012,10 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
     intent.subject = "";
     intent.requests = [];
     const kitCategories = [
-      { type: "camera", matches: /\bcameras?\b/i, excluded: /\b(?:no|without|don't need|do not need)\s+(?:(?:any|a|the)\s+)?cameras?\b/i },
-      { type: "lens", matches: /\blens(?:es)?\b/i, excluded: /\b(?:no|without|don't need|do not need)\s+(?:(?:any|a|the)\s+)?lens(?:es)?\b/i },
-      { type: "light", matches: /\b(?:lighting|lights?|reflectors?)\b/i, excluded: /\b(?:no|without|don't need|do not need)\s+(?:(?:any|a|the)\s+)?(?:lighting|lights?|reflectors?)\b/i },
-      { type: "mic", matches: /\b(?:audio|sound|microphones?|mics?)\b/i, excluded: /\b(?:no|without|don't need|do not need)\s+(?:(?:any|a|the)\s+)?(?:audio|sound|microphones?|mics?)\b/i },
+      { type: "camera", matches: /\bcameras?\b/i, excluded: /\b(?:no|without|don't need|do not need|don't add|do not add|exclude)\s+(?:(?:any|a|the)\s+)?cameras?\b/i },
+      { type: "lens", matches: /\blens(?:es)?\b/i, excluded: /\b(?:no|without|don't need|do not need|don't add|do not add|exclude)\s+(?:(?:any|a|the)\s+)?lens(?:es)?\b/i },
+      { type: "light", matches: /\b(?:lighting|lights?|reflectors?)\b/i, excluded: /\b(?:no|without|don't need|do not need|don't add|do not add|exclude)\s+(?:(?:any|a|the)\s+)?(?:lighting|lights?|reflectors?)\b/i },
+      { type: "mic", matches: /\b(?:audio|sound|microphones?|mics?)\b/i, excluded: /\b(?:no|without|don't need|do not need|don't add|do not add|exclude)\s+(?:(?:any|a|the)\s+)?(?:audio|sound|microphones?|mics?)\b/i },
     ];
     const requestedTypes = kitCategories.filter(category => category.matches.test(recentUserContext) && !category.excluded.test(recentUserContext)).map(category => category.type);
     const oneCategoryOnly = /\b(?:only|just)\s+(?:(?:a|the|my)\s+)?(?:camera|lens|lighting|light|audio|sound|microphone|mic)\b|\b(?:camera|lens|lighting|light|audio|sound|microphone|mic)\s+only\b/i.test(recentUserContext);
