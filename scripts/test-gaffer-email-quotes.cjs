@@ -50,7 +50,8 @@ const lens = listing("Sony FE 24-70mm GM Lens", unit("Sony E lens pool", 1), 18,
 lens.specs = { mount: "Sony E", focalLength: "24-70mm", filterThreadMm: 82, coverage: "ff" };
 const filter = listing("82mm Variable ND Filter", unit("82mm filter pool", 1), 12, 9, "nd-filter");
 filter.specs = { filterThreadMm: 82 };
-const listings = [a, duplicate, b, c, cameraListing, lens, filter];
+const reflector = listing("5-in-1 Light Reflector", unit("Reflector pool", 1), 8, 6, "light");
+const listings = [a, duplicate, b, c, cameraListing, lens, filter, reflector];
 const remusLens = listing("Blazar Remus 45mm T2 1.5× PL Anamorphic Lens", unit("Remus 45mm pool", 1), 37, 32, "lens");
 remusLens.specs = { mount: "PL", lensClass: "cine" };
 const twoRodeSetOffer = listing("4x RØDE Wireless PRO Transmitters with Two Receivers", rode, 42, 36, "recorder");
@@ -229,7 +230,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
     { role: "assistant", content: "I couldn't find a wedding kit available on 29 November. Are your dates flexible?" },
     { role: "user", content: "Yes, I can do 3th December." },
     { role: "assistant", content: "What dates and pickup and return times would suit for one kit?" },
-    { role: "user", content: "Just put together a kit for a date that works and send me a link and quote. Do you do delivery to WC1X 9NB?" },
+    { role: "user", content: "Just put together a camera, lens and audio kit for a date that works and send me a link and quote. Do you do delivery to WC1X 9NB?" },
   ];
   const followupWindow = rentalEnquiryWindow(followupMessages, "2026-11-01");
   assert.equal(followupWindow.start, "2026-12-03", "the latest customer-confirmed date survives a vague follow-up");
@@ -249,10 +250,12 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.doesNotMatch(followup.reply, /25 November|couldn't find .*available/i,
     "Gaffer must not invent a current-day date or repeat a stale availability answer");
   assert.match(facts, /Yes, I can do 3th December/);
-  assert.match(facts, /Just put together a kit for a date that works/);
+  assert.match(facts, /Just put together a camera, lens and audio kit/);
   assert(followup.cards.length >= 2, "a generic wedding-shoot kit should return catalogue recommendations");
   assert(followup.cards.some(card => card.item.itemType === "camera-body"), "the kit should include a camera recommendation");
-  assert(followup.cards.some(card => card.item.itemType === "lens"), `the kit should include a lens recommendation: ${JSON.stringify(followup.cards.map(card => ({ title: card.item.title, itemType: card.item.itemType, reason: card.reason })))}`);
+  assert(followup.cards.some(card => card.item.itemType === "lens"), "the requested kit should include a lens recommendation");
+  assert(followup.cards.some(card => card.item.itemType === "wireless-mic"), "audio in the requested kit should resolve to a microphone option");
+  assert(!followup.cards.some(card => card.item.itemType === "light"), "an explicitly listed camera/lens/audio kit should not add unrequested lighting");
   const followupEmail = formatGafferEmailReply(
     followup.reply,
     followup.cards,
@@ -272,6 +275,25 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
     "the kit email should ask for the missing times before confirming availability");
   assert.doesNotMatch(followupEmail, /WC1X 9NB|your requested gear|couldn't find .*available/i,
     "a delivery postcode must not turn a wedding kit into an unavailable or unnamed product");
+
+  intent = {
+    intent: "availability", subject: "wedding kit", itemTypes: ["camera-body"], cameraModel: "", pricePref: "any",
+    requests: [{ subject: "WC1X 9NB", itemType: "camera-body", quantity: 1 }],
+  };
+  const fixedLensCamera = listing("Sony FX3 Body Fixed-Lens", unit("Fixed-lens camera pool", 1), 60, 50, "camera-body");
+  fixedLensCamera.specs = { mount: "fixed", coverage: "ff" };
+  listings.unshift(fixedLensCamera);
+  const genericKit = await handleChat({
+    messages: [{ role: "user", content: "Could you recommend a wedding shoot kit for 3 December 2026? Do you deliver to WC1X 9NB?" }],
+    channel: "email",
+  });
+  listings.shift();
+  assert.equal(genericKit.enquiry, undefined, "a generic wedding kit and postcode must not become a literal product quote");
+  assert.equal(genericKit.cards.find(card => card.item.itemType === "camera-body")?.item.listingId, cameraListing._id,
+    "a default shoot kit must skip a camera body with a fixed lens when it will also recommend lenses");
+  assert(genericKit.cards.some(card => card.item.itemType === "lens"), "a default shoot kit should choose a camera that supports its lens slot");
+  assert(genericKit.cards.some(card => card.item.itemType === "light"), "a generic kit may include lighting when the customer did not narrow its components");
+  assert(genericKit.cards.some(card => card.item.itemType === "wireless-mic"));
 
   let result = await run();
   assert.equal(result.sharedRefreshes, 1, "Gaffer refreshes the Rental Manager stock mirror once before quote stock reads");

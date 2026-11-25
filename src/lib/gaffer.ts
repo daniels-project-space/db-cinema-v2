@@ -671,11 +671,18 @@ async function findNamedMicOptions(
 }
 
 /** Best in-stock pick for a single slot (recommend / kit-fill), favourites-boosted. */
-async function bestForType(c: ConvexHttpClient, itemType: string, ctx: Ctx, seen: Set<string>): Promise<any | null> {
+async function bestForType(
+  c: ConvexHttpClient,
+  itemType: string,
+  ctx: Ctx,
+  seen: Set<string>,
+  options: { requireInterchangeableLens?: boolean } = {},
+): Promise<any | null> {
   const r: any[] = await candidatesForType(c,itemType,ctx.typeListingLoader ??= createTypeListingLoader(c));
   const cam = ctx.camMounts;
   const cands = (r || [])
     .filter(x => rentableCandidate(x) && !alreadySupplied(x, ctx.cartEvidence ?? []))
+    .filter(x => !options.requireInterchangeableLens || !itemTypeMatchesListing("camera", x) || parseMounts(x.specs?.mount).some(m => m !== "any" && m !== "fixed"))
     .filter(x => !["battery", "nd-filter", "gimbal"].includes(x.itemType ?? "") || automaticRecommendation(x, ctx.cartEvidence ?? [], ctx.compatibilityKits))
     .filter(x => x.itemType !== "lens" || !ctx.cartEvidence?.some(i => i.itemType === "camera-body") || automaticLens(x, ctx.cartEvidence))
     .filter((x) => !seen.has(String(x._id)) && !ctx.cartIds.includes(String(x._id)) && itemTypeMatchesListing(itemType, x))
@@ -1129,11 +1136,14 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx, requestTe
     case "build_kit": {
       const types = [...(intent.itemTypes?.length ? intent.itemTypes : ["camera", "lens", "light", "mic"])];
       types.sort((a, b) => Number(!["camera", "camera-body"].includes(a)) - Number(!["camera", "camera-body"].includes(b)));
+      const requiresInterchangeableLens = types.some(type => ["lens", "lenses"].includes(type));
       const seen = new Set<string>(ctx.cartIds);
       const planning: Ctx = { ...ctx, cartEvidence: [...(ctx.cartEvidence ?? [])], cartIds: [...ctx.cartIds],cartStock:[...(ctx.cartStock??[])] };
       for (const t of types) {
         if (cards.length >= 6) break;
-        const best = await bestForType(c, t, planning, seen);
+        const best = await bestForType(c, t, planning, seen, {
+          requireInterchangeableLens: requiresInterchangeableLens && ["camera", "camera-body"].includes(t),
+        });
         if (!best) continue;
         seen.add(String(best._id));
         await pushCard(best, `Kit ${t}`);
@@ -1996,7 +2006,17 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
     intent.intent = "build_kit";
     intent.subject = "";
     intent.requests = [];
-    intent.itemTypes = ["camera", "lens", "light", "mic"];
+    const kitCategories = [
+      { type: "camera", matches: /\bcameras?\b/i, excluded: /\b(?:no|without|don't need|do not need)\s+(?:(?:any|a|the)\s+)?cameras?\b/i },
+      { type: "lens", matches: /\blens(?:es)?\b/i, excluded: /\b(?:no|without|don't need|do not need)\s+(?:(?:any|a|the)\s+)?lens(?:es)?\b/i },
+      { type: "light", matches: /\b(?:lighting|lights?|reflectors?)\b/i, excluded: /\b(?:no|without|don't need|do not need)\s+(?:(?:any|a|the)\s+)?(?:lighting|lights?|reflectors?)\b/i },
+      { type: "mic", matches: /\b(?:audio|sound|microphones?|mics?)\b/i, excluded: /\b(?:no|without|don't need|do not need)\s+(?:(?:any|a|the)\s+)?(?:audio|sound|microphones?|mics?)\b/i },
+    ];
+    const requestedTypes = kitCategories.filter(category => category.matches.test(recentUserContext) && !category.excluded.test(recentUserContext)).map(category => category.type);
+    const oneCategoryOnly = /\b(?:only|just)\s+(?:(?:a|the|my)\s+)?(?:camera|lens|lighting|light|audio|sound|microphone|mic)\b|\b(?:camera|lens|lighting|light|audio|sound|microphone|mic)\s+only\b/i.test(recentUserContext);
+    intent.itemTypes = requestedTypes.length >= 2 || (requestedTypes.length === 1 && oneCategoryOnly)
+      ? requestedTypes
+      : ["camera", "lens", "light", "mic"].filter(type => !kitCategories.find(category => category.type === type)?.excluded.test(recentUserContext));
   }
   const windowMessages = body?.channel === "email" && Array.isArray(body?.messages)
     ? body.messages.slice(-12)
