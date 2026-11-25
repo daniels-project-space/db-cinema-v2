@@ -230,7 +230,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
     { role: "assistant", content: "I couldn't find a wedding kit available on 29 November. Are your dates flexible?" },
     { role: "user", content: "Yes, I can do 3th December." },
     { role: "assistant", content: "What dates and pickup and return times would suit for one kit?" },
-    { role: "user", content: "Just put together a camera, one compatible lens and audio kit only for a date that works and send me a link and quote. Do not add lighting. Do you do delivery to WC1X 9NB?" },
+    { role: "user", content: "For a wedding shoot on 3 December 2026, please suggest a starter camera, one compatible lens, and an audio option only. Include clickable product links and a provisional gear-only estimate. Do not add lighting or a gimbal. Ask only for the missing pickup and return times. Can you deliver to WC1X 9NB?" },
   ];
   const followupWindow = rentalEnquiryWindow(followupMessages, "2026-11-01");
   assert.equal(followupWindow.start, "2026-12-03", "the latest customer-confirmed date survives a vague follow-up");
@@ -254,7 +254,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.doesNotMatch(followup.reply, /25 November|couldn't find .*available/i,
     "Gaffer must not invent a current-day date or repeat a stale availability answer");
   assert.match(facts, /Yes, I can do 3th December/);
-  assert.match(facts, /Just put together a camera, one compatible lens and audio kit/);
+  assert.match(facts, /please suggest a starter camera, one compatible lens, and an audio option only/i);
   assert(followup.cards.length >= 2, "a generic wedding-shoot kit should return catalogue recommendations");
   assert(followup.cards.some(card => card.item.itemType === "camera-body"), "the kit should include a camera recommendation");
   assert(!followup.cards.some(card => card.item.listingId === bundledCamera._id),
