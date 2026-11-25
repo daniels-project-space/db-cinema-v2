@@ -961,6 +961,7 @@ async function understand(history: any[], today: string): Promise<z.infer<typeof
       `Today is ${today} (Europe/London). RESOLVE relative dates to concrete YYYY-MM-DD and NEVER output a past date: ` +
       `"today"=today; "tomorrow"=+1; "this weekend"=the coming Saturday→Sunday; "next week"=the coming Mon→Fri; "for N days from <date>" → start..start+N-1. If only a single day is given, set start=end. ` +
       `Focus on the customer's LATEST message, using earlier turns only for context (e.g. a camera named earlier). ` +
+      `When the customer asks to assemble or recommend a wedding, shoot, event, or production kit, treat it as a use-case kit request, not a literal product named "wedding kit"; use build_kit unless they name a specific product or list exact components. ` +
       `If a later customer message corrects or changes a date, time, item, quantity, or preference, the newest customer statement wins. Treat Gaffer's earlier dates and recommendations as proposals, not customer facts; carry them forward only when the customer clearly accepts them. ` +
       `When the customer answers a prior question, preserve that answer and ask only for details that are still missing. Do not replace a customer-confirmed date with today or a date suggested by Gaffer. ` +
       `Treat UK postcodes and address/location text as delivery details, never as requested gear or equipment models. ` +
@@ -1984,6 +1985,18 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
       ...request,
       allowAlternatives: request.allowAlternatives === false ? false : alternativesExplicitlyAllowed,
     }));
+  }
+  // A wedding/shoot kit is a request to assemble a useful setup, not a single
+  // catalogue SKU called "wedding kit". The classifier can turn that phrase into
+  // one unavailable request (or mistake a nearby postcode for one).
+  const recentKitRequest = /\b(?:kit|setup|bundle|package)\b/i.test(recentUserContext) &&
+    /\b(?:recommend|suggest|put\s+together|build|assemble|create|make|quote|price|estimate)\b/i.test(recentUserContext) &&
+    /\b(?:wedding|shoot|filming|film|production|event|commercial)\b/i.test(recentUserContext);
+  if (recentKitRequest && namedEquipmentModels(recentUserContext).length === 0) {
+    intent.intent = "build_kit";
+    intent.subject = "";
+    intent.requests = [];
+    intent.itemTypes = ["camera", "lens", "light", "mic"];
   }
   const windowMessages = body?.channel === "email" && Array.isArray(body?.messages)
     ? body.messages.slice(-12)
