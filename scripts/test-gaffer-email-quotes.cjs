@@ -239,6 +239,8 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
     cameraModel: "", pricePref: "any", start: undefined, end: undefined,
     requests: [{ subject: "WC1X 9NB", itemType: "camera-body", quantity: 1 }],
   };
+  const cameraWithoutLens = listing("Blackmagic Pocket Cinema Camera 4K with Speedbooster", unit("MFT camera pool", 1), 110, 98, "camera-body");
+  cameraWithoutLens.specs = { mount: "MFT", coverage: "s35" };
   const bundledCamera = listing("Sony a7 III, 24-70mm GM Lens and DJI RS2 Gimbal", unit("Camera bundle pool", 1), 85, 75, "camera-body");
   bundledCamera.specs = { mount: "Sony E", coverage: "ff" };
   const cameraAccessoryPackage = listing("BMPCC 6K Pro · Canon Zoom, Tripod & Nucleus Nano II", unit("Cinema camera accessory package", 1), 93, 84, "camera-body");
@@ -247,13 +249,13 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   multiCamera.specs = { mount: "Sony E", coverage: "ff" };
   const lensTrio = listing("Sony Lens Trio: 90mm Macro, 24-70mm GM and 16-35mm Zeiss", unit("Lens trio pool", 1), 90, 80, "lens");
   lensTrio.specs = { mount: "Sony E", coverage: "ff", tier: "premium", lensClass: "af" };
-  listings.unshift(bundledCamera, cameraAccessoryPackage, multiCamera, lensTrio);
+  listings.unshift(cameraWithoutLens, bundledCamera, cameraAccessoryPackage, multiCamera, lensTrio);
   const followup = await handleChat({
     messages: followupMessages,
     channel: "email",
     emailSubject: "Re: DB Cinema Gaffer Gmail reply routing test — wedding kit",
   });
-  for (const fixture of [bundledCamera, cameraAccessoryPackage, multiCamera, lensTrio]) listings.splice(listings.indexOf(fixture), 1);
+  for (const fixture of [cameraWithoutLens, bundledCamera, cameraAccessoryPackage, multiCamera, lensTrio]) listings.splice(listings.indexOf(fixture), 1);
   assert.match(followup.reply, /What pickup and return times should I check\?/,
     "email follow-ups with a known date but missing times ask only for the missing times");
   assert.equal(followup.enquiry, undefined, "a delivery postcode is stripped rather than quoted as an equipment request");
@@ -264,6 +266,8 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert(followup.cards.length >= 2, "a generic wedding-shoot kit should return catalogue recommendations");
   assert.equal(followup.cards.find(card => card.item.itemType === "camera-body")?.item.listingId, cameraListing._id,
     "a single-camera request should choose a standalone body, not a camera package");
+  assert(!followup.cards.some(card => card.item.listingId === cameraWithoutLens._id),
+    "a camera request with a required lens must choose a body that has a compatible standalone lens in the catalogue");
   assert(!followup.cards.some(card => card.item.listingId === bundledCamera._id),
     "a request for one compatible lens must not select a camera package that also contains lens and rig accessories");
   assert(!followup.cards.some(card => card.item.listingId === cameraAccessoryPackage._id),

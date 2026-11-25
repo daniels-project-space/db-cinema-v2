@@ -671,6 +671,13 @@ async function findNamedMicOptions(
 }
 
 /** Best in-stock pick for a single slot (recommend / kit-fill), favourites-boosted. */
+function isMultiLensPackageListing(listing: any): boolean {
+  const title = String(listing?.title ?? "");
+  const focalRanges = title.match(/\b\d{2,3}\s*[-–]\s*\d{2,3}\s*mm\b/gi) ?? [];
+  return /\b(?:trio|collection|set|kit|bundle|package|multi[- ]lens)\b/i.test(title) ||
+    focalRanges.length >= 2 || /\b(?:2|two|3|three|4|four)\s*(?:x|×)?\s+lenses?\b/i.test(title);
+}
+
 async function bestForType(
   c: ConvexHttpClient,
   itemType: string,
@@ -678,7 +685,20 @@ async function bestForType(
   seen: Set<string>,
   options: { requireInterchangeableLens?: boolean; standaloneCameraOnly?: boolean; singleLensOnly?: boolean } = {},
 ): Promise<any | null> {
-  const r: any[] = await candidatesForType(c,itemType,ctx.typeListingLoader ??= createTypeListingLoader(c));
+  const listingLoader = ctx.typeListingLoader ??= createTypeListingLoader(c);
+  const r: any[] = await candidatesForType(c,itemType,listingLoader);
+  const lensCandidates = options.requireInterchangeableLens
+    ? await candidatesForType(c, "lens", listingLoader)
+    : [];
+  const hasCompatibleLens = (camera: any) => {
+    const evidence = ctx.cartEvidence ?? [];
+    const compatible = (lens: any, selected: any[]) => itemTypeMatchesListing("lens", lens) &&
+      rentableCandidate(lens) && (!options.standaloneCameraOnly || !isMultiLensPackageListing(lens)) &&
+      automaticLens(lens, selected);
+    const alreadyInCart = evidence.some(lens => lens.itemType === "lens" &&
+      compatible(lens, [...evidence.filter(item => item !== lens), camera]));
+    return alreadyInCart || lensCandidates.some(lens => compatible(lens, [...evidence, camera]));
+  };
   const cam = ctx.camMounts;
   const cands = (r || [])
     .filter(x => rentableCandidate(x) && !alreadySupplied(x, ctx.cartEvidence ?? []))
@@ -688,15 +708,12 @@ async function bestForType(
       const bundledGear = /\b(?:lenses?|gimbals?|stabilizers?|tripods?|monopods?|sliders?|follow[- ]?focus|nucleus(?:\s+nano)?|rigs?|monitors?|microphones?|mics?|lights?)\b|\b\d{2,3}\s*[-–]\s*\d{2,3}\s*mm\b/i.test(title);
       const multipleCameraBodies = /^\s*(?:two|three|[2-9]\s*[x×]?)\s+/i.test(title) && /\b(?:camera|bodies)\b/i.test(title);
       if (options.standaloneCameraOnly && (isCameraSet(title) || bundledGear || multipleCameraBodies)) return false;
-      return parseMounts(x.specs?.mount).some(m => m !== "any" && m !== "fixed");
+      return parseMounts(x.specs?.mount).some(m => m !== "any" && m !== "fixed") &&
+        (!options.requireInterchangeableLens || hasCompatibleLens(x));
     })
     .filter(x => {
       if (!options.singleLensOnly || !itemTypeMatchesListing("lens", x)) return true;
-      const title = String(x.title ?? "");
-      const focalRanges = title.match(/\b\d{2,3}\s*[-–]\s*\d{2,3}\s*mm\b/gi) ?? [];
-      const multiLensPackage = /\b(?:trio|collection|set|kit|bundle|package|multi[- ]lens)\b/i.test(title) ||
-        focalRanges.length >= 2 || /\b(?:2|two|3|three|4|four)\s*(?:x|×)?\s+lenses?\b/i.test(title);
-      return !multiLensPackage;
+      return !isMultiLensPackageListing(x);
     })
     .filter(x => !["battery", "nd-filter", "gimbal"].includes(x.itemType ?? "") || automaticRecommendation(x, ctx.cartEvidence ?? [], ctx.compatibilityKits))
     .filter(x => x.itemType !== "lens" || !ctx.cartEvidence?.some(i => i.itemType === "camera-body") || automaticLens(x, ctx.cartEvidence))
