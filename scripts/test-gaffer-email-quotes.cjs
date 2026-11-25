@@ -251,12 +251,19 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   multiCamera.specs = { mount: "Sony E", coverage: "ff" };
   const lensTrio = listing("Sony Lens Trio: 90mm Macro, 24-70mm GM and 16-35mm Zeiss", unit("Lens trio pool", 1), 90, 80, "lens");
   lensTrio.specs = { mount: "Sony E", coverage: "ff", tier: "premium", lensClass: "af" };
+  const originalCameraTitle = cameraListing.title;
+  cameraListing.title = "Sony FX3 Camera Body Kit";
   listings.unshift(cameraWithoutLens, multiCameraZoomPackage, bundledCamera, cameraAccessoryPackage, multiCamera, lensTrio);
-  const followup = await handleChat({
-    messages: followupMessages,
-    channel: "email",
-    emailSubject: "Re: DB Cinema Gaffer Gmail reply routing test — wedding kit",
-  });
+  let followup;
+  try {
+    followup = await handleChat({
+      messages: followupMessages,
+      channel: "email",
+      emailSubject: "Re: DB Cinema Gaffer Gmail reply routing test — wedding kit",
+    });
+  } finally {
+    cameraListing.title = originalCameraTitle;
+  }
   for (const fixture of [cameraWithoutLens, multiCameraZoomPackage, bundledCamera, cameraAccessoryPackage, multiCamera, lensTrio]) listings.splice(listings.indexOf(fixture), 1);
   assert.match(followup.reply, /What pickup and return times should I check\?/,
     "email follow-ups with a known date but missing times ask only for the missing times");

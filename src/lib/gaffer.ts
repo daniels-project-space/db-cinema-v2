@@ -708,7 +708,11 @@ async function bestForType(
       const title = String(x.title ?? "");
       const bundledGear = /\b(?:lenses?|zooms?|gimbals?|stabilizers?|tripods?|monopods?|sliders?|follow[- ]?focus|nucleus(?:\s+nano)?|rigs?|monitors?|microphones?|mics?|lights?)\b|\b\d{2,3}\s*[-–]\s*\d{2,3}\s*mm\b/i.test(title);
       const multipleCameraBodies = /^\s*(?:two|three|[2-9]\s*[x×]?)\s+/i.test(title) && /\b(?:camera|bodies)\b/i.test(title);
-      if (options.standaloneCameraOnly && (isCameraSet(title) || bundledGear || multipleCameraBodies)) return false;
+      // Some catalogue owners call a body-only listing a "Camera Body Kit".
+      // Treat that exact label as a standalone body; the accessory checks and
+      // multi-body guard below still reject camera bundles and multi-camera sets.
+      const bodyOnlyKitLabel = /\b(?:camera|digital)\s+body\s+kit\b/i.test(title);
+      if (options.standaloneCameraOnly && ((isCameraSet(title) && !bodyOnlyKitLabel) || bundledGear || multipleCameraBodies)) return false;
       return parseMounts(x.specs?.mount).some(m => m !== "any" && m !== "fixed") &&
         (!options.requireInterchangeableLens || hasCompatibleLens(x));
     })
