@@ -676,7 +676,7 @@ async function bestForType(
   itemType: string,
   ctx: Ctx,
   seen: Set<string>,
-  options: { requireInterchangeableLens?: boolean; standaloneCameraOnly?: boolean } = {},
+  options: { requireInterchangeableLens?: boolean; standaloneCameraOnly?: boolean; singleLensOnly?: boolean } = {},
 ): Promise<any | null> {
   const r: any[] = await candidatesForType(c,itemType,ctx.typeListingLoader ??= createTypeListingLoader(c));
   const cam = ctx.camMounts;
@@ -686,8 +686,17 @@ async function bestForType(
       if (!options.requireInterchangeableLens || !itemTypeMatchesListing("camera", x)) return true;
       const title = String(x.title ?? "");
       const bundledGear = /\b(?:lenses?|gimbals?|stabilizers?|rigs?|monitors?|microphones?|mics?|lights?)\b|\b\d{2,3}\s*[-–]\s*\d{2,3}\s*mm\b/i.test(title);
-      if (options.standaloneCameraOnly && (isCameraSet(title) || bundledGear)) return false;
+      const multipleCameraBodies = /^\s*(?:two|three|[2-9]\s*[x×]?)\s+/i.test(title) && /\b(?:camera|bodies)\b/i.test(title);
+      if (options.standaloneCameraOnly && (isCameraSet(title) || bundledGear || multipleCameraBodies)) return false;
       return parseMounts(x.specs?.mount).some(m => m !== "any" && m !== "fixed");
+    })
+    .filter(x => {
+      if (!options.singleLensOnly || !itemTypeMatchesListing("lens", x)) return true;
+      const title = String(x.title ?? "");
+      const focalRanges = title.match(/\b\d{2,3}\s*[-–]\s*\d{2,3}\s*mm\b/gi) ?? [];
+      const multiLensPackage = /\b(?:trio|collection|set|kit|bundle|package|multi[- ]lens)\b/i.test(title) ||
+        focalRanges.length >= 2 || /\b(?:2|two|3|three|4|four)\s*(?:x|×)?\s+lenses?\b/i.test(title);
+      return !multiLensPackage;
     })
     .filter(x => !["battery", "nd-filter", "gimbal"].includes(x.itemType ?? "") || automaticRecommendation(x, ctx.cartEvidence ?? [], ctx.compatibilityKits))
     .filter(x => x.itemType !== "lens" || !ctx.cartEvidence?.some(i => i.itemType === "camera-body") || automaticLens(x, ctx.cartEvidence))
@@ -1151,6 +1160,7 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx, requestTe
         const best = await bestForType(c, t, planning, seen, {
           requireInterchangeableLens: requiresInterchangeableLens && ["camera", "camera-body"].includes(t),
           standaloneCameraOnly: ctx.singleLensRequested && ["camera", "camera-body"].includes(t),
+          singleLensOnly: ctx.singleLensRequested && ["lens", "lenses"].includes(t),
         });
         if (!best) continue;
         seen.add(String(best._id));
