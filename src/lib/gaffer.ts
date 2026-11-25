@@ -676,7 +676,7 @@ async function bestForType(
   itemType: string,
   ctx: Ctx,
   seen: Set<string>,
-  options: { requireInterchangeableLens?: boolean } = {},
+  options: { requireInterchangeableLens?: boolean; standaloneCameraOnly?: boolean } = {},
 ): Promise<any | null> {
   const r: any[] = await candidatesForType(c,itemType,ctx.typeListingLoader ??= createTypeListingLoader(c));
   const cam = ctx.camMounts;
@@ -686,7 +686,8 @@ async function bestForType(
       if (!options.requireInterchangeableLens || !itemTypeMatchesListing("camera", x)) return true;
       const title = String(x.title ?? "");
       const bundledGear = /\b(?:lenses?|gimbals?|stabilizers?|rigs?|monitors?|microphones?|mics?|lights?)\b|\b\d{2,3}\s*[-–]\s*\d{2,3}\s*mm\b/i.test(title);
-      return !isCameraSet(title) && !bundledGear && parseMounts(x.specs?.mount).some(m => m !== "any" && m !== "fixed");
+      if (options.standaloneCameraOnly && (isCameraSet(title) || bundledGear)) return false;
+      return parseMounts(x.specs?.mount).some(m => m !== "any" && m !== "fixed");
     })
     .filter(x => !["battery", "nd-filter", "gimbal"].includes(x.itemType ?? "") || automaticRecommendation(x, ctx.cartEvidence ?? [], ctx.compatibilityKits))
     .filter(x => x.itemType !== "lens" || !ctx.cartEvidence?.some(i => i.itemType === "camera-body") || automaticLens(x, ctx.cartEvidence))
@@ -812,6 +813,7 @@ type Ctx = {
   sharedStockRefresh?: Promise<unknown>;
   requestedMicKitCount?: number | null;
   allowOptionalAddOns?: boolean;
+  singleLensRequested?: boolean;
   requestText?: string;
   today: string;
   estimated: boolean;
@@ -1148,6 +1150,7 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx, requestTe
         if (cards.length >= 6) break;
         const best = await bestForType(c, t, planning, seen, {
           requireInterchangeableLens: requiresInterchangeableLens && ["camera", "camera-body"].includes(t),
+          standaloneCameraOnly: ctx.singleLensRequested && ["camera", "camera-body"].includes(t),
         });
         if (!best) continue;
         seen.add(String(best._id));
@@ -1979,6 +1982,7 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
 
   const lastUser = String([...history].reverse().find((m: any) => m.role === "user")?.content || "");
   ctx.requestText = lastUser;
+  ctx.singleLensRequested = /\b(?:(?:exactly|only)\s+)?one\s+(?:compatible\s+)?lens\b|\b(?:a\s+)?single\s+(?:compatible\s+)?lens\b/i.test(lastUser);
   const recentUserContext = history.filter((message: any) => message.role === "user").slice(-5)
     .map((message: any) => String(message.content || "")).join("\n");
   ctx.allowOptionalAddOns = !explicitlyNoOptionalAddOns(lastUser) &&
