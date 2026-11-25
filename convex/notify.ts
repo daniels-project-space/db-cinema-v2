@@ -7,6 +7,7 @@ import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { OWNER_EMAIL, sendMail } from "./lib/mailer";
+import { BUSINESS_GMAIL_ADDRESS } from "../shared/gmailOAuth";
 import { CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 import { bookingStockLines } from "../shared/rentalWindow";
 import { pickupMapAvailable, WATERSTONES_MAP_URL } from "../shared/pickupLocation";
@@ -78,8 +79,7 @@ export const paidVerificationEmail = internalAction({
     const reviewPending=["manual_review","processing"].includes(b.idVerifyStatus);
     const title=reminder?(reviewPending?"Your rental verification is still being checked":"Reminder: complete your rental checks"):"Payment received — complete your rental checks";
     const rows:Array<[string,string]>=b.lineItems.map((li:any)=>[`${li.title} · ${day(li.start)} to ${day(li.end)}`,emailMoney(li.lineTotal)]);rows.push(["Payment received",emailMoney(b.total)]);
-    const replyAddress=process.env.INBOUND_REPLY_ADDRESS?.trim();
-    const replyTo=replyAddress&&/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(replyAddress)&&process.env.INBOUND_EMAIL_SECRET?[...new Set([replyAddress,OWNER_EMAIL()])]:undefined;
+    const replyTo=BUSINESS_GMAIL_ADDRESS;
     const subject=`${title} · DBC-${String(bookingId).slice(-8).toUpperCase()}`;
     return email(ctx, claim.email,subject,rentalEmail({title,preview:"Your rental still needs verification and approval.",url,button:reviewPending?"Check verification progress":"Complete verification",body:`<p>We have received your payment. Your rental still needs identity verification and approval before handover.</p>${emailRows(rows)}${reviewPending?"<p>Your verification is being processed or reviewed; open your rental for its latest status.</p>":""}<p>This private link works once and expires in 24 hours. Please do not forward it. Need help? Reply to this email; ask for a person if you would prefer the team to respond.</p>`}),undefined,replyTo,deliveryKey,prepareOnly);
   },
@@ -311,10 +311,8 @@ const esc = (s: string) =>
 /**
  * What Gaffer promised on the call, in writing.
  *
- * reply_to carries the thread key, so when the customer hits reply the answer
- * comes back to /api/email/inbound already knowing which conversation it belongs
- * to. This fails closed unless the Gaffer reply domain is configured, so the
- * message is never sent with a reply address that bypasses Gaffer.
+ * Replies go to the business Gmail inbox, where Gmail sync brings them back
+ * into Gaffer and preserves the mailbox conversation thread.
  */
 export const followUpEmail = internalAction({
   args: {
@@ -325,11 +323,6 @@ export const followUpEmail = internalAction({
     replyKey: v.string(),
   },
   handler: async (ctx, a) => {
-    const domain = process.env.INBOUND_EMAIL_DOMAIN?.trim().toLowerCase();
-    if (!domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) {
-      throw new Error("Gaffer inbound email domain is not configured");
-    }
-    const replyTo = `gaffer+${a.replyKey}@${domain}`;
     const hello = a.name ? `Hi ${esc(a.name)},` : "Hi,";
     const body = esc(a.summary).replace(/\n/g, "<br/>");
 
@@ -343,7 +336,7 @@ export const followUpEmail = internalAction({
          <p>Just reply to this email if you need anything else — it comes straight back to us.</p>
        </div>`,
       undefined,
-      replyTo,
+      BUSINESS_GMAIL_ADDRESS,
     );
     if (!sent) throw new Error("Gaffer follow-up email could not be sent");
     await telegram(`📨 <b>Gaffer follow-up sent</b>\nTo: ${a.to}\n\n${a.summary.slice(0, 500)}`);
