@@ -222,6 +222,35 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   return { ...result, sharedRefreshes, email: formatGafferEmailReply(result.reply, result.cards, result.enquiry, undefined, result.additionalAnswer, undefined, customerText) };
 }
 (async () => {
+  const followupMessages = [
+    { role: "user", content: "Could you recommend a kit for a wedding shoot in four days?" },
+    { role: "assistant", content: "I couldn't find a wedding kit available on 29 November. Are your dates flexible?" },
+    { role: "user", content: "My dates are fixed on 29 November. Can you suggest alternatives?" },
+    { role: "assistant", content: "I couldn't find a wedding kit available on 29 November. Are your dates flexible?" },
+    { role: "user", content: "Yes, I can do 3th December." },
+    { role: "assistant", content: "What dates and pickup and return times would suit for one kit?" },
+    { role: "user", content: "Just put together a kit for a date that works and send me a link and quote. Do you do delivery to WC1X 9NB?" },
+  ];
+  const followupWindow = rentalEnquiryWindow(followupMessages, "2026-11-01");
+  assert.equal(followupWindow.start, "2026-12-03", "the latest customer-confirmed date survives a vague follow-up");
+  intent = {
+    intent: "recommend", subject: "a camera kit for a wedding shoot", itemTypes: ["camera-body"],
+    cameraModel: "", pricePref: "any", start: undefined, end: undefined,
+    requests: [{ subject: "WC1X 9NB", itemType: "camera-body", quantity: 1 }],
+  };
+  const followup = await handleChat({
+    messages: followupMessages,
+    channel: "email",
+    emailSubject: "Re: DB Cinema Gaffer Gmail reply routing test — wedding kit",
+  });
+  assert.match(followup.reply, /What pickup and return times should I check\?/,
+    "email follow-ups with a known date but missing times ask only for the missing times");
+  assert.equal(followup.enquiry, undefined, "a delivery postcode is stripped rather than quoted as an equipment request");
+  assert.doesNotMatch(followup.reply, /25 November|couldn't find .*available/i,
+    "Gaffer must not invent a current-day date or repeat a stale availability answer");
+  assert.match(facts, /Yes, I can do 3th December/);
+  assert.match(facts, /Just put together a kit for a date that works/);
+
   let result = await run();
   assert.equal(result.sharedRefreshes, 1, "Gaffer refreshes the Rental Manager stock mirror once before quote stock reads");
   assert.equal(result.enquiry.days, 3, "72 hours is three days, not four inclusive calendar dates");
