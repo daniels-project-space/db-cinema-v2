@@ -98,8 +98,9 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
   const firstName = String(recipientName ?? "").trim().replace(/^['"]|['"]$/g, "").split(/\s+/)[0] ?? "";
   const greeting = /^[\p{L}][\p{L}\p{M}'’-]{0,31}$/u.test(firstName) ? `Hi ${firstName},` : "Hi there,";
   const sections: string[] = [greeting];
-  const requestedModels = equipmentModelTokens(customer);
-  const mismatchedSpecificQuote = hasSpecificModelQuoteMismatch(customer, enquiry);
+  const customerEquipmentText = customer.replace(/\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/gi, " ");
+  const requestedModels = equipmentModelTokens(customerEquipmentText);
+  const mismatchedSpecificQuote = hasSpecificModelQuoteMismatch(customerEquipmentText, enquiry);
 
   if (mismatchedSpecificQuote) {
     const requestedItem = requestedModels.length === 1 ? `the ${requestedModels[0].toUpperCase()}` : "your requested model";
@@ -284,10 +285,45 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
     const text = String(reply ?? "").trim();
     const ungroundedQuote = /(?:your rental enquiry|indicative proposal|provisional gear quote|equipment options? and stock checked|quantity not yet confirmed|proposed alternative|multi[ -]day rates per unit|rate ladder)/i.test(text) ||
       /£\s?\d/.test(text) && /\b(?:rental|gear|hire|quote|price|stock|availability|available)\b/i.test(text);
+    const kitRecommendation = rows.some(card => /^Kit\b/i.test(String(card?.reason ?? "")));
     const rentalDateMentioned = /\b(?:20\d{2}-\d{1,2}-\d{1,2}|\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i.test(customer);
     const rentalRequestWithoutQuote = requestedModels.length > 0 &&
       (rentalDateMentioned || /\b(?:rent|hire|book|quote|price|cost|available|availability|rental)\b/i.test(customer));
-    if (ungroundedQuote || rentalRequestWithoutQuote) {
+    const options = [...new Map(rows.filter(card => card?.item?.listingId != null &&
+      !(Number.isSafeInteger(card.item.availableUnits) && card.item.availableUnits === 0))
+      .map(card => [String(card.item.listingId), card])).values()].slice(0, kitRecommendation ? 6 : 2);
+    const optionLine = (card: any, suppressUnconfirmedStock = false) => {
+      const item = card.item;
+      const price = Number.isFinite(item.perDay) ? `£${gbp(item.perDay).replace(/^£/, "")}/day` : "";
+      const requestedMicKits = Number.isSafeInteger(item.requestedMicKitCount) && item.requestedMicKitCount > 0 ? item.requestedMicKitCount : null;
+      const available = Number.isSafeInteger(item.availableUnits) ? item.availableUnits : null;
+      const count = suppressUnconfirmedStock && item.needsTimes ? "" : requestedMicKits !== null
+        ? available === null ? `${requestedMicKits} complete mic kits requested; stock not confirmed`
+          : available >= requestedMicKits ? `${available} complete mic kits available`
+            : `${available} of ${requestedMicKits} complete mic kits available; short by ${requestedMicKits - available}`
+        : available !== null && available > 0 ? `${available} available` : "";
+      return `${link(String(item.title ?? "Gear option"), String(item.slug ?? ""))}${price ? `: ${price}` : ""}${count ? ` (${count})` : ""}`;
+    };
+    if (kitRecommendation) {
+      if (text) sections.push(text);
+      if (options.length) {
+        sections.push("Here are some catalogue starting points for your kit:\n" + options.map(card => optionLine(card, true)).join("\n"));
+        const days = options[0]?.item?.days;
+        const comparableDays = Number.isSafeInteger(days) && days > 0 && options.every(card => card.item.days === days);
+        const groundedTotals = comparableDays && options.every(card => Number.isFinite(card.item.total) && card.item.estimated !== true);
+        if (groundedTotals) {
+          const total = options.reduce((sum, card) => sum + card.item.total, 0);
+          const timingNote = options.some(card => card.item.needsTimes)
+            ? "This is provisional; exact pickup and return times are needed to confirm the billed duration, availability and final total."
+            : "Availability is checked again when you book.";
+          sections.push(`Indicative gear-only estimate for these listed components (${days} rental day${days === 1 ? "" : "s"}): ${gbp(total)}. ${timingNote}`);
+        }
+      } else {
+        sections.push("I couldn't pull together catalogue suggestions in this pass. Which parts of the kit should I prioritise: camera, lenses, lighting or audio?");
+      }
+      const independentAnswer = sanitizeQuoteSupplementalAnswer(additionalAnswer, customer);
+      if (independentAnswer) sections.push(independentAnswer);
+    } else if (ungroundedQuote || rentalRequestWithoutQuote) {
       const requestedItem = requestedModels.length === 1 ? `the ${requestedModels[0].toUpperCase()}` : "your requested gear";
       const hasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:[01]?\d|2[0-3])\s*(?:am|pm)\b|\b(?:at|around|about)\s+(?:[01]?\d|2[0-3])\b/i.test(customer);
       const nextStep = rentalDateMentioned
@@ -300,22 +336,8 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
       if (independentAnswer) sections.push(independentAnswer);
     } else {
       if (text) sections.push(text);
-      const options = [...new Map(rows.filter(card => card?.item?.listingId != null &&
-        !(Number.isSafeInteger(card.item.availableUnits) && card.item.availableUnits === 0))
-        .map(card => [String(card.item.listingId), card])).values()].slice(0, 2);
       if (options.length) {
-        sections.push(options.map(card => {
-          const item = card.item;
-          const price = Number.isFinite(item.perDay) ? `£${gbp(item.perDay).replace(/^£/, "")}/day` : "";
-          const requestedMicKits = Number.isSafeInteger(item.requestedMicKitCount) && item.requestedMicKitCount > 0 ? item.requestedMicKitCount : null;
-          const available = Number.isSafeInteger(item.availableUnits) ? item.availableUnits : null;
-          const count = requestedMicKits !== null
-            ? available === null ? `${requestedMicKits} complete mic kits requested; stock not confirmed`
-              : available >= requestedMicKits ? `${available} complete mic kits available`
-                : `${available} of ${requestedMicKits} complete mic kits available; short by ${requestedMicKits - available}`
-            : available !== null && available > 0 ? `${available} available` : "";
-          return `${link(String(item.title ?? "Gear option"), String(item.slug ?? ""))}${price ? `: ${price}` : ""}${count ? ` (${count})` : ""}`;
-        }).join("\n"));
+        sections.push(options.map(card => optionLine(card)).join("\n"));
       }
     }
   }

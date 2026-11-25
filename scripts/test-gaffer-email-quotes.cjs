@@ -45,9 +45,9 @@ b.inventoryFacts.contents = [
 ];
 b.inventoryFacts.reviewRequired = false;
 const cameraListing = listing("Sony FX3 Body", camera, 60, 50, "camera-body");
-cameraListing.specs = { mount: "Sony E", coverage: "full-frame" };
+cameraListing.specs = { mount: "Sony E", coverage: "ff" };
 const lens = listing("Sony FE 24-70mm GM Lens", unit("Sony E lens pool", 1), 18, 14, "lens");
-lens.specs = { mount: "Sony E", focalLength: "24-70mm", filterThreadMm: 82 };
+lens.specs = { mount: "Sony E", focalLength: "24-70mm", filterThreadMm: 82, coverage: "ff" };
 const filter = listing("82mm Variable ND Filter", unit("82mm filter pool", 1), 12, 9, "nd-filter");
 filter.specs = { filterThreadMm: 82 };
 const listings = [a, duplicate, b, c, cameraListing, lens, filter];
@@ -250,6 +250,28 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
     "Gaffer must not invent a current-day date or repeat a stale availability answer");
   assert.match(facts, /Yes, I can do 3th December/);
   assert.match(facts, /Just put together a kit for a date that works/);
+  assert(followup.cards.length >= 2, "a generic wedding-shoot kit should return catalogue recommendations");
+  assert(followup.cards.some(card => card.item.itemType === "camera-body"), "the kit should include a camera recommendation");
+  assert(followup.cards.some(card => card.item.itemType === "lens"), `the kit should include a lens recommendation: ${JSON.stringify(followup.cards.map(card => ({ title: card.item.title, itemType: card.item.itemType, reason: card.reason })))}`);
+  const followupEmail = formatGafferEmailReply(
+    followup.reply,
+    followup.cards,
+    followup.enquiry,
+    undefined,
+    followup.additionalAnswer,
+    undefined,
+    followupMessages.at(-1).content,
+  );
+  for (const card of followup.cards) {
+    assert(followupEmail.includes(`https://dbcinemarentals.com/gear/${card.item.slug}`), "the email should link every suggested kit component");
+  }
+  const kitEstimate = followup.cards.reduce((sum, card) => sum + card.item.total, 0);
+  assert.match(followupEmail, /Indicative gear-only estimate/i, "the email should include a clearly provisional kit estimate");
+  assert(followupEmail.includes(new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(kitEstimate)));
+  assert.match(followupEmail, /What pickup and return times should I check\?/,
+    "the kit email should ask for the missing times before confirming availability");
+  assert.doesNotMatch(followupEmail, /WC1X 9NB|your requested gear|couldn't find .*available/i,
+    "a delivery postcode must not turn a wedding kit into an unavailable or unnamed product");
 
   let result = await run();
   assert.equal(result.sharedRefreshes, 1, "Gaffer refreshes the Rental Manager stock mirror once before quote stock reads");
