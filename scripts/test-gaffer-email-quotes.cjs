@@ -241,13 +241,17 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   };
   const bundledCamera = listing("Sony a7 III, 24-70mm GM Lens and DJI RS2 Gimbal", unit("Camera bundle pool", 1), 85, 75, "camera-body");
   bundledCamera.specs = { mount: "Sony E", coverage: "ff" };
-  listings.unshift(bundledCamera);
+  const multiCamera = listing("Two Sony FX3 Bodies · Cards and Batteries", unit("Two-body camera pool", 1), 95, 85, "camera-body");
+  multiCamera.specs = { mount: "Sony E", coverage: "ff" };
+  const lensTrio = listing("Sony Lens Trio: 90mm Macro, 24-70mm GM and 16-35mm Zeiss", unit("Lens trio pool", 1), 90, 80, "lens");
+  lensTrio.specs = { mount: "Sony E", coverage: "ff", tier: "premium", lensClass: "af" };
+  listings.unshift(bundledCamera, multiCamera, lensTrio);
   const followup = await handleChat({
     messages: followupMessages,
     channel: "email",
     emailSubject: "Re: DB Cinema Gaffer Gmail reply routing test — wedding kit",
   });
-  listings.shift();
+  for (const fixture of [bundledCamera, multiCamera, lensTrio]) listings.splice(listings.indexOf(fixture), 1);
   assert.match(followup.reply, /What pickup and return times should I check\?/,
     "email follow-ups with a known date but missing times ask only for the missing times");
   assert.equal(followup.enquiry, undefined, "a delivery postcode is stripped rather than quoted as an equipment request");
@@ -256,9 +260,14 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.match(facts, /Yes, I can do 3th December/);
   assert.match(facts, /please suggest a starter camera, one compatible lens, and an audio option only/i);
   assert(followup.cards.length >= 2, "a generic wedding-shoot kit should return catalogue recommendations");
-  assert(followup.cards.some(card => card.item.itemType === "camera-body"), "the kit should include a camera recommendation");
+  assert.equal(followup.cards.find(card => card.item.itemType === "camera-body")?.item.listingId, cameraListing._id,
+    "a single-camera request should choose a standalone body, not a camera package");
   assert(!followup.cards.some(card => card.item.listingId === bundledCamera._id),
     "a request for one compatible lens must not select a camera package that also contains lens and rig accessories");
+  assert(!followup.cards.some(card => card.item.listingId === multiCamera._id),
+    "a single-camera request must not recommend a two-body camera set");
+  assert(!followup.cards.some(card => card.item.listingId === lensTrio._id),
+    "a single-lens request must not recommend a multi-lens package");
   assert(followup.cards.some(card => card.item.itemType === "lens"), "the requested kit should include a lens recommendation");
   assert(followup.cards.some(card => card.item.itemType === "wireless-mic"), "audio in the requested kit should resolve to a microphone option");
   assert(!followup.cards.some(card => card.item.itemType === "light"), "an explicitly listed camera/lens/audio kit should not add unrequested lighting");
