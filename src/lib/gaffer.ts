@@ -18,7 +18,7 @@ import { lensPriority, isCameraSet, isLensSet } from "@/lib/kitRank";
 import { mountOf, coverageOf, deriveItemType, CATEGORY_OF } from "../../convex/lib/taxonomy";
 import { contentsText } from "../../shared/rentalContents";
 import { PICKUP_SLOTS, CONTACT_EMAIL } from "@/lib/site";
-import { alreadySupplied, automaticLens, automaticRecommendation, rentableCandidate, unrequestedCameraExtras, type RecommendationItem } from "../../shared/recommendationPolicy";
+import { alreadySupplied, automaticLens, automaticRecommendation, lensFit, rentableCandidate, unrequestedCameraExtras, type RecommendationItem } from "../../shared/recommendationPolicy";
 import { createTypeListingLoader, type TypeListingLoader } from "./catalogCandidates";
 import { spokenPackingReview } from "./voiceQuoteFormatting";
 
@@ -694,10 +694,11 @@ async function bestForType(
     const evidence = ctx.cartEvidence ?? [];
     const compatible = (lens: any, selected: any[]) => itemTypeMatchesListing("lens", lens) &&
       rentableCandidate(lens) && (!options.standaloneCameraOnly || !isMultiLensPackageListing(lens)) &&
-      automaticLens(lens, selected);
+      lensFit(lens, selected) === "native";
     const alreadyInCart = evidence.some(lens => lens.itemType === "lens" &&
       compatible(lens, [...evidence.filter(item => item !== lens), camera]));
-    return alreadyInCart || lensCandidates.some(lens => compatible(lens, [...evidence, camera]));
+    return alreadyInCart || lensCandidates.some(lens => !alreadySupplied(lens, evidence) &&
+      compatible(lens, [...evidence, camera]));
   };
   const cam = ctx.camMounts;
   const cands = (r || [])
