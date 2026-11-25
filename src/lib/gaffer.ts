@@ -685,7 +685,7 @@ async function bestForType(
     .filter(x => {
       if (!options.requireInterchangeableLens || !itemTypeMatchesListing("camera", x)) return true;
       const title = String(x.title ?? "");
-      const bundledGear = /\b(?:lenses?|gimbals?|stabilizers?|rigs?|monitors?|microphones?|mics?|lights?)\b|\b\d{2,3}\s*[-–]\s*\d{2,3}\s*mm\b/i.test(title);
+      const bundledGear = /\b(?:lenses?|gimbals?|stabilizers?|tripods?|monopods?|sliders?|follow[- ]?focus|nucleus(?:\s+nano)?|rigs?|monitors?|microphones?|mics?|lights?)\b|\b\d{2,3}\s*[-–]\s*\d{2,3}\s*mm\b/i.test(title);
       const multipleCameraBodies = /^\s*(?:two|three|[2-9]\s*[x×]?)\s+/i.test(title) && /\b(?:camera|bodies)\b/i.test(title);
       if (options.standaloneCameraOnly && (isCameraSet(title) || bundledGear || multipleCameraBodies)) return false;
       return parseMounts(x.specs?.mount).some(m => m !== "any" && m !== "fixed");
